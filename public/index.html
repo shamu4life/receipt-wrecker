@@ -94,6 +94,37 @@
     });
   }
 
+  // Braille 2×4 dot → bit mask; rows are dot-rows 0..3, cols are dot-cols 0..1.
+  var BRAILLE_BITS = [
+    [0x01, 0x08],
+    [0x02, 0x10],
+    [0x04, 0x20],
+    [0x40, 0x80],
+  ];
+  function lumaToDots(luma, opts) {
+    var th = opts && opts.threshold != null ? opts.threshold : 128;
+    var inv = !!(opts && opts.invert);
+    return luma.map(function (row) {
+      return row.map(function (v) { var ink = v < th; return inv ? !ink : ink; });
+    });
+  }
+  function packBraille(dots) {
+    var H = dots.length, W = H ? dots[0].length : 0;
+    var rows = Math.floor(H / 4), cols = Math.floor(W / 2), out = [];
+    for (var r = 0; r < rows; r++) {
+      var line = [];
+      for (var c = 0; c < cols; c++) {
+        var mask = 0;
+        for (var dr = 0; dr < 4; dr++)
+          for (var dc = 0; dc < 2; dc++)
+            if (dots[r * 4 + dr][c * 2 + dc]) mask |= BRAILLE_BITS[dr][dc];
+        line.push(String.fromCodePoint(0x2800 + mask));
+      }
+      out.push(line);
+    }
+    return out;
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
@@ -103,6 +134,7 @@
       TIERS: TIERS, getTier: getTier, sampleLuma: sampleLuma,
       quantizeTone: quantizeTone, quantizeBinary: quantizeBinary,
       ditherFloydSteinberg: ditherFloydSteinberg,
+      lumaToDots: lumaToDots, packBraille: packBraille,
     };
   }
 </script>

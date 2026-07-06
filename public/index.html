@@ -1,8 +1,88 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Receipt Wrecker</title></head>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Receipt Wrecker</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 1rem; }
+  #app { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  .tab { padding: .5rem 1rem; border: 1px solid #888; background: transparent; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
+  .tab.active { font-weight: 700; border-bottom: 2px solid currentColor; }
+  .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  .controls, .preview { flex: 1 1 320px; min-width: 280px; }
+  .controls label { display: block; margin-bottom: .75rem; }
+  .controls input[type="range"] { width: 100%; }
+  .controls input[type="text"] { width: 100%; box-sizing: border-box; }
+  fieldset { margin: 0 0 .75rem; border: 1px solid #888; border-radius: 4px; }
+  #preview {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-all; overflow-x: auto;
+    background: #111; color: #eee; padding: .75rem; border-radius: 4px;
+    min-height: 6em; font-size: 14px; line-height: 1.15; margin: 0 0 .5rem;
+  }
+  .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+  #count.over { color: #d33; font-weight: 700; }
+  .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
+  @media (max-width: 700px) {
+    .layout { flex-direction: column; }
+  }
+</style>
+</head>
 <body>
-<main id="app"></main>
+<main id="app">
+  <h1>Receipt Wrecker</h1>
+  <div class="tabs">
+    <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
+    <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
+  </div>
+  <div class="layout">
+    <section class="controls">
+      <label>Tier
+        <select id="tier">
+          <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608;</option>
+          <option value="cjk">CJK ramp</option>
+          <option value="braille">Braille</option>
+          <option value="text">Big text (on/off)</option>
+        </select>
+      </label>
+      <label>Columns: <span id="colsVal">15</span>
+        <input type="range" id="cols" min="6" max="40" value="15">
+      </label>
+      <label><input type="checkbox" id="sideways"> Sideways (rotate 90&deg;)</label>
+      <fieldset>
+        <legend>Quantize</legend>
+        <label><input type="radio" name="quant" id="quantThreshold" value="threshold" checked> Threshold</label>
+        <label><input type="radio" name="quant" id="quantDither" value="dither"> Dither</label>
+      </fieldset>
+      <label>Contrast (threshold): <span id="contrastVal">128</span>
+        <input type="range" id="contrast" min="0" max="255" value="128">
+      </label>
+      <label><input type="checkbox" id="invert"> Invert</label>
+      <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
+      <div id="textControls">
+        <label>Text
+          <input type="text" id="textInput" value="HELLO">
+        </label>
+      </div>
+      <div id="imageControls" hidden>
+        <label>Image
+          <input type="file" id="imgFile" accept="image/*">
+        </label>
+      </div>
+    </section>
+    <section class="preview">
+      <pre id="preview"></pre>
+      <div class="meta">
+        <span id="count">0 / 490</span>
+        <button type="button" id="copyBtn">Copy</button>
+        <button type="button" id="censusBtn">Print test strip</button>
+      </div>
+    </section>
+  </div>
+  <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer &mdash; only the first-party client actually cheers.</p>
+</main>
 <script>
   "use strict";
 
@@ -158,7 +238,264 @@
   }
 
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
-  // (filled in by later tasks)
+  // Everything in this block is either (a) a function *definition* (never executes its
+  // body until called) or (b) the single `document.addEventListener("DOMContentLoaded", init)`
+  // registration, which is a no-op stub under the test harness. Real DOM/canvas work only
+  // happens once `init()` actually runs, which the harness never triggers.
+  if (typeof document !== "undefined" && document.getElementById) {
+
+    // --- canvas rasterizers -------------------------------------------------
+    function canvasPixels(draw, w, h) {
+      var cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      var ctx = cv.getContext("2d");
+      ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "#000";
+      draw(ctx, w, h);
+      return { pixels: ctx.getImageData(0, 0, w, h).data, w: w, h: h };
+    }
+    // Render big text: draw uppercase words wrapped to fit `cols` cells wide.
+    function rasterizeText(text, o) {
+      var CELL = 24, w = o.cols * CELL, lineH = CELL * 1.05;
+      var h = Math.max(o.rows, 1) * lineH | 0;
+      function draw(ctx) {
+        ctx.textBaseline = "top";
+        var size = CELL * 1.3;
+        ctx.font = "900 " + size + "px Arial, sans-serif";
+        var words = text.toUpperCase().split(/\s+/).filter(Boolean), lines = [], cur = "";
+        for (var i = 0; i < words.length; i++) {
+          var t = cur ? cur + " " + words[i] : words[i];
+          if (ctx.measureText(t).width > w && cur) { lines.push(cur); cur = words[i]; }
+          else cur = t;
+        }
+        if (cur) lines.push(cur);
+        for (var j = 0; j < lines.length; j++) ctx.fillText(lines[j], 0, j * lineH);
+      }
+      // Sideways: rotate 90° clockwise into a canvas with dims swapped (basic v1 nicety).
+      if (o.sideways) return canvasPixels(function (ctx) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); draw(ctx); }, h, w);
+      return canvasPixels(draw, w, h);
+    }
+    function rasterizeImage(imgEl, o) {
+      var w = o.fineW || o.cols, h = o.fineH || o.rows;
+      function draw(ctx) { ctx.drawImage(imgEl, 0, 0, w, h); }
+      if (o.sideways) return canvasPixels(function (ctx) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); draw(ctx); }, h, w);
+      return canvasPixels(draw, w, h);
+    }
+
+    // --- compose: controls + tier -> CellGrid -------------------------------
+    function computeGrid(kind, tier, o) {
+      if (tier.kind === "braille") {
+        var buf = kind === "text"
+          ? rasterizeText(o.text, { cols: o.cols * 2, rows: o.rows * 4, sideways: o.sideways })
+          : rasterizeImage(o.img, { fineW: o.cols * 2, fineH: o.rows * 4, sideways: o.sideways });
+        var fine = sampleLuma(buf.pixels, buf.w, buf.h, o.cols * 2, (buf.h / (buf.w / (o.cols * 2))) | 0 || o.rows * 4);
+        return packBraille(lumaToDots(fine, { threshold: o.threshold, invert: o.invert }));
+      }
+      var b = kind === "text" ? rasterizeText(o.text, o) : rasterizeImage(o.img, { fineW: o.cols, fineH: o.rows, sideways: o.sideways });
+      var rows = kind === "text" ? Math.max(1, Math.round(b.h / 24)) : o.rows;
+      var luma = sampleLuma(b.pixels, b.w, b.h, o.cols, rows);
+      if (tier.kind === "binary") return quantizeBinary(luma, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
+      if (o.dither) luma = ditherFloydSteinberg(luma, tier.ramp.length);
+      return quantizeTone(luma, tier.ramp, { invert: o.invert });
+    }
+
+    // --- state (assigned only inside init()/handlers, never at load time) --
+    var els, currentMode, currentImage, lastPayload, sessionNonceCounter;
+    var TEXT_ROWS = 6;           // fixed line budget for the big-text canvas (v1: not content-adaptive; very long input may clip)
+    var CHAR_ASPECT = 0.5;       // monospace glyphs are roughly twice as tall as wide
+    var STORAGE_KEY = "rw_controls_v1";
+    var NONCE_KEY = "rw_nonce_seq";
+
+    function rowsForImage(cols, w, h) {
+      if (!w || !h) return Math.max(1, Math.round(cols / 2));
+      return Math.max(1, Math.min(80, Math.round(cols * (h / w) * CHAR_ASPECT)));
+    }
+
+    function nextNonce() {
+      var i = 0;
+      try {
+        i = parseInt(localStorage.getItem(NONCE_KEY), 10);
+        if (!isFinite(i)) i = 0;
+        localStorage.setItem(NONCE_KEY, String(i + 1));
+      } catch (e) {
+        i = sessionNonceCounter++; // localStorage unavailable (private mode/quota) — per-session fallback
+      }
+      return makeNonce(i);
+    }
+
+    function baseOpts() {
+      var cols = parseInt(els.cols.value, 10) || 15;
+      var threshold = parseInt(els.contrast.value, 10);
+      return {
+        cols: cols,
+        sideways: els.sideways.checked,
+        dither: els.quantDither.checked,
+        threshold: isFinite(threshold) ? threshold : 128,
+        invert: els.invert.checked,
+      };
+    }
+    function cheerOpts() {
+      return { cheer: els.cheer.checked, nonce: nextNonce() };
+    }
+    function buildTextPayload() {
+      var o = baseOpts();
+      o.text = els.textInput.value || "";
+      o.rows = TEXT_ROWS;
+      var tier = getTier(els.tier.value);
+      var body = render(computeGrid("text", tier, o));
+      return packageCheer(body, cheerOpts());
+    }
+    function buildImagePayload() {
+      if (!currentImage) return null;
+      var o = baseOpts();
+      o.img = currentImage;
+      o.rows = rowsForImage(o.cols, currentImage.naturalWidth || currentImage.width, currentImage.naturalHeight || currentImage.height);
+      var tier = getTier(els.tier.value);
+      var body = render(computeGrid("image", tier, o));
+      return packageCheer(body, cheerOpts());
+    }
+
+    // --- clipboard -----------------------------------------------------------
+    function fallbackCopy(text) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      try { document.execCommand("copy"); } catch (e) { /* best-effort */ }
+      document.body.removeChild(ta);
+    }
+    function copyToClipboard(text) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function () { fallbackCopy(text); });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    // --- persistence -----------------------------------------------------------
+    function loadSavedControls() {
+      try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch (e) { return null; }
+    }
+    function saveControls() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          mode: currentMode, tier: els.tier.value, cols: els.cols.value,
+          sideways: els.sideways.checked, dither: els.quantDither.checked,
+          contrast: els.contrast.value, invert: els.invert.checked,
+          cheer: els.cheer.checked, text: els.textInput.value,
+        }));
+      } catch (e) { /* ignore (private mode/quota) */ }
+    }
+    function restoreControls() {
+      var saved = loadSavedControls();
+      currentMode = "text";
+      if (!saved) return;
+      currentMode = saved.mode === "image" ? "image" : "text";
+      if (saved.tier) els.tier.value = saved.tier;
+      if (saved.cols) els.cols.value = saved.cols;
+      els.sideways.checked = !!saved.sideways;
+      if (saved.dither) els.quantDither.checked = true; else els.quantThreshold.checked = true;
+      if (saved.contrast != null) els.contrast.value = saved.contrast;
+      els.invert.checked = !!saved.invert;
+      els.cheer.checked = saved.cheer !== false;
+      if (saved.text != null) els.textInput.value = saved.text;
+    }
+
+    // --- render pipeline -----------------------------------------------------
+    function showPreview(payload) {
+      lastPayload = payload;
+      els.preview.textContent = payload;
+      var len = payloadLength(payload);
+      els.count.textContent = len + " / " + MAX_CHARS;
+      if (els.count.classList) els.count.classList.toggle("over", !withinBudget(payload));
+    }
+    function update() {
+      if (currentMode === "image") {
+        var payload = buildImagePayload();
+        showPreview(payload == null ? "(choose an image file above)" : payload);
+      } else {
+        showPreview(buildTextPayload());
+      }
+      saveControls();
+    }
+    function setMode(mode) {
+      currentMode = mode;
+      els.tabText.classList.toggle("active", mode === "text");
+      els.tabImage.classList.toggle("active", mode === "image");
+      els.textControls.hidden = mode !== "text";
+      els.imageControls.hidden = mode !== "image";
+      update();
+    }
+
+    // --- wiring (the only part that touches real elements) --------------------
+    function init() {
+      currentImage = null;
+      lastPayload = "";
+      sessionNonceCounter = 0;
+      els = {
+        tabText: document.getElementById("tabText"),
+        tabImage: document.getElementById("tabImage"),
+        textControls: document.getElementById("textControls"),
+        imageControls: document.getElementById("imageControls"),
+        tier: document.getElementById("tier"),
+        cols: document.getElementById("cols"),
+        colsVal: document.getElementById("colsVal"),
+        sideways: document.getElementById("sideways"),
+        quantThreshold: document.getElementById("quantThreshold"),
+        quantDither: document.getElementById("quantDither"),
+        contrast: document.getElementById("contrast"),
+        contrastVal: document.getElementById("contrastVal"),
+        invert: document.getElementById("invert"),
+        cheer: document.getElementById("cheer"),
+        textInput: document.getElementById("textInput"),
+        imgFile: document.getElementById("imgFile"),
+        preview: document.getElementById("preview"),
+        count: document.getElementById("count"),
+        copyBtn: document.getElementById("copyBtn"),
+        censusBtn: document.getElementById("censusBtn"),
+      };
+
+      restoreControls();
+
+      els.tabText.addEventListener("click", function () { setMode("text"); });
+      els.tabImage.addEventListener("click", function () { setMode("image"); });
+
+      [els.tier, els.cols, els.sideways, els.quantThreshold, els.quantDither,
+       els.contrast, els.invert, els.cheer, els.textInput].forEach(function (el) {
+        el.addEventListener("input", function () {
+          els.colsVal.textContent = els.cols.value;
+          els.contrastVal.textContent = els.contrast.value;
+          update();
+        });
+      });
+
+      els.imgFile.addEventListener("change", function (e) {
+        var file = e.target.files && e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          var img = new Image();
+          img.onload = function () { currentImage = img; update(); };
+          img.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      els.copyBtn.addEventListener("click", function () { copyToClipboard(lastPayload || ""); });
+      els.censusBtn.addEventListener("click", function () { showPreview(buildCensus()); });
+
+      els.colsVal.textContent = els.cols.value;
+      els.contrastVal.textContent = els.contrast.value;
+      setMode(currentMode);
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+  }
 
   // ── TEST EXPORT HOOK ──────────────────────────────────────────────────────
   if (typeof module !== "undefined" && module.exports) {

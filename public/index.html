@@ -21,12 +21,39 @@
     return t;
   }
 
+  function sampleLuma(pixels, imgW, imgH, cols, rows) {
+    var grid = [];
+    for (var r = 0; r < rows; r++) {
+      var row = [];
+      var y0 = Math.floor(r * imgH / rows);
+      var y1 = Math.max(y0 + 1, Math.floor((r + 1) * imgH / rows));
+      for (var c = 0; c < cols; c++) {
+        var x0 = Math.floor(c * imgW / cols);
+        var x1 = Math.max(x0 + 1, Math.floor((c + 1) * imgW / cols));
+        var sum = 0, n = 0;
+        for (var y = y0; y < y1 && y < imgH; y++) {
+          for (var x = x0; x < x1 && x < imgW; x++) {
+            var i = (y * imgW + x) * 4;
+            var a = pixels[i + 3] / 255;
+            var rr = pixels[i] * a + 255 * (1 - a);
+            var gg = pixels[i + 1] * a + 255 * (1 - a);
+            var bb = pixels[i + 2] * a + 255 * (1 - a);
+            sum += 0.299 * rr + 0.587 * gg + 0.114 * bb; n++;
+          }
+        }
+        row.push(n ? Math.round(sum / n) : 255);
+      }
+      grid.push(row);
+    }
+    return grid;
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
   // ── TEST EXPORT HOOK ──────────────────────────────────────────────────────
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { TIERS: TIERS, getTier: getTier };
+    module.exports = { TIERS: TIERS, getTier: getTier, sampleLuma: sampleLuma };
   }
 </script>
 </body>

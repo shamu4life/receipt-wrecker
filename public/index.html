@@ -254,26 +254,46 @@
       draw(ctx, w, h);
       return { pixels: ctx.getImageData(0, 0, w, h).data, w: w, h: h };
     }
-    // Render big text: draw uppercase words wrapped to fit `cols` cells wide.
+    // Render big text: SCALE the word(s) to fill the target width so letters are
+    // large enough that thresholding preserves their shape. A fixed small font
+    // renders a short string into a tiny corner that thresholds to blank.
     function rasterizeText(text, o) {
-      var CELL = 24, w = o.cols * CELL, lineH = CELL * 1.05;
-      var h = Math.max(o.rows, 1) * lineH | 0;
-      function draw(ctx) {
-        ctx.textBaseline = "top";
-        var size = CELL * 1.3;
-        ctx.font = "900 " + size + "px Arial, sans-serif";
-        var words = text.toUpperCase().split(/\s+/).filter(Boolean), lines = [], cur = "";
-        for (var i = 0; i < words.length; i++) {
-          var t = cur ? cur + " " + words[i] : words[i];
-          if (ctx.measureText(t).width > w && cur) { lines.push(cur); cur = words[i]; }
+      var CELL = 24, w = Math.max(1, o.cols * CELL);
+      var REF = 100, MAXROWS = 30, LH = 1.1, maxH = MAXROWS * CELL;
+      var words = String(text).toUpperCase().split(/\s+/).filter(Boolean);
+      if (!words.length) return canvasPixels(function () {}, w, CELL); // blank -> all "off"
+      var scratch = document.createElement("canvas").getContext("2d");
+      function wrapAt(size) {
+        scratch.font = "900 " + size + "px Arial, sans-serif";
+        var lines = [], cur = "";
+        for (var k = 0; k < words.length; k++) {
+          var t = cur ? cur + " " + words[k] : words[k];
+          if (scratch.measureText(t).width > w && cur) { lines.push(cur); cur = words[k]; }
           else cur = t;
         }
         if (cur) lines.push(cur);
-        for (var j = 0; j < lines.length; j++) ctx.fillText(lines[j], 0, j * lineH);
+        return lines;
       }
-      // Sideways: rotate 90° clockwise into a canvas with dims swapped (basic v1 nicety).
-      if (o.sideways) return canvasPixels(function (ctx) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); draw(ctx); }, h, w);
-      return canvasPixels(draw, w, h);
+      scratch.font = "900 " + REF + "px Arial, sans-serif";
+      var maxWordW = 1;
+      for (var i = 0; i < words.length; i++) maxWordW = Math.max(maxWordW, scratch.measureText(words[i]).width);
+      var size = REF * w / maxWordW;                       // widest word spans the width
+      var lines = wrapAt(size);
+      size = Math.min(size, maxH / (lines.length * LH));   // cap total height (budget)
+      lines = wrapAt(size);                                // re-wrap at the final size
+      size = Math.max(6, Math.min(size, maxH / (lines.length * LH)));
+      var lh = size * LH, canvasH = Math.max(1, Math.round(lines.length * lh));
+      function draw(ctx) {
+        ctx.textBaseline = "top";
+        ctx.font = "900 " + size + "px Arial, sans-serif";
+        for (var j = 0; j < lines.length; j++) {
+          var lw = ctx.measureText(lines[j]).width;
+          ctx.fillText(lines[j], Math.max(0, (w - lw) / 2), j * lh); // centered
+        }
+      }
+      // Sideways: rotate 90° clockwise into a canvas with dims swapped (v1 nicety).
+      if (o.sideways) return canvasPixels(function (ctx) { ctx.translate(canvasH, 0); ctx.rotate(Math.PI / 2); draw(ctx); }, canvasH, w);
+      return canvasPixels(draw, w, canvasH);
     }
     function rasterizeImage(imgEl, o) {
       var w = o.fineW || o.cols, h = o.fineH || o.rows;

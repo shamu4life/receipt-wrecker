@@ -89,14 +89,10 @@
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
-        <label>Size
-          <select id="textSize">
-            <option value="small">Small</option>
-            <option value="medium">Medium</option>
-            <option value="large" selected>Large</option>
-          </select>
+        <label>Size: <span id="textSizeVal">1.2</span>
+          <input type="range" id="textSize" min="0.3" max="1.5" step="0.05" value="1.2">
         </label>
-        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Fewer lines = bigger; more lines = smaller &amp; more compact. Size scales the letters within each column — Small = shorter strip / fewer receipts, Large fills the column width. (Line breaks make columns; Size scales within them.)</div>
+        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Drag <strong>Size</strong> to scale the letters within each column live — lower = shorter strip / fewer receipts, higher = fills the column width. (Line breaks make columns; Size scales within them.)</div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -407,8 +403,10 @@
       return Math.max(6, Math.min(40, cols));
     }
 
-    var SIZE_FACTOR = { small: 0.6, medium: 0.9, large: 1.2 };
-    function getSizeFactor() { return SIZE_FACTOR[els.textSize.value] || SIZE_FACTOR.large; }
+    function getSizeFactor() {
+      var f = parseFloat(els.textSize.value);
+      return isFinite(f) ? Math.max(0.2, Math.min(2, f)) : 1.2;
+    }
 
     function baseOpts() {
       var threshold = parseInt(els.contrast.value, 10);
@@ -642,6 +640,7 @@
         cheer: document.getElementById("cheer"),
         textInput: document.getElementById("textInput"),
         textSize: document.getElementById("textSize"),
+        textSizeVal: document.getElementById("textSizeVal"),
         imgFile: document.getElementById("imgFile"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
@@ -656,6 +655,7 @@
        els.contrast, els.invert, els.cheer, els.textInput, els.textSize].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
+          els.textSizeVal.textContent = els.textSize.value;
           update();
         });
       });
@@ -678,6 +678,7 @@
       });
 
       els.contrastVal.textContent = els.contrast.value;
+      els.textSizeVal.textContent = els.textSize.value;
       setMode(currentMode);
     }
 

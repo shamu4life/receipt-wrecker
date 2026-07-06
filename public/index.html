@@ -283,16 +283,35 @@
     }
 
     // --- compose: controls + tier -> CellGrid -------------------------------
+    // Sampling always derives its target grid from the *actual* rasterized buffer's
+    // w/h (which already reflect any sideways rotation), never from a pre-rotation
+    // o.rows/TEXT_ROWS assumption — that's what keeps "sideways" a rotation instead
+    // of a transpose/distortion.
     function computeGrid(kind, tier, o) {
       if (tier.kind === "braille") {
         var buf = kind === "text"
           ? rasterizeText(o.text, { cols: o.cols * 2, rows: o.rows * 4, sideways: o.sideways })
           : rasterizeImage(o.img, { fineW: o.cols * 2, fineH: o.rows * 4, sideways: o.sideways });
-        var fine = sampleLuma(buf.pixels, buf.w, buf.h, o.cols * 2, (buf.h / (buf.w / (o.cols * 2))) | 0 || o.rows * 4);
+        var fineCols = o.cols * 2;
+        var fineRows = Math.max(1, Math.round(fineCols * (buf.h / buf.w)));
+        var fine = sampleLuma(buf.pixels, buf.w, buf.h, fineCols, fineRows);
         return packBraille(lumaToDots(fine, { threshold: o.threshold, invert: o.invert }));
       }
-      var b = kind === "text" ? rasterizeText(o.text, o) : rasterizeImage(o.img, { fineW: o.cols, fineH: o.rows, sideways: o.sideways });
-      var rows = kind === "text" ? Math.max(1, Math.round(b.h / 24)) : o.rows;
+      var b;
+      if (kind === "text") {
+        b = rasterizeText(o.text, o);
+      } else {
+        // o.rows (rowsForImage) already has CHAR_ASPECT baked in for the *unrotated*
+        // orientation; undo that here so the buffer's own w/h ratio is the image's
+        // raw pixel aspect, then reapply CHAR_ASPECT once below at sample time. That
+        // way the correction survives a sideways rotation (which swaps b.w/b.h)
+        // instead of being baked in facing the wrong axis.
+        var rawFineH = Math.max(1, Math.round(o.rows / CHAR_ASPECT));
+        b = rasterizeImage(o.img, { fineW: o.cols, fineH: rawFineH, sideways: o.sideways });
+      }
+      var rows = kind === "text"
+        ? Math.max(1, Math.round(o.cols * (b.h / b.w)))
+        : Math.max(1, Math.round(o.cols * (b.h / b.w) * CHAR_ASPECT));
       var luma = sampleLuma(b.pixels, b.w, b.h, o.cols, rows);
       if (tier.kind === "binary") return quantizeBinary(luma, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
       if (o.dither) luma = ditherFloydSteinberg(luma, tier.ramp.length);
@@ -418,8 +437,12 @@
       if (currentMode === "image") {
         var payload = buildImagePayload();
         showPreview(payload == null ? "(choose an image file above)" : payload);
+        // No real payload yet (no image chosen) — disable Copy so the placeholder
+        // text can never be put on the clipboard.
+        els.copyBtn.disabled = payload == null;
       } else {
         showPreview(buildTextPayload());
+        els.copyBtn.disabled = false;
       }
       saveControls();
     }
@@ -487,7 +510,10 @@
       });
 
       els.copyBtn.addEventListener("click", function () { copyToClipboard(lastPayload || ""); });
-      els.censusBtn.addEventListener("click", function () { showPreview(buildCensus()); });
+      els.censusBtn.addEventListener("click", function () {
+        showPreview(buildCensus());
+        els.copyBtn.disabled = false; // census is always a real, copyable payload
+      });
 
       els.colsVal.textContent = els.cols.value;
       els.contrastVal.textContent = els.contrast.value;

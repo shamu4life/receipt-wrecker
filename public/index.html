@@ -96,7 +96,7 @@
           <button type="button" class="reset" data-target="textSize" data-default="1.2" title="Reset to 1.2">&#8635;</button>
           <input type="range" id="textSize" min="0.3" max="1.5" step="0.05" value="1.2">
         </label>
-        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Drag <strong>Size</strong> to scale the letters within each column live — lower = shorter strip / fewer receipts, higher = fills the column width. (Line breaks make columns; Size scales within them.)</div>
+        <div class="hint">One line = one big column down the tape (turn the receipt to read); letters always fill the column width. Press Enter to add another line — each takes an equal slice of the width as its own column (2 lines = two half-width columns), read top-to-bottom in the order you typed them. Drag <strong>Size</strong> live to stretch the letters <em>down the tape</em>: lower = shorter, squatter letters / fewer receipts; higher = taller letters / more receipts.</div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -286,29 +286,52 @@
       return { pixels: ctx.getImageData(0, 0, w, h).data, w: w, h: h };
     }
     // Render ONE line as a VERTICAL (rotated 90° CW) column `cwCols` wide.
-    // Returns { luma:number[][], rows }. Letters fill the column width and read
-    // down the tape (turn the receipt). Length grows rows -> spanning handles it.
+    // Returns { luma:number[][], rows }. The letters are sized to fill the column
+    // width EXACTLY (measured ink box, centered — never clipped top/bottom); read
+    // by turning the tape. `sizeFactor` stretches the length DOWN the tape (rows),
+    // so it controls how many receipts a message spans without changing height.
     function renderColumn(line, cwCols, sizeFactor) {
       var CELL = 24, w = Math.max(1, cwCols * CELL);
       var s = String(line).toUpperCase().split(/\s+/).filter(Boolean).join(" ");
       if (!s) { var blank = []; for (var z = 0; z < Math.max(1, cwCols); z++) blank.push(255); return { luma: [blank], rows: 1 }; }
-      var MAXW = 16000;
+      var sf = sizeFactor || 1;
+      // Measure the real ink box at a reference size, then scale linearly.
+      var REF = 100;
       var scratch = document.createElement("canvas").getContext("2d");
-      var size = w * (sizeFactor || 1.2);
-      scratch.font = "900 " + size + "px Arial, sans-serif";
-      var textW = Math.ceil(scratch.measureText(s).width);
-      if (textW > MAXW) { size *= MAXW / textW; scratch.font = "900 " + size + "px Arial, sans-serif"; textW = Math.ceil(scratch.measureText(s).width); }
-      textW = Math.max(1, textW);
+      scratch.font = "900 " + REF + "px Arial, sans-serif";
+      scratch.textAlign = "left"; scratch.textBaseline = "alphabetic";
+      var m = scratch.measureText(s);
+      // Perpendicular extent (ascent+descent) becomes the column-width dimension;
+      // advance (left+right bearing) becomes the length down the tape. Fall back
+      // to rough all-caps metrics if actualBoundingBox* is unsupported.
+      var asc = isFinite(m.actualBoundingBoxAscent) ? m.actualBoundingBoxAscent : REF * 0.72;
+      var desc = isFinite(m.actualBoundingBoxDescent) ? m.actualBoundingBoxDescent : 0;
+      var bl = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
+      var br = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
+      var inkH = Math.max(1, asc + desc), inkW = Math.max(1, bl + br);
+      // Fit the ink height into 92% of the column so tops/bottoms never clip.
+      var FILL = 0.92, MAXH = 16000;
+      var scale = (w * FILL) / inkH;
+      var advPx = inkW * scale;
+      if (advPx > MAXH) { scale *= MAXH / advPx; advPx = MAXH; }
+      var size = REF * scale, ascPx = asc * scale, descPx = desc * scale, leftPx = bl * scale;
+      var canvasH = Math.max(1, Math.ceil(advPx));
       var buf = canvasPixels(function (ctx) {
-        ctx.translate(w, 0); ctx.rotate(Math.PI / 2);
-        ctx.textBaseline = "middle"; ctx.font = "900 " + size + "px Arial, sans-serif";
-        ctx.fillText(s, 0, w / 2);
-      }, w, textW);
-      var rows = Math.max(1, Math.round(cwCols * (buf.h / buf.w)));
+        ctx.translate(w, 0); ctx.rotate(Math.PI / 2);   // deviceX = w - localY, deviceY = localX
+        ctx.font = "900 " + size + "px Arial, sans-serif";
+        ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+        // Baseline so the ink is centered across the column width (center at localY = w/2);
+        // x = leftPx so the ink's left edge sits at the top of the tape (deviceY = 0).
+        ctx.fillText(s, leftPx, w / 2 + (ascPx - descPx) / 2);
+      }, w, canvasH);
+      var rows = Math.max(1, Math.round(cwCols * (canvasH / w) * sf));
       return { luma: sampleLuma(buf.pixels, buf.w, buf.h, cwCols, rows), rows: rows };
     }
     // Split text into lines (CR/LF); each line = one vertical column, dividing the
     // total width evenly. Returns a combined luma grid (maxRows x totalCols).
+    // Line order: the tape is read by turning it CCW, which sends the tape's left
+    // edge to the BOTTOM — so line 0 is placed in the RIGHTMOST columns and later
+    // lines to its left, making them read top-to-bottom in the order they were typed.
     function textColumnsLuma(text, totalCols, sizeFactor) {
       var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
       if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
@@ -321,7 +344,7 @@
       var grid = [];
       for (var r = 0; r < maxRows; r++) {
         var row = [];
-        for (i = 0; i < N; i++) {
+        for (i = N - 1; i >= 0; i--) {   // right-to-left placement -> line 0 ends up rightmost
           var cd = colsData[i], cw = widths[i], src = r < cd.rows ? cd.luma[r] : null;
           for (var c = 0; c < cw; c++) row.push(src ? src[c] : 255);
         }

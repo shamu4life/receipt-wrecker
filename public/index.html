@@ -30,6 +30,7 @@
   }
   .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
   .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }
+  .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
   .part { margin: 0 0 1rem; }
   .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
   .part-count.over { color: #d33; font-weight: 700; }
@@ -64,6 +65,7 @@
 
       <label>Printer columns
         <input type="number" id="cols" min="6" max="40" step="1" value="15">
+        <button type="button" class="reset" data-target="cols" data-default="15" title="Reset to 15">&#8635;</button>
       </label>
       <div class="hint">How many glyph-cells your printer prints per line — 15 is typical for 80 mm paper. Set once with the Census (Print test strip); changing it re-flows everything.</div>
 
@@ -75,6 +77,7 @@
       <div class="hint">Threshold = hard cutoff, best for line art/text. Dither = smooth gradients, best for photos.</div>
 
       <label>Contrast (threshold): <span id="contrastVal">128</span>
+        <button type="button" class="reset" data-target="contrast" data-default="128" title="Reset to 128">&#8635;</button>
         <input type="range" id="contrast" min="0" max="255" value="128">
       </label>
       <div class="hint">Shifts the brightness/threshold cutoff between ink and paper.</div>
@@ -90,6 +93,7 @@
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
         <label>Size: <span id="textSizeVal">1.2</span>
+          <button type="button" class="reset" data-target="textSize" data-default="1.2" title="Reset to 1.2">&#8635;</button>
           <input type="range" id="textSize" min="0.3" max="1.5" step="0.05" value="1.2">
         </label>
         <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Drag <strong>Size</strong> to scale the letters within each column live — lower = shorter strip / fewer receipts, higher = fills the column width. (Line breaks make columns; Size scales within them.)</div>
@@ -657,6 +661,14 @@
           els.contrastVal.textContent = els.contrast.value;
           els.textSizeVal.textContent = els.textSize.value;
           update();
+        });
+      });
+
+      [].forEach.call(document.querySelectorAll(".reset"), function (btn) {
+        btn.addEventListener("click", function () {
+          var el = document.getElementById(btn.getAttribute("data-target"));
+          el.value = btn.getAttribute("data-default");
+          el.dispatchEvent(new Event("input", { bubbles: true }));
         });
       });
 

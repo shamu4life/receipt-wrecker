@@ -71,6 +71,29 @@
     });
   }
 
+  function ditherFloydSteinberg(luma, nLevels) {
+    var rows = luma.length, cols = rows ? luma[0].length : 0;
+    var buf = luma.map(function (row) { return row.slice(); });
+    var step = 255 / (nLevels - 1);
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        var oldv = buf[r][c];
+        var q = Math.round(oldv / step) * step;
+        var err = oldv - q;
+        buf[r][c] = q;
+        if (c + 1 < cols) buf[r][c + 1] += err * 7 / 16;
+        if (r + 1 < rows) {
+          if (c - 1 >= 0) buf[r + 1][c - 1] += err * 3 / 16;
+          buf[r + 1][c] += err * 5 / 16;
+          if (c + 1 < cols) buf[r + 1][c + 1] += err * 1 / 16;
+        }
+      }
+    }
+    return buf.map(function (row) {
+      return row.map(function (v) { return Math.max(0, Math.min(255, Math.round(v))); });
+    });
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
@@ -79,6 +102,7 @@
     module.exports = {
       TIERS: TIERS, getTier: getTier, sampleLuma: sampleLuma,
       quantizeTone: quantizeTone, quantizeBinary: quantizeBinary,
+      ditherFloydSteinberg: ditherFloydSteinberg,
     };
   }
 </script>

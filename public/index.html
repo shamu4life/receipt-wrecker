@@ -89,7 +89,14 @@
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
-        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Fewer lines = bigger; more lines = smaller &amp; more compact.</div>
+        <label>Size
+          <select id="textSize">
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large" selected>Large</option>
+          </select>
+        </label>
+        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Fewer lines = bigger; more lines = smaller &amp; more compact. Size scales the letters within each column — Small = shorter strip / fewer receipts, Large fills the column width. (Line breaks make columns; Size scales within them.)</div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -280,13 +287,13 @@
     // Render ONE line as a VERTICAL (rotated 90° CW) column `cwCols` wide.
     // Returns { luma:number[][], rows }. Letters fill the column width and read
     // down the tape (turn the receipt). Length grows rows -> spanning handles it.
-    function renderColumn(line, cwCols) {
+    function renderColumn(line, cwCols, sizeFactor) {
       var CELL = 24, w = Math.max(1, cwCols * CELL);
       var s = String(line).toUpperCase().split(/\s+/).filter(Boolean).join(" ");
       if (!s) { var blank = []; for (var z = 0; z < Math.max(1, cwCols); z++) blank.push(255); return { luma: [blank], rows: 1 }; }
       var MAXW = 16000;
       var scratch = document.createElement("canvas").getContext("2d");
-      var size = w * 1.2;
+      var size = w * (sizeFactor || 1.2);
       scratch.font = "900 " + size + "px Arial, sans-serif";
       var textW = Math.ceil(scratch.measureText(s).width);
       if (textW > MAXW) { size *= MAXW / textW; scratch.font = "900 " + size + "px Arial, sans-serif"; textW = Math.ceil(scratch.measureText(s).width); }
@@ -301,14 +308,14 @@
     }
     // Split text into lines (CR/LF); each line = one vertical column, dividing the
     // total width evenly. Returns a combined luma grid (maxRows x totalCols).
-    function textColumnsLuma(text, totalCols) {
+    function textColumnsLuma(text, totalCols, sizeFactor) {
       var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
       if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
       var N = Math.min(lines.length, totalCols);
       lines = lines.slice(0, N);
       var base = Math.floor(totalCols / N), extra = totalCols - base * N, widths = [], i;
       for (i = 0; i < N; i++) widths.push(base + (i < extra ? 1 : 0));
-      var colsData = lines.map(function (line, k) { return renderColumn(line, widths[k]); });
+      var colsData = lines.map(function (line, k) { return renderColumn(line, widths[k], sizeFactor); });
       var maxRows = colsData.reduce(function (m, c) { return Math.max(m, c.rows); }, 1);
       var grid = [];
       for (var r = 0; r < maxRows; r++) {
@@ -337,7 +344,7 @@
     // right height for its width.
     function computeGrid(kind, tier, o) {
       if (kind === "text") {
-        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2) : textColumnsLuma(o.text, o.cols);
+        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2, o.sizeFactor) : textColumnsLuma(o.text, o.cols, o.sizeFactor);
         if (tier.kind === "braille") return packBraille(lumaToDots(tl, { threshold: o.threshold, invert: o.invert }));
         if (tier.kind === "binary") return quantizeBinary(tl, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
         if (o.dither) tl = ditherFloydSteinberg(tl, tier.ramp.length);
@@ -400,6 +407,9 @@
       return Math.max(6, Math.min(40, cols));
     }
 
+    var SIZE_FACTOR = { small: 0.6, medium: 0.9, large: 1.2 };
+    function getSizeFactor() { return SIZE_FACTOR[els.textSize.value] || SIZE_FACTOR.large; }
+
     function baseOpts() {
       var threshold = parseInt(els.contrast.value, 10);
       return {
@@ -407,6 +417,7 @@
         dither: els.quantDither.checked,
         threshold: isFinite(threshold) ? threshold : 128,
         invert: els.invert.checked,
+        sizeFactor: getSizeFactor(),
       };
     }
     function cheerOptsFor(i) {
@@ -480,6 +491,7 @@
           dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, text: els.textInput.value,
+          textSize: els.textSize.value,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
@@ -501,6 +513,7 @@
       els.invert.checked = !!saved.invert;
       els.cheer.checked = saved.cheer !== false;
       if (saved.text != null) els.textInput.value = saved.text;
+      if (saved.textSize) els.textSize.value = saved.textSize;
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -628,6 +641,7 @@
         invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
         textInput: document.getElementById("textInput"),
+        textSize: document.getElementById("textSize"),
         imgFile: document.getElementById("imgFile"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
@@ -639,7 +653,7 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither,
-       els.contrast, els.invert, els.cheer, els.textInput].forEach(function (el) {
+       els.contrast, els.invert, els.cheer, els.textInput, els.textSize].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
           update();

@@ -92,11 +92,11 @@
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
-        <label>Size: <span id="textSizeVal">1.2</span>
-          <button type="button" class="reset" data-target="textSize" data-default="1.2" title="Reset to 1.2">&#8635;</button>
-          <input type="range" id="textSize" min="0.3" max="1.5" step="0.05" value="1.2">
+        <label>Size: <span id="textSizeVal">1.0</span>
+          <button type="button" class="reset" data-target="textSize" data-default="1.0" title="Reset to 1.0">&#8635;</button>
+          <input type="range" id="textSize" min="0.3" max="1" step="0.05" value="1">
         </label>
-        <div class="hint">One line = one big column down the tape (turn the receipt to read); letters always fill the column width. Press Enter to add another line — each takes an equal slice of the width as its own column (2 lines = two half-width columns), read top-to-bottom in the order you typed them. Drag <strong>Size</strong> live to stretch the letters <em>down the tape</em>: lower = shorter, squatter letters / fewer receipts; higher = taller letters / more receipts.</div>
+        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each takes an equal slice of the width as its own column (2 lines = two half-width columns), read top-to-bottom in the order you typed them. <strong>Size</strong> scales the letters evenly (they keep their shape): 1.0 fills the full width; lower makes them smaller — same look, just fewer receipts.</div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -286,15 +286,16 @@
       return { pixels: ctx.getImageData(0, 0, w, h).data, w: w, h: h };
     }
     // Render ONE line as a VERTICAL (rotated 90° CW) column `cwCols` wide.
-    // Returns { luma:number[][], rows }. The letters are sized to fill the column
-    // width EXACTLY (measured ink box, centered — never clipped top/bottom); read
-    // by turning the tape. `sizeFactor` stretches the length DOWN the tape (rows),
-    // so it controls how many receipts a message spans without changing height.
+    // Returns { luma:number[][], rows }. Letters are measured from their real ink
+    // box and scaled UNIFORMLY by `sizeFactor` (0<sf<=1), so their aspect ratio is
+    // always preserved — never squished or stretched. sf=1 fills the column width;
+    // lower shrinks the letters (centered, side-margins) and uses fewer receipts.
+    // Tops/bottoms are never clipped. Read by turning the tape.
     function renderColumn(line, cwCols, sizeFactor) {
       var CELL = 24, w = Math.max(1, cwCols * CELL);
       var s = String(line).toUpperCase().split(/\s+/).filter(Boolean).join(" ");
       if (!s) { var blank = []; for (var z = 0; z < Math.max(1, cwCols); z++) blank.push(255); return { luma: [blank], rows: 1 }; }
-      var sf = sizeFactor || 1;
+      var sf = Math.max(0.05, Math.min(1, sizeFactor || 1));   // >1 can't fit; 1 = fill width
       // Measure the real ink box at a reference size, then scale linearly.
       var REF = 100;
       var scratch = document.createElement("canvas").getContext("2d");
@@ -309,9 +310,10 @@
       var bl = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
       var br = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
       var inkH = Math.max(1, asc + desc), inkW = Math.max(1, bl + br);
-      // Fit the ink height into 92% of the column so tops/bottoms never clip.
+      // Fit ink height into 92% of the column at sf=1, then shrink by sf. Because
+      // the SAME scale drives both height and advance, the aspect never distorts.
       var FILL = 0.92, MAXH = 16000;
-      var scale = (w * FILL) / inkH;
+      var scale = (w * FILL * sf) / inkH;
       var advPx = inkW * scale;
       if (advPx > MAXH) { scale *= MAXH / advPx; advPx = MAXH; }
       var size = REF * scale, ascPx = asc * scale, descPx = desc * scale, leftPx = bl * scale;
@@ -324,7 +326,7 @@
         // x = leftPx so the ink's left edge sits at the top of the tape (deviceY = 0).
         ctx.fillText(s, leftPx, w / 2 + (ascPx - descPx) / 2);
       }, w, canvasH);
-      var rows = Math.max(1, Math.round(cwCols * (canvasH / w) * sf));
+      var rows = Math.max(1, Math.round(cwCols * (canvasH / w)));   // aspect-true; sf already in the scale
       return { luma: sampleLuma(buf.pixels, buf.w, buf.h, cwCols, rows), rows: rows };
     }
     // Split text into lines (CR/LF); each line = one vertical column, dividing the
@@ -433,7 +435,7 @@
 
     function getSizeFactor() {
       var f = parseFloat(els.textSize.value);
-      return isFinite(f) ? Math.max(0.2, Math.min(2, f)) : 1.2;
+      return isFinite(f) ? Math.max(0.2, Math.min(1, f)) : 1;
     }
 
     function baseOpts() {

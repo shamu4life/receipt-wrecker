@@ -7,24 +7,34 @@
   :root { color-scheme: light dark; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 1rem; }
   #app { max-width: 960px; margin: 0 auto; }
-  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
-  .tabs { display: flex; gap: .5rem; margin-bottom: 1rem; }
+  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+  .intro { font-size: .9rem; opacity: .85; margin: 0 0 1rem; }
+  .tabs { display: flex; gap: .5rem; margin-bottom: .25rem; }
   .tab { padding: .5rem 1rem; border: 1px solid #888; background: transparent; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
   .tab.active { font-weight: 700; border-bottom: 2px solid currentColor; }
   .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
   .controls, .preview { flex: 1 1 320px; min-width: 280px; }
   .controls label { display: block; margin-bottom: .75rem; }
   .controls input[type="range"] { width: 100%; }
-  .controls input[type="text"] { width: 100%; box-sizing: border-box; }
+  .controls input[type="text"], .controls input[type="number"], .controls textarea { width: 100%; box-sizing: border-box; font: inherit; }
   fieldset { margin: 0 0 .75rem; border: 1px solid #888; border-radius: 4px; }
-  #preview {
+  .preview { display: flex; flex-direction: column; }
+  .receipt {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    white-space: pre-wrap; word-break: break-all; overflow-x: auto;
-    background: #111; color: #eee; padding: .75rem; border-radius: 4px;
-    min-height: 6em; font-size: 14px; line-height: 1.15; margin: 0 0 .5rem;
+    white-space: pre; overflow-x: auto;
+    background: #fff; color: #000; border: 1px solid #bbb;
+    padding: .6rem .75rem; border-radius: 2px;
+    min-height: 3em; font-size: 18px; line-height: 1.0; letter-spacing: 0;
+    margin: 0 0 .5rem; align-self: flex-start; max-width: 100%; box-sizing: border-box;
+    box-shadow: 0 1px 4px rgba(0,0,0,.15);
   }
+  .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
+  .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }
+  .part { margin: 0 0 1rem; }
+  .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
+  .part-count.over { color: #d33; font-weight: 700; }
+  .parts-note { font-size: .85rem; opacity: .8; margin: .25rem 0 1rem; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-  #count.over { color: #d33; font-weight: 700; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
     .layout { flex-direction: column; }
@@ -34,10 +44,12 @@
 <body>
 <main id="app">
   <h1>Receipt Wrecker</h1>
+  <p class="intro">Turns big text or a picture into paste-ready block glyphs — paste the result into Twitch chat as a Cheer100.</p>
   <div class="tabs">
     <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
     <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
   </div>
+  <div class="hint">Big Text = giant vertical letters — turn the receipt to read. Add line breaks to split the width into side-by-side columns (packs more onto one receipt). Image = a dithered picture.</div>
   <div class="layout">
     <section class="controls">
       <label>Tier
@@ -48,24 +60,36 @@
           <option value="text">Big text (on/off)</option>
         </select>
       </label>
-      <label>Columns: <span id="colsVal">15</span>
-        <input type="range" id="cols" min="6" max="40" value="15">
+      <div class="hint">Blocks ░▒▓█ = safe grayscale, Image default. CJK = denser grayscale. Braille = highest resolution. Big text = crisp on/off, Big-Text default — the selector lets big text use any tier too.</div>
+
+      <label>Printer columns
+        <input type="number" id="cols" min="6" max="40" step="1" value="15">
       </label>
-      <label><input type="checkbox" id="sideways"> Sideways (rotate 90&deg;)</label>
+      <div class="hint">How many glyph-cells your printer prints per line — 15 is typical for 80 mm paper. Set once with the Census (Print test strip); changing it re-flows everything.</div>
+
       <fieldset>
         <legend>Quantize</legend>
         <label><input type="radio" name="quant" id="quantThreshold" value="threshold" checked> Threshold</label>
         <label><input type="radio" name="quant" id="quantDither" value="dither"> Dither</label>
       </fieldset>
+      <div class="hint">Threshold = hard cutoff, best for line art/text. Dither = smooth gradients, best for photos.</div>
+
       <label>Contrast (threshold): <span id="contrastVal">128</span>
         <input type="range" id="contrast" min="0" max="255" value="128">
       </label>
+      <div class="hint">Shifts the brightness/threshold cutoff between ink and paper.</div>
+
       <label><input type="checkbox" id="invert"> Invert</label>
+      <div class="hint">Swaps ink and paper.</div>
+
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
+      <div class="hint">Adds " Cheer100 " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
+
       <div id="textControls">
         <label>Text
-          <input type="text" id="textInput" value="HELLO">
+          <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
+        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each line takes an equal slice of the width as its own column, so 2 lines = two half-width columns. Fewer lines = bigger; more lines = smaller &amp; more compact.</div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -74,10 +98,8 @@
       </div>
     </section>
     <section class="preview">
-      <pre id="preview"></pre>
+      <div id="parts"></div>
       <div class="meta">
-        <span id="count">0 / 490</span>
-        <button type="button" id="copyBtn">Copy</button>
         <button type="button" id="censusBtn">Print test strip</button>
       </div>
     </section>
@@ -255,46 +277,49 @@
       draw(ctx, w, h);
       return { pixels: ctx.getImageData(0, 0, w, h).data, w: w, h: h };
     }
-    // Render big text: SCALE the word(s) to fill the target width so letters are
-    // large enough that thresholding preserves their shape. A fixed small font
-    // renders a short string into a tiny corner that thresholds to blank.
-    function rasterizeText(text, o) {
-      var CELL = 24, w = Math.max(1, o.cols * CELL);
-      var REF = 100, MAXROWS = 30, LH = 1.1, maxH = MAXROWS * CELL;
-      var words = String(text).toUpperCase().split(/\s+/).filter(Boolean);
-      if (!words.length) return canvasPixels(function () {}, w, CELL); // blank -> all "off"
+    // Render ONE line as a VERTICAL (rotated 90° CW) column `cwCols` wide.
+    // Returns { luma:number[][], rows }. Letters fill the column width and read
+    // down the tape (turn the receipt). Length grows rows -> spanning handles it.
+    function renderColumn(line, cwCols) {
+      var CELL = 24, w = Math.max(1, cwCols * CELL);
+      var s = String(line).toUpperCase().split(/\s+/).filter(Boolean).join(" ");
+      if (!s) { var blank = []; for (var z = 0; z < Math.max(1, cwCols); z++) blank.push(255); return { luma: [blank], rows: 1 }; }
+      var MAXW = 16000;
       var scratch = document.createElement("canvas").getContext("2d");
-      function wrapAt(size) {
-        scratch.font = "900 " + size + "px Arial, sans-serif";
-        var lines = [], cur = "";
-        for (var k = 0; k < words.length; k++) {
-          var t = cur ? cur + " " + words[k] : words[k];
-          if (scratch.measureText(t).width > w && cur) { lines.push(cur); cur = words[k]; }
-          else cur = t;
+      var size = w * 1.2;
+      scratch.font = "900 " + size + "px Arial, sans-serif";
+      var textW = Math.ceil(scratch.measureText(s).width);
+      if (textW > MAXW) { size *= MAXW / textW; scratch.font = "900 " + size + "px Arial, sans-serif"; textW = Math.ceil(scratch.measureText(s).width); }
+      textW = Math.max(1, textW);
+      var buf = canvasPixels(function (ctx) {
+        ctx.translate(w, 0); ctx.rotate(Math.PI / 2);
+        ctx.textBaseline = "middle"; ctx.font = "900 " + size + "px Arial, sans-serif";
+        ctx.fillText(s, 0, w / 2);
+      }, w, textW);
+      var rows = Math.max(1, Math.round(cwCols * (buf.h / buf.w)));
+      return { luma: sampleLuma(buf.pixels, buf.w, buf.h, cwCols, rows), rows: rows };
+    }
+    // Split text into lines (CR/LF); each line = one vertical column, dividing the
+    // total width evenly. Returns a combined luma grid (maxRows x totalCols).
+    function textColumnsLuma(text, totalCols) {
+      var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+      if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
+      var N = Math.min(lines.length, totalCols);
+      lines = lines.slice(0, N);
+      var base = Math.floor(totalCols / N), extra = totalCols - base * N, widths = [], i;
+      for (i = 0; i < N; i++) widths.push(base + (i < extra ? 1 : 0));
+      var colsData = lines.map(function (line, k) { return renderColumn(line, widths[k]); });
+      var maxRows = colsData.reduce(function (m, c) { return Math.max(m, c.rows); }, 1);
+      var grid = [];
+      for (var r = 0; r < maxRows; r++) {
+        var row = [];
+        for (i = 0; i < N; i++) {
+          var cd = colsData[i], cw = widths[i], src = r < cd.rows ? cd.luma[r] : null;
+          for (var c = 0; c < cw; c++) row.push(src ? src[c] : 255);
         }
-        if (cur) lines.push(cur);
-        return lines;
+        grid.push(row);
       }
-      scratch.font = "900 " + REF + "px Arial, sans-serif";
-      var maxWordW = 1;
-      for (var i = 0; i < words.length; i++) maxWordW = Math.max(maxWordW, scratch.measureText(words[i]).width);
-      var size = REF * w / maxWordW;                       // widest word spans the width
-      var lines = wrapAt(size);
-      size = Math.min(size, maxH / (lines.length * LH));   // cap total height (budget)
-      lines = wrapAt(size);                                // re-wrap at the final size
-      size = Math.max(6, Math.min(size, maxH / (lines.length * LH)));
-      var lh = size * LH, canvasH = Math.max(1, Math.round(lines.length * lh));
-      function draw(ctx) {
-        ctx.textBaseline = "top";
-        ctx.font = "900 " + size + "px Arial, sans-serif";
-        for (var j = 0; j < lines.length; j++) {
-          var lw = ctx.measureText(lines[j]).width;
-          ctx.fillText(lines[j], Math.max(0, (w - lw) / 2), j * lh); // centered
-        }
-      }
-      // Sideways: rotate 90° clockwise into a canvas with dims swapped (v1 nicety).
-      if (o.sideways) return canvasPixels(function (ctx) { ctx.translate(canvasH, 0); ctx.rotate(Math.PI / 2); draw(ctx); }, canvasH, w);
-      return canvasPixels(draw, w, canvasH);
+      return grid;
     }
     function rasterizeImage(imgEl, o) {
       var w = o.fineW || o.cols, h = o.fineH || o.rows;
@@ -304,51 +329,38 @@
     }
 
     // --- compose: controls + tier -> CellGrid -------------------------------
-    // Sampling always derives its target grid from the *actual* rasterized buffer's
-    // w/h (which already reflect any sideways rotation), never from a pre-rotation
-    // o.rows/TEXT_ROWS assumption — that's what keeps "sideways" a rotation instead
-    // of a transpose/distortion.
+    // Text: each line becomes its own rotated vertical column (see
+    // renderColumn/textColumnsLuma above) — read by turning the receipt.
+    // Images: sampling derives its target grid from the *actual* rasterized
+    // buffer's w/h, never from a pre-render row assumption, and go through the
+    // CHAR_ASPECT correction below so a monospace cell's rows come out the
+    // right height for its width.
     function computeGrid(kind, tier, o) {
-      if (tier.kind === "braille") {
-        var buf = kind === "text"
-          ? rasterizeText(o.text, { cols: o.cols * 2, rows: o.rows * 4, sideways: o.sideways })
-          : rasterizeImage(o.img, { fineW: o.cols * 2, fineH: o.rows * 4, sideways: o.sideways });
-        var fineCols = o.cols * 2;
-        var fineRows = Math.max(1, Math.round(fineCols * (buf.h / buf.w)));
-        var fine = sampleLuma(buf.pixels, buf.w, buf.h, fineCols, fineRows);
-        return packBraille(lumaToDots(fine, { threshold: o.threshold, invert: o.invert }));
-      }
-      var b;
       if (kind === "text") {
-        b = rasterizeText(o.text, o);
-      } else {
-        // o.rows (rowsForImage) already has CHAR_ASPECT baked in for the *unrotated*
-        // orientation; undo that here so the buffer's own w/h ratio is the image's
-        // raw pixel aspect, then reapply CHAR_ASPECT once below at sample time. That
-        // way the correction survives a sideways rotation (which swaps b.w/b.h)
-        // instead of being baked in facing the wrong axis.
-        var rawFineH = Math.max(1, Math.round(o.rows / CHAR_ASPECT));
-        b = rasterizeImage(o.img, { fineW: o.cols, fineH: rawFineH, sideways: o.sideways });
+        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2) : textColumnsLuma(o.text, o.cols);
+        if (tier.kind === "braille") return packBraille(lumaToDots(tl, { threshold: o.threshold, invert: o.invert }));
+        if (tier.kind === "binary") return quantizeBinary(tl, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
+        if (o.dither) tl = ditherFloydSteinberg(tl, tier.ramp.length);
+        var ts = 128 - o.threshold;
+        return quantizeTone(tl.map(function (row) { return row.map(function (v) { return Math.max(0, Math.min(255, v + ts)); }); }), tier.ramp, { invert: o.invert });
       }
-      var rows = kind === "text"
-        ? Math.max(1, Math.round(o.cols * (b.h / b.w)))
-        : Math.max(1, Math.round(o.cols * (b.h / b.w) * CHAR_ASPECT));
+      if (tier.kind === "braille") {
+        var buf = rasterizeImage(o.img, { fineW: o.cols * 2, fineH: o.rows * 4 });
+        var fineCols = o.cols * 2, fineRows = Math.max(1, Math.round(fineCols * (buf.h / buf.w)));
+        return packBraille(lumaToDots(sampleLuma(buf.pixels, buf.w, buf.h, fineCols, fineRows), { threshold: o.threshold, invert: o.invert }));
+      }
+      var rawFineH = Math.max(1, Math.round(o.rows / CHAR_ASPECT));
+      var b = rasterizeImage(o.img, { fineW: o.cols, fineH: rawFineH });
+      var rows = Math.max(1, Math.round(o.cols * (b.h / b.w) * CHAR_ASPECT));
       var luma = sampleLuma(b.pixels, b.w, b.h, o.cols, rows);
       if (tier.kind === "binary") return quantizeBinary(luma, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
       if (o.dither) luma = ditherFloydSteinberg(luma, tier.ramp.length);
-      // Contrast slider doubles as a brightness shift for the tone ramp: at the
-      // default threshold (128) this is a no-op; moving it brightens/darkens the
-      // tone mapping the same way it shifts the binary/braille cutoff.
       var toneShift = 128 - o.threshold;
-      var shiftedLuma = luma.map(function (row) {
-        return row.map(function (v) { return Math.max(0, Math.min(255, v + toneShift)); });
-      });
-      return quantizeTone(shiftedLuma, tier.ramp, { invert: o.invert });
+      return quantizeTone(luma.map(function (row) { return row.map(function (v) { return Math.max(0, Math.min(255, v + toneShift)); }); }), tier.ramp, { invert: o.invert });
     }
 
     // --- state (assigned only inside init()/handlers, never at load time) --
-    var els, currentMode, currentImage, lastPayload, sessionNonceCounter, currentNonce;
-    var TEXT_ROWS = 6;           // fixed line budget for the big-text canvas (v1: not content-adaptive; very long input may clip)
+    var els, currentMode, currentImage, partNonces, lastParts, currentKind, sessionNonceCounter;
     var CHAR_ASPECT = 0.5;       // monospace glyphs are roughly twice as tall as wide
     var STORAGE_KEY = "rw_controls_v1";
     var NONCE_KEY = "rw_nonce_seq";
@@ -370,31 +382,61 @@
       return makeNonce(i);
     }
 
+    // Each displayed part (a text band, the single image payload, or the census)
+    // gets its own nonce, lazily assigned the first time that part is rendered and
+    // cached so recomputing on every keystroke doesn't burn the sequence — only
+    // Copy (see copyPart below) advances a given part's nonce.
+    function nonceForPart(i) {
+      if (partNonces[i] == null) partNonces[i] = nextNonce();
+      return partNonces[i];
+    }
+
+    // Columns is a set-once calibration value (see the Printer columns hint) —
+    // always clamp to the input's own 6..40 range in code too, not just via the
+    // HTML min/max, since a pasted/typed value can bypass those.
+    function getCols() {
+      var cols = parseInt(els.cols.value, 10);
+      if (!isFinite(cols)) cols = 15;
+      return Math.max(6, Math.min(40, cols));
+    }
+
     function baseOpts() {
-      var cols = parseInt(els.cols.value, 10) || 15;
       var threshold = parseInt(els.contrast.value, 10);
       return {
-        cols: cols,
-        sideways: els.sideways.checked,
+        cols: getCols(),
         dither: els.quantDither.checked,
         threshold: isFinite(threshold) ? threshold : 128,
         invert: els.invert.checked,
       };
     }
-    function cheerOpts() {
-      // The nonce only advances on Copy (see the copyBtn handler below), not on
-      // every recompute — otherwise copying the same content twice would repeat
-      // the nonce and defeat its purpose (beating Twitch's duplicate filter).
-      return { cheer: els.cheer.checked, nonce: currentNonce };
+    function cheerOptsFor(i) {
+      return { cheer: els.cheer.checked, nonce: nonceForPart(i) };
     }
-    function buildTextPayload() {
+    // Big Text: split the rendered CellGrid into ordered top-to-bottom bands
+    // whenever it's taller than one <=MAX_CHARS message can hold. rowsPerMsg
+    // reserves 14 chars (" Cheer100 " + a 2-glyph nonce) out of MAX_CHARS
+    // regardless of whether Cheer-ready is actually on, so toggling it never
+    // changes how the grid is banded. N===1 when the grid already fits.
+    function buildTextParts() {
       var o = baseOpts();
       o.text = els.textInput.value || "";
-      o.rows = TEXT_ROWS;
       var tier = getTier(els.tier.value);
-      var body = render(computeGrid("text", tier, o));
-      return packageCheer(body, cheerOpts());
+      var grid = computeGrid("text", tier, o);
+      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - 14) / o.cols));
+      var parts = [];
+      for (var r = 0; r < grid.length; r += rowsPerMsg) {
+        var body = render(grid.slice(r, r + rowsPerMsg));
+        var payload = packageCheer(body, cheerOptsFor(parts.length));
+        parts.push({ payload: payload, chars: payloadLength(payload) });
+      }
+      if (!parts.length) {
+        var empty = packageCheer("", cheerOptsFor(0));
+        parts.push({ payload: empty, chars: payloadLength(empty) });
+      }
+      return parts;
     }
+    // Image mode never spans — exactly one payload; over budget just reddens
+    // the counter (handled in renderParts), same as before.
     function buildImagePayload() {
       if (!currentImage) return null;
       var o = baseOpts();
@@ -402,7 +444,7 @@
       o.rows = rowsForImage(o.cols, currentImage.naturalWidth || currentImage.width, currentImage.naturalHeight || currentImage.height);
       var tier = getTier(els.tier.value);
       var body = render(computeGrid("image", tier, o));
-      return packageCheer(body, cheerOpts());
+      return packageCheer(body, cheerOptsFor(0));
     }
 
     // --- clipboard -----------------------------------------------------------
@@ -435,7 +477,7 @@
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
           mode: currentMode, tier: els.tier.value, cols: els.cols.value,
-          sideways: els.sideways.checked, dither: els.quantDither.checked,
+          dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, text: els.textInput.value,
         }));
@@ -454,7 +496,6 @@
       currentMode = saved.mode === "image" ? "image" : "text";
       els.tier.value = saved.tier || defaultTierForMode(currentMode);
       if (saved.cols) els.cols.value = saved.cols;
-      els.sideways.checked = !!saved.sideways;
       if (saved.dither) els.quantDither.checked = true; else els.quantThreshold.checked = true;
       if (saved.contrast != null) els.contrast.value = saved.contrast;
       els.invert.checked = !!saved.invert;
@@ -463,25 +504,97 @@
     }
 
     // --- render pipeline -----------------------------------------------------
-    function showPreview(payload) {
-      lastPayload = payload;
-      els.preview.textContent = payload;
-      var len = payloadLength(payload);
-      els.count.textContent = len + " / " + MAX_CHARS;
-      if (els.count.classList) els.count.classList.toggle("over", !withinBudget(payload));
+    // Build the on-screen preview: wrap the glyph grid at the real column width so it
+    // looks like the actual narrow receipt strip, not one screen-wrapping line.
+    function previewText(payload) {
+      var cols = getCols();
+      var sp = payload.indexOf(" ");
+      var grid = sp >= 0 ? payload.slice(0, sp) : payload;   // glyphs before the footer
+      var foot = sp >= 0 ? payload.slice(sp + 1) : "";       // "Cheer100 <nonce>"
+      // Only wrap true glyph grids — skip the "(choose an image…)" placeholder and the
+      // census (both start with an ASCII char; grid glyphs are all >= U+2500).
+      if (grid.length >= cols && grid.charCodeAt(0) > 0x2000 && grid.indexOf(" ") < 0) {
+        var lines = [];
+        for (var i = 0; i < grid.length; i += cols) lines.push(grid.slice(i, i + cols));
+        return lines.join("\n") + (foot ? "\n" + foot : "");
+      }
+      return payload;
+    }
+
+    // Render 1..N parts into #parts: each gets a header (the "Part i of N" prefix
+    // is omitted when there's only one part), a receipt-strip <pre>, and — unless
+    // it's a non-copyable placeholder — its own Copy button. lastParts mirrors
+    // what's on screen so copyPart() can look up the exact payload it just
+    // (re)computed.
+    function renderParts(items) {
+      var container = els.parts;
+      container.textContent = "";
+      var n = items.length;
+      items.forEach(function (item, i) {
+        var card = document.createElement("div");
+        card.className = "part";
+        if (item.showHead !== false) {
+          var head = document.createElement("div");
+          head.className = "part-head";
+          var count = document.createElement("span");
+          count.className = "part-count" + (item.chars > MAX_CHARS ? " over" : "");
+          count.textContent = (n > 1 ? "Part " + (i + 1) + " of " + n + " — " : "") + item.chars + " / " + MAX_CHARS;
+          head.appendChild(count);
+          card.appendChild(head);
+        }
+        var pre = document.createElement("pre");
+        pre.className = "receipt";
+        pre.textContent = previewText(item.payload);
+        card.appendChild(pre);
+        if (item.copyable) {
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "Copy";
+          btn.addEventListener("click", function () { copyPart(i); });
+          card.appendChild(btn);
+        }
+        container.appendChild(card);
+      });
+      if (n > 1) {
+        var note = document.createElement("p");
+        note.className = "parts-note";
+        note.textContent = "Paste the parts into chat in order — each is a separate 100-bit cheer.";
+        container.appendChild(note);
+      }
+    }
+    // Census and Image route through the same 1-part list shape as Big Text's
+    // (possibly multi-part) list, so renderParts never needs to special-case them.
+    function computeParts() {
+      if (currentKind === "census") {
+        var body = buildCensus();
+        return [{ payload: body, chars: payloadLength(body), copyable: true }];
+      }
+      if (currentKind === "image") {
+        var payload = buildImagePayload();
+        if (payload == null) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
+        return [{ payload: payload, chars: payloadLength(payload), copyable: true }];
+      }
+      return buildTextParts().map(function (p) { return { payload: p.payload, chars: p.chars, copyable: true }; });
+    }
+    function refresh() {
+      lastParts = computeParts();
+      renderParts(lastParts);
     }
     function update() {
-      if (currentMode === "image") {
-        var payload = buildImagePayload();
-        showPreview(payload == null ? "(choose an image file above)" : payload);
-        // No real payload yet (no image chosen) — disable Copy so the placeholder
-        // text can never be put on the clipboard.
-        els.copyBtn.disabled = payload == null;
-      } else {
-        showPreview(buildTextPayload());
-        els.copyBtn.disabled = false;
-      }
+      currentKind = currentMode;
+      refresh();
       saveControls();
+    }
+    // Advance just this part's nonce (a text band or the single image payload —
+    // the census has none to advance), then recompute and redisplay so the
+    // clipboard content matches exactly what's now on screen.
+    function copyPart(index) {
+      if (currentKind === "text" || currentKind === "image") {
+        partNonces[index] = nextNonce();
+      }
+      refresh();
+      var item = lastParts[index];
+      if (item) copyToClipboard(item.payload || "");
     }
     function setMode(mode) {
       var modeChanged = mode !== currentMode;
@@ -497,9 +610,10 @@
     // --- wiring (the only part that touches real elements) --------------------
     function init() {
       currentImage = null;
-      lastPayload = "";
+      partNonces = [];
+      lastParts = [];
       sessionNonceCounter = 0;
-      currentNonce = nextNonce();
+      currentKind = "text";
       els = {
         tabText: document.getElementById("tabText"),
         tabImage: document.getElementById("tabImage"),
@@ -507,8 +621,6 @@
         imageControls: document.getElementById("imageControls"),
         tier: document.getElementById("tier"),
         cols: document.getElementById("cols"),
-        colsVal: document.getElementById("colsVal"),
-        sideways: document.getElementById("sideways"),
         quantThreshold: document.getElementById("quantThreshold"),
         quantDither: document.getElementById("quantDither"),
         contrast: document.getElementById("contrast"),
@@ -517,9 +629,7 @@
         cheer: document.getElementById("cheer"),
         textInput: document.getElementById("textInput"),
         imgFile: document.getElementById("imgFile"),
-        preview: document.getElementById("preview"),
-        count: document.getElementById("count"),
-        copyBtn: document.getElementById("copyBtn"),
+        parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
       };
 
@@ -528,10 +638,9 @@
       els.tabText.addEventListener("click", function () { setMode("text"); });
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
-      [els.tier, els.cols, els.sideways, els.quantThreshold, els.quantDither,
+      [els.tier, els.cols, els.quantThreshold, els.quantDither,
        els.contrast, els.invert, els.cheer, els.textInput].forEach(function (el) {
         el.addEventListener("input", function () {
-          els.colsVal.textContent = els.cols.value;
           els.contrastVal.textContent = els.contrast.value;
           update();
         });
@@ -549,20 +658,11 @@
         reader.readAsDataURL(file);
       });
 
-      els.copyBtn.addEventListener("click", function () {
-        // Advance the nonce here (not in update()) and re-render so two
-        // consecutive copies of identical content differ, and the preview
-        // reflects the exact nonce that ends up on the clipboard.
-        currentNonce = nextNonce();
-        update();
-        copyToClipboard(lastPayload || "");
-      });
       els.censusBtn.addEventListener("click", function () {
-        showPreview(buildCensus());
-        els.copyBtn.disabled = false; // census is always a real, copyable payload
+        currentKind = "census";
+        refresh();
       });
 
-      els.colsVal.textContent = els.cols.value;
       els.contrastVal.textContent = els.contrast.value;
       setMode(currentMode);
     }

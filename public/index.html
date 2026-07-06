@@ -132,6 +132,31 @@
   function payloadLength(s) { return Array.from(s).length; }
   function withinBudget(s) { return payloadLength(s) <= MAX_CHARS; }
 
+  var CHEER_TOKEN = "Cheer100";
+  var NONCE_ALPHABET = ["░", "▒", "▓"]; // visible, safe, non-collapsing
+  function makeNonce(i) {
+    var a = NONCE_ALPHABET, base = a.length * a.length;
+    var n = ((i % base) + base) % base;
+    return a[Math.floor(n / a.length)] + a[n % a.length];
+  }
+  function packageCheer(body, opts) {
+    opts = opts || {};
+    if (!opts.cheer) return body;
+    var token = opts.cheerToken || CHEER_TOKEN;
+    var nonce = opts.nonce || "";
+    return body + " " + token + (nonce ? " " + nonce : "");
+  }
+  function buildCensus() {
+    var parts = [
+      "FLOOR" + "█░█░",
+      "RAMP" + "░▒▓█",
+      "BRAILLE" + "⠿⣿⠿",
+      "CJK" + "一二三龍",
+      "RULER" + "0123456789012345",
+    ];
+    return parts.join(" ") + " " + CHEER_TOKEN;
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
@@ -143,6 +168,7 @@
       ditherFloydSteinberg: ditherFloydSteinberg,
       lumaToDots: lumaToDots, packBraille: packBraille,
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
+      makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
     };
   }
 </script>

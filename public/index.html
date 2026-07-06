@@ -48,12 +48,38 @@
     return grid;
   }
 
+  function quantizeTone(luma, ramp, opts) {
+    opts = opts || {};
+    var maxIdx = ramp.length - 1;
+    return luma.map(function (row) {
+      return row.map(function (v) {
+        var t = v / 255;                 // 0=dark,1=light
+        if (opts.invert) t = 1 - t;
+        var idx = Math.round((1 - t) * maxIdx);  // dark→maxIdx (densest)
+        return ramp[idx];
+      });
+    });
+  }
+  function quantizeBinary(luma, opts) {
+    var th = opts.threshold == null ? 128 : opts.threshold;
+    return luma.map(function (row) {
+      return row.map(function (v) {
+        var dark = v < th;
+        if (opts.invert) dark = !dark;
+        return dark ? opts.on : opts.off;
+      });
+    });
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
   // ── TEST EXPORT HOOK ──────────────────────────────────────────────────────
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = { TIERS: TIERS, getTier: getTier, sampleLuma: sampleLuma };
+    module.exports = {
+      TIERS: TIERS, getTier: getTier, sampleLuma: sampleLuma,
+      quantizeTone: quantizeTone, quantizeBinary: quantizeBinary,
+    };
   }
 </script>
 </body>

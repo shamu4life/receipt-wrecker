@@ -7,14 +7,26 @@
   "use strict";
 
   // ── PURE CORE (DOM-free; unit-tested via node:vm) ─────────────────────────
-  // (filled in by later tasks)
+  var TIERS = [
+    { id: "safe",  label: "Blocks ░▒▓█", kind: "tone",
+      ramp: ["░", "▒", "▓", "█"] },
+    { id: "cjk",   label: "CJK ramp",    kind: "tone",
+      ramp: ["丶","一","二","三","王","士","古","目","田","国","黒","龍"] },
+    { id: "braille", label: "Braille",   kind: "braille" },
+    { id: "text",  label: "Big text",    kind: "binary", on: "█", off: "░" },
+  ];
+  function getTier(id) {
+    var t = TIERS.find(function (x) { return x.id === id; });
+    if (!t) throw new Error("unknown tier: " + id);
+    return t;
+  }
 
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
   // ── TEST EXPORT HOOK ──────────────────────────────────────────────────────
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = {};
+    module.exports = { TIERS: TIERS, getTier: getTier };
   }
 </script>
 </body>

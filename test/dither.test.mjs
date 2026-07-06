@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadCore } from "./_harness.mjs";
+import { loadCore, eq } from "./_harness.mjs";
 const C = loadCore();
 
 function levelsOf(nLevels) {
@@ -17,7 +17,7 @@ test("output values are snapped to the requested levels", () => {
 
 test("pure black/white pass through unchanged at 2 levels", () => {
   const out = C.ditherFloydSteinberg([[0, 255]], 2);
-  assert.deepEqual(out, [[0, 255]]);
+  eq(out, [[0, 255]]);
 });
 
 test("a flat mid-gray field diffuses into a mix (not all one level)", () => {

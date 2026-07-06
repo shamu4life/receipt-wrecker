@@ -1,4 +1,4 @@
-<!-- TODO: social-preview banner (see cheer-splitter-9k/.github/social-preview*.svg for the pattern) — omitted here rather than inventing binary/SVG assets. -->
+<!-- No social-preview banner: omitted rather than inventing binary/SVG assets (see cheer-splitter-9k/.github/social-preview*.svg for the pattern used elsewhere). -->
 
 # Receipt Wrecker
 
@@ -75,10 +75,10 @@ one is to render correctly almost anywhere:
 
 | Tier | Glyphs | Notes |
 |---|---|---|
-| **Blocks `░▒▓█`** (default) | 4-level tone ramp | Widest compatibility — ships in the default Windows symbol font, common heritage font, tiles reliably. The safe choice. |
+| **Blocks `░▒▓█`** (Image mode default) | 4-level tone ramp | Widest compatibility — ships in the default Windows symbol font, common heritage font, tiles reliably. The safe choice. |
 | **CJK ramp** | curated Han character density ramp | Higher tonal range for photos; CJK fonts ship by default on Windows, but width/fallback is more rig-dependent. |
 | **Braille** | U+2800–28FF (2×4 dot cells) | Highest resolution — packs 8 dots per glyph — at the cost of being the least universally supported and most prone to dot-bleed at small sizes on thermal paper. |
-| **Big text (on/off)** | `█` / `░` binary | Used automatically for the Big Text mode — maximum-contrast, near-universally rendered, tolerant of a column of wrap drift. |
+| **Big text (on/off)** | `█` / `░` binary | Big Text mode's default tier — maximum-contrast, near-universally rendered, tolerant of a column of wrap drift. The tier selector overrides it, so you can render big text in CJK or Braille too. |
 
 **"Print a test strip" (Census).** Because the tool can't see the destination
 renderer, there's a dedicated **Print test strip** button that emits a single
@@ -125,10 +125,12 @@ sticks to glyph art only.
 1. **Rasterize** — Big Text mode draws your word(s) onto an off-screen `<canvas>`,
    scaled to fill the target width; Image mode draws your picked image onto a
    canvas at the sampled resolution. Either way you get a luminance grid.
-2. **Quantize** — each cell's luminance maps to a glyph: Image mode uses the
-   active tier's tone ramp (with a **Threshold** vs. **Floyd–Steinberg dither**
-   toggle, plus contrast/invert); Big Text mode is always binary (on/off); the
-   Braille tier instead packs a finer 2×4 dot grid per cell.
+2. **Quantize** — each cell's luminance maps to a glyph using the active tier:
+   the tone-ramp tiers (with a **Threshold** vs. **Floyd–Steinberg dither**
+   toggle, plus contrast/invert) or the binary on/off tier; Big Text mode
+   defaults to binary and Image mode defaults to the Blocks tone ramp, but the
+   tier selector overrides either default; the Braille tier instead packs a
+   finer 2×4 dot grid per cell.
 3. **Render** — the grid flattens to a single newline-free string. The "off" cell
    is always a real glyph (never a space) — a run of spaces collapses under HTML's
    default whitespace handling and would shear the grid apart.

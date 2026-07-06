@@ -34,7 +34,7 @@ jobs:
         run: |
           pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open \
             --json number,author \
-            --jq 'map(select(.author.login == "app/dependabot")) | .[0].number // empty')
+            --jq 'map(select(.author.login == "dependabot[bot]")) | .[0].number // empty')
           if [ -z "$pr" ]; then
             echo "No open Dependabot PR for branch $BRANCH; nothing to do."
             exit 0

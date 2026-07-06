@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Receipt Wrecker</title>
+<link rel="icon" href="data:,">
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 1rem; }
@@ -335,11 +336,18 @@
       var luma = sampleLuma(b.pixels, b.w, b.h, o.cols, rows);
       if (tier.kind === "binary") return quantizeBinary(luma, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
       if (o.dither) luma = ditherFloydSteinberg(luma, tier.ramp.length);
-      return quantizeTone(luma, tier.ramp, { invert: o.invert });
+      // Contrast slider doubles as a brightness shift for the tone ramp: at the
+      // default threshold (128) this is a no-op; moving it brightens/darkens the
+      // tone mapping the same way it shifts the binary/braille cutoff.
+      var toneShift = 128 - o.threshold;
+      var shiftedLuma = luma.map(function (row) {
+        return row.map(function (v) { return Math.max(0, Math.min(255, v + toneShift)); });
+      });
+      return quantizeTone(shiftedLuma, tier.ramp, { invert: o.invert });
     }
 
     // --- state (assigned only inside init()/handlers, never at load time) --
-    var els, currentMode, currentImage, lastPayload, sessionNonceCounter;
+    var els, currentMode, currentImage, lastPayload, sessionNonceCounter, currentNonce;
     var TEXT_ROWS = 6;           // fixed line budget for the big-text canvas (v1: not content-adaptive; very long input may clip)
     var CHAR_ASPECT = 0.5;       // monospace glyphs are roughly twice as tall as wide
     var STORAGE_KEY = "rw_controls_v1";
@@ -374,7 +382,10 @@
       };
     }
     function cheerOpts() {
-      return { cheer: els.cheer.checked, nonce: nextNonce() };
+      // The nonce only advances on Copy (see the copyBtn handler below), not on
+      // every recompute — otherwise copying the same content twice would repeat
+      // the nonce and defeat its purpose (beating Twitch's duplicate filter).
+      return { cheer: els.cheer.checked, nonce: currentNonce };
     }
     function buildTextPayload() {
       var o = baseOpts();
@@ -430,12 +441,18 @@
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
+    // Big Text mode defaults to the binary "text" tier (crisp letters); Image
+    // mode defaults to Blocks ("safe"). Applied on mode switch and initial load
+    // — not on every recompute — so a manual tier override survives keystrokes
+    // and only resets when the mode itself actually changes.
+    function defaultTierForMode(mode) { return mode === "image" ? "safe" : "text"; }
+
     function restoreControls() {
       var saved = loadSavedControls();
       currentMode = "text";
-      if (!saved) return;
+      if (!saved) { els.tier.value = defaultTierForMode(currentMode); return; }
       currentMode = saved.mode === "image" ? "image" : "text";
-      if (saved.tier) els.tier.value = saved.tier;
+      els.tier.value = saved.tier || defaultTierForMode(currentMode);
       if (saved.cols) els.cols.value = saved.cols;
       els.sideways.checked = !!saved.sideways;
       if (saved.dither) els.quantDither.checked = true; else els.quantThreshold.checked = true;
@@ -467,7 +484,9 @@
       saveControls();
     }
     function setMode(mode) {
+      var modeChanged = mode !== currentMode;
       currentMode = mode;
+      if (modeChanged) els.tier.value = defaultTierForMode(mode);
       els.tabText.classList.toggle("active", mode === "text");
       els.tabImage.classList.toggle("active", mode === "image");
       els.textControls.hidden = mode !== "text";
@@ -480,6 +499,7 @@
       currentImage = null;
       lastPayload = "";
       sessionNonceCounter = 0;
+      currentNonce = nextNonce();
       els = {
         tabText: document.getElementById("tabText"),
         tabImage: document.getElementById("tabImage"),
@@ -529,7 +549,14 @@
         reader.readAsDataURL(file);
       });
 
-      els.copyBtn.addEventListener("click", function () { copyToClipboard(lastPayload || ""); });
+      els.copyBtn.addEventListener("click", function () {
+        // Advance the nonce here (not in update()) and re-render so two
+        // consecutive copies of identical content differ, and the preview
+        // reflects the exact nonce that ends up on the clipboard.
+        currentNonce = nextNonce();
+        update();
+        copyToClipboard(lastPayload || "");
+      });
       els.censusBtn.addEventListener("click", function () {
         showPreview(buildCensus());
         els.copyBtn.disabled = false; // census is always a real, copyable payload

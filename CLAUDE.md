@@ -123,11 +123,12 @@ All functions live inside the one IIFE in `public/index.html`.
 **Pure core** (DOM-free, unit-tested):
 
 1. `TIERS` / `getTier(id)` — the glyph tier table: `safe` (`░▒▓█` block ramp,
-   default), `cjk` (curated Han density ramp), `braille` (2×4 dot packing,
-   highest resolution), `text` (binary `█`/`░`, used for Big Text mode). Quadrant
-   and fullwidth-ASCII tiers are **explicitly deferred** — do not add them without
-   an explicit request; keep the tier table's shape (`id`, `label`, `kind`,
-   `ramp`/`on`/`off`) if you do.
+   Image mode's default), `cjk` (curated Han density ramp), `braille` (2×4 dot
+   packing, highest resolution), `text` (binary `█`/`░`, Big Text mode's
+   default for crisp letters — the tier selector overrides it, so big text can
+   also render in CJK or Braille). Quadrant and fullwidth-ASCII tiers are
+   **explicitly deferred** — do not add them without an explicit request; keep
+   the tier table's shape (`id`, `label`, `kind`, `ramp`/`on`/`off`) if you do.
 2. `sampleLuma(pixels, imgW, imgH, cols, rows)` — downsamples an RGBA buffer to a
    `cols×rows` luminance grid, compositing alpha over white.
 3. `quantizeTone(luma, ramp, opts)` / `quantizeBinary(luma, opts)` — map
@@ -238,7 +239,8 @@ These are the project's defining properties (shared with the sibling tools).
 - Known v1 limitations, accepted as-is unless a task says otherwise (see
   `.superpowers/sdd/progress.md` for the full accepted-minors list): `buildCensus`
   hardcodes its sample glyphs rather than deriving them from `TIERS`; no keystroke
-  debounce (each keystroke can burn a nonce/localStorage write); `TEXT_ROWS`/
+  debounce (each keystroke still burns a control-settings `localStorage` write via
+  `saveControls()`, though the nonce itself only advances on Copy); `TEXT_ROWS`/
   scale-to-fit height cap means very long big-text input can cramp at narrow
   column widths; `CHAR_ASPECT = 0.5` is a fixed magic constant for glyph
   aspect ratio, not measured per-font.

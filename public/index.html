@@ -28,6 +28,17 @@
     margin: 0 0 .5rem; align-self: flex-start; max-width: 100%; box-sizing: border-box;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
   }
+  /* WYSIWYG receipt paper for Big Text: width mimics 80mm content (~270 CSS px
+     after the template's 1em body margin), same proportional stack + centering
+     as printer-bot's #receipt-container, so on-screen ~= printout. */
+  .receipt-html {
+    width: 270px; max-width: 100%; box-sizing: border-box;
+    background: #fff; color: #000; border: 1px solid #bbb; border-radius: 2px;
+    padding: .5rem .25rem; margin: 0 0 .5rem;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    text-align: center; overflow-wrap: break-word; word-break: break-word;
+    box-shadow: 0 1px 4px rgba(0,0,0,.15);
+  }
   .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
   .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }
   .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
@@ -50,9 +61,10 @@
     <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
     <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
   </div>
-  <div class="hint">Big Text = giant vertical letters — turn the receipt to read. Add line breaks to split the width into side-by-side columns (packs more onto one receipt). Image = a dithered picture.</div>
+  <div class="hint"><strong>Big Text</strong> = your words printed BIG as real type (press Enter for line breaks). <strong>Image</strong> = a picture rendered as glyph-art. Both ride out on a 100-bit cheer.</div>
   <div class="layout">
     <section class="controls">
+      <div id="glyphControls">
       <label>Tier
         <select id="tier">
           <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608;</option>
@@ -84,6 +96,7 @@
 
       <label><input type="checkbox" id="invert"> Invert</label>
       <div class="hint">Swaps ink and paper.</div>
+      </div><!-- /glyphControls -->
 
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
       <div class="hint">Adds " Cheer100 " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
@@ -92,11 +105,11 @@
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
-        <label>Size: <span id="textSizeVal">1.0</span>
-          <button type="button" class="reset" data-target="textSize" data-default="1.0" title="Reset to 1.0">&#8635;</button>
-          <input type="range" id="textSize" min="0.3" max="1" step="0.05" value="1">
+        <label>Size: <span id="textSizeVal">72</span>px
+          <button type="button" class="reset" data-target="textSize" data-default="72" title="Reset to 72px">&#8635;</button>
+          <input type="range" id="textSize" min="24" max="140" step="2" value="72">
         </label>
-        <div class="hint">One line = one big column down the tape (turn the receipt to read). Press Enter to add another line — each takes an equal slice of the width as its own column (2 lines = two half-width columns), read top-to-bottom in the order you typed them. <strong>Size</strong> scales the letters evenly (they keep their shape): 1.0 fills the full width; lower makes them smaller — same look, just fewer receipts.</div>
+        <div class="hint">How big the letters print, in pixels. ~72 fills the 80&nbsp;mm width with a short word; lower it for longer messages or to fit more per receipt. Press Enter in the text box to print separate lines.</div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -444,6 +457,28 @@
       var f = parseFloat(els.textSize.value);
       return isFinite(f) ? Math.max(0.2, Math.min(1, f)) : 1;
     }
+    function getFontSizePx() {
+      var f = parseInt(els.textSize.value, 10);
+      return isFinite(f) ? Math.max(12, Math.min(220, f)) : 72;
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    // Big Text is now REAL oversized type, not a glyph mosaic: the chat message
+    // carries its own inline CSS, which printer-bot drops straight into the page
+    // via innerHTML (confirmed live — <br> prints a line break). It renders in the
+    // printer's own font, so no tofu and no symbol-filter trouble (it's letters).
+    function buildBigTextHtml(text, sizePx) {
+      var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
+      return '<span style="font-size:' + sizePx + 'px;font-weight:800;line-height:1.05">' + inner + '</span>';
+    }
+    // One receipt per message (no spanning): a giant span + the cheer footer.
+    function bigTextParts() {
+      var html = buildBigTextHtml(els.textInput.value || "", getFontSizePx());
+      var payload = packageCheer(html, cheerOptsFor(0));
+      return [{ payload: payload, chars: payloadLength(payload), copyable: true,
+                bigText: true, previewHtml: html }];
+    }
 
     function baseOpts() {
       var threshold = parseInt(els.contrast.value, 10);
@@ -552,7 +587,8 @@
       els.invert.checked = !!saved.invert;
       els.cheer.checked = saved.cheer !== false;
       if (saved.text != null) els.textInput.value = saved.text;
-      if (saved.textSize) els.textSize.value = saved.textSize;
+      // textSize is now a px font-size (>=12); ignore any old fractional value.
+      if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -594,10 +630,17 @@
           head.appendChild(count);
           card.appendChild(head);
         }
-        var pre = document.createElement("pre");
-        pre.className = "receipt";
-        pre.textContent = previewText(item.payload);
-        card.appendChild(pre);
+        if (item.bigText) {
+          var paper = document.createElement("div");
+          paper.className = "receipt-html";
+          paper.innerHTML = item.previewHtml;   // our own escaped HTML — safe
+          card.appendChild(paper);
+        } else {
+          var pre = document.createElement("pre");
+          pre.className = "receipt";
+          pre.textContent = previewText(item.payload);
+          card.appendChild(pre);
+        }
         if (item.copyable) {
           var btn = document.createElement("button");
           btn.type = "button";
@@ -626,7 +669,7 @@
         if (payload == null) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
         return [{ payload: payload, chars: payloadLength(payload), copyable: true }];
       }
-      return buildTextParts().map(function (p) { return { payload: p.payload, chars: p.chars, copyable: true }; });
+      return bigTextParts();
     }
     function refresh() {
       lastParts = computeParts();
@@ -656,6 +699,7 @@
       els.tabImage.classList.toggle("active", mode === "image");
       els.textControls.hidden = mode !== "text";
       els.imageControls.hidden = mode !== "image";
+      els.glyphControls.hidden = mode === "text";   // Tier/cols/quantize/contrast/invert are image-only now
       update();
     }
 
@@ -671,6 +715,7 @@
         tabImage: document.getElementById("tabImage"),
         textControls: document.getElementById("textControls"),
         imageControls: document.getElementById("imageControls"),
+        glyphControls: document.getElementById("glyphControls"),
         tier: document.getElementById("tier"),
         cols: document.getElementById("cols"),
         quantThreshold: document.getElementById("quantThreshold"),

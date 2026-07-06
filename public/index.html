@@ -61,7 +61,7 @@
           <option value="text">Big text (on/off)</option>
         </select>
       </label>
-      <div class="hint">CJK ramp (Big-Text default) &amp; Braille (Image default) both clear chat filters in practice — a bot may <em>delete</em> them after, but the print already fired on the cheer, so it still prints. Blocks ░▒▓█ and Big-text █/░ render the smoothest/crispest grayscale but are the tiers symbol-filters actually <em>hold before</em> printing — only safe once the streamer VIPs you. Pick any tier for either mode.</div>
+      <div class="hint"><strong>CJK ramp</strong> is the default for both modes: it's 41 density-graded Han <em>letters</em> (dodges chat symbol-filters — a bot may <em>delete</em> it after, but the cheer already printed) and it's the one medium proven to actually print on the RP332. <strong>Blocks ░▒▓█</strong> / <strong>Big-text █/░</strong> are crisper but symbol-filters <em>hold</em> them before printing — only safe once the streamer VIPs you. <strong>Braille</strong> is experimental: it may show as blank boxes if the printer's font lacks it — test one before relying on it.</div>
 
       <label>Printer columns
         <input type="number" id="cols" min="6" max="40" step="1" value="15">
@@ -122,7 +122,14 @@
     { id: "safe",  label: "Blocks ░▒▓█", kind: "tone",
       ramp: ["░", "▒", "▓", "█"] },
     { id: "cjk",   label: "CJK ramp",    kind: "tone",
-      ramp: ["丶","一","二","三","王","士","古","目","田","国","黒","龍"] },
+      // 41-level density ramp: light (1 stroke) -> dark (~33 strokes), each glyph
+      // a Unicode LETTER (Lo) so it dodges chat symbol-filters. Adapted from
+      // receiptify's field-proven RP332 palette (space dropped; 一 -> 丿 to avoid
+      // ladder artifacts on antialiased edges). The wide, evenly-graduated span is
+      // what buys smooth tone: dense blacks reach near-solid, edges gradate cleanly.
+      ramp: ["丶","丿","二","三","十","土","王","木","本","禾","田","由","車","東","其",
+             "直","具","青","面","革","頁","風","骨","鬼","高","馬","魚","鳥","鹿","麥",
+             "黑","鼎","鼠","齊","齒","龍","龜","鑫","矗","麤","鬱"] },
     { id: "braille", label: "Braille",   kind: "braille" },
     { id: "text",  label: "Big text",    kind: "binary", on: "█", off: "░" },
   ];
@@ -526,11 +533,12 @@
     // Tier defaults are applied on mode switch and initial load — not on every
     // recompute — so a manual tier override survives keystrokes and only resets
     // when the mode itself actually changes.
-    // Both defaults dodge the chat symbol-filter that HOLDS block ░▒▓█ walls
-    // before the cheer processes (field-confirmed): Big Text -> CJK ramp
-    // (Unicode *letters*), Image -> Braille (prints fine — deleted after at
-    // worst — and its 2×4 dots/cell give the finest detail at 15 cols).
-    function defaultTierForMode(mode) { return mode === "image" ? "braille" : "cjk"; }
+    // Both modes default to the CJK ramp: it's Unicode letters (dodges the chat
+    // symbol-filter that HOLDS block ░▒▓█ walls before the cheer processes) AND
+    // it's the one medium proven to actually PRINT on the RP332 (receiptify's
+    // Hanzi art ran on this exact printer). Braille is still selectable but is
+    // unverified on the printer's font, so it's no longer a default.
+    function defaultTierForMode(mode) { return "cjk"; }
 
     function restoreControls() {
       var saved = loadSavedControls();

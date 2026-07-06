@@ -61,7 +61,7 @@
           <option value="text">Big text (on/off)</option>
         </select>
       </label>
-      <div class="hint">Blocks ░▒▓█ = safe grayscale, Image default. CJK = denser grayscale. Braille = highest resolution. Big text = crisp on/off, Big-Text default — the selector lets big text use any tier too.</div>
+      <div class="hint">CJK = grayscale made of CJK <em>letters</em> — Big-Text default, because chat symbol-filters/AutoMod bots usually let letters through. Blocks ░▒▓█ (Image default) &amp; Braille are crisper but count as <em>symbols</em> that bots may flag. Big text = crispest █/░ on/off. Pick any tier for either mode.</div>
 
       <label>Printer columns
         <input type="number" id="cols" min="6" max="40" step="1" value="15">
@@ -112,6 +112,7 @@
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer &mdash; only the first-party client actually cheers.</p>
+  <p class="reminder"><strong>Held or blocked by chat?</strong> A wall of block symbols trips chat-bot symbol filters (e.g. Moobot&rsquo;s &ldquo;block symbols&rdquo;, on by default) &mdash; the <strong>CJK</strong> tier uses letters and slips past most of them. The reliable fix: have the streamer make you a <strong>VIP</strong> (VIPs bypass AutoMod and every major bot&rsquo;s filters), or add a bot permit / disable its &ldquo;symbols&rdquo; filter.</p>
 </main>
 <script>
   "use strict";
@@ -243,7 +244,7 @@
   function withinBudget(s) { return payloadLength(s) <= MAX_CHARS; }
 
   var CHEER_TOKEN = "Cheer100";
-  var NONCE_ALPHABET = ["░", "▒", "▓"]; // visible, safe, non-collapsing
+  var NONCE_ALPHABET = ["0","1","2","3","4","5","6","7","8","9"]; // digits: visible, non-collapsing, and NOT symbols (so a CJK grid trips no block-symbol/% filters)
   function makeNonce(i) {
     var a = NONCE_ALPHABET, base = a.length * a.length;
     var n = ((i % base) + base) % base;
@@ -501,7 +502,9 @@
     // mode defaults to Blocks ("safe"). Applied on mode switch and initial load
     // — not on every recompute — so a manual tier override survives keystrokes
     // and only resets when the mode itself actually changes.
-    function defaultTierForMode(mode) { return mode === "image" ? "safe" : "text"; }
+    // Big Text defaults to CJK (Unicode *letters*) rather than block █/░ (*symbols*):
+    // chat-bot symbol filters / AutoMod tend to let letters through but flag symbol walls.
+    function defaultTierForMode(mode) { return mode === "image" ? "safe" : "cjk"; }
 
     function restoreControls() {
       var saved = loadSavedControls();

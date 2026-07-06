@@ -125,6 +125,13 @@
     return out;
   }
 
+  var MAX_CHARS = 490;
+  function render(cells) {
+    return cells.map(function (row) { return row.join(""); }).join("");
+  }
+  function payloadLength(s) { return Array.from(s).length; }
+  function withinBudget(s) { return payloadLength(s) <= MAX_CHARS; }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // (filled in by later tasks)
 
@@ -135,6 +142,7 @@
       quantizeTone: quantizeTone, quantizeBinary: quantizeBinary,
       ditherFloydSteinberg: ditherFloydSteinberg,
       lumaToDots: lumaToDots, packBraille: packBraille,
+      render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
     };
   }
 </script>

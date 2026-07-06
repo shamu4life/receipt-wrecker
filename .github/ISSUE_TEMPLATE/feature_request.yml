@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: >
+        What problem does this solve, or what limitation does it address?
+        "I want X" is less useful than "When I do Y, I can't Z because…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? Describe from the user's perspective, not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches you considered, and why you prefer the proposed one.
+    validations:
+      required: false
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope notes
+      description: >
+        Optional — flag anything that affects scope. Note this project is deliberately
+        single-file, zero-dependency, no-network and client-only: the whole app is one
+        public/index.html (inline CSS + one vanilla-JS IIFE). Features that need a build
+        step, an npm package, a framework, a server, accounts, network calls, or HTML/markup
+        injection into the payload are likely out of scope (the last was deliberately
+        evaluated and rejected — see CLAUDE.md).
+    validations:
+      required: false

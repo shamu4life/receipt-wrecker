@@ -1,0 +1,35 @@
+# Flag which Dependabot PRs are safe to auto-merge.
+#
+# Runs dependabot/fetch-metadata to classify the update, and labels ONLY
+# minor/patch bumps as `automerge`. Major bumps are left unlabeled so the
+# auto-merge workflow leaves them open for manual review.
+#
+# Uses pull_request_target because Dependabot's pull_request token is read-only
+# and could not apply a label; this job never checks out or runs PR code (it
+# only reads metadata and adds a label), so the elevated context is safe.
+name: Dependabot metadata
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.user.login == 'dependabot[bot]' }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Flag minor & patch updates as auto-mergeable
+        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-minor' || steps.meta.outputs.update-type == 'version-update:semver-patch' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr edit "$PR_URL" --add-label automerge

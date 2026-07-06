@@ -1,0 +1,59 @@
+# Auto-merge Dependabot pull requests once CI is green — but only the ones the
+# "Dependabot metadata" workflow flagged as `automerge` (minor/patch updates).
+# Major bumps are left unlabeled, so this leaves them open for manual review.
+#
+# Runs after the "CI" workflow finishes. If that run was for a Dependabot pull
+# request and it succeeded, the matching PR is merged when it carries the
+# `automerge` label. Gating on the CI run's success (via workflow_run) means no
+# branch-protection rule is required, and the actor/author checks ensure only
+# Dependabot PRs are ever touched.
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    steps:
+      - name: Merge the Dependabot PR if it is flagged auto-mergeable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr=$(gh pr list -R "$REPO" --head "$BRANCH" --state open \
+            --json number,author \
+            --jq 'map(select(.author.login == "app/dependabot")) | .[0].number // empty')
+          if [ -z "$pr" ]; then
+            echo "No open Dependabot PR for branch $BRANCH; nothing to do."
+            exit 0
+          fi
+          # The "Dependabot metadata" workflow labels minor/patch PRs `automerge`.
+          # It runs in parallel with CI, so allow a short window in case it has
+          # not finished yet, then require the label — majors stay unlabeled and
+          # are left open for manual review.
+          labels=""
+          for attempt in 1 2 3 4 5 6; do
+            labels=$(gh pr view "$pr" -R "$REPO" --json labels --jq '[.labels[].name] | join(",")')
+            case ",$labels," in *,automerge,*) break ;; esac
+            echo "Attempt $attempt: 'automerge' label not present yet; waiting…"
+            sleep 5
+          done
+          case ",$labels," in
+            *,automerge,*)
+              echo "PR #$pr is flagged auto-mergeable — merging."
+              gh pr merge -R "$REPO" --merge --delete-branch "$pr" ;;
+            *)
+              echo "PR #$pr is not flagged auto-mergeable (likely a major update) — leaving open for manual review." ;;
+          esac

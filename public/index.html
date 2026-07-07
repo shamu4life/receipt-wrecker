@@ -124,6 +124,13 @@
           </label>
           <div class="hint">How big the letters are. For <strong>Big type</strong> it's the pixel font size (~72 fills the width with a short word; lower it for longer messages). For <strong>Hanzi tiling</strong> it's how much of the tape width the letters fill. Press Enter for separate lines.</div>
         </div>
+        <div id="rotateLenControl">
+          <label>Length per receipt: <span id="rotateLenVal">950</span>px
+            <button type="button" class="reset" data-target="rotateLen" data-default="950" title="Reset to 950px">&#8635;</button>
+            <input type="range" id="rotateLen" min="300" max="1600" step="50" value="950">
+          </label>
+          <div class="hint">How much sideways text fits on <strong>one</strong> receipt before it splits to the next — so no strip crosses a page break and gouges a word. If long messages still lose bands mid-word, lower this until they print clean; raise it to use fewer strips. <strong>Tape the strips together in order</strong> to read the whole message.</div>
+        </div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -488,6 +495,12 @@
       var f = parseInt(els.textSize.value, 10);
       return isFinite(f) ? Math.max(12, Math.min(220, f)) : 72;
     }
+    // Max rotated-tape length (px) per receipt before Rotate splits to the next
+    // strip. Calibrated by the user to their printer's page break — see the hint.
+    function getRotateLen() {
+      var v = parseInt(els.rotateLen.value, 10);
+      return isFinite(v) ? Math.max(300, Math.min(1600, v)) : 950;
+    }
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
@@ -520,27 +533,59 @@
       var left = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
       return Math.max(1, Math.ceil(right + Math.max(0, left)) + Math.round(fontPx * 0.15));
     }
-    // Each input line = one sideways column; N lines stack at line-height = colW so
-    // each becomes a column running down the tape in parallel. The whole block is
-    // turned by ONE rotate (was one positioned span per line — this roughly halves
-    // the CSS, which is what clears the symbol-ratio filter that blocked the old
-    // multi-span payload). A 90° CW turn about the top-left sends the block off to
-    // the left, so translateX(PAPER_PX) drops it back onto the paper; the first
-    // (top) line lands in the RIGHTMOST column, so columns read top-to-bottom in
-    // typed order when you turn the tape. width/height clamp the layout box to the
-    // paper so the printed page stays paper-wide × text-long regardless of overflow.
-    function buildRotatedHtml(text) {
+    // ONE rotated span holds N side-by-side columns (one per input line). Lines stack
+    // at line-height = colW so each becomes a column running down the tape; a single
+    // 90° CW turn about the top-left sends the block off-paper to the left, so
+    // translateX(PAPER_PX) drops it back on. The first (top) line lands in the
+    // RIGHTMOST column, so columns read top-to-bottom in typed order when you turn the
+    // tape. width/height clamp the layout box to the paper so the page stays
+    // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
+    // = a blank column on this strip).
+    function rotatedSpan(cols, colW, S) {
+      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
+      var inner = cols.map(escapeHtml).join("<br>");
+      var html = '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
+        + 'px;white-space:nowrap;font:800 ' + S + 'px/' + colW + 'px sans-serif;'
+        + '-webkit-transform:translateX(' + PAPER_PX + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
+        + inner + '</span>';
+      return { html: html, maxL: maxL };
+    }
+    // Greedily pack a line's words into segments whose rotated run-length each stays
+    // under maxLen, so no segment is long enough to cross a print page break (which
+    // would slice a gouge through the middle of a word). A single word longer than
+    // maxLen becomes its own over-length segment — rare, and better than a hard cut.
+    function segmentLine(line, fontPx, maxLen) {
+      var words = String(line).split(" ").filter(Boolean), segs = [], cur = "";
+      for (var i = 0; i < words.length; i++) {
+        var trial = cur ? cur + " " + words[i] : words[i];
+        if (cur && runLength(trial, fontPx) > maxLen) { segs.push(cur); cur = words[i]; }
+        else { cur = trial; }
+      }
+      if (cur) segs.push(cur);
+      return segs.length ? segs : [""];
+    }
+    // Giant sideways type, split across receipts so no single strip crosses a print
+    // page break. Each column (input line) is chunked into page-fitting word segments;
+    // part k renders segment k of every column. Tape the strips in order and each
+    // column reads continuously. Short messages come back as a single part.
+    function buildRotatedParts(text) {
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
       if (!lines.length) lines = [" "];
       var N = lines.length, colW = Math.max(1, Math.floor(PAPER_PX / N)), S = Math.round(colW * 1.3);
-      var maxL = lines.reduce(function (mx, l) { return Math.max(mx, runLength(l, S)); }, 1);
-      var inner = lines.map(escapeHtml).join("<br>");         // first line = top = rightmost column
-      return '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
-        + 'px;white-space:nowrap;font:800 ' + S + 'px/' + colW + 'px sans-serif;'
-        + '-webkit-transform:translateX(' + PAPER_PX + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
-        + inner + '</span>';
+      var T = getRotateLen();
+      var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
+      var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
+      var parts = [];
+      for (var k = 0; k < maxSegs; k++) {
+        var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
+        var span = rotatedSpan(cols, colW, S);
+        var payload = packageCheer(span.html, cheerOptsFor(k));
+        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true,
+                     bigText: true, previewHtml: span.html });
+      }
+      return parts;
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
     // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via
@@ -552,9 +597,8 @@
     function bigTextParts() {
       var style = bigStyleVal();
       if (style === "hanzi") return buildTextParts();
-      var html = style === "rotate"
-        ? buildRotatedHtml(els.textInput.value || "")
-        : buildBigTextHtml(els.textInput.value || "", getFontSizePx());
+      if (style === "rotate") return buildRotatedParts(els.textInput.value || "");
+      var html = buildBigTextHtml(els.textInput.value || "", getFontSizePx());
       var payload = packageCheer(html, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true,
                 bigText: true, previewHtml: html }];
@@ -676,6 +720,7 @@
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, text: els.textInput.value,
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
+          rotateLen: els.rotateLen.value,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
@@ -707,6 +752,7 @@
       // bigStyle superseded the old boolean `rotate` — migrate it forward.
       els.bigStyle.value = (saved.bigStyle && ["big", "rotate", "hanzi"].indexOf(saved.bigStyle) >= 0)
         ? saved.bigStyle : (saved.rotate ? "rotate" : "big");
+      if (saved.rotateLen && parseInt(saved.rotateLen, 10) >= 300) els.rotateLen.value = saved.rotateLen;
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -831,6 +877,7 @@
       els.glyphControls.hidden = !(currentMode === "image" || hanzi);
       els.tierControl.hidden = currentMode !== "image";
       els.sizeControl.hidden = !(isText && bigStyleVal() !== "rotate");
+      els.rotateLenControl.hidden = !(isText && bigStyleVal() === "rotate");
       syncSizeLabel();
     }
     function setMode(mode) {
@@ -873,6 +920,9 @@
         textSize: document.getElementById("textSize"),
         textSizeVal: document.getElementById("textSizeVal"),
         textSizeUnit: document.getElementById("textSizeUnit"),
+        rotateLenControl: document.getElementById("rotateLenControl"),
+        rotateLen: document.getElementById("rotateLen"),
+        rotateLenVal: document.getElementById("rotateLenVal"),
         imgFile: document.getElementById("imgFile"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
@@ -883,10 +933,11 @@
       els.tabText.addEventListener("click", function () { setMode("text"); });
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
-      [els.tier, els.cols, els.quantThreshold, els.quantDither,
-       els.contrast, els.invert, els.cheer, els.textInput, els.textSize].forEach(function (el) {
+      [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
+       els.invert, els.cheer, els.textInput, els.textSize, els.rotateLen].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
+          els.rotateLenVal.textContent = els.rotateLen.value;
           syncSizeLabel();
           update();
         });
@@ -923,6 +974,7 @@
       });
 
       els.contrastVal.textContent = els.contrast.value;
+      els.rotateLenVal.textContent = els.rotateLen.value;
       setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel()
     }
 

@@ -520,12 +520,15 @@
       var left = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
       return Math.max(1, Math.ceil(right + Math.max(0, left)) + Math.round(fontPx * 0.15));
     }
-    // Each input line = one sideways column; N lines split the width into N columns
-    // (2 lines = two half-width columns) that run down the tape in parallel. Line 0
-    // is placed RIGHTMOST so the columns read top->bottom (typed order) when you turn
-    // the receipt. Kept compact for Twitch's ~500-char cap: ONE container span holds
-    // all the shared/inheritable CSS (size, line-height, weight, nowrap); each column
-    // is a single absolutely-positioned child that only carries its left + rotate.
+    // Each input line = one sideways column; N lines stack at line-height = colW so
+    // each becomes a column running down the tape in parallel. The whole block is
+    // turned by ONE rotate (was one positioned span per line — this roughly halves
+    // the CSS, which is what clears the symbol-ratio filter that blocked the old
+    // multi-span payload). A 90° CW turn about the top-left sends the block off to
+    // the left, so translateX(PAPER_PX) drops it back onto the paper; the first
+    // (top) line lands in the RIGHTMOST column, so columns read top-to-bottom in
+    // typed order when you turn the tape. width/height clamp the layout box to the
+    // paper so the printed page stays paper-wide × text-long regardless of overflow.
     function buildRotatedHtml(text) {
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
@@ -533,15 +536,11 @@
       if (!lines.length) lines = [" "];
       var N = lines.length, colW = Math.max(1, Math.floor(PAPER_PX / N)), S = Math.round(colW * 1.3);
       var maxL = lines.reduce(function (mx, l) { return Math.max(mx, runLength(l, S)); }, 1);
-      var kids = "";
-      for (var slot = 0; slot < N; slot++) {                 // slot 0 = leftmost column
-        var line = lines[N - 1 - slot];                      // line 0 -> rightmost
-        kids += '<span style="position:absolute;top:0;left:' + ((slot + 1) * colW)
-          + 'px;-webkit-transform:rotate(90deg);-webkit-transform-origin:0 0">'
-          + escapeHtml(line) + '</span>';
-      }
-      return '<span style="display:inline-block;position:relative;white-space:nowrap;width:'
-        + PAPER_PX + 'px;height:' + maxL + 'px;font:800 ' + S + 'px/' + colW + 'px sans-serif">' + kids + '</span>';
+      var inner = lines.map(escapeHtml).join("<br>");         // first line = top = rightmost column
+      return '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
+        + 'px;white-space:nowrap;font:800 ' + S + 'px/' + colW + 'px sans-serif;'
+        + '-webkit-transform:translateX(' + PAPER_PX + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
+        + inner + '</span>';
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
     // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via

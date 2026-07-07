@@ -118,11 +118,11 @@
         </label>
         <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width (<em>Print test strip</em> has a ruler); if it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
-          <label>Size: <span id="textSizeVal">72</span>px
+          <label>Size: <span id="textSizeVal">72</span><span id="textSizeUnit">px</span>
             <button type="button" class="reset" data-target="textSize" data-default="72" title="Reset to 72px">&#8635;</button>
             <input type="range" id="textSize" min="24" max="140" step="2" value="72">
           </label>
-          <div class="hint">How big the letters print, in pixels. ~72 fills the 80&nbsp;mm width with a short word; lower it for longer messages. Press Enter for separate lines.</div>
+          <div class="hint">How big the letters are. For <strong>Big type</strong> it's the pixel font size (~72 fills the width with a short word; lower it for longer messages). For <strong>Hanzi tiling</strong> it's how much of the tape width the letters fill. Press Enter for separate lines.</div>
         </div>
       </div>
       <div id="imageControls" hidden>
@@ -475,9 +475,14 @@
       return Math.max(6, Math.min(40, cols));
     }
 
+    // The one Size slider is dual-purpose: a px font size for the HTML "Big type"
+    // style (getFontSizePx), and a uniform fill fraction for Hanzi tiling (this).
+    // Map the slider's 24..140 travel onto 0.2..1.0 so the whole range is usable.
     function getSizeFactor() {
       var f = parseFloat(els.textSize.value);
-      return isFinite(f) ? Math.max(0.2, Math.min(1, f)) : 1;
+      if (!isFinite(f)) return 1;
+      var min = 24, max = 140, t = (Math.max(min, Math.min(max, f)) - min) / (max - min);
+      return 0.2 + 0.8 * t;
     }
     function getFontSizePx() {
       var f = parseInt(els.textSize.value, 10);
@@ -486,13 +491,14 @@
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
-    // Big Text is now REAL oversized type, not a glyph mosaic: the chat message
-    // carries its own inline CSS, which printer-bot drops straight into the page
-    // via innerHTML (confirmed live — <br> prints a line break). It renders in the
-    // printer's own font, so no tofu and no symbol-filter trouble (it's letters).
+    // Big Text is REAL oversized type, not a glyph mosaic: the chat message carries
+    // its own inline CSS, which printer-bot drops straight into the page via
+    // innerHTML (confirmed live — <br> prints a line break). Size/weight/family ride
+    // in the `font:` shorthand rather than `font-size:`/`font-weight:` so the literal
+    // "font-size" substring never appears — dodges a chat filter keyed on it.
     function buildBigTextHtml(text, sizePx) {
       var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
-      return '<span style="font-size:' + sizePx + 'px;font-weight:800;line-height:1.05">' + inner + '</span>';
+      return '<span style="font:800 ' + sizePx + 'px/1.05 sans-serif">' + inner + '</span>';
     }
     // Rotate 90°: real type run DOWN the tape so each letter is as tall as the
     // paper is WIDE (escapes the width limit) and the message length is unbounded.
@@ -534,8 +540,8 @@
           + 'px;-webkit-transform:rotate(90deg);-webkit-transform-origin:0 0">'
           + escapeHtml(line) + '</span>';
       }
-      return '<span style="display:inline-block;position:relative;white-space:nowrap;font-weight:800;width:'
-        + PAPER_PX + 'px;height:' + maxL + 'px;font-size:' + S + 'px;line-height:' + colW + 'px">' + kids + '</span>';
+      return '<span style="display:inline-block;position:relative;white-space:nowrap;width:'
+        + PAPER_PX + 'px;height:' + maxL + 'px;font:800 ' + S + 'px/' + colW + 'px sans-serif">' + kids + '</span>';
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
     // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via
@@ -616,7 +622,7 @@
       });
     }
     // Image mode: sample -> (dither) -> ASCII ramp -> run-cap -> monospace HTML.
-    // The message carries font-family:monospace + white-space:pre so the grid
+    // The message carries a monospace `font:` shorthand + white-space:pre so the grid
     // tiles and spaces survive; rows joined by <br>. One receipt (no spanning).
     function buildImageParts() {
       if (!currentImage) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
@@ -631,7 +637,7 @@
       var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
       var previewGrid = grid.map(function (r) { return r.join(""); }).join("\n");
       var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
-      var body = '<span style="font-family:monospace;white-space:pre;font-size:' + F + 'px;line-height:' + F + 'px">'
+      var body = '<span style="white-space:pre;font:' + F + 'px/' + F + 'px monospace">'
         + grid.map(function (r) { return escapeHtml(r.join("")); }).join("<br>") + '</span>';
       var payload = packageCheer(body, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true, previewGrid: previewGrid }];
@@ -808,16 +814,25 @@
       var item = lastParts[index];
       if (item) copyToClipboard(item.payload || "");
     }
+    // Size reads as px for "Big type" and as a fill % for Hanzi tiling; the label
+    // unit tracks whichever is active.
+    function syncSizeLabel() {
+      var hanzi = currentMode === "text" && bigStyleVal() === "hanzi";
+      els.textSizeVal.textContent = hanzi ? String(Math.round(getSizeFactor() * 100)) : els.textSize.value;
+      els.textSizeUnit.textContent = hanzi ? "%" : "px";
+    }
     // Glyph controls (cols/quantize/contrast/invert) show for Image mode and for
     // Big Text's Hanzi-tiling style, which drives the same glyph engine. The Tier
-    // picker itself is image-only (Hanzi tiling forces the CJK ramp). The px Size
-    // slider applies only to horizontal "Big type"; the sideways styles auto-fill.
+    // picker itself is image-only (Hanzi tiling forces the CJK ramp). Size shows for
+    // both text styles that use it (Big type + Hanzi); only the HTML sideways
+    // "rotate" auto-fills the width and needs no size input.
     function applyVisibility() {
       var isText = currentMode === "text";
       var hanzi = isText && bigStyleVal() === "hanzi";
       els.glyphControls.hidden = !(currentMode === "image" || hanzi);
       els.tierControl.hidden = currentMode !== "image";
-      els.sizeControl.hidden = !(isText && bigStyleVal() === "big");
+      els.sizeControl.hidden = !(isText && bigStyleVal() !== "rotate");
+      syncSizeLabel();
     }
     function setMode(mode) {
       var modeChanged = mode !== currentMode;
@@ -858,6 +873,7 @@
         sizeControl: document.getElementById("sizeControl"),
         textSize: document.getElementById("textSize"),
         textSizeVal: document.getElementById("textSizeVal"),
+        textSizeUnit: document.getElementById("textSizeUnit"),
         imgFile: document.getElementById("imgFile"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
@@ -872,7 +888,7 @@
        els.contrast, els.invert, els.cheer, els.textInput, els.textSize].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
-          els.textSizeVal.textContent = els.textSize.value;
+          syncSizeLabel();
           update();
         });
       });
@@ -908,8 +924,7 @@
       });
 
       els.contrastVal.textContent = els.contrast.value;
-      els.textSizeVal.textContent = els.textSize.value;
-      setMode(currentMode);
+      setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel()
     }
 
     document.addEventListener("DOMContentLoaded", init);

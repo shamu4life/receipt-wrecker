@@ -34,7 +34,7 @@
   .receipt-html {
     width: 270px; max-width: 100%; box-sizing: border-box;
     background: #fff; color: #000; border: 1px solid #bbb; border-radius: 2px;
-    padding: .5rem .25rem; margin: 0 0 .5rem;
+    padding: .5rem 0; margin: 0 0 .5rem;
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     text-align: center; overflow-wrap: break-word; word-break: break-word;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
@@ -105,11 +105,15 @@
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
-        <label>Size: <span id="textSizeVal">72</span>px
-          <button type="button" class="reset" data-target="textSize" data-default="72" title="Reset to 72px">&#8635;</button>
-          <input type="range" id="textSize" min="24" max="140" step="2" value="72">
-        </label>
-        <div class="hint">How big the letters print, in pixels. ~72 fills the 80&nbsp;mm width with a short word; lower it for longer messages or to fit more per receipt. Press Enter in the text box to print separate lines.</div>
+        <label><input type="checkbox" id="rotate"> Rotate 90° — fill the width (giant)</label>
+        <div class="hint">Runs your text sideways down the tape, so each letter is as tall as the paper is <em>wide</em> — far bigger than fits across. Turn the receipt to read. <strong>Line breaks = side-by-side columns</strong> (2 lines = two sideways lines, read top-to-bottom as typed). Long text just uses more tape.</div>
+        <div id="sizeControl">
+          <label>Size: <span id="textSizeVal">72</span>px
+            <button type="button" class="reset" data-target="textSize" data-default="72" title="Reset to 72px">&#8635;</button>
+            <input type="range" id="textSize" min="24" max="140" step="2" value="72">
+          </label>
+          <div class="hint">How big the letters print, in pixels. ~72 fills the 80&nbsp;mm width with a short word; lower it for longer messages. Press Enter for separate lines.</div>
+        </div>
       </div>
       <div id="imageControls" hidden>
         <label>Image
@@ -472,9 +476,54 @@
       var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
       return '<span style="font-size:' + sizePx + 'px;font-weight:800;line-height:1.05">' + inner + '</span>';
     }
+    // Rotate 90°: real type run DOWN the tape so each letter is as tall as the
+    // paper is WIDE (escapes the width limit) and the message length is unbounded.
+    // Outer box = paper width x text length; inner span is rotated about its
+    // top-left, pinned at left=PAPER_PX so it sweeps down to fill the box. Font is
+    // sized so the caps ~fill the width; the empty leading that spills off-paper is
+    // invisible. CSS rotate is field-confirmed to render in printer-bot's engine.
+    var BIG_FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+    var PAPER_PX = 270;   // ~72mm printable content @96dpi; also the preview paper width. Calibrate to a print.
+    function measureRun(text, fontPx) {
+      var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
+      c.font = "800 " + fontPx + "px " + BIG_FONT;
+      c.textBaseline = "alphabetic";
+      return c.measureText(text);
+    }
+    function runLength(text, fontPx) {
+      var m = measureRun(text, fontPx);
+      var right = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
+      var left = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
+      return Math.max(1, Math.ceil(right + Math.max(0, left)) + Math.round(fontPx * 0.15));
+    }
+    // Each input line = one sideways column; N lines split the width into N columns
+    // (2 lines = two half-width columns) that run down the tape in parallel. Line 0
+    // is placed RIGHTMOST so the columns read top->bottom (typed order) when you turn
+    // the receipt. Kept compact for Twitch's ~500-char cap: ONE container span holds
+    // all the shared/inheritable CSS (size, line-height, weight, nowrap); each column
+    // is a single absolutely-positioned child that only carries its left + rotate.
+    function buildRotatedHtml(text) {
+      var lines = String(text).replace(/\r/g, "").split("\n")
+        .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
+        .filter(function (l) { return l.length; });
+      if (!lines.length) lines = [" "];
+      var N = lines.length, colW = Math.max(1, Math.floor(PAPER_PX / N)), S = Math.round(colW * 1.3);
+      var maxL = lines.reduce(function (mx, l) { return Math.max(mx, runLength(l, S)); }, 1);
+      var kids = "";
+      for (var slot = 0; slot < N; slot++) {                 // slot 0 = leftmost column
+        var line = lines[N - 1 - slot];                      // line 0 -> rightmost
+        kids += '<span style="position:absolute;top:0;left:' + ((slot + 1) * colW)
+          + 'px;-webkit-transform:rotate(90deg);-webkit-transform-origin:0 0">'
+          + escapeHtml(line) + '</span>';
+      }
+      return '<span style="display:inline-block;position:relative;white-space:nowrap;font-weight:800;width:'
+        + PAPER_PX + 'px;height:' + maxL + 'px;font-size:' + S + 'px;line-height:' + colW + 'px">' + kids + '</span>';
+    }
     // One receipt per message (no spanning): a giant span + the cheer footer.
     function bigTextParts() {
-      var html = buildBigTextHtml(els.textInput.value || "", getFontSizePx());
+      var html = (els.rotate && els.rotate.checked)
+        ? buildRotatedHtml(els.textInput.value || "")
+        : buildBigTextHtml(els.textInput.value || "", getFontSizePx());
       var payload = packageCheer(html, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true,
                 bigText: true, previewHtml: html }];
@@ -561,7 +610,7 @@
           dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, text: els.textInput.value,
-          textSize: els.textSize.value,
+          textSize: els.textSize.value, rotate: els.rotate.checked,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
@@ -589,6 +638,7 @@
       if (saved.text != null) els.textInput.value = saved.text;
       // textSize is now a px font-size (>=12); ignore any old fractional value.
       if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
+      els.rotate.checked = !!saved.rotate;
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -725,6 +775,8 @@
         invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
         textInput: document.getElementById("textInput"),
+        rotate: document.getElementById("rotate"),
+        sizeControl: document.getElementById("sizeControl"),
         textSize: document.getElementById("textSize"),
         textSizeVal: document.getElementById("textSizeVal"),
         imgFile: document.getElementById("imgFile"),
@@ -738,10 +790,11 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither,
-       els.contrast, els.invert, els.cheer, els.textInput, els.textSize].forEach(function (el) {
+       els.contrast, els.invert, els.cheer, els.textInput, els.textSize, els.rotate].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
           els.textSizeVal.textContent = els.textSize.value;
+          els.sizeControl.hidden = els.rotate.checked;   // rotate auto-fills the width; px size is moot
           update();
         });
       });
@@ -773,6 +826,7 @@
 
       els.contrastVal.textContent = els.contrast.value;
       els.textSizeVal.textContent = els.textSize.value;
+      els.sizeControl.hidden = els.rotate.checked;
       setMode(currentMode);
     }
 

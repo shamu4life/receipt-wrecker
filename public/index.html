@@ -67,19 +67,19 @@
       <div id="glyphControls">
       <label>Tier
         <select id="tier">
-          <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608;</option>
-          <option value="cjk">CJK ramp</option>
-          <option value="braille">Braille</option>
-          <option value="text">Big text (on/off)</option>
+          <option value="ascii">ASCII &mdash; letters (safest)</option>
+          <option value="asciifull">ASCII &mdash; full detail</option>
+          <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608; (needs VIP)</option>
+          <option value="braille">Braille (experimental)</option>
         </select>
       </label>
-      <div class="hint"><strong>CJK ramp</strong> is the default for both modes: it's 41 density-graded Han <em>letters</em> (dodges chat symbol-filters — a bot may <em>delete</em> it after, but the cheer already printed) and it's the one medium proven to actually print on the RP332. <strong>Blocks ░▒▓█</strong> / <strong>Big-text █/░</strong> are crisper but symbol-filters <em>hold</em> them before printing — only safe once the streamer VIPs you. <strong>Braille</strong> is experimental: it may show as blank boxes if the printer's font lacks it — test one before relying on it.</div>
+      <div class="hint">Which characters build the picture. <strong>ASCII — letters</strong> renders in the printer's own font (no tofu) and is space+letters only, so it slips past symbol filters; with dither + run-capping it also dodges Nightbot's repetition filter — the safe default. <strong>Full detail</strong> adds punctuation for more contrast (may trip a symbol filter). <strong>Blocks/Braille</strong> look crispest but the printer usually can't render them (blank boxes) unless you're a VIP.</div>
 
-      <label>Printer columns
-        <input type="number" id="cols" min="6" max="40" step="1" value="15">
-        <button type="button" class="reset" data-target="cols" data-default="15" title="Reset to 15">&#8635;</button>
+      <label>Detail (columns)
+        <input type="number" id="cols" min="8" max="34" step="1" value="20">
+        <button type="button" class="reset" data-target="cols" data-default="20" title="Reset to 20">&#8635;</button>
       </label>
-      <div class="hint">How many glyph-cells your printer prints per line — 15 is typical for 80 mm paper. Set once with the Census (Print test strip); changing it re-flows everything.</div>
+      <div class="hint">How many characters wide the picture is — more = finer detail but a longer message (watch the char count). ~20 fits comfortably; tall/portrait images may need fewer.</div>
 
       <fieldset>
         <legend>Quantize</legend>
@@ -136,6 +136,14 @@
 
   // ── PURE CORE (DOM-free; unit-tested via node:vm) ─────────────────────────
   var TIERS = [
+    // ASCII ramps for Image mode. Plain ASCII renders in the printer's font (no
+    // tofu, unlike CJK/blocks/braille). "letters" is space + alnum only, so it
+    // also dodges symbol-filters; paired with dither + run-capping it slips past
+    // Nightbot's repetition filter too. light -> dark.
+    { id: "ascii",     label: "ASCII — letters (safest)", kind: "tone",
+      ramp: [" ","i","c","v","o","x","n","s","a","e","w","m","q","0","8","B","W","M"] },
+    { id: "asciifull", label: "ASCII — full detail",       kind: "tone",
+      ramp: [" ",".",":","-","=","+","*","o","a","e","w","m","8","%","#","B","@","M"] },
     { id: "safe",  label: "Blocks ░▒▓█", kind: "tone",
       ramp: ["░", "▒", "▓", "█"] },
     { id: "cjk",   label: "CJK ramp",    kind: "tone",
@@ -565,16 +573,42 @@
       }
       return parts;
     }
-    // Image mode never spans — exactly one payload; over budget just reddens
-    // the counter (handled in renderParts), same as before.
-    function buildImagePayload() {
-      if (!currentImage) return null;
+    // Cap any run of identical chars at maxRun by nudging the offender to the
+    // next ramp level — deterministically defeats Nightbot's repetition filter
+    // even in flat regions that dither leaves solid (pure black/white).
+    function breakRuns(rows, ramp, maxRun) {
+      return rows.map(function (row) {
+        var out = row.slice(), run = 1;
+        for (var i = 1; i < out.length; i++) {
+          // Break runs of INK only; leave blank (space) runs alone so light areas
+          // stay clean. (If space-repetition turns out to be filtered, revisit.)
+          if (out[i] === out[i - 1] && out[i] !== " ") {
+            if (++run > maxRun) {
+              var idx = ramp.indexOf(out[i]);
+              out[i] = ramp[idx + 1 < ramp.length ? idx + 1 : idx - 1] || out[i];
+              run = 1;
+            }
+          } else { run = 1; }
+        }
+        return out;
+      });
+    }
+    // Image mode: sample -> (dither) -> ASCII ramp -> run-cap -> monospace HTML.
+    // The message carries font-family:monospace + white-space:pre so the grid
+    // tiles and spaces survive; rows joined by <br>. One receipt (no spanning).
+    function buildImageParts() {
+      if (!currentImage) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
       var o = baseOpts();
       o.img = currentImage;
       o.rows = rowsForImage(o.cols, currentImage.naturalWidth || currentImage.width, currentImage.naturalHeight || currentImage.height);
       var tier = getTier(els.tier.value);
-      var body = render(computeGrid("image", tier, o));
-      return packageCheer(body, cheerOptsFor(0));
+      var grid = breakRuns(computeGrid("image", tier, o), tier.ramp, 3);
+      var previewGrid = grid.map(function (r) { return r.join(""); }).join("\n");
+      var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
+      var body = '<span style="font-family:monospace;white-space:pre;font-size:' + F + 'px;line-height:' + F + 'px">'
+        + grid.map(function (r) { return escapeHtml(r.join("")); }).join("<br>") + '</span>';
+      var payload = packageCheer(body, cheerOptsFor(0));
+      return [{ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true, previewGrid: previewGrid }];
     }
 
     // --- clipboard -----------------------------------------------------------
@@ -622,14 +656,16 @@
     // it's the one medium proven to actually PRINT on the RP332 (receiptify's
     // Hanzi art ran on this exact printer). Braille is still selectable but is
     // unverified on the printer's font, so it's no longer a default.
-    function defaultTierForMode(mode) { return "cjk"; }
+    // Image ramp default (text mode ignores tier entirely — big text is real type).
+    var VALID_TIERS = { ascii: 1, asciifull: 1, safe: 1, braille: 1 };
+    function defaultTierForMode(mode) { return "ascii"; }
 
     function restoreControls() {
       var saved = loadSavedControls();
       currentMode = "text";
       if (!saved) { els.tier.value = defaultTierForMode(currentMode); return; }
       currentMode = saved.mode === "image" ? "image" : "text";
-      els.tier.value = saved.tier || defaultTierForMode(currentMode);
+      els.tier.value = (saved.tier && VALID_TIERS[saved.tier]) ? saved.tier : "ascii";
       if (saved.cols) els.cols.value = saved.cols;
       if (saved.dither) els.quantDither.checked = true; else els.quantThreshold.checked = true;
       if (saved.contrast != null) els.contrast.value = saved.contrast;
@@ -688,7 +724,7 @@
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";
-          pre.textContent = previewText(item.payload);
+          pre.textContent = item.previewGrid != null ? item.previewGrid : previewText(item.payload);
           card.appendChild(pre);
         }
         if (item.copyable) {
@@ -714,11 +750,7 @@
         var body = buildCensus();
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
-      if (currentKind === "image") {
-        var payload = buildImagePayload();
-        if (payload == null) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
-        return [{ payload: payload, chars: payloadLength(payload), copyable: true }];
-      }
+      if (currentKind === "image") return buildImageParts();
       return bigTextParts();
     }
     function refresh() {

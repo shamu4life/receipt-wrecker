@@ -45,6 +45,7 @@
   .part { margin: 0 0 1rem; }
   .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
   .part-count.over { color: #d33; font-weight: 700; }
+  .over-note { font-size: .8rem; color: #d33; margin: -.15rem 0 .4rem; }
   .parts-note { font-size: .85rem; opacity: .8; margin: .25rem 0 1rem; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
@@ -56,7 +57,7 @@
 <body>
 <main id="app">
   <h1>Receipt Wrecker</h1>
-  <p class="intro">Turns big text or a picture into paste-ready block glyphs — paste the result into Twitch chat as a Cheer100.</p>
+  <p class="intro">Your words as giant type, or a picture as glyph-art — paste the result into Twitch chat as a Cheer100 and it prints on the streamer&rsquo;s receipt printer.</p>
   <div class="tabs">
     <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
     <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
@@ -69,11 +70,11 @@
         <select id="tier">
           <option value="ascii">ASCII &mdash; letters (safest)</option>
           <option value="asciifull">ASCII &mdash; full detail</option>
-          <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608; (needs VIP)</option>
+          <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608; (often blank on printer)</option>
           <option value="braille">Braille (experimental)</option>
         </select>
       </label>
-      <div class="hint">Which characters build the picture. <strong>ASCII — letters</strong> renders in the printer's own font (no tofu) and is space+letters only, so it slips past symbol filters; with dither + run-capping it also dodges Nightbot's repetition filter — the safe default. <strong>Full detail</strong> adds punctuation for more contrast (may trip a symbol filter). <strong>Blocks/Braille</strong> look crispest but the printer usually can't render them (blank boxes) unless you're a VIP.</div>
+      <div class="hint">Which characters build the picture. <strong>ASCII — letters</strong> renders in the printer's own font (no tofu) and is space+letters only, so it slips past symbol filters; with dither + run-capping it also dodges Nightbot's repetition filter — the safe default. <strong>Full detail</strong> adds punctuation for more contrast (may trip a symbol filter). <strong>Blocks/Braille</strong> look crispest on screen but this printer usually can't render them — they print as blank boxes.</div>
 
       <label>Detail (columns)
         <input type="number" id="cols" min="8" max="34" step="1" value="20">
@@ -129,7 +130,7 @@
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer &mdash; only the first-party client actually cheers.</p>
-  <p class="reminder"><strong>Held or blocked by chat?</strong> A wall of block symbols trips chat-bot symbol filters (e.g. Moobot&rsquo;s &ldquo;block symbols&rdquo;, on by default) &mdash; the <strong>CJK</strong> tier uses letters and slips past most of them. The reliable fix: have the streamer make you a <strong>VIP</strong> (VIPs bypass AutoMod and every major bot&rsquo;s filters), or add a bot permit / disable its &ldquo;symbols&rdquo; filter.</p>
+  <p class="reminder"><strong>Held or blocked by chat?</strong> Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: a rotating nonce beats duplicate-blocking, letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit (which bypass all of it) there&rsquo;s no way to <em>guarantee</em> delivery &mdash; so if a message is held, just resend, shorten it, or drop the column count and try again.</p>
 </main>
 <script>
   "use strict";
@@ -602,7 +603,11 @@
       o.img = currentImage;
       o.rows = rowsForImage(o.cols, currentImage.naturalWidth || currentImage.width, currentImage.naturalHeight || currentImage.height);
       var tier = getTier(els.tier.value);
-      var grid = breakRuns(computeGrid("image", tier, o), tier.ramp, 3);
+      var raw = computeGrid("image", tier, o);
+      // Run-capping nudges an over-repeated cell to the next ramp level; the
+      // braille tier has no ramp (it packs dots, not tone levels), so skip it
+      // there — calling breakRuns with an undefined ramp would throw.
+      var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
       var previewGrid = grid.map(function (r) { return r.join(""); }).join("\n");
       var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
       var body = '<span style="font-family:monospace;white-space:pre;font-size:' + F + 'px;line-height:' + F + 'px">'
@@ -715,6 +720,14 @@
           count.textContent = (n > 1 ? "Part " + (i + 1) + " of " + n + " — " : "") + item.chars + " / " + MAX_CHARS;
           head.appendChild(count);
           card.appendChild(head);
+        }
+        // Twitch rejects (doesn't truncate) an over-length message, so an
+        // over-budget part would silently fail to send — say why and how to fix.
+        if (item.chars > MAX_CHARS) {
+          var warn = document.createElement("div");
+          warn.className = "over-note";
+          warn.textContent = "Too long for Twitch (~500 chars) — trim it: fewer columns, shorter text, or a smaller size.";
+          card.appendChild(warn);
         }
         if (item.bigText) {
           var paper = document.createElement("div");

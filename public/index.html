@@ -66,15 +66,18 @@
   <div class="layout">
     <section class="controls">
       <div id="glyphControls">
+      <div id="tierControl">
       <label>Tier
         <select id="tier">
           <option value="ascii">ASCII &mdash; letters (safest)</option>
           <option value="asciifull">ASCII &mdash; full detail</option>
+          <option value="cjk">Hanzi &#40845; &mdash; letters, prints on RP332</option>
           <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608; (often blank on printer)</option>
           <option value="braille">Braille (experimental)</option>
         </select>
       </label>
-      <div class="hint">Which characters build the picture. <strong>ASCII — letters</strong> renders in the printer's own font (no tofu) and is space+letters only, so it slips past symbol filters; with dither + run-capping it also dodges Nightbot's repetition filter — the safe default. <strong>Full detail</strong> adds punctuation for more contrast (may trip a symbol filter). <strong>Blocks/Braille</strong> look crispest on screen but this printer usually can't render them — they print as blank boxes.</div>
+      <div class="hint">Which characters build the picture. <strong>ASCII — letters</strong> renders in the printer's own font (no tofu) and is space+letters only, so it slips past symbol filters; with dither + run-capping it also dodges Nightbot's repetition filter — the safe default. <strong>Full detail</strong> adds punctuation for more contrast (may trip a symbol filter). <strong>Hanzi</strong> tiles from Han glyphs (letters, no markup — prints on the RP332). <strong>Blocks/Braille</strong> look crispest on screen but this printer usually can't render them — they print as blank boxes.</div>
+      </div><!-- /tierControl -->
 
       <label>Detail (columns)
         <input type="number" id="cols" min="8" max="34" step="1" value="20">
@@ -106,8 +109,14 @@
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
         </label>
-        <label><input type="checkbox" id="rotate"> Rotate 90° — fill the width (giant)</label>
-        <div class="hint">Runs your text sideways down the tape, so each letter is as tall as the paper is <em>wide</em> — far bigger than fits across. Turn the receipt to read. <strong>Line breaks = side-by-side columns</strong> (2 lines = two sideways lines, read top-to-bottom as typed). Long text just uses more tape.</div>
+        <label>Style
+          <select id="bigStyle">
+            <option value="big">Big type — fills the width</option>
+            <option value="rotate">Giant sideways — HTML</option>
+            <option value="hanzi">Giant sideways — Hanzi tiling (no markup)</option>
+          </select>
+        </label>
+        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width (<em>Print test strip</em> has a ruler); if it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
           <label>Size: <span id="textSizeVal">72</span>px
             <button type="button" class="reset" data-target="textSize" data-default="72" title="Reset to 72px">&#8635;</button>
@@ -528,9 +537,17 @@
       return '<span style="display:inline-block;position:relative;white-space:nowrap;font-weight:800;width:'
         + PAPER_PX + 'px;height:' + maxL + 'px;font-size:' + S + 'px;line-height:' + colW + 'px">' + kids + '</span>';
     }
-    // One receipt per message (no spanning): a giant span + the cheer footer.
+    function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
+    // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via
+    // printer-bot's innerHTML). "hanzi" falls back to the markup-free glyph engine
+    // (buildTextParts) — the same giant sideways letters, but tiled from Han glyphs
+    // carrying zero CSS symbols, so they ride past the symbol-% filters that block
+    // the rotate payload's ~360 chars of positioning CSS. One receipt per HTML
+    // message; the glyph fallback bands across receipts when it's tall.
     function bigTextParts() {
-      var html = (els.rotate && els.rotate.checked)
+      var style = bigStyleVal();
+      if (style === "hanzi") return buildTextParts();
+      var html = style === "rotate"
         ? buildRotatedHtml(els.textInput.value || "")
         : buildBigTextHtml(els.textInput.value || "", getFontSizePx());
       var payload = packageCheer(html, cheerOptsFor(0));
@@ -561,16 +578,20 @@
       o.text = els.textInput.value || "";
       var tier = getTier(els.tier.value);
       var grid = computeGrid("text", tier, o);
+      // Run-cap tone tiers (cjk has no space, so even blank rows of the lightest
+      // glyph get broken) so a giant sideways letter doesn't send a wall of one
+      // repeated glyph into the repetition filter. Adds a faint texture; it sends.
+      if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
       var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - 14) / o.cols));
       var parts = [];
       for (var r = 0; r < grid.length; r += rowsPerMsg) {
         var body = render(grid.slice(r, r + rowsPerMsg));
         var payload = packageCheer(body, cheerOptsFor(parts.length));
-        parts.push({ payload: payload, chars: payloadLength(payload) });
+        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true });
       }
       if (!parts.length) {
         var empty = packageCheer("", cheerOptsFor(0));
-        parts.push({ payload: empty, chars: payloadLength(empty) });
+        parts.push({ payload: empty, chars: payloadLength(empty), copyable: true });
       }
       return parts;
     }
@@ -649,21 +670,20 @@
           dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, text: els.textInput.value,
-          textSize: els.textSize.value, rotate: els.rotate.checked,
+          textSize: els.textSize.value, bigStyle: els.bigStyle.value,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
     // Tier defaults are applied on mode switch and initial load — not on every
     // recompute — so a manual tier override survives keystrokes and only resets
-    // when the mode itself actually changes.
-    // Both modes default to the CJK ramp: it's Unicode letters (dodges the chat
-    // symbol-filter that HOLDS block ░▒▓█ walls before the cheer processes) AND
-    // it's the one medium proven to actually PRINT on the RP332 (receiptify's
-    // Hanzi art ran on this exact printer). Braille is still selectable but is
-    // unverified on the printer's font, so it's no longer a default.
-    // Image ramp default (text mode ignores tier entirely — big text is real type).
-    var VALID_TIERS = { ascii: 1, asciifull: 1, safe: 1, braille: 1 };
-    function defaultTierForMode(mode) { return "ascii"; }
+    // when the mode itself actually changes. Image mode (and the HTML big-text
+    // styles, which ignore the tier) default to the ASCII-letters ramp. Big
+    // Text's Hanzi-tiling style defaults to the CJK ramp: Unicode letters (dodge
+    // the symbol filter) and the one medium proven to print on the RP332.
+    var VALID_TIERS = { ascii: 1, asciifull: 1, cjk: 1, safe: 1, braille: 1 };
+    function defaultTierForMode(mode) {
+      return (mode === "text" && bigStyleVal() === "hanzi") ? "cjk" : "ascii";
+    }
 
     function restoreControls() {
       var saved = loadSavedControls();
@@ -679,7 +699,9 @@
       if (saved.text != null) els.textInput.value = saved.text;
       // textSize is now a px font-size (>=12); ignore any old fractional value.
       if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
-      els.rotate.checked = !!saved.rotate;
+      // bigStyle superseded the old boolean `rotate` — migrate it forward.
+      els.bigStyle.value = (saved.bigStyle && ["big", "rotate", "hanzi"].indexOf(saved.bigStyle) >= 0)
+        ? saved.bigStyle : (saved.rotate ? "rotate" : "big");
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -786,6 +808,17 @@
       var item = lastParts[index];
       if (item) copyToClipboard(item.payload || "");
     }
+    // Glyph controls (cols/quantize/contrast/invert) show for Image mode and for
+    // Big Text's Hanzi-tiling style, which drives the same glyph engine. The Tier
+    // picker itself is image-only (Hanzi tiling forces the CJK ramp). The px Size
+    // slider applies only to horizontal "Big type"; the sideways styles auto-fill.
+    function applyVisibility() {
+      var isText = currentMode === "text";
+      var hanzi = isText && bigStyleVal() === "hanzi";
+      els.glyphControls.hidden = !(currentMode === "image" || hanzi);
+      els.tierControl.hidden = currentMode !== "image";
+      els.sizeControl.hidden = !(isText && bigStyleVal() === "big");
+    }
     function setMode(mode) {
       var modeChanged = mode !== currentMode;
       currentMode = mode;
@@ -794,7 +827,7 @@
       els.tabImage.classList.toggle("active", mode === "image");
       els.textControls.hidden = mode !== "text";
       els.imageControls.hidden = mode !== "image";
-      els.glyphControls.hidden = mode === "text";   // Tier/cols/quantize/contrast/invert are image-only now
+      applyVisibility();
       update();
     }
 
@@ -811,6 +844,7 @@
         textControls: document.getElementById("textControls"),
         imageControls: document.getElementById("imageControls"),
         glyphControls: document.getElementById("glyphControls"),
+        tierControl: document.getElementById("tierControl"),
         tier: document.getElementById("tier"),
         cols: document.getElementById("cols"),
         quantThreshold: document.getElementById("quantThreshold"),
@@ -820,7 +854,7 @@
         invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
         textInput: document.getElementById("textInput"),
-        rotate: document.getElementById("rotate"),
+        bigStyle: document.getElementById("bigStyle"),
         sizeControl: document.getElementById("sizeControl"),
         textSize: document.getElementById("textSize"),
         textSizeVal: document.getElementById("textSizeVal"),
@@ -835,13 +869,17 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither,
-       els.contrast, els.invert, els.cheer, els.textInput, els.textSize, els.rotate].forEach(function (el) {
+       els.contrast, els.invert, els.cheer, els.textInput, els.textSize].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
           els.textSizeVal.textContent = els.textSize.value;
-          els.sizeControl.hidden = els.rotate.checked;   // rotate auto-fills the width; px size is moot
           update();
         });
+      });
+      els.bigStyle.addEventListener("change", function () {
+        if (els.bigStyle.value === "hanzi") els.tier.value = "cjk";   // the point of the style
+        applyVisibility();
+        update();
       });
 
       [].forEach.call(document.querySelectorAll(".reset"), function (btn) {
@@ -871,7 +909,6 @@
 
       els.contrastVal.textContent = els.contrast.value;
       els.textSizeVal.textContent = els.textSize.value;
-      els.sizeControl.hidden = els.rotate.checked;
       setMode(currentMode);
     }
 

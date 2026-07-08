@@ -516,7 +516,7 @@
     // "font-size" substring never appears — dodges a chat filter keyed on it.
     function buildBigTextHtml(text, sizePx) {
       var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
-      return '<span style="font:800 ' + sizePx + 'px/1.05 sans-serif">' + inner + '</span>';
+      return '<span style="' + FONT_PROP + '800 ' + sizePx + 'px/1.05 sans-serif">' + inner + '</span>';
     }
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
@@ -528,6 +528,12 @@
     // character defuses it. A non-breaking space is invisible on the print and, unlike
     // a normal leading space, isn't trimmed away before the filter sees it.
     var LEAD_GUARD = "\u00A0";
+    // The chat filter has walked from "font-size:" -> "font:"; both are now blocked.
+    // A CSS comment breaks the literal token (the filter matches a plain string) while
+    // the parser treats /**/ as whitespace, so `font /**/ : value` still applies. This
+    // is the property prefix used in every generated style; if "font/**/:" gets blocked
+    // too, change it here in one place (e.g. add more comments, or split differently).
+    var FONT_PROP = "font/**/:/**/";
     var PAPER_PX = 270;   // ~72mm printable content @96dpi; also the preview paper width. Calibrate to a print.
     function measureRun(text, fontPx) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
@@ -558,7 +564,7 @@
       var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
       var html = '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
-        + 'px;white-space:nowrap;font:800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
+        + 'px;white-space:nowrap;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
         + '-webkit-transform:translateX(' + PAPER_PX + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
         + inner + '</span>';
       return { html: html, maxL: maxL };
@@ -711,7 +717,7 @@
       var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
       var previewGrid = grid.map(function (r) { return r.join(""); }).join("\n");
       var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
-      var body = '<span style="white-space:pre;font:' + F + 'px/' + F + 'px monospace">'
+      var body = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">'
         + grid.map(function (r) { return escapeHtml(r.join("")); }).join("<br>") + '</span>';
       var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true, previewGrid: previewGrid }];

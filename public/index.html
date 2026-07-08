@@ -85,10 +85,10 @@
       </div><!-- /tierControl -->
 
       <label>Detail (columns)
-        <input type="number" id="cols" min="8" max="34" step="1" value="20">
+        <input type="number" id="cols" min="8" max="48" step="1" value="20">
         <button type="button" class="reset" data-target="cols" data-default="20" title="Reset to 20">&#8635;</button>
       </label>
-      <div class="hint">How many characters wide the picture is — more = finer detail but a longer message (watch the char count). ~20 fits comfortably; tall/portrait images may need fewer.</div>
+      <div class="hint">How many characters wide the picture is — more = finer detail. The picture no longer has to fit one message: it splits into as many receipt strips as it needs, so higher detail just means more strips to tape together (in order). ~20 is a quick single strip; crank it up for a real picture.</div>
 
       <fieldset>
         <legend>Quantize</legend>
@@ -312,14 +312,21 @@
     return body + " " + token + (nonce ? " " + nonce : "");
   }
   function buildCensus() {
+    // One print tells us what the target printer actually renders (vs tofu boxes)
+    // and its true column width — the data that decides the best MARKUP-FREE glyph
+    // set (the durable, un-filterable path). Each label is plain ASCII so it prints
+    // even when its sample tofus (e.g. "HANZI ####" boxes = no CJK font); the RULER
+    // is a long digit run that wraps at the paper, so you read the column count off
+    // the first line. Kept markup-free: it tests raw glyph rendering and sends easily.
     var parts = [
-      "FLOOR" + "█░█░",
-      "RAMP" + "░▒▓█",
-      "BRAILLE" + "⠿⣿⠿",
-      "CJK" + "一二三龍",
-      "RULER" + "0123456789012345",
+      "RULER 0123456789012345678901234567890123456789",
+      "ASCII .:+*oe#@",         // letters/punctuation ramp — always renders (baseline)
+      "HANZI 丶二土田車馬鬱",     // CJK density ramp — smooth tone if the printer has a CJK font
+      "BRAILLE ⠁⠆⠇⠿⣿",          // braille = 8 dots/char (highest detail) — renders or tofu?
+      "BLOCKS ░▒▓█",             // block-element ramp — renders or tofu?
+      "QUAD ▖▚▙▜█",              // 2x2 quadrant blocks (4 dots/char) — renders or tofu?
     ];
-    return parts.join(" ") + " " + CHEER_TOKEN;
+    return parts.join("  ") + "  " + CHEER_TOKEN;
   }
 
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
@@ -454,7 +461,7 @@
 
     function rowsForImage(cols, w, h) {
       if (!w || !h) return Math.max(1, Math.round(cols / 2));
-      return Math.max(1, Math.min(80, Math.round(cols * (h / w) * CHAR_ASPECT)));
+      return Math.max(1, Math.min(120, Math.round(cols * (h / w) * CHAR_ASPECT)));
     }
 
     function nextNonce() {
@@ -484,7 +491,7 @@
     function getCols() {
       var cols = parseInt(els.cols.value, 10);
       if (!isFinite(cols)) cols = 15;
-      return Math.max(6, Math.min(40, cols));
+      return Math.max(6, Math.min(48, cols));
     }
 
     // The one Size slider is dual-purpose: a px font size for the HTML "Big type"
@@ -701,9 +708,11 @@
         return out;
       });
     }
-    // Image mode: sample -> (dither) -> ASCII ramp -> run-cap -> monospace HTML.
-    // The message carries a monospace `font:` shorthand + white-space:pre so the grid
-    // tiles and spaces survive; rows joined by <br>. One receipt (no spanning).
+    // Image mode: sample -> (dither) -> ramp -> run-cap -> monospace HTML, BANDED
+    // across receipts. Each strip is a horizontal band of rows sized to fit MAX_CHARS
+    // (the span wrapper + cheer footer reserved); tape the strips top-to-bottom to
+    // rebuild the picture. Banding is what lets the grid be bigger than one ~490-char
+    // message can hold — i.e. real resolution instead of a thumbnail.
     function buildImageParts() {
       if (!currentImage) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
       var o = baseOpts();
@@ -711,16 +720,25 @@
       o.rows = rowsForImage(o.cols, currentImage.naturalWidth || currentImage.width, currentImage.naturalHeight || currentImage.height);
       var tier = getTier(els.tier.value);
       var raw = computeGrid("image", tier, o);
-      // Run-capping nudges an over-repeated cell to the next ramp level; the
-      // braille tier has no ramp (it packs dots, not tone levels), so skip it
-      // there — calling breakRuns with an undefined ramp would throw.
+      // Run-capping nudges an over-repeated cell to the next ramp level; the braille
+      // tier has no ramp (it packs dots, not tone levels), so skip it — calling
+      // breakRuns with an undefined ramp would throw.
       var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
-      var previewGrid = grid.map(function (r) { return r.join(""); }).join("\n");
       var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
-      var body = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">'
-        + grid.map(function (r) { return escapeHtml(r.join("")); }).join("<br>") + '</span>';
-      var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
-      return [{ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true, previewGrid: previewGrid }];
+      var open = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">';
+      // Rows per strip = budget minus (guard + open tag + </span> + cheer footer),
+      // divided by a row's cost (cols glyphs + "<br>"). At least one row per strip.
+      var overhead = LEAD_GUARD.length + open.length + 7 + 14;
+      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - overhead) / (o.cols + 4)));
+      var parts = [];
+      for (var r = 0; r < grid.length; r += rowsPerMsg) {
+        var strip = grid.slice(r, r + rowsPerMsg);
+        var body = open + strip.map(function (row) { return escapeHtml(row.join("")); }).join("<br>") + '</span>';
+        var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(parts.length));
+        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true,
+                     previewGrid: strip.map(function (row) { return row.join(""); }).join("\n") });
+      }
+      return parts;
     }
 
     // --- clipboard -----------------------------------------------------------
@@ -870,7 +888,7 @@
     // (possibly multi-part) list, so renderParts never needs to special-case them.
     function computeParts() {
       if (currentKind === "census") {
-        var body = buildCensus();
+        var body = buildCensus() + " " + nonceForPart(0);   // nonce so a re-print isn't dup-blocked
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
       if (currentKind === "image") return buildImageParts();
@@ -889,7 +907,7 @@
     // the census has none to advance), then recompute and redisplay so the
     // clipboard content matches exactly what's now on screen.
     function copyPart(index) {
-      if (currentKind === "text" || currentKind === "image") {
+      if (currentKind === "text" || currentKind === "image" || currentKind === "census") {
         partNonces[index] = nextNonce();
       }
       refresh();

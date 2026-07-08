@@ -38,6 +38,11 @@
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     text-align: center; overflow-wrap: break-word; word-break: break-word;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
+    /* The Rotate preview is a rotate(90deg) span whose bounding box juts far to the
+       left of the paper — invisible, but it would otherwise swallow clicks meant for
+       the controls (e.g. the text box). The preview is view-only, so drop its hit
+       area entirely. */
+    pointer-events: none;
   }
   .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
   .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }

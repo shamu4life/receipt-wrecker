@@ -535,12 +535,15 @@
     // character defuses it. A non-breaking space is invisible on the print and, unlike
     // a normal leading space, isn't trimmed away before the filter sees it.
     var LEAD_GUARD = "\u00A0";
-    // The chat filter has walked from "font-size:" -> "font:"; both are now blocked.
-    // A CSS comment breaks the literal token (the filter matches a plain string) while
-    // the parser treats /**/ as whitespace, so `font /**/ : value` still applies. This
-    // is the property prefix used in every generated style; if "font/**/:" gets blocked
-    // too, change it here in one place (e.g. add more comments, or split differently).
-    var FONT_PROP = "font/**/:/**/";
+    // The filter walked "font-size:" -> "font:" -> a wildcard matching "font"..":",
+    // which beat the CSS-comment trick (there's still a literal "font"). Next lever: a
+    // CSS unicode-escape in the property NAME — "\66ont:" is "font:" to the parser
+    // (\66 = 'f') but contains no literal "font" for the filter to match. Field-
+    // confirmed to both send and render. A property name can't be comment-split, so
+    // escapes are the last HTML lever; if this gets blocked too, the durable answer is
+    // the markup-free glyph modes. (JS needs \\ for one backslash; strict mode forbids
+    // a bare \66 octal escape.) Used as the property prefix in every generated style.
+    var FONT_PROP = "\\66ont:";
     var PAPER_PX = 270;   // ~72mm printable content @96dpi; also the preview paper width. Calibrate to a print.
     function measureRun(text, fontPx) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));

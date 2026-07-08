@@ -513,13 +513,16 @@
       var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
       return '<span style="font:800 ' + sizePx + 'px/1.05 sans-serif">' + inner + '</span>';
     }
-    // Rotate 90°: real type run DOWN the tape so each letter is as tall as the
-    // paper is WIDE (escapes the width limit) and the message length is unbounded.
-    // Outer box = paper width x text length; inner span is rotated about its
-    // top-left, pinned at left=PAPER_PX so it sweeps down to fill the box. Font is
-    // sized so the caps ~fill the width; the empty leading that spills off-paper is
-    // invisible. CSS rotate is field-confirmed to render in printer-bot's engine.
-    var BIG_FONT = "-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+    // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
+    // WIDE), split across receipts so no strip crosses a page break. Measure AND
+    // render with the SAME font, and one present on both this browser and the printer
+    // (Arial) — mismatched fonts make per-glyph widths drift, the drift accumulates
+    // across a word, the box comes out short, and the last letter(s) get sheared.
+    var BIG_FONT = "Arial,sans-serif";
+    // A leading "<" gets some messages blocked before they send; any non-"<" first
+    // character defuses it. A non-breaking space is invisible on the print and, unlike
+    // a normal leading space, isn't trimmed away before the filter sees it.
+    var LEAD_GUARD = "\u00A0";
     var PAPER_PX = 270;   // ~72mm printable content @96dpi; also the preview paper width. Calibrate to a print.
     function measureRun(text, fontPx) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
@@ -531,7 +534,12 @@
       var m = measureRun(text, fontPx);
       var right = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
       var left = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
-      return Math.max(1, Math.ceil(right + Math.max(0, left)) + Math.round(fontPx * 0.15));
+      // Pad long: a proportional margin (per-glyph metric drift accumulates over a
+      // word) plus a fixed bit for rounding. Erring long adds invisible blank tape;
+      // erring short shears the last letter. This same length caps segments AND sizes
+      // each strip's box, so a strip never renders longer than it measures.
+      var measured = right + Math.max(0, left);
+      return Math.max(1, Math.ceil(measured * 1.08) + Math.round(fontPx * 0.12));
     }
     // ONE rotated span holds N side-by-side columns (one per input line). Lines stack
     // at line-height = colW so each becomes a column running down the tape; a single
@@ -545,22 +553,40 @@
       var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
       var html = '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
-        + 'px;white-space:nowrap;font:800 ' + S + 'px/' + colW + 'px sans-serif;'
+        + 'px;white-space:nowrap;font:800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
         + '-webkit-transform:translateX(' + PAPER_PX + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
         + inner + '</span>';
       return { html: html, maxL: maxL };
     }
-    // Greedily pack a line's words into segments whose rotated run-length each stays
-    // under maxLen, so no segment is long enough to cross a print page break (which
-    // would slice a gouge through the middle of a word). A single word longer than
-    // maxLen becomes its own over-length segment — rare, and better than a hard cut.
+    // Break one token into character chunks each within maxLen — for a single word
+    // too long to fit a strip (e.g. "MINECRAFT" at full size). Splitting it across
+    // strips at letter boundaries beats letting it overrun a page and gouge a band
+    // out of the middle. Returns [tok] when it already fits.
+    function breakToken(tok, fontPx, maxLen) {
+      if (runLength(tok, fontPx) <= maxLen) return [tok];
+      var out = [], chunk = "";
+      for (var i = 0; i < tok.length; i++) {
+        var t = chunk + tok.charAt(i);
+        if (chunk && runLength(t, fontPx) > maxLen) { out.push(chunk); chunk = tok.charAt(i); }
+        else { chunk = t; }
+      }
+      if (chunk) out.push(chunk);
+      return out;
+    }
+    // Pack a line's words into segments whose rotated run-length each stays under
+    // maxLen, so no segment crosses a print page break (which slices a gouge through
+    // a word). Over-long words are first split by letter; those fragments never get
+    // a space joined to a neighbor, so taping the strips rebuilds the word cleanly.
     function segmentLine(line, fontPx, maxLen) {
       var words = String(line).split(" ").filter(Boolean), segs = [], cur = "";
-      for (var i = 0; i < words.length; i++) {
-        var trial = cur ? cur + " " + words[i] : words[i];
-        if (cur && runLength(trial, fontPx) > maxLen) { segs.push(cur); cur = words[i]; }
-        else { cur = trial; }
-      }
+      words.forEach(function (w) {
+        breakToken(w, fontPx, maxLen).forEach(function (p, idx) {
+          if (idx > 0) { if (cur) segs.push(cur); cur = p; return; }   // word fragment: own segment
+          var trial = cur ? cur + " " + p : p;
+          if (cur && runLength(trial, fontPx) > maxLen) { segs.push(cur); cur = p; }
+          else { cur = trial; }
+        });
+      });
       if (cur) segs.push(cur);
       return segs.length ? segs : [""];
     }
@@ -581,7 +607,7 @@
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
         var span = rotatedSpan(cols, colW, S);
-        var payload = packageCheer(span.html, cheerOptsFor(k));
+        var payload = packageCheer(LEAD_GUARD + span.html, cheerOptsFor(k));
         parts.push({ payload: payload, chars: payloadLength(payload), copyable: true,
                      bigText: true, previewHtml: span.html });
       }
@@ -599,7 +625,7 @@
       if (style === "hanzi") return buildTextParts();
       if (style === "rotate") return buildRotatedParts(els.textInput.value || "");
       var html = buildBigTextHtml(els.textInput.value || "", getFontSizePx());
-      var payload = packageCheer(html, cheerOptsFor(0));
+      var payload = packageCheer(LEAD_GUARD + html, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true,
                 bigText: true, previewHtml: html }];
     }
@@ -682,7 +708,7 @@
       var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
       var body = '<span style="white-space:pre;font:' + F + 'px/' + F + 'px monospace">'
         + grid.map(function (r) { return escapeHtml(r.join("")); }).join("<br>") + '</span>';
-      var payload = packageCheer(body, cheerOptsFor(0));
+      var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true, previewGrid: previewGrid }];
     }
 

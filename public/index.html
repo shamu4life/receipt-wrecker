@@ -62,12 +62,12 @@
 <body>
 <main id="app">
   <h1>Receipt Wrecker</h1>
-  <p class="intro">Your words as giant type, or a picture as glyph-art — paste the result into Twitch chat as a Cheer100 and it prints on the streamer&rsquo;s receipt printer.</p>
+  <p class="intro">Your words as giant type, or a picture (a real image by link, or glyph-art from a file) — paste the result into Twitch chat as a Cheer100 and it prints on the streamer&rsquo;s receipt printer.</p>
   <div class="tabs">
     <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
     <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
   </div>
-  <div class="hint"><strong>Big Text</strong> = your words printed BIG as real type (press Enter for line breaks). <strong>Image</strong> = a picture rendered as glyph-art. Both ride out on a 100-bit cheer.</div>
+  <div class="hint"><strong>Big Text</strong> = your words printed BIG as real type (press Enter for line breaks). <strong>Image</strong> = the real picture from a link, or glyph-art from an uploaded file. Both ride out on a 100-bit cheer.</div>
   <div class="layout">
     <section class="controls">
       <div id="glyphControls">
@@ -138,7 +138,18 @@
         </div>
       </div>
       <div id="imageControls" hidden>
-        <label>Image
+        <label>Image URL — real picture
+          <input type="url" id="imgUrl" placeholder="https://&hellip;/pic.jpg">
+        </label>
+        <div class="hint">Paste a link to an image already on the web and it prints the <strong>actual picture</strong> (far better than glyph-art). Memes are already hosted; for your own files, drop them in Discord/imgur first and paste the direct link — this tool can&rsquo;t host a local file (no server). Leave blank to make glyph-art from an upload instead.</div>
+        <div id="imgUrlWidth">
+          <label>Print width: <span id="imgWidthVal">75</span>mm
+            <button type="button" class="reset" data-target="imgWidth" data-default="75" title="Reset to 75mm">&#8635;</button>
+            <input type="range" id="imgWidth" min="20" max="80" step="1" value="75">
+          </label>
+          <div class="hint">How wide it prints. ~75&nbsp;mm fills an 80&nbsp;mm roll edge to edge; the printer converts it to black &amp; white, so high-contrast images (memes, logos, line art) come out cleanest.</div>
+        </div>
+        <label>&hellip; or upload a file (glyph-art)
           <input type="file" id="imgFile" accept="image/*">
         </label>
       </div>
@@ -493,6 +504,10 @@
       if (!isFinite(cols)) cols = 15;
       return Math.max(6, Math.min(48, cols));
     }
+    function getImgWidth() {
+      var w = parseInt(els.imgWidth.value, 10);
+      return isFinite(w) ? Math.max(10, Math.min(80, w)) : 75;
+    }
 
     // The one Size slider is dual-purpose: a px font size for the HTML "Big type"
     // style (getFontSizePx), and a uniform fill fraction for Hanzi tiling (this).
@@ -516,6 +531,9 @@
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
+    // For a value going into a double-quoted HTML attribute (the image URL): also
+    // neutralize the quote so a crafted URL can't break out of the attribute/tag.
+    function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
     // Big Text is REAL oversized type, not a glyph mosaic: the chat message carries
     // its own inline CSS, which printer-bot drops straight into the page via
     // innerHTML (confirmed live — <br> prints a line break). Size/weight/family ride
@@ -711,6 +729,20 @@
         return out;
       });
     }
+    // Real image via <object data="url">: the picture lives at the URL, so the
+    // payload is ~100 chars regardless of image size (the whole point — base64 the
+    // image inline and it blows past Twitch's ~500-char cap). wkhtmltopdf fetches and
+    // renders it at print time; the printer dithers to B&W. Not markup-free, but on a
+    // filter surface (<object>, width:) that carries no "font" — passes the current
+    // filters. The tool never loads the URL itself (privacy/offline); the preview
+    // shows the payload text, not the fetched image.
+    function buildUrlImageParts() {
+      var url = (els.imgUrl.value || "").trim();
+      if (!url) return [{ payload: "(paste an image URL above)", chars: 0, copyable: false, showHead: false }];
+      var body = '<object data="' + escapeAttr(url) + '" style="width:' + getImgWidth() + 'mm;display:block"></object>';
+      var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
+      return [{ payload: payload, chars: payloadLength(payload), copyable: true }];
+    }
     // Image mode: sample -> (dither) -> ramp -> run-cap -> monospace HTML, BANDED
     // across receipts. Each strip is a horizontal band of rows sized to fit MAX_CHARS
     // (the span wrapper + cheer footer reserved); tape the strips top-to-bottom to
@@ -779,6 +811,7 @@
           cheer: els.cheer.checked, text: els.textInput.value,
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
           rotateLen: els.rotateLen.value,
+          imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
@@ -811,6 +844,8 @@
       els.bigStyle.value = (saved.bigStyle && ["big", "rotate", "hanzi"].indexOf(saved.bigStyle) >= 0)
         ? saved.bigStyle : (saved.rotate ? "rotate" : "big");
       if (saved.rotateLen && parseInt(saved.rotateLen, 10) >= 300) els.rotateLen.value = saved.rotateLen;
+      if (saved.imgUrl != null) els.imgUrl.value = saved.imgUrl;
+      if (saved.imgWidth && parseInt(saved.imgWidth, 10) >= 10) els.imgWidth.value = saved.imgWidth;
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -894,7 +929,7 @@
         var body = buildCensus() + " " + nonceForPart(0);   // nonce so a re-print isn't dup-blocked
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
-      if (currentKind === "image") return buildImageParts();
+      if (currentKind === "image") return (els.imgUrl.value || "").trim() ? buildUrlImageParts() : buildImageParts();
       return bigTextParts();
     }
     function refresh() {
@@ -932,8 +967,12 @@
     function applyVisibility() {
       var isText = currentMode === "text";
       var hanzi = isText && bigStyleVal() === "hanzi";
-      els.glyphControls.hidden = !(currentMode === "image" || hanzi);
-      els.tierControl.hidden = currentMode !== "image";
+      // A URL in Image mode = real-image mode: hide the glyph-art controls (tier/cols/
+      // quantize/contrast/invert) and show the print-width slider instead.
+      var urlMode = currentMode === "image" && (els.imgUrl.value || "").trim() !== "";
+      els.glyphControls.hidden = !((currentMode === "image" && !urlMode) || hanzi);
+      els.tierControl.hidden = currentMode !== "image" || urlMode;
+      els.imgUrlWidth.hidden = !urlMode;
       els.sizeControl.hidden = !(isText && bigStyleVal() !== "rotate");
       els.rotateLenControl.hidden = !(isText && bigStyleVal() === "rotate");
       syncSizeLabel();
@@ -982,6 +1021,10 @@
         rotateLen: document.getElementById("rotateLen"),
         rotateLenVal: document.getElementById("rotateLenVal"),
         imgFile: document.getElementById("imgFile"),
+        imgUrl: document.getElementById("imgUrl"),
+        imgUrlWidth: document.getElementById("imgUrlWidth"),
+        imgWidth: document.getElementById("imgWidth"),
+        imgWidthVal: document.getElementById("imgWidthVal"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
       };
@@ -992,11 +1035,13 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.textInput, els.textSize, els.rotateLen].forEach(function (el) {
+       els.invert, els.cheer, els.textInput, els.textSize, els.rotateLen,
+       els.imgUrl, els.imgWidth].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
           els.rotateLenVal.textContent = els.rotateLen.value;
-          syncSizeLabel();
+          els.imgWidthVal.textContent = els.imgWidth.value;
+          applyVisibility();   // a URL toggles real-image vs glyph-art controls
           update();
         });
       });
@@ -1033,6 +1078,7 @@
 
       els.contrastVal.textContent = els.contrast.value;
       els.rotateLenVal.textContent = els.rotateLen.value;
+      els.imgWidthVal.textContent = els.imgWidth.value;
       setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel()
     }
 

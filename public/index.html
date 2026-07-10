@@ -543,6 +543,33 @@
       var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
       return '<span style="' + FONT_PROP + '800 ' + sizePx + 'px/1.05 sans-serif">' + inner + '</span>';
     }
+    // Big Text as inline SVG — a fresh, non-CSS filter surface. The mod is actively
+    // fighting the `font` CSS property; SVG sizes text with the font-size ATTRIBUTE
+    // (no colon), so it slips the `*font*..:*` filter, and it's confirmed to render on
+    // the printer. Crisp vector, self-contained (previews with no external load). One
+    // <text> per line; a thin stroke fakes bold without a font-weight property; the
+    // box is measured (padded) so nothing clips against SVG's default overflow:hidden.
+    // Caveat: if the text itself contains a ":", the font-size attr + that colon can
+    // re-trip the filter — rare, and Hanzi is the colon-proof fallback.
+    function buildBigTextSvg(text, sizePx) {
+      var lines = String(text).replace(/\r/g, "").split("\n");
+      // SVG clips overflow (unlike a wrapping <span>), so cap the font at the size
+      // where the widest line fills the paper — never wider. Measure at a ref 100px;
+      // width scales linearly, so fitSize = paperTarget * 100 / width@100. The slider
+      // still shrinks it below that; it just can't push text off the edge.
+      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100).width); }, 1);
+      var fit = Math.floor(250 * 100 / wide100);   // ~250px target leaves margin for font drift on the printer
+      var S = Math.max(8, Math.min(sizePx, fit));
+      var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
+      var pad = Math.max(2, Math.round(S * 0.08)), w = 1, kids = "";
+      for (var i = 0; i < lines.length; i++) {
+        var lw = Math.ceil(measureRun(lines[i] || " ", S).width) + pad * 2;
+        if (lw > w) w = lw;
+        kids += '<text x="' + pad + '" y="' + (i * lh + Math.round(S * 0.82) + pad)
+          + '" font-size="' + S + '" fill="#000" stroke="#000" stroke-width="' + sw + '">' + escapeHtml(lines[i]) + '</text>';
+      }
+      return '<svg width="' + w + '" height="' + (lines.length * lh + pad * 2) + '">' + kids + '</svg>';
+    }
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
     // render with the SAME font, and one present on both this browser and the printer
@@ -663,7 +690,9 @@
       var style = bigStyleVal();
       if (style === "hanzi") return buildTextParts();
       if (style === "rotate") return buildRotatedParts(els.textInput.value || "");
-      var html = buildBigTextHtml(els.textInput.value || "", getFontSizePx());
+      // "big" now renders as SVG (fresh, non-CSS surface). buildBigTextHtml is kept as
+      // a one-line-swap fallback if the SVG surface ever gets filtered.
+      var html = buildBigTextSvg(els.textInput.value || "", getFontSizePx());
       var payload = packageCheer(LEAD_GUARD + html, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true,
                 bigText: true, previewHtml: html }];

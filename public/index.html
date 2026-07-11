@@ -191,6 +191,9 @@
       </div>
     </section>
     <section class="preview">
+      <label class="thermal-toggle" title="Render the preview the way the printer does: 1-bit black &amp; white, dithered">
+        <input type="checkbox" id="thermalView"> Thermal preview &mdash; 1-bit dithered, like the real printer
+      </label>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="censusBtn">Print test strip</button>
@@ -918,6 +921,7 @@
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
           rotateLen: els.rotateLen.value,
           imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
+          thermalView: els.thermalView.checked,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
@@ -952,6 +956,7 @@
       if (saved.rotateLen && parseInt(saved.rotateLen, 10) >= 300) els.rotateLen.value = saved.rotateLen;
       if (saved.imgUrl != null) els.imgUrl.value = saved.imgUrl;
       if (saved.imgWidth && parseInt(saved.imgWidth, 10) >= 10) els.imgWidth.value = saved.imgWidth;
+      els.thermalView.checked = !!saved.thermalView;
     }
 
     // --- render pipeline -----------------------------------------------------
@@ -985,6 +990,106 @@
       r.appendChild(bodyNode);
       r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot">twitch</div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
       return r;
+    }
+
+    // ── THERMAL PREVIEW ────────────────────────────────────────────────────
+    // Show the preview the way the printer actually renders it: 1-bit black &
+    // white, Atkinson-dithered, at the real print-dot resolution. The upstream
+    // "shamu simulator" does NOT do this (it's a plain CSS preview) — the real
+    // dithering happens downstream in the printer's wkhtmltopdf→raster chain, so
+    // we reproduce it here. Approach (validated, no libraries, CSP-safe):
+    // serialize the receipt node → SVG <foreignObject> data-URL scaled to the
+    // dot width → draw to canvas → Rec.601 luma → Atkinson dither.
+    var THERMAL_W = 560;   // 70mm printable × 8 dots/mm @203dpi = the RP332's real row width
+    // Page CSS does NOT cascade into a serialized-SVG foreignObject, so the
+    // receipt styling must ride along as an embedded <style>. Kept in sync with
+    // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
+    var RCPT_CSS =
+      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:5mm 5mm 3mm;background:#fff;color:#000;text-align:center;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}' +
+      '.rcpt-av{width:20mm;height:20mm;border-radius:50%;background:#dcdcdc;margin:0 auto 2mm;}' +
+      '.rcpt-title{font-weight:900;font-size:1.4em;text-transform:uppercase;line-height:1.05;}' +
+      '.rcpt-sub{font-weight:700;font-size:1.1em;}' +
+      '.rcpt-body{padding:.5em 0;}' +
+      '.rcpt-body>svg,.rcpt-body>img{max-width:100%;height:auto;display:block;margin:0 auto;}' +
+      '.rcpt-foot{font-weight:700;font-size:.85em;color:#772ce8;}' +
+      '.rcpt-date{font-size:.7em;text-transform:uppercase;opacity:.7;margin-top:.5mm;}';
+    // Atkinson dither, in place on ImageData: Rec.601 gray, threshold 128,
+    // diffuse err/8 to 6 neighbours — the soft, slightly-blown-out look of a
+    // cheap thermal head (leaks 2/8 of the error, so highlights lift out).
+    function atkinsonDither(imageData) {
+      var w = imageData.width, h = imageData.height, d = imageData.data;
+      var gray = new Float32Array(w * h), i;
+      for (i = 0; i < w * h; i++) gray[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2];
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var idx = y * w + x, oldV = gray[idx], newV = oldV < 128 ? 0 : 255, err = (oldV - newV) / 8;
+          gray[idx] = newV;
+          if (x + 1 < w) gray[idx + 1] += err;
+          if (x + 2 < w) gray[idx + 2] += err;
+          if (y + 1 < h) {
+            if (x - 1 >= 0) gray[idx + w - 1] += err;
+            gray[idx + w] += err;
+            if (x + 1 < w) gray[idx + w + 1] += err;
+          }
+          if (y + 2 < h) gray[idx + 2*w] += err;
+        }
+      }
+      for (i = 0; i < w * h; i++) { var v = gray[i]; d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255; }
+      return imageData;
+    }
+    // Rasterize a receipt node and REPLACE it with a 1-bit dithered <canvas>.
+    // Cross-origin images taint the canvas → getImageData throws → we skip the
+    // dither and keep the (faithfully rasterized) canvas rather than crash.
+    function thermalize(node) {
+      return new Promise(function (resolve, reject) {
+        var rect = node.getBoundingClientRect();
+        var w0 = rect.width, h0 = rect.height;
+        if (!w0 || !h0) { reject(new Error("node not laid out")); return; }
+        var S = THERMAL_W / w0, targetH = Math.max(1, Math.round(h0 * S));
+        var clone = node.cloneNode(true);
+        clone.style.border = "none"; clone.style.boxShadow = "none"; clone.style.margin = "0";
+        clone.style.background = "#fff"; clone.style.width = w0 + "px"; clone.style.maxWidth = "none";
+        var xhtml = new XMLSerializer().serializeToString(clone);
+        var svg =
+          '<svg xmlns="http://www.w3.org/2000/svg" width="' + THERMAL_W + '" height="' + targetH + '">' +
+            '<g transform="scale(' + S + ')">' +
+              '<foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
+                '<div xmlns="http://www.w3.org/1999/xhtml"><style>' + RCPT_CSS + '</style>' + xhtml + '</div>' +
+              '</foreignObject>' +
+            '</g>' +
+          '</svg>';
+        var img = new Image();
+        img.onload = function () {
+          var canvas = document.createElement("canvas");
+          canvas.width = THERMAL_W; canvas.height = targetH;
+          var ctx = canvas.getContext("2d", { willReadFrequently: true });
+          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, THERMAL_W, targetH);
+          ctx.drawImage(img, 0, 0);
+          try {
+            var data = ctx.getImageData(0, 0, THERMAL_W, targetH);
+            atkinsonDither(data); ctx.putImageData(data, 0, 0);
+          } catch (e) { /* cross-origin taint — keep the un-dithered raster */ }
+          canvas.className = "rcpt-thermal";
+          if (node.parentNode) node.parentNode.replaceChild(canvas, node);
+          resolve(canvas);
+        };
+        img.onerror = function () { reject(new Error("svg raster failed")); };
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      });
+    }
+    // Debounced pass: after a render settles, replace each thermalable frame with
+    // its dithered canvas. Debounced so live typing doesn't rasterize per keystroke.
+    var thermalTimer = null;
+    function scheduleThermal() {
+      if (!(els.thermalView && els.thermalView.checked)) return;
+      if (thermalTimer) clearTimeout(thermalTimer);
+      thermalTimer = setTimeout(function () {
+        var ready = (typeof document !== "undefined" && document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+        ready.then(function () {
+          var frames = els.parts.querySelectorAll(".rcpt[data-thermalable]");
+          for (var i = 0; i < frames.length; i++) thermalize(frames[i])["catch"](function () {});
+        });
+      }, 220);
     }
     // Render 1..N parts into #parts: each gets a header (the "Part i of N" prefix
     // is omitted when there's only one part), a receipt-strip <pre>, and — unless
@@ -1029,7 +1134,12 @@
             img.src = item.previewImgUrl;
             body.appendChild(img);
           }
-          card.appendChild(receiptFrame(body));
+          var frame = receiptFrame(body);
+          // Big Text (SVG / rotate span) is self-contained — safe to thermalize.
+          // Real images aren't tagged: a remote <img> inside the raster taints the
+          // canvas and has its own load race, so leave those frames clean for now.
+          if (item.bigText) frame.setAttribute("data-thermalable", "1");
+          card.appendChild(frame);
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";
@@ -1051,6 +1161,7 @@
         note.textContent = "Paste the parts into chat in order — each is a separate 100-bit cheer.";
         container.appendChild(note);
       }
+      scheduleThermal();   // if the toggle is on, swap thermalable frames for their dithered render
     }
     // Census and Image route through the same 1-part list shape as Big Text's
     // (possibly multi-part) list, so renderParts never needs to special-case them.
@@ -1161,6 +1272,7 @@
         imgWidthVal: document.getElementById("imgWidthVal"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
+        thermalView: document.getElementById("thermalView"),
       };
 
       restoreControls();
@@ -1252,6 +1364,9 @@
         currentKind = "census";
         refresh();
       });
+      // Toggling thermal view just re-renders: renderParts rebuilds clean frames,
+      // then scheduleThermal() dithers them when the box is checked (no-op when off).
+      els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
 
       els.contrastVal.textContent = els.contrast.value;
       els.rotateLenVal.textContent = els.rotateLen.value;

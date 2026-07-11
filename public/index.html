@@ -161,7 +161,7 @@
         <div class="hint">A file makes <strong>glyph-art</strong> locally (nothing leaves your device). To print it as the <strong>real picture</strong> instead, upload it for a throwaway link:</div>
         <button type="button" id="uploadBtn">Upload for a 5-min link</button>
         <div id="uploadStatus" class="hint" aria-live="polite"></div>
-        <div class="hint">Uploads to your own server and <strong>auto-deletes after 5 minutes</strong> — long enough to cheer it, then it&rsquo;s gone. Max 5&nbsp;MB.</div>
+        <div class="hint">Shrunk to a print-sized <strong>PNG</strong> first (so WebP &amp; JPEG print at the right size &mdash; the printer mangles those), uploaded to your own server, and <strong>auto-deleted after 5 minutes</strong> &mdash; long enough to cheer it, then it&rsquo;s gone.</div>
       </div>
     </section>
     <section class="preview">
@@ -1111,17 +1111,11 @@
         reader.readAsDataURL(file);
       });
 
-      // The ONLY network call in the app, and only when the user explicitly clicks:
-      // POST the chosen file to the Worker's /upload, which stashes it in KV with a
-      // 5-minute TTL and returns a short link. That link goes into the URL box, which
-      // switches Image mode to the real-picture <object> payload.
-      els.uploadBtn.addEventListener("click", function () {
-        var file = els.imgFile.files && els.imgFile.files[0];
-        if (!file) { els.uploadStatus.textContent = "Pick a file above first."; return; }
-        if (file.size > 5 * 1024 * 1024) { els.uploadStatus.textContent = "Too big — 5 MB max."; return; }
+      // POST the image to the Worker's /upload (KV, 5-min TTL) and drop the returned
+      // link into the URL box. The ONLY network call in the app, only on this click.
+      function sendUpload(blob) {
         els.uploadStatus.textContent = "Uploading…";
-        els.uploadBtn.disabled = true;
-        fetch("/upload", { method: "POST", headers: { "content-type": file.type || "application/octet-stream" }, body: file })
+        fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: blob })
           .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
           .then(function (res) {
             els.uploadBtn.disabled = false;
@@ -1131,6 +1125,31 @@
             els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~5 min. Cheer it now.";
           })
           .catch(function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Upload failed (network)."; });
+      }
+      els.uploadBtn.addEventListener("click", function () {
+        var file = els.imgFile.files && els.imgFile.files[0];
+        if (!file) { els.uploadStatus.textContent = "Pick a file above first."; return; }
+        els.uploadStatus.textContent = "Preparing…";
+        els.uploadBtn.disabled = true;
+        // Re-encode to a print-sized PNG before uploading. The printer's ancient
+        // engine renders WebP (and some JPEGs) at native size, ignoring the <object>
+        // width; a PNG shrunk to ~printer resolution sidesteps both the format and
+        // the size problem. Local file -> canvas isn't tainted, so toBlob works.
+        var img = new Image();
+        img.onload = function () {
+          var maxDim = 720, scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+          var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+          var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+          cv.getContext("2d").drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(img.src);
+          cv.toBlob(function (blob) {
+            if (!blob) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't process that image."; return; }
+            if (blob.size > 5 * 1024 * 1024) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Too big even after shrinking — try a smaller image."; return; }
+            sendUpload(blob);
+          }, "image/png");
+        };
+        img.onerror = function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't read that image."; URL.revokeObjectURL(img.src); };
+        img.src = URL.createObjectURL(file);
       });
 
       els.censusBtn.addEventListener("click", function () {

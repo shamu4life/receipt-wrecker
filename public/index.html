@@ -768,17 +768,38 @@
         return out;
       });
     }
-    // Real image via <object data="url">: the picture lives at the URL, so the
-    // payload is ~100 chars regardless of image size (the whole point — base64 the
-    // image inline and it blows past Twitch's ~500-char cap). wkhtmltopdf fetches and
-    // renders it at print time; the printer dithers to B&W. Not markup-free, but on a
-    // filter surface (<object>, width:) that carries no "font" — passes the current
-    // filters. The tool never loads the URL itself (privacy/offline); the preview
-    // shows the payload text, not the fetched image.
+    // Real image, sized reliably. The picture lives at the URL (payload is ~150 chars
+    // regardless of image size — inlining base64 blows past Twitch's ~500 cap). We size
+    // it with SVG's <image>, a replaced element that scales to its width/height
+    // (confirmed on the printer) — unlike <object>, which renders WebP and some JPEGs at
+    // native size and ignores the width. SVG 1.1 needs an explicit height, so we use the
+    // picture's real aspect ratio (from the canvas on upload, or by probing the URL once)
+    // and set height = width * aspect: fills the width, no distortion, no letterbox.
+    // Until the aspect is known we fall back to <object width>. No "font", so it clears
+    // the filters. The preview shows payload TEXT, so the tool never renders the image.
+    var imgAspect = 0, imgAspectUrl = "", probingUrl = "";   // aspect = naturalHeight/naturalWidth, tied to one URL
+    function setImgAspect(url, aspect) { if (aspect > 0) { imgAspect = aspect; imgAspectUrl = url; } }
+    function probeAspect(url) {
+      if (!url || url === imgAspectUrl || url === probingUrl) return;   // already known / in flight
+      probingUrl = url;
+      var probe = new Image();
+      probe.onload = function () { probingUrl = ""; if (probe.naturalWidth && (els.imgUrl.value || "").trim() === url) { setImgAspect(url, probe.naturalHeight / probe.naturalWidth); update(); } };
+      probe.onerror = function () { probingUrl = ""; };
+      probe.src = url;
+    }
     function buildUrlImageParts() {
       var url = (els.imgUrl.value || "").trim();
       if (!url) return [{ payload: "(paste an image URL above)", chars: 0, copyable: false, showHead: false }];
-      var body = '<object data="' + escapeAttr(url) + '" style="width:' + getImgWidth() + 'mm;display:block"></object>';
+      var body;
+      if (imgAspect > 0 && imgAspectUrl === url) {
+        var W = Math.min(PAPER_PX, Math.round(getImgWidth() * 3.75));   // mm -> px, capped to the paper
+        var H = Math.max(1, Math.round(W * imgAspect));
+        body = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
+          + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
+      } else {
+        probeAspect(url);   // learn the aspect, then this re-renders into the SVG form
+        body = '<object data="' + escapeAttr(url) + '" style="width:' + getImgWidth() + 'mm;display:block"></object>';
+      }
       var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true }];
     }
@@ -1113,13 +1134,14 @@
 
       // POST the image to the Worker's /upload (KV, 5-min TTL) and drop the returned
       // link into the URL box. The ONLY network call in the app, only on this click.
-      function sendUpload(blob) {
+      function sendUpload(blob, aspect) {
         els.uploadStatus.textContent = "Uploading…";
         fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: blob })
           .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
           .then(function (res) {
             els.uploadBtn.disabled = false;
             if (!res.ok) { els.uploadStatus.textContent = "Upload failed: " + ((res.d && res.d.error) || "server error"); return; }
+            setImgAspect(res.d.url, aspect);   // we already know it from the canvas — skip probing the KV URL (not propagated yet)
             els.imgUrl.value = res.d.url;
             els.imgUrl.dispatchEvent(new Event("input", { bubbles: true }));   // -> real-image mode
             els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~5 min. Cheer it now.";
@@ -1142,10 +1164,11 @@
           var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
           cv.getContext("2d").drawImage(img, 0, 0, w, h);
           URL.revokeObjectURL(img.src);
+          var aspect = h / w;
           cv.toBlob(function (blob) {
             if (!blob) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't process that image."; return; }
             if (blob.size > 5 * 1024 * 1024) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Too big even after shrinking — try a smaller image."; return; }
-            sendUpload(blob);
+            sendUpload(blob, aspect);
           }, "image/png");
         };
         img.onerror = function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't read that image."; URL.revokeObjectURL(img.src); };

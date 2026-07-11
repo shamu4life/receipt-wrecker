@@ -47,6 +47,23 @@
        area entirely. */
     pointer-events: none;
   }
+  /* Faithful receipt preview, modelled on printer-bot's #receipt-container (72mm,
+     centered, avatar / 100 BITS / username / content / twitch / date). View-only,
+     so pointer-events:none — same reason as above (Rotate's span steals clicks). */
+  .rcpt {
+    width: 72mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
+    padding: 5mm 3mm 3mm; background: #fff; color: #000; border: 1px solid #bbb;
+    border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    pointer-events: none;
+  }
+  .rcpt-av { width: 20mm; height: 20mm; border-radius: 50%; background: #dcdcdc; margin: 0 auto 2mm; }
+  .rcpt-title { font-weight: 900; font-size: 1.4em; text-transform: uppercase; line-height: 1.05; }
+  .rcpt-sub { font-weight: 700; font-size: 1.1em; }
+  .rcpt-body { padding: .5em 0; }
+  .rcpt-body > svg, .rcpt-body > img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+  .rcpt-foot { font-weight: 700; font-size: .85em; color: #772ce8; }
+  .rcpt-date { font-size: .7em; text-transform: uppercase; opacity: .7; margin-top: .5mm; }
   .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
   .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }
   .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
@@ -571,14 +588,15 @@
       var fit = 250 * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
-      var pad = Math.max(2, Math.round(S * 0.08)), w = 1, kids = "";
+      var pad = Math.max(2, Math.round(S * 0.08)), kids = "";
+      // Full-paper-wide box; each line CENTERED (text-anchor=middle at the mid-line).
+      // The fit-cap keeps the widest line <= ~250 < PAPER_PX, so it never touches the edge.
+      var W = PAPER_PX, cx = Math.round(W / 2);
       for (var i = 0; i < lines.length; i++) {
-        var lw = Math.ceil(measureRun(lines[i] || " ", S).width) + pad * 2;
-        if (lw > w) w = lw;
-        kids += '<text x="' + pad + '" y="' + (i * lh + Math.round(S * 0.82) + pad)
-          + '" font-size="' + S + '" fill="#000" stroke="#000" stroke-width="' + sw + '">' + escapeHtml(lines[i]) + '</text>';
+        kids += '<text x="' + cx + '" y="' + (i * lh + Math.round(S * 0.82) + pad)
+          + '" font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + escapeHtml(lines[i]) + '</text>';
       }
-      return '<svg width="' + w + '" height="' + (lines.length * lh + pad * 2) + '">' + kids + '</svg>';
+      return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + kids + '</svg>';
     }
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
@@ -801,7 +819,7 @@
         body = '<object data="' + escapeAttr(url) + '" style="width:' + getImgWidth() + 'mm;display:block"></object>';
       }
       var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
-      return [{ payload: payload, chars: payloadLength(payload), copyable: true }];
+      return [{ payload: payload, chars: payloadLength(payload), copyable: true, previewImgUrl: url }];
     }
     // Image mode: sample -> (dither) -> ramp -> run-cap -> monospace HTML, BANDED
     // across receipts. Each strip is a horizontal band of rows sized to fit MAX_CHARS
@@ -926,6 +944,20 @@
       return payload;
     }
 
+    // Wrap the visual preview in a printer-bot-style receipt: avatar, 100 BITS, the
+    // streamer name, the content, the Twitch mark, a date. The header/footer values
+    // are placeholders — they exist so you see your text/image IN CONTEXT (modelled
+    // on the "shamu simulator", which mirrors the real print). bodyNode becomes the
+    // content slot.
+    function receiptFrame(bodyNode) {
+      var r = document.createElement("div");
+      r.className = "rcpt";
+      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">100 BITS</div><div class="rcpt-sub">shamu4life</div>';
+      bodyNode.className = "rcpt-body";
+      r.appendChild(bodyNode);
+      r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot">twitch</div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
+      return r;
+    }
     // Render 1..N parts into #parts: each gets a header (the "Part i of N" prefix
     // is omitted when there's only one part), a receipt-strip <pre>, and — unless
     // it's a non-copyable placeholder — its own Copy button. lastParts mirrors
@@ -955,11 +987,21 @@
           warn.textContent = "Too long for Twitch (~500 chars) — trim it: fewer columns, shorter text, or a smaller size.";
           card.appendChild(warn);
         }
-        if (item.bigText) {
-          var paper = document.createElement("div");
-          paper.className = "receipt-html";
-          paper.innerHTML = item.previewHtml;   // our own escaped HTML — safe
-          card.appendChild(paper);
+        if (item.bigText || item.previewImgUrl) {
+          // Faithful receipt frame around the visual content (real type / rotate SVG,
+          // or the actual image).
+          var body = document.createElement("div");
+          if (item.bigText) {
+            body.innerHTML = item.previewHtml;   // our own escaped HTML/SVG — safe
+          } else {
+            var img = new Image(); img.alt = ""; var tries = 0;
+            // A freshly uploaded KV link can 404 for a few seconds until it propagates
+            // — retry a few times so the preview fills in rather than staying broken.
+            img.onerror = function () { if (tries++ < 4) setTimeout(function () { img.src = item.previewImgUrl + (item.previewImgUrl.indexOf("?") < 0 ? "?" : "&") + "r=" + tries; }, 1200); };
+            img.src = item.previewImgUrl;
+            body.appendChild(img);
+          }
+          card.appendChild(receiptFrame(body));
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";

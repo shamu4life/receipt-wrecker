@@ -47,12 +47,14 @@
        area entirely. */
     pointer-events: none;
   }
-  /* Faithful receipt preview, modelled on printer-bot's #receipt-container (72mm,
-     centered, avatar / 100 BITS / username / content / twitch / date). View-only,
-     so pointer-events:none — same reason as above (Rotate's span steals clicks). */
+  /* Faithful receipt preview, modelled on printer-bot's #receipt-container (the sim
+     is reverse-engineered from nutty.gg's own printer code, so trust its geometry):
+     an 80mm roll with ~5mm unprintable margins each side => 70mm printable content.
+     Avatar / 100 BITS / username / content / twitch / date, centered. View-only, so
+     pointer-events:none — same reason as above (Rotate's span steals clicks). */
   .rcpt {
-    width: 72mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
-    padding: 5mm 3mm 3mm; background: #fff; color: #000; border: 1px solid #bbb;
+    width: 80mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
+    padding: 5mm 5mm 3mm; background: #fff; color: #000; border: 1px solid #bbb;
     border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
     font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     pointer-events: none;
@@ -150,7 +152,7 @@
             <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
             <input type="range" id="textSize" min="25" max="100" step="5" value="90">
           </label>
-          <div class="hint">How much of the paper width the text fills. <strong>100%</strong> = as big as fits (the text auto-shrinks so it never runs off the edge); drop it to leave margins. Press Enter for separate lines.</div>
+          <div class="hint">How big the text is. <strong>100%</strong> = as large as fits the paper width (auto-shrinks so it never runs off the edge); drop it to leave margins. For <strong>Giant sideways</strong> this sets the letter size &mdash; smaller letters fit more text before each strip ends. Press Enter for separate lines.</div>
         </div>
         <div id="rotateLenControl">
           <label>Length per receipt: <span id="rotateLenVal">800</span>px
@@ -166,11 +168,11 @@
         </label>
         <div class="hint">Paste a link to an image already on the web and it prints the <strong>actual picture</strong> (far better than glyph-art). Memes are already hosted; for your own files, drop them in Discord/imgur first and paste the direct link — this tool can&rsquo;t host a local file (no server). Leave blank to make glyph-art from an upload instead.</div>
         <div id="imgUrlWidth">
-          <label>Print width: <span id="imgWidthVal">75</span>mm
-            <button type="button" class="reset" data-target="imgWidth" data-default="75" title="Reset to 75mm">&#8635;</button>
-            <input type="range" id="imgWidth" min="20" max="80" step="1" value="75">
+          <label>Print width: <span id="imgWidthVal">70</span>mm
+            <button type="button" class="reset" data-target="imgWidth" data-default="70" title="Reset to 70mm">&#8635;</button>
+            <input type="range" id="imgWidth" min="20" max="70" step="1" value="70">
           </label>
-          <div class="hint">How wide it prints. ~75&nbsp;mm fills an 80&nbsp;mm roll edge to edge; the printer converts it to black &amp; white, so high-contrast images (memes, logos, line art) come out cleanest.</div>
+          <div class="hint">How wide it prints. <strong>70&nbsp;mm</strong> is the full printable width (an 80&nbsp;mm roll with ~5&nbsp;mm unprintable margins each side); the printer converts it to black &amp; white, so high-contrast images (memes, logos, line art) come out cleanest.</div>
         </div>
         <label>&hellip; or upload a file
           <input type="file" id="imgFile" accept="image/*">
@@ -533,7 +535,7 @@
     }
     function getImgWidth() {
       var w = parseInt(els.imgWidth.value, 10);
-      return isFinite(w) ? Math.max(10, Math.min(80, w)) : 75;
+      return isFinite(w) ? Math.max(10, Math.min(70, w)) : 70;   // 70mm = full printable width
     }
 
     // The Size slider is now a fill fraction (a percent, 25..100) of the paper/tape
@@ -617,7 +619,13 @@
     // the markup-free glyph modes. (JS needs \\ for one backslash; strict mode forbids
     // a bare \66 octal escape.) Used as the property prefix in every generated style.
     var FONT_PROP = "\\66ont:";
-    var PAPER_PX = 270;   // ~72mm printable content @96dpi; also the preview paper width. Calibrate to a print.
+    // Real hardware: 80mm roll, ~5mm unprintable margin each side => 70mm printable.
+    // PAPER_PX is that printable width in px, used to size SVG/rotate/glyph output and
+    // as the preview paper width. Keep it and the mm->px factor in step so an image
+    // capped at PAPER_PX caps exactly at 70mm. Calibrate the factor to a print if needed.
+    var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.78; rounded
+    var PAPER_MM = 70;                                     // printable width
+    var PAPER_PX = Math.round(PAPER_MM * PX_PER_MM);       // 263
     function measureRun(text, fontPx) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
       c.font = "800 " + fontPx + "px " + BIG_FONT;
@@ -643,12 +651,12 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S) {
+    function rotatedSpan(cols, colW, S, shift) {
       var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
       var html = '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
         + 'px;white-space:nowrap;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
-        + '-webkit-transform:translateX(' + PAPER_PX + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
+        + '-webkit-transform:translateX(' + shift + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
         + inner + '</span>';
       return { html: html, maxL: maxL };
     }
@@ -693,14 +701,24 @@
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
       if (!lines.length) lines = [" "];
-      var N = lines.length, colW = Math.max(1, Math.floor(PAPER_PX / N)), S = Math.round(colW * 1.3);
+      var N = lines.length;
+      // Two knobs now shape the sideways output (as the user intuited): Length-per-
+      // receipt (where a strip ends) AND letter size. The Size slider (25..100%) scales
+      // the letters DOWN from the paper-filling max, same fill-% meaning as Big type.
+      // Smaller letters => shorter run per character => more text fits before a strip
+      // ends. colW is each column's width across the paper; S fills that column.
+      var factor = getSizeFactor();
+      var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
+      // Center the whole N-column block on the paper: at 100% it fills it (unchanged);
+      // shrunk, it sits centered with even margins instead of hugging one edge.
+      var shift = Math.round((PAPER_PX + N * colW) / 2);
       var T = getRotateLen();
       var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
       var parts = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S);
+        var span = rotatedSpan(cols, colW, S, shift);
         var payload = packageCheer(LEAD_GUARD + span.html, cheerOptsFor(k));
         parts.push({ payload: payload, chars: payloadLength(payload), copyable: true,
                      bigText: true, previewHtml: span.html });
@@ -810,7 +828,7 @@
       if (!url) return [{ payload: "(paste an image URL above)", chars: 0, copyable: false, showHead: false }];
       var body;
       if (imgAspect > 0 && imgAspectUrl === url) {
-        var W = Math.min(PAPER_PX, Math.round(getImgWidth() * 3.75));   // mm -> px, capped to the paper
+        var W = Math.min(PAPER_PX, Math.round(getImgWidth() * PX_PER_MM));   // mm -> px, capped to the paper
         var H = Math.max(1, Math.round(W * imgAspect));
         body = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
           + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
@@ -1074,7 +1092,7 @@
       els.glyphControls.hidden = !((currentMode === "image" && !urlMode) || hanzi);
       els.tierControl.hidden = currentMode !== "image" || urlMode;
       els.imgUrlWidth.hidden = !urlMode;
-      els.sizeControl.hidden = !(isText && bigStyleVal() !== "rotate");
+      els.sizeControl.hidden = !isText;   // Size % now applies to every Big-Text style (big, hanzi, AND rotate)
       els.rotateLenControl.hidden = !(isText && bigStyleVal() === "rotate");
       syncSizeLabel();
     }

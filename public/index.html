@@ -157,7 +157,7 @@
         <div id="rotateLenControl">
           <label>Length per receipt: <span id="rotateLenVal">800</span>px
             <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
-            <input type="range" id="rotateLen" min="300" max="1600" step="50" value="800">
+            <input type="range" id="rotateLen" min="300" max="1000" step="50" value="800">
           </label>
           <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; set it a bit <em>below</em> where your printer cuts (raising it past that point makes the gouging <em>worse</em>). Long messages just split into more strips; <strong>tape them together in order</strong>.</div>
         </div>
@@ -555,7 +555,7 @@
     // strip. Calibrated by the user to their printer's page break — see the hint.
     function getRotateLen() {
       var v = parseInt(els.rotateLen.value, 10);
-      return isFinite(v) ? Math.max(300, Math.min(1600, v)) : 800;
+      return isFinite(v) ? Math.max(300, Math.min(1000, v)) : 800;   // ~1000px = robp's real page-break ceiling
     }
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

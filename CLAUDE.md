@@ -211,8 +211,19 @@ not arbitrary style choices:
 These are the project's defining properties (shared with the sibling tools).
 **Do not break them without an explicit request:**
 
+> **Exception (added by explicit request):** an **optional** image-upload backend.
+> `src/worker.js` is a tiny Cloudflare Worker that serves the static site as before
+> **plus** two routes: `POST /upload` (stashes an image in the `RW_IMG` KV namespace
+> with a native 5-minute `expirationTtl`, 5 MB cap, image/* only) and `GET /i/<hex>`
+> (serves it back). The client calls `/upload` **only** when the user clicks "Upload
+> for a 5-min link"; the returned URL feeds an `<object data>` real-image payload.
+> This is the one sanctioned network call / server-side piece — the rest of the app
+> (Big Text, glyph-art, paste-a-URL) is still fully local. The constraints below hold
+> for everything *except* that explicit upload flow.
+
 - **One file.** No build step, no framework, no external resources. System font
-  stacks only — **no web fonts, no CDN, no external images**.
+  stacks only — **no web fonts, no CDN, no external images** (the upload backend
+  above is the sole exception, and only on the user's explicit action).
 - **The shipped app stays zero-dependency.** "No dependencies" applies to what
   ships in `public/`: it must have **no runtime deps** and load nothing external.
   Dev-only tooling does **not** ship and does **not** violate this — Wrangler is

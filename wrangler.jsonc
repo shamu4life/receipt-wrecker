@@ -3,6 +3,10 @@
   "name": "receipt-wrecker",
   "compatibility_date": "2026-06-19",
   "observability": { "enabled": true },
-  "assets": { "directory": "./public" },
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/worker.js",
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "kv_namespaces": [
+    { "binding": "RW_IMG", "id": "d3753f3a45b44992b0aa815ae5a5c6e1" }
+  ]
 }

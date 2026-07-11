@@ -767,6 +767,13 @@
     // changes how the grid is banded. N===1 when the grid already fits.
     function buildTextParts() {
       var o = baseOpts();
+      // Glyph tiling's resolution IS the column count, so shrinking the letters
+      // wastes most of the paper on margins and leaves too few columns to read
+      // (small Size => illegible hanzi — the #1 cause of "mine looks worse than
+      // receiptify"). Floor the size high so tiled text always fills the width and
+      // stays legible; the slider still trims a little. (Big type/rotate are vector
+      // and keep the full 25–100% range.)
+      o.sizeFactor = Math.max(0.85, o.sizeFactor);
       o.text = els.textInput.value || "";
       var tier = getTier(els.tier.value);
       var grid = computeGrid("text", tier, o);
@@ -1095,7 +1102,10 @@
       els.glyphControls.hidden = !((currentMode === "image" && !urlMode) || hanzi);
       els.tierControl.hidden = currentMode !== "image" || urlMode;
       els.imgUrlWidth.hidden = !urlMode;
-      els.sizeControl.hidden = !isText;   // Size % now applies to every Big-Text style (big, hanzi, AND rotate)
+      // Size shows for the vector styles (big, rotate) where it's a real control.
+      // Hanzi tiling ignores it (letters always fill the width for legibility — the
+      // resolution lever there is "Detail (columns)"), so hide it to avoid confusion.
+      els.sizeControl.hidden = !(isText && bigStyleVal() !== "hanzi");
       els.rotateLenControl.hidden = !(isText && bigStyleVal() === "rotate");
       syncSizeLabel();
     }

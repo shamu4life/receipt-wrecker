@@ -13,7 +13,10 @@
   .tab { padding: .5rem 1rem; border: 1px solid #888; background: transparent; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
   .tab.active { font-weight: 700; border-bottom: 2px solid currentColor; }
   .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
-  .controls, .preview { flex: 1 1 320px; min-width: 280px; }
+  /* min-width:0 lets a column shrink below its content so a wide preview (census,
+     a 48-col grid) scrolls inside .receipt instead of blowing the page width out. */
+  .controls, .preview { flex: 1 1 320px; min-width: 0; }
+  .preview { max-width: 100%; }
   .controls label { display: block; margin-bottom: .75rem; }
   .controls input[type="range"] { width: 100%; }
   .controls input[type="text"], .controls input[type="number"], .controls textarea { width: 100%; box-sizing: border-box; font: inherit; }
@@ -55,7 +58,10 @@
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
-    .layout { flex-direction: column; }
+    body { padding: .75rem; }
+    .layout { flex-direction: column; gap: 1rem; }
+    .controls, .preview { width: 100%; }
+    #parts { min-width: 0; }
   }
 </style>
 </head>
@@ -123,18 +129,18 @@
         </label>
         <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width (<em>Print test strip</em> has a ruler); if it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
-          <label>Size: <span id="textSizeVal">72</span><span id="textSizeUnit">px</span>
-            <button type="button" class="reset" data-target="textSize" data-default="72" title="Reset to 72px">&#8635;</button>
-            <input type="range" id="textSize" min="24" max="140" step="2" value="72">
+          <label>Size: <span id="textSizeVal">90</span><span id="textSizeUnit">%</span>
+            <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
+            <input type="range" id="textSize" min="25" max="100" step="5" value="90">
           </label>
-          <div class="hint">How big the letters are. For <strong>Big type</strong> it's the pixel font size (~72 fills the width with a short word; lower it for longer messages). For <strong>Hanzi tiling</strong> it's how much of the tape width the letters fill. Press Enter for separate lines.</div>
+          <div class="hint">How much of the paper width the text fills. <strong>100%</strong> = as big as fits (the text auto-shrinks so it never runs off the edge); drop it to leave margins. Press Enter for separate lines.</div>
         </div>
         <div id="rotateLenControl">
-          <label>Length per receipt: <span id="rotateLenVal">950</span>px
-            <button type="button" class="reset" data-target="rotateLen" data-default="950" title="Reset to 950px">&#8635;</button>
-            <input type="range" id="rotateLen" min="300" max="1600" step="50" value="950">
+          <label>Length per receipt: <span id="rotateLenVal">800</span>px
+            <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
+            <input type="range" id="rotateLen" min="300" max="1600" step="50" value="800">
           </label>
-          <div class="hint">How much sideways text fits on <strong>one</strong> receipt before it splits to the next — so no strip crosses a page break and gouges a word. If long messages still lose bands mid-word, lower this until they print clean; raise it to use fewer strips. <strong>Tape the strips together in order</strong> to read the whole message.</div>
+          <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; set it a bit <em>below</em> where your printer cuts (raising it past that point makes the gouging <em>worse</em>). Long messages just split into more strips; <strong>tape them together in order</strong>.</div>
         </div>
       </div>
       <div id="imageControls" hidden>
@@ -509,24 +515,24 @@
       return isFinite(w) ? Math.max(10, Math.min(80, w)) : 75;
     }
 
-    // The one Size slider is dual-purpose: a px font size for the HTML "Big type"
-    // style (getFontSizePx), and a uniform fill fraction for Hanzi tiling (this).
-    // Map the slider's 24..140 travel onto 0.2..1.0 so the whole range is usable.
+    // The Size slider is now a fill fraction (a percent, 25..100) of the paper/tape
+    // width, shared by Big type (SVG) and Hanzi tiling — both auto-fit the width, so
+    // this scales how much of it the text occupies. Always has an effect, never clips.
     function getSizeFactor() {
       var f = parseFloat(els.textSize.value);
-      if (!isFinite(f)) return 1;
-      var min = 24, max = 140, t = (Math.max(min, Math.min(max, f)) - min) / (max - min);
-      return 0.2 + 0.8 * t;
+      return isFinite(f) ? Math.max(0.25, Math.min(1, f / 100)) : 0.9;
     }
+    // Kept for the escaped-CSS big-text fallback (buildBigTextHtml); unused while big
+    // text renders as SVG. Treats the slider as a rough px size for that path only.
     function getFontSizePx() {
       var f = parseInt(els.textSize.value, 10);
-      return isFinite(f) ? Math.max(12, Math.min(220, f)) : 72;
+      return isFinite(f) ? Math.max(12, Math.min(220, f * 2)) : 90;
     }
     // Max rotated-tape length (px) per receipt before Rotate splits to the next
     // strip. Calibrated by the user to their printer's page break — see the hint.
     function getRotateLen() {
       var v = parseInt(els.rotateLen.value, 10);
-      return isFinite(v) ? Math.max(300, Math.min(1600, v)) : 950;
+      return isFinite(v) ? Math.max(300, Math.min(1600, v)) : 800;
     }
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -551,15 +557,15 @@
     // box is measured (padded) so nothing clips against SVG's default overflow:hidden.
     // Caveat: if the text itself contains a ":", the font-size attr + that colon can
     // re-trip the filter — rare, and Hanzi is the colon-proof fallback.
-    function buildBigTextSvg(text, sizePx) {
+    function buildBigTextSvg(text, factor) {
       var lines = String(text).replace(/\r/g, "").split("\n");
-      // SVG clips overflow (unlike a wrapping <span>), so cap the font at the size
-      // where the widest line fills the paper — never wider. Measure at a ref 100px;
-      // width scales linearly, so fitSize = paperTarget * 100 / width@100. The slider
-      // still shrinks it below that; it just can't push text off the edge.
+      // SVG clips overflow (unlike a wrapping <span>), so size relative to the width
+      // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
+      // font drift on the printer); `factor` (the Size %) then scales below that, so
+      // the slider always has an effect and text never runs off the edge.
       var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100).width); }, 1);
-      var fit = Math.floor(250 * 100 / wide100);   // ~250px target leaves margin for font drift on the printer
-      var S = Math.max(8, Math.min(sizePx, fit));
+      var fit = 250 * 100 / wide100;
+      var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
       var pad = Math.max(2, Math.round(S * 0.08)), w = 1, kids = "";
       for (var i = 0; i < lines.length; i++) {
@@ -692,7 +698,7 @@
       if (style === "rotate") return buildRotatedParts(els.textInput.value || "");
       // "big" now renders as SVG (fresh, non-CSS surface). buildBigTextHtml is kept as
       // a one-line-swap fallback if the SVG surface ever gets filtered.
-      var html = buildBigTextSvg(els.textInput.value || "", getFontSizePx());
+      var html = buildBigTextSvg(els.textInput.value || "", getSizeFactor());
       var payload = packageCheer(LEAD_GUARD + html, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true,
                 bigText: true, previewHtml: html }];
@@ -981,12 +987,11 @@
       var item = lastParts[index];
       if (item) copyToClipboard(item.payload || "");
     }
-    // Size reads as px for "Big type" and as a fill % for Hanzi tiling; the label
-    // unit tracks whichever is active.
+    // The Size slider is a fill % for both styles that use it (Big type + Hanzi);
+    // the value is already the percent, so just mirror it.
     function syncSizeLabel() {
-      var hanzi = currentMode === "text" && bigStyleVal() === "hanzi";
-      els.textSizeVal.textContent = hanzi ? String(Math.round(getSizeFactor() * 100)) : els.textSize.value;
-      els.textSizeUnit.textContent = hanzi ? "%" : "px";
+      els.textSizeVal.textContent = els.textSize.value;
+      els.textSizeUnit.textContent = "%";
     }
     // Glyph controls (cols/quantize/contrast/invert) show for Image mode and for
     // Big Text's Hanzi-tiling style, which drives the same glyph engine. The Tier

@@ -66,6 +66,13 @@
   .rcpt-body > svg, .rcpt-body > img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
   .rcpt-foot { font-weight: 700; font-size: .85em; color: #772ce8; }
   .rcpt-date { font-size: .7em; text-transform: uppercase; opacity: .7; margin-top: .5mm; }
+  /* 1-bit thermal render of a receipt frame (see thermalize()). Shown at print-dot
+     resolution; pixelated so the dither texture survives any responsive down-scale. */
+  .rcpt-thermal { display: block; margin: 0 0 .5rem; max-width: 100%; height: auto;
+    image-rendering: pixelated; background: #fff; border: 1px solid #bbb; }
+  .thermal-toggle { display: flex; align-items: center; gap: .4rem; font-size: .85rem; margin: 0 0 .7rem; cursor: pointer; }
+  .thermal-toggle input { width: auto; margin: 0; }
+  .thermal-note { font-size: .78rem; color: #a60; margin: -.3rem 0 .5rem; }
   .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
   .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }
   .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
@@ -146,7 +153,7 @@
             <option value="hanzi">Giant sideways — Hanzi tiling (no markup)</option>
           </select>
         </label>
-        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width (<em>Print test strip</em> has a ruler); if it prints blank, the printer has no CJK font.</div>
+        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS &mdash; here each line stacks <em>full-size</em> down the tape (so every line keeps full detail) — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width (<em>Print test strip</em> has a ruler); if it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
           <label>Size: <span id="textSizeVal">90</span><span id="textSizeUnit">%</span>
             <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
@@ -430,29 +437,25 @@
       var rows = Math.max(1, Math.round(cwCols * (canvasH / w)));   // aspect-true; sf already in the scale
       return { luma: sampleLuma(buf.pixels, buf.w, buf.h, cwCols, rows), rows: rows };
     }
-    // Split text into lines (CR/LF); each line = one vertical column, dividing the
-    // total width evenly. Returns a combined luma grid (maxRows x totalCols).
-    // Line order: the tape is read by turning it CCW, which sends the tape's left
-    // edge to the BOTTOM — so line 0 is placed in the RIGHTMOST columns and later
-    // lines to its left, making them read top-to-bottom in the order they were typed.
+    // Split text into lines (CR/LF). Each line renders at the FULL column width and
+    // the lines STACK down the paper feed (the receiptify approach), so every line
+    // keeps full resolution. The old scheme split the width side-by-side among lines,
+    // which halved each line's detail for 2 lines (quartered for 4) — the main reason
+    // multi-line hanzi looked coarser than receiptify. Trade-off: more lines = a
+    // longer strip (banding just adds receipts). Blank rows separate stacked lines,
+    // and line order is top-to-bottom in the feed = the order they were typed.
+    // Returns a combined luma grid (rows × totalCols).
     function textColumnsLuma(text, totalCols, sizeFactor) {
       var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
       if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
-      var N = Math.min(lines.length, totalCols);
-      lines = lines.slice(0, N);
-      var base = Math.floor(totalCols / N), extra = totalCols - base * N, widths = [], i;
-      for (i = 0; i < N; i++) widths.push(base + (i < extra ? 1 : 0));
-      var colsData = lines.map(function (line, k) { return renderColumn(line, widths[k], sizeFactor); });
-      var maxRows = colsData.reduce(function (m, c) { return Math.max(m, c.rows); }, 1);
-      var grid = [];
-      for (var r = 0; r < maxRows; r++) {
-        var row = [];
-        for (i = N - 1; i >= 0; i--) {   // right-to-left placement -> line 0 ends up rightmost
-          var cd = colsData[i], cw = widths[i], src = r < cd.rows ? cd.luma[r] : null;
-          for (var c = 0; c < cw; c++) row.push(src ? src[c] : 255);
-        }
-        grid.push(row);
-      }
+      if (lines.length > 24) lines = lines.slice(0, 24);   // sanity cap on runaway input
+      function blankRow() { var row = []; for (var z = 0; z < totalCols; z++) row.push(255); return row; }
+      var grid = [], GAP = 2;
+      lines.forEach(function (line, k) {
+        if (k > 0) for (var g = 0; g < GAP; g++) grid.push(blankRow());
+        var cd = renderColumn(line, totalCols, sizeFactor);
+        for (var r = 0; r < cd.luma.length; r++) grid.push(cd.luma[r]);
+      });
       return grid;
     }
     function rasterizeImage(imgEl, o) {

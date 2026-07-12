@@ -194,6 +194,7 @@
       <label class="thermal-toggle" title="Render the preview the way the printer does: 1-bit black &amp; white, dithered">
         <input type="checkbox" id="thermalView"> Thermal preview &mdash; 1-bit dithered, like the real printer
       </label>
+      <div class="thermal-note" id="thermalNote" hidden>Dithering a <em>linked</em> picture fetches it through this site&rsquo;s server &mdash; your browser won&rsquo;t let us read a remote image&rsquo;s pixels any other way. Big Text and glyph-art still never leave your device.</div>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="censusBtn">Print test strip</button>
@@ -1037,44 +1038,114 @@
       for (i = 0; i < w * h; i++) { var v = gray[i]; d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255; }
       return imageData;
     }
+    // ── Getting a real photo INTO the raster ───────────────────────────────
+    // thermalize() rasterizes by loading the receipt as an SVG <img>. An SVG
+    // loaded that way is sandboxed: it may not load ANY external resource, so a
+    // remote <img> inside the foreignObject never paints at all (it isn't merely
+    // a canvas taint — nothing shows up). The only fix is to make the picture
+    // non-external: swap it for a self-contained data: URI before serializing.
+    //
+    // Reading a cross-origin image's bytes from JS is what CORS blocks, so the
+    // bytes come back through our own Worker (/px). That is the whole reason the
+    // proxy exists. Same-origin and data: URLs skip it and are fetched directly.
+    function proxied(url) {
+      if (/^data:/i.test(url)) return url;
+      try { if (new URL(url, location.href).origin === location.origin) return url; } catch (e) {}
+      return "/px?u=" + encodeURIComponent(url);
+    }
+    function toDataUrl(url) {
+      return fetch(proxied(url), { credentials: "omit" }).then(function (r) {
+        if (!r.ok) throw new Error("proxy said " + r.status);
+        return r.blob();
+      }).then(function (blob) {
+        return new Promise(function (resolve, reject) {
+          var fr = new FileReader();
+          fr.onload = function () { resolve(fr.result); };
+          fr.onerror = function () { reject(new Error("could not read image bytes")); };
+          fr.readAsDataURL(blob);
+        });
+      });
+    }
+    // Inline every external picture in the clone. Resolves once they're all in
+    // hand — which also closes the old load race, since we now rasterize only
+    // after the bytes exist. A picture we can't fetch is left alone: it just
+    // won't paint, exactly as before, instead of failing the whole preview.
+    var XLINK_NS = "http://www.w3.org/1999/xlink";
+    function inlineImages(root) {
+      var nodes = root.querySelectorAll("img, image"), jobs = [];
+      for (var i = 0; i < nodes.length; i++) {
+        jobs.push((function (el) {
+          var href = el.getAttribute("src") || el.getAttribute("href") || el.getAttribute("xlink:href") || "";
+          if (!href || /^data:/i.test(href)) return Promise.resolve();
+          return toDataUrl(href).then(function (data) {
+            if (el.hasAttribute("src")) el.setAttribute("src", data);
+            if (el.hasAttribute("href")) el.setAttribute("href", data);
+            if (el.hasAttribute("xlink:href")) el.setAttributeNS(XLINK_NS, "xlink:href", data);
+          })["catch"](function () {});
+        })(nodes[i]));
+      }
+      return Promise.all(jobs);
+    }
+    // The live node's height is only correct once its images have decoded — we
+    // measure it to size the raster, so wait (with a cap, so a dead URL can't
+    // hang the preview forever).
+    function imagesDecoded(node) {
+      var imgs = node.querySelectorAll("img"), jobs = [];
+      for (var i = 0; i < imgs.length; i++) {
+        jobs.push((function (im) {
+          if (im.complete && im.naturalWidth) return Promise.resolve();
+          return new Promise(function (resolve) {
+            im.addEventListener("load", resolve, { once: true });
+            im.addEventListener("error", resolve, { once: true });
+            setTimeout(resolve, 5000);
+          });
+        })(imgs[i]));
+      }
+      return Promise.all(jobs);
+    }
     // Rasterize a receipt node and REPLACE it with a 1-bit dithered <canvas>.
-    // Cross-origin images taint the canvas → getImageData throws → we skip the
-    // dither and keep the (faithfully rasterized) canvas rather than crash.
+    // Any picture is inlined first (see above), so the canvas stays un-tainted
+    // and getImageData works. The try/catch is kept as a belt-and-braces guard:
+    // if something still taints it, keep the faithful raster rather than crash.
     function thermalize(node) {
-      return new Promise(function (resolve, reject) {
+      return imagesDecoded(node).then(function () {
         var rect = node.getBoundingClientRect();
         var w0 = rect.width, h0 = rect.height;
-        if (!w0 || !h0) { reject(new Error("node not laid out")); return; }
+        if (!w0 || !h0) throw new Error("node not laid out");
         var S = THERMAL_W / w0, targetH = Math.max(1, Math.round(h0 * S));
         var clone = node.cloneNode(true);
         clone.style.border = "none"; clone.style.boxShadow = "none"; clone.style.margin = "0";
         clone.style.background = "#fff"; clone.style.width = w0 + "px"; clone.style.maxWidth = "none";
-        var xhtml = new XMLSerializer().serializeToString(clone);
-        var svg =
-          '<svg xmlns="http://www.w3.org/2000/svg" width="' + THERMAL_W + '" height="' + targetH + '">' +
-            '<g transform="scale(' + S + ')">' +
-              '<foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
-                '<div xmlns="http://www.w3.org/1999/xhtml"><style>' + RCPT_CSS + '</style>' + xhtml + '</div>' +
-              '</foreignObject>' +
-            '</g>' +
-          '</svg>';
-        var img = new Image();
-        img.onload = function () {
-          var canvas = document.createElement("canvas");
-          canvas.width = THERMAL_W; canvas.height = targetH;
-          var ctx = canvas.getContext("2d", { willReadFrequently: true });
-          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, THERMAL_W, targetH);
-          ctx.drawImage(img, 0, 0);
-          try {
-            var data = ctx.getImageData(0, 0, THERMAL_W, targetH);
-            atkinsonDither(data); ctx.putImageData(data, 0, 0);
-          } catch (e) { /* cross-origin taint — keep the un-dithered raster */ }
-          canvas.className = "rcpt-thermal";
-          if (node.parentNode) node.parentNode.replaceChild(canvas, node);
-          resolve(canvas);
-        };
-        img.onerror = function () { reject(new Error("svg raster failed")); };
-        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        return inlineImages(clone).then(function () {
+          return new Promise(function (resolve, reject) {
+            var xhtml = new XMLSerializer().serializeToString(clone);
+            var svg =
+              '<svg xmlns="http://www.w3.org/2000/svg" width="' + THERMAL_W + '" height="' + targetH + '">' +
+                '<g transform="scale(' + S + ')">' +
+                  '<foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
+                    '<div xmlns="http://www.w3.org/1999/xhtml"><style>' + RCPT_CSS + '</style>' + xhtml + '</div>' +
+                  '</foreignObject>' +
+                '</g>' +
+              '</svg>';
+            var img = new Image();
+            img.onload = function () {
+              var canvas = document.createElement("canvas");
+              canvas.width = THERMAL_W; canvas.height = targetH;
+              var ctx = canvas.getContext("2d", { willReadFrequently: true });
+              ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, THERMAL_W, targetH);
+              ctx.drawImage(img, 0, 0);
+              try {
+                var data = ctx.getImageData(0, 0, THERMAL_W, targetH);
+                atkinsonDither(data); ctx.putImageData(data, 0, 0);
+              } catch (e) { /* still tainted somehow — keep the un-dithered raster */ }
+              canvas.className = "rcpt-thermal";
+              if (node.parentNode) node.parentNode.replaceChild(canvas, node);
+              resolve(canvas);
+            };
+            img.onerror = function () { reject(new Error("svg raster failed")); };
+            img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+          });
+        });
       });
     }
     // Debounced pass: after a render settles, replace each thermalable frame with
@@ -1135,10 +1206,10 @@
             body.appendChild(img);
           }
           var frame = receiptFrame(body);
-          // Big Text (SVG / rotate span) is self-contained — safe to thermalize.
-          // Real images aren't tagged: a remote <img> inside the raster taints the
-          // canvas and has its own load race, so leave those frames clean for now.
-          if (item.bigText) frame.setAttribute("data-thermalable", "1");
+          // Both surfaces thermalize now: Big Text (SVG / rotate span) is already
+          // self-contained, and a real image gets inlined as a data: URI first —
+          // see inlineImages(), which is what makes a photo survive the raster.
+          frame.setAttribute("data-thermalable", "1");
           card.appendChild(frame);
         } else {
           var pre = document.createElement("pre");
@@ -1161,6 +1232,10 @@
         note.textContent = "Paste the parts into chat in order — each is a separate 100-bit cheer.";
         container.appendChild(note);
       }
+      // Only warn about the /px round-trip when it will actually happen: thermal
+      // on AND a linked picture on screen. (Big Text / glyph-art never call it.)
+      var linked = items.some(function (it) { return !!it.previewImgUrl; });
+      if (els.thermalNote) els.thermalNote.hidden = !(linked && els.thermalView && els.thermalView.checked);
       scheduleThermal();   // if the toggle is on, swap thermalable frames for their dithered render
     }
     // Census and Image route through the same 1-part list shape as Big Text's
@@ -1273,6 +1348,7 @@
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
         thermalView: document.getElementById("thermalView"),
+        thermalNote: document.getElementById("thermalNote"),
       };
 
       restoreControls();

@@ -67,3 +67,34 @@ test("rejects private IPv6, but not hostnames that merely start with those lette
 test("rejects malformed IPv4 octets rather than letting them through", () => {
   no("http://999.1.1.1/x.png");
 });
+
+// The WHATWG URL parser normalises these decimal/hex/octal IPv4 forms back to
+// dotted-decimal, so the plain IPv4 check already catches them — pin it so a
+// future refactor can't reopen the hole.
+test("rejects non-dotted IPv4 spellings of loopback", () => {
+  no("http://2130706433/x.png");   // 127.0.0.1 as a 32-bit int
+  no("http://0x7f.0.0.1/x.png");   // hex first octet
+  no("http://0177.0.0.1/x.png");   // octal first octet
+});
+
+// SSRF allowlist bypass via IPv4-embedded IPv6. The parser serialises the tail
+// to hex (::ffff:169.254.169.254 -> ::ffff:a9fe:a9fe), so the fc/fd/fe8 prefix
+// checks miss it — the embedded IPv4 must be range-checked on its own.
+test("rejects IPv4-mapped IPv6 pointing at private/metadata addresses", () => {
+  no("http://[::ffff:169.254.169.254]/x.png");   // cloud metadata, v4-mapped
+  no("http://[::ffff:a9fe:a9fe]/x.png");          // same, already in hex
+  no("http://[::ffff:127.0.0.1]/x.png");          // loopback, v4-mapped
+  no("http://[::ffff:10.0.0.1]/x.png");           // private
+  no("http://[::ffff:192.168.1.1]/x.png");
+});
+
+test("rejects deprecated v4-compatible and NAT64 IPv6 to private addresses", () => {
+  no("http://[::127.0.0.1]/x.png");        // deprecated ::a.b.c.d
+  no("http://[64:ff9b::7f00:1]/x.png");    // NAT64 well-known prefix -> 127.0.0.1
+  no("http://[64:ff9b::a9fe:a9fe]/x.png"); // NAT64 -> 169.254.169.254
+});
+
+test("still ALLOWS an IPv4-mapped IPv6 that embeds a PUBLIC address", () => {
+  ok("http://[::ffff:1.1.1.1]/x.png");     // public 1.1.1.1, v4-mapped
+  ok("http://[::ffff:8.8.8.8]/x.png");
+});

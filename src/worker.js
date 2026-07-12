@@ -65,6 +65,35 @@ async function handleServe(url, env) {
   });
 }
 
+// True for an IPv4 (as [a,b,c,d]) that must never be proxied: this-network,
+// loopback, private, link-local (incl. 169.254.169.254 cloud metadata), and
+// multicast/reserved (>=224).
+function isPrivateIPv4(o) {
+  const a = o[0], b = o[1];
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+// If an IPv6 host embeds an IPv4 address, return those four octets, else null.
+// Three forms embed v4: v4-mapped (::ffff:x), deprecated v4-compatible (::x),
+// and NAT64 (64:ff9b::x). The WHATWG URL parser serialises the tail to HEX
+// (::ffff:169.254.169.254 -> ::ffff:a9fe:a9fe), so we recover the octets from
+// the last two hextets. Without this, ::ffff:127.0.0.1 & friends would dodge
+// every private-range check below and reach loopback / metadata. `host` is
+// already lowercased and bracket-stripped.
+function embeddedIPv4(host) {
+  if (!/^::ffff:/.test(host) && !/^64:ff9b::/.test(host) && !/^::/.test(host)) return null;
+  const groups = host.split(":").filter(function (g) { return g.length > 0; });
+  if (groups.length < 2) return null;                       // bare prefix, no embedded v4
+  var hi = parseInt(groups[groups.length - 2], 16);
+  var lo = parseInt(groups[groups.length - 1], 16);
+  if (isNaN(hi) || isNaN(lo)) return null;                  // a real ::-compressed v6, not embedded v4
+  return [(hi >> 8) & 255, hi & 255, (lo >> 8) & 255, lo & 255];
+}
+
 // Guard for /px. Without this the endpoint is an open relay: anyone could point
 // it at anything and have our Worker fetch it. Allow only public http(s) — no
 // other scheme, no loopback/private/link-local host (169.254.169.254 is the
@@ -85,18 +114,18 @@ export function isPublicHttpUrl(raw) {
   if (host.includes(":")) {
     if (host === "::" || host === "::1") return null;
     if (/^f[cd]/.test(host) || /^fe[89ab]/.test(host)) return null;
+    // v4-mapped / v4-compatible / NAT64: check the embedded IPv4 too.
+    const v4 = embeddedIPv4(host);
+    if (v4 && isPrivateIPv4(v4)) return null;
     return u;
   }
 
   // IPv4 literal — reject this-network/loopback/private/link-local/reserved.
   const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (m) {
-    const a = +m[1], b = +m[2];
-    if (m.slice(1).some((o) => +o > 255)) return null;
-    if (a === 0 || a === 10 || a === 127 || a >= 224) return null;
-    if (a === 169 && b === 254) return null;
-    if (a === 172 && b >= 16 && b <= 31) return null;
-    if (a === 192 && b === 168) return null;
+    const o = m.slice(1).map(Number);
+    if (o.some((x) => x > 255)) return null;
+    if (isPrivateIPv4(o)) return null;
   }
   return u;
 }

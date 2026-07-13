@@ -402,14 +402,18 @@
   function packStackBodies(bodies, opts) {
     opts = opts || {};
     var token = "Cheer" + (opts.bits && opts.bits >= 100 ? opts.bits : 100);
-    var overhead = LEAD_GUARD.length + (opts.cheer ? token.length + 4 : 0);  // " <token> nn"
+    var overhead = opts.cheer ? token.length + 4 : LEAD_GUARD.length;  // "<token> nn " ; else nbsp
     var maxBody = MAX_CHARS - overhead;
     var parts = [], cur = [], curChars = 0, curH = 0;
     function flush() {
       if (!cur.length) return;
       var nonce = opts.cheer ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
       var html = cur.map(function (b) { return b.html; }).join("");
-      var payload = packageCheer(LEAD_GUARD + html, { cheer: opts.cheer, cheerToken: token, nonce: nonce });
+      // Cheer token + nonce LEAD the message: they survive any trailing-strip the bot/
+      // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
+      // so the separate LEAD_GUARD isn't needed when cheering. (<object> is what the
+      // automod was blocking; images now render as SVG — see imageBodies.)
+      var payload = opts.cheer ? (token + (nonce ? " " + nonce : "") + " " + html) : (LEAD_GUARD + html);
       parts.push({ payload: payload, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
       cur = []; curChars = 0; curH = 0;
     }
@@ -823,27 +827,39 @@
       var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
       return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
     }
-    // Real-image BODY. renderAs picks <object> vs SVG <image> (both confirmed on the
-    // real engine). SVG needs the aspect ratio; until it's known, fall back to <object>.
     // The URL actually embedded: the rotated+reuploaded link when a rotation is set and
     // ready, else the original. Rotation always processes FROM block.url so it never
     // compounds; block.outUrl holds the rotated result.
     function embedUrl(block) { return (block.rotate && block.outUrl) ? block.outUrl : block.url; }
+    // Probe an image block's aspect (height/width) and cache it on the block. The legacy
+    // probeAspect() is tied to the now-hidden URL box, so composer blocks need their own.
+    function probeBlockAspect(block) {
+      var u = embedUrl(block);
+      if (!u || block.aspect || block._probing === u) return;
+      block._probing = u;
+      var im = new Image();
+      im.onload = function () { block._probing = null; if (im.naturalWidth && embedUrl(block) === u) { block.aspect = im.naturalHeight / im.naturalWidth; update(); } };
+      im.onerror = function () { block._probing = null; };
+      im.src = u;
+    }
+    // Real-image BODY. Default renders as SVG <image> (renders on the real engine AND
+    // isn't the <object> tag the automod blocks); only an explicit renderAs:"object"
+    // emits <object>. SVG needs the aspect; we probe per-block and use a 1:1 box until it
+    // lands (then re-render), never falling back to <object>.
     function imageBodies(block) {
       var url = embedUrl(block), w = block.width || 70;
-      var body, hpx;
-      var haveAspect = imgAspect > 0 && imgAspectUrl === url;
-      if (block.renderAs === "svg" && haveAspect) {
-        var W = Math.min(PAPER_PX, Math.round(w * PX_PER_MM)), H = Math.max(1, Math.round(W * imgAspect));
-        body = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
-          + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
-        hpx = H;
-      } else {
-        if (block.renderAs === "svg") probeAspect(url);   // learn aspect, then re-render as SVG
-        body = '<object data="' + escapeAttr(url) + '" style="width:' + w + 'mm;display:block"></object>';
-        hpx = haveAspect ? Math.round(Math.min(PAPER_PX, w * PX_PER_MM) * imgAspect) : Math.round(w * PX_PER_MM);
+      var aspect = block.aspect || 0;
+      if (block.renderAs === "object") {
+        var body = '<object data="' + escapeAttr(url) + '" style="width:' + w + 'mm;display:block"></object>';
+        var hpx = aspect ? Math.round(Math.min(PAPER_PX, w * PX_PER_MM) * aspect) : Math.round(w * PX_PER_MM);
+        if (!aspect) probeBlockAspect(block);
+        return [{ html: body, chars: payloadLength(body), heightPx: hpx, preview: { kind: "img", imgUrl: url } }];
       }
-      return [{ html: body, chars: payloadLength(body), heightPx: hpx, preview: { kind: "img", imgUrl: url } }];
+      if (!aspect) probeBlockAspect(block);
+      var W = Math.min(PAPER_PX, Math.round(w * PX_PER_MM)), H = Math.max(1, Math.round(W * (aspect || 1)));
+      var svg = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
+        + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
+      return [{ html: svg, chars: payloadLength(svg), heightPx: H, preview: { kind: "img", imgUrl: url } }];
     }
     // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.
     // Bands like buildTextParts; cols is the resolution lever (size is floored so tiny
@@ -1734,7 +1750,7 @@
       };
 
       url.addEventListener("input", function () {
-        block.url = url.value; block.outUrl = null; block._img = null;
+        block.url = url.value; block.outUrl = null; block._img = null; block.aspect = null;
         if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
         else if (block.rotate && block.url) rotateAndUpload(block, setStatus);
         saveBlocks(); update();
@@ -1746,13 +1762,13 @@
         else uploadFileForBlock(block, f, setStatus);
       });
       kind.addEventListener("change", function () {
-        block.imgKind = kind.value; block.outUrl = null; block._img = null; applyKind();
+        block.imgKind = kind.value; block.outUrl = null; block._img = null; block.aspect = null; applyKind();
         if (block.imgKind === "glyph" && block.url) decodeGlyphImage(block);
         else if (block.imgKind !== "glyph" && block.rotate && block.url) rotateAndUpload(block, setStatus);
         saveBlocks(); update();
       });
       rot.addEventListener("change", function () {
-        block.rotate = parseInt(rot.value, 10) || 0; block.outUrl = null;
+        block.rotate = parseInt(rot.value, 10) || 0; block.outUrl = null; block.aspect = null;
         if (block.rotate && block.url) rotateAndUpload(block, setStatus);
         saveBlocks(); update();
       });

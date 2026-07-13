@@ -825,8 +825,12 @@
     }
     // Real-image BODY. renderAs picks <object> vs SVG <image> (both confirmed on the
     // real engine). SVG needs the aspect ratio; until it's known, fall back to <object>.
+    // The URL actually embedded: the rotated+reuploaded link when a rotation is set and
+    // ready, else the original. Rotation always processes FROM block.url so it never
+    // compounds; block.outUrl holds the rotated result.
+    function embedUrl(block) { return (block.rotate && block.outUrl) ? block.outUrl : block.url; }
     function imageBodies(block) {
-      var url = block.url, w = block.width || 70;
+      var url = embedUrl(block), w = block.width || 70;
       var body, hpx;
       var haveAspect = imgAspect > 0 && imgAspectUrl === url;
       if (block.renderAs === "svg" && haveAspect) {
@@ -1484,23 +1488,123 @@
       card.appendChild(lenWrap);
       return card;
     }
+    // Bake a rotation into the pixels: fetch block.url's bytes (via /px so a cross-origin
+    // image isn't canvas-tainted), rotate on a canvas, re-encode PNG, upload → block.outUrl.
+    // Always processes FROM block.url so repeat rotations never compound. A CSS transform
+    // would be unreliable on the printer (that's what broke text centering), so we bake it.
+    function rotateAndUpload(block, setStatus) {
+      if (!block.url || !block.rotate) { block.outUrl = null; return; }
+      var deg = block.rotate, reqUrl = block.url;
+      setStatus("Rotating…");
+      fetch(proxied(block.url), { credentials: "omit" })
+        .then(function (r) { if (!r.ok) throw new Error("fetch " + r.status); return r.blob(); })
+        .then(function (blob) {
+          return new Promise(function (res, rej) {
+            var im = new Image();
+            im.onload = function () { res(im); };
+            im.onerror = function () { rej(new Error("decode")); };
+            im.src = URL.createObjectURL(blob);
+          });
+        })
+        .then(function (im) {
+          var iw = im.naturalWidth, ih = im.naturalHeight;
+          var scale = Math.min(1, 720 / Math.max(iw, ih));
+          var w = Math.max(1, Math.round(iw * scale)), h = Math.max(1, Math.round(ih * scale));
+          var swap = (deg === 90 || deg === 270);
+          var cv = document.createElement("canvas");
+          cv.width = swap ? h : w; cv.height = swap ? w : h;
+          var ctx = cv.getContext("2d");
+          ctx.translate(cv.width / 2, cv.height / 2);
+          ctx.rotate(deg * Math.PI / 180);
+          ctx.drawImage(im, -w / 2, -h / 2, w, h);
+          URL.revokeObjectURL(im.src);
+          var aspect = cv.height / cv.width;
+          return new Promise(function (res) { cv.toBlob(function (b) { res({ blob: b, aspect: aspect }); }, "image/png"); });
+        })
+        .then(function (o) {
+          if (!o.blob) throw new Error("encode");
+          if (o.blob.size > 5 * 1024 * 1024) throw new Error("too big");
+          return fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: o.blob })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d, aspect: o.aspect }; }); });
+        })
+        .then(function (res) {
+          if (block.url !== reqUrl || block.rotate !== deg) return;   // user moved on — drop stale result
+          if (!res.ok) { setStatus("Rotate failed: " + ((res.d && res.d.error) || "server")); return; }
+          block.outUrl = res.d.url; block.aspect = res.aspect;
+          setImgAspect(res.d.url, res.aspect);
+          setStatus("Rotated ✓"); saveBlocks(); update();
+        })
+        .catch(function (e) { setStatus("Rotate failed (" + e.message + ")"); });
+    }
+    // Re-encode a local file to a print-sized PNG and upload → block.url; then rotate if set.
+    function uploadFileForBlock(block, file, setStatus) {
+      setStatus("Uploading…");
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, 720 / Math.max(img.naturalWidth, img.naturalHeight));
+        var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+        var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(img.src);
+        var aspect = h / w;
+        cv.toBlob(function (blob) {
+          if (!blob) { setStatus("Couldn't process that image."); return; }
+          if (blob.size > 5 * 1024 * 1024) { setStatus("Too big even after shrinking."); return; }
+          fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: blob })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+              if (!res.ok) { setStatus("Upload failed: " + ((res.d && res.d.error) || "server")); return; }
+              block.url = res.d.url; block.outUrl = null; block.aspect = aspect; setImgAspect(res.d.url, aspect);
+              if (block.rotate) { setStatus("Uploaded — rotating…"); rotateAndUpload(block, setStatus); }
+              else { setStatus("Uploaded ✓"); saveBlocks(); update(); }
+            })
+            .catch(function () { setStatus("Upload failed (network)."); });
+        }, "image/png");
+      };
+      img.onerror = function () { setStatus("Couldn't read that image."); URL.revokeObjectURL(img.src); };
+      img.src = URL.createObjectURL(file);
+    }
     function imageCard(block) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block));
       card.appendChild(mkEl("label", null, "Image URL"));
       var url = mkEl("input", { type: "url", placeholder: "https://…/pic.jpg" }); url.value = block.url || "";
-      url.addEventListener("input", function () { block.url = url.value; saveBlocks(); update(); });
       card.appendChild(url);
+      card.appendChild(mkEl("label", null, "… or upload a file (5-min link)"));
+      var file = mkEl("input", { type: "file", accept: "image/*" });
+      card.appendChild(file);
+      var status = mkEl("div", { "class": "hint" });
+      var setStatus = function (t) { status.textContent = t; };
+      card.appendChild(mkEl("label", null, "Rotate"));
+      var rot = mkEl("select");
+      [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
+      card.appendChild(rot);
+      card.appendChild(status);
       card.appendChild(mkEl("label", null, "Print width (mm)"));
       var w = mkEl("input", { type: "range", min: "20", max: "70", step: "1" }); w.value = block.width || 70;
-      w.addEventListener("input", function () { block.width = parseInt(w.value, 10); saveBlocks(); update(); });
       card.appendChild(w);
       card.appendChild(mkEl("label", null, "Render as"));
       var ra = mkEl("select");
       ra.appendChild(opt("svg", "SVG (default)", block.renderAs !== "object"));
       ra.appendChild(opt("object", "object tag", block.renderAs === "object"));
-      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
       card.appendChild(ra);
+
+      url.addEventListener("input", function () {
+        block.url = url.value; block.outUrl = null;
+        if (block.rotate && block.url) rotateAndUpload(block, setStatus);
+        saveBlocks(); update();
+      });
+      file.addEventListener("change", function (e) {
+        var f = e.target.files && e.target.files[0];
+        if (f) uploadFileForBlock(block, f, setStatus);
+      });
+      rot.addEventListener("change", function () {
+        block.rotate = parseInt(rot.value, 10) || 0; block.outUrl = null;
+        if (block.rotate && block.url) rotateAndUpload(block, setStatus);
+        saveBlocks(); update();
+      });
+      w.addEventListener("input", function () { block.width = parseInt(w.value, 10); saveBlocks(); update(); });
+      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
       return card;
     }
     function renderComposer() {

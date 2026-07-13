@@ -845,11 +845,81 @@
       }
       return [{ html: body, chars: payloadLength(body), heightPx: hpx, preview: { kind: "img", imgUrl: url } }];
     }
-    // Turn one composer block into its ordered BODIES (1+; a rotate block bands).
+    // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.
+    // Bands like buildTextParts; cols is the resolution lever (size is floored so tiny
+    // letters can't turn illegible). CJK ramp + defaults, no per-block glyph knobs beyond
+    // Detail (columns).
+    function hanziBodies(text, cols, sizeFactor) {
+      var tier = getTier("cjk");
+      var o = { cols: Math.max(8, Math.min(48, cols || 20)), threshold: 128, invert: false,
+                dither: false, sizeFactor: Math.max(0.85, sizeFactor || 0.9), text: text || "" };
+      var grid = computeGrid("text", tier, o);
+      if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
+      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - 14) / o.cols));
+      var bodies = [];
+      for (var r = 0; r < grid.length; r += rowsPerMsg) {
+        var band = grid.slice(r, r + rowsPerMsg);
+        var g = render(band);
+        bodies.push({ html: g, chars: payloadLength(g), heightPx: band.length * 18,
+                      preview: { kind: "grid", grid: band.map(function (row) { return row.join(""); }).join("\n") } });
+      }
+      return bodies.length ? bodies : [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
+    }
+    // Glyph-art picture BODIES: tile a decoded image into a monospace grid, banded like
+    // the old Image mode. Decoding is async (fetch via /px for a URL, or a picked File);
+    // the decoded Image is cached on block._img (a runtime-only field, stripped on save).
+    // Produces markup-free text — no upload needed, and it's the un-filterable fallback.
+    function decodeGlyphImage(block, file) {
+      block._decoding = true;
+      var p = file
+        ? Promise.resolve(URL.createObjectURL(file))
+        : fetch(proxied(block.url), { credentials: "omit" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
+      p.then(function (objUrl) {
+        return new Promise(function (res, rej) {
+          var im = new Image();
+          im.onload = function () { res(im); };
+          im.onerror = function () { rej(new Error("decode")); };
+          im.src = objUrl;
+        });
+      }).then(function (im) {
+        block._img = im; block._decoding = false; saveBlocks(); update();
+      })["catch"](function () { block._decoding = false; });
+    }
+    function glyphImageBodies(block) {
+      if (!block._img) {
+        if (block.url && !block._decoding) decodeGlyphImage(block);
+        return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: block._decoding ? "(decoding image…)" : "(paste an image URL or pick a file)" } }];
+      }
+      var tier = getTier(block.tier || "ascii");
+      var o = { cols: Math.max(8, Math.min(48, block.cols || 40)),
+                threshold: block.contrast != null ? block.contrast : 128,
+                invert: !!block.invert, dither: block.dither != null ? block.dither : true,
+                img: block._img };
+      o.rows = rowsForImage(o.cols, block._img.naturalWidth || block._img.width, block._img.naturalHeight || block._img.height);
+      var raw = computeGrid("image", tier, o);
+      var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
+      var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));
+      var open = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">';
+      var overhead = LEAD_GUARD.length + open.length + 7 + 14;
+      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - overhead) / (o.cols + 4)));
+      var bodies = [];
+      for (var r = 0; r < grid.length; r += rowsPerMsg) {
+        var strip = grid.slice(r, r + rowsPerMsg);
+        var body = open + strip.map(function (row) { return escapeHtml(row.join("")); }).join("<br>") + "</span>";
+        bodies.push({ html: body, chars: payloadLength(body), heightPx: strip.length * F,
+                      preview: { kind: "grid", grid: strip.map(function (row) { return row.join(""); }).join("\n") } });
+      }
+      return bodies;
+    }
+    // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
     function renderBlockBodies(block) {
-      if (block.type === "image") return block.url ? imageBodies(block) : [];
+      if (block.type === "image") {
+        if (block.imgKind === "glyph") return glyphImageBodies(block);
+        return block.url ? imageBodies(block) : [];
+      }
       var text = block.text || "";
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
+      if (block.render === "hanzi") return hanziBodies(text, block.cols, factor);
       var orient = block.orient || 0;
       if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient);
       return bigTypeBodies(text, factor, orient);   // 0 or 180
@@ -1405,13 +1475,24 @@
     // ============ COMPOSER (block stack) ============
     var blocks = [], blockIdSeq = 1, BLOCKS_KEY = "rw_blocks_v1";
     function newBlock(type) {
-      if (type === "image") return { id: blockIdSeq++, type: "image", url: "", width: 70, rotate: 0, renderAs: "svg" };
-      return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800 };
+      if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
+        rotate: 0, renderAs: "svg", tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
+      return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
-      return b.type === "image" ? !!(b.url && String(b.url).trim()) : !!(b.text && String(b.text).trim());
+      if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
+      return !!(b.text && String(b.text).trim());
     }
-    function saveBlocks() { try { localStorage.setItem(BLOCKS_KEY, JSON.stringify(blocks)); } catch (e) {} }
+    function saveBlocks() {
+      try {
+        // Strip runtime-only fields (a decoded <img>, in-flight flags) — they aren't
+        // serialisable and shouldn't persist; block.url re-decodes on load.
+        var clean = blocks.map(function (b) {
+          var o = {}; for (var k in b) if (k.charAt(0) !== "_") o[k] = b[k]; return o;
+        });
+        localStorage.setItem(BLOCKS_KEY, JSON.stringify(clean));
+      } catch (e) {}
+    }
     function loadBlocks() { try { var r = localStorage.getItem(BLOCKS_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
     function seedBlocks() {
       var saved = loadBlocks();
@@ -1462,30 +1543,54 @@
       var ta = mkEl("textarea", { rows: "2" }); ta.value = block.text || "";
       ta.addEventListener("input", function () { block.text = ta.value; saveBlocks(); update(); });
       card.appendChild(ta);
-      card.appendChild(mkEl("label", null, "Orientation"));
+      // Render: crisp vector Type, or markup-free Hanzi tiling (the filter-proof mode).
+      card.appendChild(mkEl("label", null, "Render"));
+      var render = mkEl("select");
+      render.appendChild(opt("type", "Type — crisp", block.render !== "hanzi"));
+      render.appendChild(opt("hanzi", "Hanzi tiling — filter-proof", block.render === "hanzi"));
+      card.appendChild(render);
+      var isSideways = function (o) { return o === 90 || o === 270; };
+      // Type-only controls: orientation + (length when sideways).
+      var typeWrap = mkEl("div");
+      typeWrap.appendChild(mkEl("label", null, "Orientation"));
       var orient = mkEl("select");
       orient.appendChild(opt("0", "Normal", block.orient === 0));
       orient.appendChild(opt("180", "Upside-down", block.orient === 180));
       orient.appendChild(opt("90", "Giant sideways ▷", block.orient === 90));
       orient.appendChild(opt("270", "Giant sideways ◁", block.orient === 270));
-      var isSideways = function (o) { return o === 90 || o === 270; };
       var lenWrap;
       orient.addEventListener("change", function () {
         block.orient = parseInt(orient.value, 10) || 0;
         if (lenWrap) lenWrap.style.display = isSideways(block.orient) ? "" : "none";
         saveBlocks(); update();
       });
-      card.appendChild(orient);
-      card.appendChild(mkEl("label", null, "Size"));
-      var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
-      size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
-      card.appendChild(size);
+      typeWrap.appendChild(orient);
       lenWrap = mkEl("div"); lenWrap.style.display = isSideways(block.orient) ? "" : "none";
       lenWrap.appendChild(mkEl("label", null, "Length per receipt (px)"));
       var len = mkEl("input", { type: "range", min: "300", max: "1500", step: "50" }); len.value = block.rotateLen || 800;
       len.addEventListener("input", function () { block.rotateLen = parseInt(len.value, 10); saveBlocks(); update(); });
       lenWrap.appendChild(len);
-      card.appendChild(lenWrap);
+      typeWrap.appendChild(lenWrap);
+      card.appendChild(typeWrap);
+      // Hanzi-only control: Detail (columns) — the resolution lever for tiled glyphs.
+      var hanziWrap = mkEl("div");
+      hanziWrap.appendChild(mkEl("label", null, "Detail (columns)"));
+      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 20;
+      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 20; saveBlocks(); update(); });
+      hanziWrap.appendChild(cols);
+      card.appendChild(hanziWrap);
+      // Size (both renders use it).
+      card.appendChild(mkEl("label", null, "Size"));
+      var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
+      size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
+      card.appendChild(size);
+      var applyRender = function () {
+        var hanzi = block.render === "hanzi";
+        typeWrap.style.display = hanzi ? "none" : "";
+        hanziWrap.style.display = hanzi ? "" : "none";
+      };
+      render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
+      applyRender();
       return card;
     }
     // Bake a rotation into the pixels: fetch block.url's bytes (via /px so a cross-origin
@@ -1567,36 +1672,84 @@
     function imageCard(block) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block));
+      // Kind: the real picture (prints the photo) or glyph-art (tiles it into text — the
+      // markup-free fallback that always prints).
+      card.appendChild(mkEl("label", null, "Kind"));
+      var kind = mkEl("select");
+      kind.appendChild(opt("real", "Real picture", block.imgKind !== "glyph"));
+      kind.appendChild(opt("glyph", "Glyph-art (tiled text)", block.imgKind === "glyph"));
+      card.appendChild(kind);
+      // Shared source: a URL or a picked file.
       card.appendChild(mkEl("label", null, "Image URL"));
       var url = mkEl("input", { type: "url", placeholder: "https://…/pic.jpg" }); url.value = block.url || "";
       card.appendChild(url);
-      card.appendChild(mkEl("label", null, "… or upload a file (5-min link)"));
+      card.appendChild(mkEl("label", null, "… or pick a file"));
       var file = mkEl("input", { type: "file", accept: "image/*" });
       card.appendChild(file);
       var status = mkEl("div", { "class": "hint" });
       var setStatus = function (t) { status.textContent = t; };
-      card.appendChild(mkEl("label", null, "Rotate"));
+      card.appendChild(status);
+
+      // --- Real-picture controls ---
+      var realWrap = mkEl("div");
+      realWrap.appendChild(mkEl("label", null, "Rotate"));
       var rot = mkEl("select");
       [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
-      card.appendChild(rot);
-      card.appendChild(status);
-      card.appendChild(mkEl("label", null, "Print width (mm)"));
+      realWrap.appendChild(rot);
+      realWrap.appendChild(mkEl("label", null, "Print width (mm)"));
       var w = mkEl("input", { type: "range", min: "20", max: "70", step: "1" }); w.value = block.width || 70;
-      card.appendChild(w);
-      card.appendChild(mkEl("label", null, "Render as"));
+      realWrap.appendChild(w);
+      realWrap.appendChild(mkEl("label", null, "Render as"));
       var ra = mkEl("select");
       ra.appendChild(opt("svg", "SVG (default)", block.renderAs !== "object"));
       ra.appendChild(opt("object", "object tag", block.renderAs === "object"));
-      card.appendChild(ra);
+      realWrap.appendChild(ra);
+      card.appendChild(realWrap);
+
+      // --- Glyph-art controls ---
+      var glyphWrap = mkEl("div");
+      glyphWrap.appendChild(mkEl("label", null, "Tier (glyph set)"));
+      var tier = mkEl("select");
+      [["ascii", "ASCII — letters (safest)"], ["asciifull", "ASCII — full detail"], ["cjk", "Hanzi — prints on RP332"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
+        .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "ascii") === t[0])); });
+      glyphWrap.appendChild(tier);
+      glyphWrap.appendChild(mkEl("label", null, "Detail (columns)"));
+      var gcols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); gcols.value = block.cols || 40;
+      glyphWrap.appendChild(gcols);
+      glyphWrap.appendChild(mkEl("label", null, "Contrast"));
+      var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = block.contrast != null ? block.contrast : 128;
+      glyphWrap.appendChild(contrast);
+      var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = block.dither !== false;
+      ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Dither (photos)"));
+      glyphWrap.appendChild(ditherLbl);
+      var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = !!block.invert;
+      invLbl.appendChild(invert); invLbl.appendChild(document.createTextNode(" Invert"));
+      glyphWrap.appendChild(invLbl);
+      card.appendChild(glyphWrap);
+
+      var applyKind = function () {
+        var glyph = block.imgKind === "glyph";
+        realWrap.style.display = glyph ? "none" : "";
+        glyphWrap.style.display = glyph ? "" : "none";
+      };
 
       url.addEventListener("input", function () {
-        block.url = url.value; block.outUrl = null;
-        if (block.rotate && block.url) rotateAndUpload(block, setStatus);
+        block.url = url.value; block.outUrl = null; block._img = null;
+        if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
+        else if (block.rotate && block.url) rotateAndUpload(block, setStatus);
         saveBlocks(); update();
       });
       file.addEventListener("change", function (e) {
         var f = e.target.files && e.target.files[0];
-        if (f) uploadFileForBlock(block, f, setStatus);
+        if (!f) return;
+        if (block.imgKind === "glyph") { block._img = null; decodeGlyphImage(block, f); setStatus("Decoding…"); }
+        else uploadFileForBlock(block, f, setStatus);
+      });
+      kind.addEventListener("change", function () {
+        block.imgKind = kind.value; block.outUrl = null; block._img = null; applyKind();
+        if (block.imgKind === "glyph" && block.url) decodeGlyphImage(block);
+        else if (block.imgKind !== "glyph" && block.rotate && block.url) rotateAndUpload(block, setStatus);
+        saveBlocks(); update();
       });
       rot.addEventListener("change", function () {
         block.rotate = parseInt(rot.value, 10) || 0; block.outUrl = null;
@@ -1605,6 +1758,12 @@
       });
       w.addEventListener("input", function () { block.width = parseInt(w.value, 10); saveBlocks(); update(); });
       ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
+      tier.addEventListener("change", function () { block.tier = tier.value; saveBlocks(); update(); });
+      gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 40; saveBlocks(); update(); });
+      contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
+      dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
+      invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
+      applyKind();
       return card;
     }
     function renderComposer() {

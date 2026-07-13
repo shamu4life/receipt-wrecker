@@ -58,7 +58,7 @@ Block =
     orient: 0 | 90 | 180 | 270,          // 90/270 = giant sideways (each direction)
     text: string,
     size: 25..100,                        // fill-% (hanzi floored at 85 as today)
-    rotateLen: 300..2000 }                // only used when orient ∈ {90,270}
+    rotateLen: 300..1500 }                // px; 1500 = real page-break ceiling (see Ground truth)
   | { id, type: "image",
       source: "url" | "upload",
       url: string,                        // the /i/ link or pasted URL actually embedded
@@ -154,6 +154,33 @@ rather than silently failing.
 - **Printer (user, field):** the SVG-vs-`<object>` winner; that rotated images and the
   new text orientations land correctly. These cannot be verified locally (wkhtmltopdf is
   no longer installable).
+
+## Ground truth (2026-07-13) — real engine now reproducible locally
+
+The printer-bot's own render script (`print_receipt.py`) + a local **wkhtmltopdf
+0.12.6 (patched qt)** — the *same engine version as the bot's `.exe`* — let us render
+payloads exactly as the printer does (extracted binary under `wkroot/`, harness in the
+job scratch dir). This retires several "needs a physical print" unknowns:
+
+- **Centering (the `translate(-50%,-50%)` fix): CONFIRMED** — a rotate strip centers on
+  the real engine, not just the browser preview.
+- **Escaped `\66ont:` CSS: parses** on the real engine — the filter-dodge survives
+  wkhtmltopdf.
+- **Image rendering: `<object>`, SVG `<image>`, and plain `<img>` ALL render** external
+  images correctly. The old "inline-SVG-can't-load-external-images on old WebKit" worry is
+  **disproven**, and `<object>`'s WebP/JPEG native-size quirk is moot once we re-encode to
+  PNG for rotation. → **The SVG-vs-`<object>` A/B toggle is no longer needed for
+  correctness; recommend dropping it and rendering images one way (default SVG or
+  `<object>`).** (Kept as an open call for the user; the toggle is cheap if still wanted.)
+- **Page geometry (calibrated):** page is **80mm × 500mm**, margins 0, `body{margin:1em}`.
+  With the template header (15em avatar + title + subtitle) and footer, **~1552px (~411mm)
+  of content fits before the page breaks** — hence the 1500px rotate ceiling above. Title
+  is literally `{bits} BITS`, confirming the bits control. `--disable-javascript` and
+  `--no-background` are set (no JS, background colors never print).
+
+**This harness should become the composer's verification step** — render composed stacks
+through real wkhtmltopdf and diff against intent, instead of trusting the browser preview
+alone.
 
 ## Risks / open items
 - **Printer-dependent** items above are settled only by the user's prints; the design

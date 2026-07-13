@@ -1,0 +1,89 @@
+- main [ref=f4e2]:
+  - heading "Receipt Wrecker" [level=1] [ref=f4e3]
+  - paragraph [ref=f4e4]: Your words as giant type, or a picture (a real image by link, or glyph-art from a file) — paste the result into Twitch chat as a Cheer100 and it prints on the streamer’s receipt printer.
+  - generic [ref=f4e5]:
+    - button "Big Text" [ref=f4e6] [cursor=pointer]
+    - button "Image" [ref=f4e7] [cursor=pointer]
+  - generic [ref=f4e8]:
+    - strong [ref=f4e9]: Big Text
+    - text: = your words printed BIG as real type (press Enter for line breaks).
+    - strong [ref=f4e10]: Image
+    - text: = the real picture from a link, or glyph-art from an uploaded file. Both ride out on a 100-bit cheer.
+  - generic [ref=f4e11]:
+    - generic [ref=f4e12]:
+      - generic [ref=f4e13]:
+        - checkbox "Cheer-ready" [checked] [ref=f4e14]
+        - text: Cheer-ready
+      - generic [ref=f4e15]: Adds " Cheer100 " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.
+      - generic [ref=f4e16]:
+        - generic [ref=f4e17]:
+          - text: Text
+          - textbox "Text" [ref=f4e18]: RECEIPT
+        - generic [ref=f4e19]:
+          - text: Style
+          - combobox "Style" [ref=f4e20]:
+            - option "Big type — fills the width"
+            - option "Giant sideways — HTML" [selected]
+            - option "Giant sideways — Hanzi tiling (no markup)"
+        - generic [ref=f4e21]:
+          - strong [ref=f4e22]: Big type
+          - text: prints horizontally as real type.
+          - strong [ref=f4e23]: Giant sideways
+          - text: runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns.
+          - strong [ref=f4e24]: Hanzi tiling
+          - text: builds those same giant sideways letters from Han
+          - emphasis [ref=f4e25]: glyphs
+          - text: instead of CSS — here each line stacks
+          - emphasis [ref=f4e26]: full-size
+          - text: down the tape (so every line keeps full detail) — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set
+          - strong [ref=f4e27]: Detail (columns)
+          - text: to the printer's true width (
+          - emphasis [ref=f4e28]: Print test strip
+          - text: has a ruler); if it prints blank, the printer has no CJK font.
+        - generic [ref=f4e29]:
+          - generic [ref=f4e30]:
+            - text: "Size: 55%"
+            - 'button "Size: 55% 90" [ref=f4e31] [cursor=pointer]': ↻
+            - slider [ref=f4e32]: "55"
+          - generic [ref=f4e33]:
+            - text: How big the text is.
+            - strong [ref=f4e34]: 100%
+            - text: = as large as fits the paper width (auto-shrinks so it never runs off the edge); drop it to leave margins. For
+            - strong [ref=f4e35]: Giant sideways
+            - text: this sets the letter size — smaller letters fit more text before each strip ends. Press Enter for separate lines.
+        - generic [ref=f4e36]:
+          - generic [ref=f4e37]:
+            - text: "Length per receipt: 1200px"
+            - 'button "Length per receipt: 1200px 800" [ref=f4e38] [cursor=pointer]': ↻
+            - slider [ref=f4e39]: "1200"
+          - generic [ref=f4e40]:
+            - text: Where each strip ends so it doesn’t cross the printer’s page break (which slices a word). This is a
+            - strong [ref=f4e41]: cap
+            - text: ", not a target — slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging"
+            - emphasis [ref=f4e42]: worse
+            - text: ", so calibrate to your printer. Long messages split into more strips;"
+            - strong [ref=f4e43]: tape them together in order
+            - text: .
+    - generic [ref=f4e44]:
+      - 'generic "Render the preview the way the printer does: 1-bit black & white, dithered" [ref=f4e45] [cursor=pointer]':
+        - checkbox "Thermal preview — 1-bit dithered, like the real printer" [ref=f4e46]
+        - text: Thermal preview — 1-bit dithered, like the real printer
+      - generic [ref=f4e48]:
+        - generic [ref=f4e49]: 307 / 490
+        - generic:
+          - generic: 100 BITS
+          - generic: shamu4life
+          - generic: RECEIPT
+          - generic: twitch
+          - generic: Fri Jul 11 2026 20:05
+        - button "Copy" [ref=f4e51]
+      - button "Print test strip" [ref=f4e53]
+  - paragraph [ref=f4e54]:
+    - text: Paste into the
+    - strong [ref=f4e55]: official Twitch web/mobile chat
+    - text: and send as a ≥100-bit cheer — only the first-party client actually cheers.
+  - paragraph [ref=f4e56]:
+    - strong [ref=f4e57]: Held or blocked by chat?
+    - text: "Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: a rotating nonce beats duplicate-blocking, letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit (which bypass all of it) there’s no way to"
+    - emphasis [ref=f4e58]: guarantee
+    - text: delivery — so if a message is held, just resend, shorten it, or drop the column count and try again.

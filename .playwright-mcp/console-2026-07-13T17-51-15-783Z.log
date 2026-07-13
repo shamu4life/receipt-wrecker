@@ -1,5 +1,0 @@
-[   11115ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8788/AVATAR_PLACEHOLDER:0
-[   12324ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8788/AVATAR_PLACEHOLDER?r=1:0
-[   13532ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8788/AVATAR_PLACEHOLDER?r=2:0
-[   14740ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8788/AVATAR_PLACEHOLDER?r=3:0
-[   15951ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:8788/AVATAR_PLACEHOLDER?r=4:0

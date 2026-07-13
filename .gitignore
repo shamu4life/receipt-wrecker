@@ -4,3 +4,6 @@ package-lock.json
 .dev.vars*
 .env*
 .DS_Store
+
+# Local browser-automation scratch (Playwright MCP)
+.playwright-mcp/

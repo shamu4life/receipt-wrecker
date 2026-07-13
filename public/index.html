@@ -164,9 +164,9 @@
         <div id="rotateLenControl">
           <label>Length per receipt: <span id="rotateLenVal">800</span>px
             <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
-            <input type="range" id="rotateLen" min="300" max="1000" step="50" value="800">
+            <input type="range" id="rotateLen" min="300" max="2000" step="50" value="800">
           </label>
-          <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; set it a bit <em>below</em> where your printer cuts (raising it past that point makes the gouging <em>worse</em>). Long messages just split into more strips; <strong>tape them together in order</strong>.</div>
+          <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging <em>worse</em>, so calibrate to your printer. Long messages split into more strips; <strong>tape them together in order</strong>.</div>
         </div>
       </div>
       <div id="imageControls" hidden>
@@ -562,7 +562,10 @@
     // strip. Calibrated by the user to their printer's page break — see the hint.
     function getRotateLen() {
       var v = parseInt(els.rotateLen.value, 10);
-      return isFinite(v) ? Math.max(300, Math.min(1000, v)) : 800;   // ~1000px = robp's real page-break ceiling
+      // Ceiling raised 1000 -> 2000: a field print fit what the tool split into two
+      // strips onto ONE receipt, so the real page break is well above the old 1000px
+      // guess. Default stays 800 (safe for the uncalibrated); calibrate up per printer.
+      return isFinite(v) ? Math.max(300, Math.min(2000, v)) : 800;
     }
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -658,13 +661,22 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S, shift) {
+    function rotatedSpan(cols, colW, S) {
       var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
-      var html = '<span style="display:inline-block;width:' + PAPER_PX + 'px;height:' + maxL
-        + 'px;white-space:nowrap;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
-        + '-webkit-transform:translateX(' + shift + 'px) rotate(90deg);-webkit-transform-origin:0 0">'
-        + inner + '</span>';
+      var blockH = cols.length * colW;    // N stacked columns, pre-rotation height
+      // Center with the standard translate(-50%,-50%) idiom inside a paper-wide,
+      // maxL-long box, rotating about the element's own centre. This depends only
+      // on the DEFAULT transform-origin (50% 50%) — the one value every renderer
+      // agrees on. The previous version set `transform-origin:0 0` and a computed
+      // translateX; that centred in-browser but printed off to one side, because
+      // the printer's old WebKit didn't honour the non-default origin. maxL/blockH
+      // pin the pre-rotation box so the translate math is exact.
+      var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
+        + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
+        + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
+        + '-webkit-transform:translate(-50%,-50%) rotate(90deg)">'
+        + inner + '</span></div>';
       return { html: html, maxL: maxL };
     }
     // Break one token into character chunks each within maxLen — for a single word
@@ -716,16 +728,16 @@
       // ends. colW is each column's width across the paper; S fills that column.
       var factor = getSizeFactor();
       var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
-      // Center the whole N-column block on the paper: at 100% it fills it (unchanged);
-      // shrunk, it sits centered with even margins instead of hugging one edge.
-      var shift = Math.round((PAPER_PX + N * colW) / 2);
+      // Centering is handled inside rotatedSpan (translate(-50%,-50%), default
+      // origin) — no computed offset needed. At 100% the block fills the paper;
+      // shrunk, it sits centered with even margins.
       var T = getRotateLen();
       var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
       var parts = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S, shift);
+        var span = rotatedSpan(cols, colW, S);
         var payload = packageCheer(LEAD_GUARD + span.html, cheerOptsFor(k));
         parts.push({ payload: payload, chars: payloadLength(payload), copyable: true,
                      bigText: true, previewHtml: span.html });

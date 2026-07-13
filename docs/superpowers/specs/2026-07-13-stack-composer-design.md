@@ -169,9 +169,9 @@ job scratch dir). This retires several "needs a physical print" unknowns:
 - **Image rendering: `<object>`, SVG `<image>`, and plain `<img>` ALL render** external
   images correctly. The old "inline-SVG-can't-load-external-images on old WebKit" worry is
   **disproven**, and `<object>`'s WebP/JPEG native-size quirk is moot once we re-encode to
-  PNG for rotation. → **The SVG-vs-`<object>` A/B toggle is no longer needed for
-  correctness; recommend dropping it and rendering images one way (default SVG or
-  `<object>`).** (Kept as an open call for the user; the toggle is cheap if still wanted.)
+  PNG for rotation. Both methods are correct on the real engine. **Decision (user): keep
+  the per-image A/B toggle anyway** (default SVG) — it's cheap and useful for edge cases /
+  preference, even though correctness no longer requires it.
 - **Page geometry (calibrated):** page is **80mm × 500mm**, margins 0, `body{margin:1em}`.
   With the template header (15em avatar + title + subtitle) and footer, **~1552px (~411mm)
   of content fits before the page breaks** — hence the 1500px rotate ceiling above. Title

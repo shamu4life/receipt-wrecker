@@ -190,7 +190,7 @@
         <div id="rotateLenControl">
           <label>Length per receipt: <span id="rotateLenVal">800</span>px
             <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
-            <input type="range" id="rotateLen" min="300" max="1500" step="50" value="800">
+            <input type="range" id="rotateLen" min="300" max="1400" step="50" value="800">
           </label>
           <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging <em>worse</em>, so calibrate to your printer. Long messages split into more strips; <strong>tape them together in order</strong>.</div>
         </div>
@@ -388,11 +388,13 @@
     var nonce = opts.nonce || "";
     return body + " " + token + (nonce ? " " + nonce : "");
   }
-  // Physical page ceiling for one receipt, in CSS px — calibrated on the real engine
-  // (80mm x 500mm page minus the template header/footer fits ~1552px of content; 1500
-  // leaves a margin). A rotate strip is only a few CHARS but ~this many px tall, so
-  // packing must honour height, not just the ~490-char Twitch limit.
-  var HEIGHT_BUDGET = 1500;
+  // Physical page ceiling for one receipt, in CSS px. The 80mm x 500mm page fits ~1552px
+  // of content with a typical header — but the header height VARIES with the streamer's
+  // avatar (up to 15em) which we can't measure, and our per-body height estimates aren't
+  // exact, so a strip near the true edge still occasionally gouged. 1400 leaves a safety
+  // margin against both. A rotate strip is few CHARS but ~this many px tall, so packing
+  // must honour height, not just the ~490-char Twitch limit.
+  var HEIGHT_BUDGET = 1400;
   // Pack an ordered list of Body objects into receipts. Body = {html, chars, heightPx}.
   // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
   // cheer overhead) and the height budget hold; else start a new receipt. A single body
@@ -628,13 +630,12 @@
     // strip. Calibrated by the user to their printer's page break — see the hint.
     function getRotateLen() {
       var v = parseInt(els.rotateLen.value, 10);
-      // Ceiling = 1500px, calibrated against the REAL printer engine (wkhtmltopdf
-      // 0.12.6, the bot's own render): the page is 80mm x 500mm, and with the
-      // template's header (15em avatar + title + subtitle) and footer, exactly
-      // ~1552px of content fits before it breaks to a second page. 1500 leaves a
-      // small safety margin. (An earlier 2000 guess overshot and would gouge.)
-      // Default stays 800; calibrate up per printer.
-      return isFinite(v) ? Math.max(300, Math.min(1500, v)) : 800;
+      // Ceiling = 1400px. The real page (80mm x 500mm, measured on wkhtmltopdf 0.12.6)
+      // fits ~1552px with a typical header, but the header height varies with the
+      // streamer's avatar (up to 15em) which we can't measure — so 1400 leaves a safety
+      // margin against gouging. (History: 1000 guess -> 2000 overshoot -> 1552 measured
+      // -> 1400 with margin.) Default stays 800; nudge up per printer.
+      return isFinite(v) ? Math.max(300, Math.min(1400, v)) : 800;
     }
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1212,7 +1213,7 @@
       r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">' + getBits() + ' BITS</div><div class="rcpt-sub">shamu4life</div>';
       bodyNode.className = "rcpt-body";
       r.appendChild(bodyNode);
-      r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot">twitch</div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
+      r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot"><svg viewBox="0 0 24 24" width="22" height="22" fill="#772ce8" style="display:block;margin:0 auto" aria-label="twitch"><path d="M2.149 0 .521 4.093v16.353h5.62V24h3.077l3.541-3.554h4.545L24 14.272V0H2.149zM21.393 13.191l-3.541 3.554h-5.62l-3.078 3.082v-3.082H4.706V2.149h16.687v11.042zM12.149 4.735H9.999v6.174h2.15V4.735zm5.619 0h-2.149v6.174h2.149V4.735z"/></svg></div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
       return r;
     }
 
@@ -1584,7 +1585,7 @@
       typeWrap.appendChild(orient);
       lenWrap = mkEl("div"); lenWrap.style.display = isSideways(block.orient) ? "" : "none";
       lenWrap.appendChild(mkEl("label", null, "Length per receipt (px)"));
-      var len = mkEl("input", { type: "range", min: "300", max: "1500", step: "50" }); len.value = block.rotateLen || 800;
+      var len = mkEl("input", { type: "range", min: "300", max: "1400", step: "50" }); len.value = block.rotateLen || 800;
       len.addEventListener("input", function () { block.rotateLen = parseInt(len.value, 10); saveBlocks(); update(); });
       lenWrap.appendChild(len);
       typeWrap.appendChild(lenWrap);

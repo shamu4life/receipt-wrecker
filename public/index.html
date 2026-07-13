@@ -732,12 +732,13 @@
     // = a blank column on this strip).
     function rotatedSpan(cols, colW, S, angle) {
       angle = angle || 90;
-      // 270 = sideways the OTHER way: reverse the column order so the lines still read
-      // top-to-bottom when the tape is turned the opposite direction.
-      var ordered = angle === 270 ? cols.slice().reverse() : cols;
-      var maxL = ordered.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
-      var inner = ordered.map(escapeHtml).join("<br>");
-      var blockH = ordered.length * colW;    // N stacked columns, pre-rotation height
+      // Both 90 and 270 keep the input line order: at 270 (read by turning the tape the
+      // opposite way from 90) the rotation already lands line 1 in the column that ends
+      // up on top, so NO reversal — reversing was the "wrong orientation" bug on
+      // multi-line text (it swapped the lines).
+      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
+      var inner = cols.map(escapeHtml).join("<br>");
+      var blockH = cols.length * colW;    // N stacked columns, pre-rotation height
       // Center with the standard translate(-50%,-50%) idiom inside a paper-wide,
       // maxL-long box, rotating about the element's own centre. This depends only
       // on the DEFAULT transform-origin (50% 50%) — the one value every renderer

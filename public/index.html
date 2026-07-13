@@ -365,6 +365,42 @@
     var nonce = opts.nonce || "";
     return body + " " + token + (nonce ? " " + nonce : "");
   }
+  // Physical page ceiling for one receipt, in CSS px — calibrated on the real engine
+  // (80mm x 500mm page minus the template header/footer fits ~1552px of content; 1500
+  // leaves a margin). A rotate strip is only a few CHARS but ~this many px tall, so
+  // packing must honour height, not just the ~490-char Twitch limit.
+  var HEIGHT_BUDGET = 1500;
+  // Pack an ordered list of Body objects into receipts. Body = {html, chars, heightPx}.
+  // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
+  // cheer overhead) and the height budget hold; else start a new receipt. A single body
+  // always gets at least its own receipt (over-budget is warned in the UI). One nonce and
+  // one LEAD_GUARD per receipt. opts = {bits, cheer}. Returns Part[] = {payload, chars,
+  // heightPx, bodies, nonce}. Pure (no DOM) so the test harness can exercise it.
+  function packStackBodies(bodies, opts) {
+    opts = opts || {};
+    var token = "Cheer" + (opts.bits && opts.bits >= 100 ? opts.bits : 100);
+    var overhead = LEAD_GUARD.length + (opts.cheer ? token.length + 4 : 0);  // " <token> nn"
+    var maxBody = MAX_CHARS - overhead;
+    var parts = [], cur = [], curChars = 0, curH = 0;
+    function flush() {
+      if (!cur.length) return;
+      var nonce = opts.cheer ? makeNonce(parts.length) : "";
+      var html = cur.map(function (b) { return b.html; }).join("");
+      var payload = packageCheer(LEAD_GUARD + html, { cheer: opts.cheer, cheerToken: token, nonce: nonce });
+      parts.push({ payload: payload, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      cur = []; curChars = 0; curH = 0;
+    }
+    for (var i = 0; i < bodies.length; i++) {
+      var b = bodies[i];
+      var bChars = b.chars != null ? b.chars : payloadLength(b.html);
+      var bH = b.heightPx || 0;
+      var fits = cur.length === 0 || ((curChars + bChars <= maxBody) && (curH + bH <= HEIGHT_BUDGET));
+      if (!fits) flush();
+      cur.push(b); curChars += bChars; curH += bH;
+    }
+    flush();
+    return parts;
+  }
   function buildCensus() {
     // One print tells us what the target printer actually renders (vs tofu boxes)
     // and its true column width — the data that decides the best MARKUP-FREE glyph
@@ -721,34 +757,76 @@
     // page break. Each column (input line) is chunked into page-fitting word segments;
     // part k renders segment k of every column. Tape the strips in order and each
     // column reads continuously. Short messages come back as a single part.
-    function buildRotatedParts(text) {
+    // Giant-sideways BODIES (no cheer wrapper): one per taped strip. heightPx = the
+    // strip's run length (its physical length down the tape) so the packer respects
+    // the page. `factor`/`len` override the live controls when a composer block carries
+    // its own size/length; they default to the current sliders.
+    function rotateBodies(text, factor, len) {
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
       if (!lines.length) lines = [" "];
       var N = lines.length;
-      // Two knobs now shape the sideways output (as the user intuited): Length-per-
-      // receipt (where a strip ends) AND letter size. The Size slider (25..100%) scales
-      // the letters DOWN from the paper-filling max, same fill-% meaning as Big type.
-      // Smaller letters => shorter run per character => more text fits before a strip
-      // ends. colW is each column's width across the paper; S fills that column.
-      var factor = getSizeFactor();
+      factor = factor || getSizeFactor();
       var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
-      // Centering is handled inside rotatedSpan (translate(-50%,-50%), default
-      // origin) — no computed offset needed. At 100% the block fills the paper;
-      // shrunk, it sits centered with even margins.
-      var T = getRotateLen();
+      var T = len || getRotateLen();
       var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
-      var parts = [];
+      var bodies = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
         var span = rotatedSpan(cols, colW, S);
-        var payload = packageCheer(LEAD_GUARD + span.html, cheerOptsFor(k));
-        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true,
-                     bigText: true, previewHtml: span.html });
+        bodies.push({ html: span.html, heightPx: span.maxL, chars: payloadLength(span.html),
+                      preview: { kind: "html", html: span.html } });
       }
-      return parts;
+      return bodies;
+    }
+    function buildRotatedParts(text) {
+      return rotateBodies(text).map(function (b, k) {
+        var payload = packageCheer(LEAD_GUARD + b.html, cheerOptsFor(k));
+        return { payload: payload, chars: payloadLength(payload), copyable: true,
+                 bigText: true, previewHtml: b.html };
+      });
+    }
+    // Crisp Big-type BODY (SVG). orient 0 today; 180 added in the orientation task.
+    function bigTypeBodies(text, factor) {
+      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor());
+      var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
+      return [{ html: svg, chars: payloadLength(svg), heightPx: h, preview: { kind: "html", html: svg } }];
+    }
+    // Real-image BODY. renderAs picks <object> vs SVG <image> (both confirmed on the
+    // real engine). SVG needs the aspect ratio; until it's known, fall back to <object>.
+    function imageBodies(block) {
+      var url = block.url, w = block.width || 70;
+      var body, hpx;
+      var haveAspect = imgAspect > 0 && imgAspectUrl === url;
+      if (block.renderAs === "svg" && haveAspect) {
+        var W = Math.min(PAPER_PX, Math.round(w * PX_PER_MM)), H = Math.max(1, Math.round(W * imgAspect));
+        body = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
+          + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
+        hpx = H;
+      } else {
+        if (block.renderAs === "svg") probeAspect(url);   // learn aspect, then re-render as SVG
+        body = '<object data="' + escapeAttr(url) + '" style="width:' + w + 'mm;display:block"></object>';
+        hpx = haveAspect ? Math.round(Math.min(PAPER_PX, w * PX_PER_MM) * imgAspect) : Math.round(w * PX_PER_MM);
+      }
+      return [{ html: body, chars: payloadLength(body), heightPx: hpx, preview: { kind: "img", imgUrl: url } }];
+    }
+    // Turn one composer block into its ordered BODIES (1+; a rotate block bands).
+    function renderBlockBodies(block) {
+      if (block.type === "image") return block.url ? imageBodies(block) : [];
+      var text = block.text || "";
+      var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
+      var orient = block.orient || 0;
+      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen);
+      return bigTypeBodies(text, factor);   // 0 (and 180, added in the orientation task)
+    }
+    // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
+    // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
+    function packStack(blocks, opts) {
+      var bodies = [];
+      for (var i = 0; i < blocks.length; i++) bodies = bodies.concat(renderBlockBodies(blocks[i]));
+      return packStackBodies(bodies, opts);
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
     // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via
@@ -1490,6 +1568,7 @@
       lumaToDots: lumaToDots, packBraille: packBraille,
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
+      packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
     };
   }
 </script>

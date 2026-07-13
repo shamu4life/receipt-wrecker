@@ -726,10 +726,14 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S) {
-      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
-      var inner = cols.map(escapeHtml).join("<br>");
-      var blockH = cols.length * colW;    // N stacked columns, pre-rotation height
+    function rotatedSpan(cols, colW, S, angle) {
+      angle = angle || 90;
+      // 270 = sideways the OTHER way: reverse the column order so the lines still read
+      // top-to-bottom when the tape is turned the opposite direction.
+      var ordered = angle === 270 ? cols.slice().reverse() : cols;
+      var maxL = ordered.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
+      var inner = ordered.map(escapeHtml).join("<br>");
+      var blockH = ordered.length * colW;    // N stacked columns, pre-rotation height
       // Center with the standard translate(-50%,-50%) idiom inside a paper-wide,
       // maxL-long box, rotating about the element's own centre. This depends only
       // on the DEFAULT transform-origin (50% 50%) — the one value every renderer
@@ -740,7 +744,7 @@
       var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
         + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
         + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
-        + '-webkit-transform:translate(-50%,-50%) rotate(90deg)">'
+        + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)">'
         + inner + '</span></div>';
       return { html: html, maxL: maxL };
     }
@@ -784,7 +788,7 @@
     // strip's run length (its physical length down the tape) so the packer respects
     // the page. `factor`/`len` override the live controls when a composer block carries
     // its own size/length; they default to the current sliders.
-    function rotateBodies(text, factor, len) {
+    function rotateBodies(text, factor, len, angle) {
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
@@ -798,7 +802,7 @@
       var bodies = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S);
+        var span = rotatedSpan(cols, colW, S, angle);
         bodies.push({ html: span.html, heightPx: span.maxL, chars: payloadLength(span.html),
                       preview: { kind: "html", html: span.html } });
       }
@@ -811,11 +815,13 @@
                  bigText: true, previewHtml: b.html };
       });
     }
-    // Crisp Big-type BODY (SVG). orient 0 today; 180 added in the orientation task.
-    function bigTypeBodies(text, factor) {
+    // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
+    // proven on the real engine). Default transform-origin (centre) so it flips in place.
+    function bigTypeBodies(text, factor, orient) {
       var svg = buildBigTextSvg(text || " ", factor || getSizeFactor());
       var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
-      return [{ html: svg, chars: payloadLength(svg), heightPx: h, preview: { kind: "html", html: svg } }];
+      var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
+      return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
     }
     // Real-image BODY. renderAs picks <object> vs SVG <image> (both confirmed on the
     // real engine). SVG needs the aspect ratio; until it's known, fall back to <object>.
@@ -841,8 +847,8 @@
       var text = block.text || "";
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
       var orient = block.orient || 0;
-      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen);
-      return bigTypeBodies(text, factor);   // 0 (and 180, added in the orientation task)
+      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient);
+      return bigTypeBodies(text, factor, orient);   // 0 or 180
     }
     // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
     // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
@@ -1455,11 +1461,14 @@
       card.appendChild(mkEl("label", null, "Orientation"));
       var orient = mkEl("select");
       orient.appendChild(opt("0", "Normal", block.orient === 0));
+      orient.appendChild(opt("180", "Upside-down", block.orient === 180));
       orient.appendChild(opt("90", "Giant sideways ▷", block.orient === 90));
+      orient.appendChild(opt("270", "Giant sideways ◁", block.orient === 270));
+      var isSideways = function (o) { return o === 90 || o === 270; };
       var lenWrap;
       orient.addEventListener("change", function () {
         block.orient = parseInt(orient.value, 10) || 0;
-        if (lenWrap) lenWrap.style.display = block.orient === 90 ? "" : "none";
+        if (lenWrap) lenWrap.style.display = isSideways(block.orient) ? "" : "none";
         saveBlocks(); update();
       });
       card.appendChild(orient);
@@ -1467,7 +1476,7 @@
       var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
       size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
       card.appendChild(size);
-      lenWrap = mkEl("div"); lenWrap.style.display = block.orient === 90 ? "" : "none";
+      lenWrap = mkEl("div"); lenWrap.style.display = isSideways(block.orient) ? "" : "none";
       lenWrap.appendChild(mkEl("label", null, "Length per receipt (px)"));
       var len = mkEl("input", { type: "range", min: "300", max: "1500", step: "50" }); len.value = block.rotateLen || 800;
       len.addEventListener("input", function () { block.rotateLen = parseInt(len.value, 10); saveBlocks(); update(); });

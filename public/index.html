@@ -140,7 +140,10 @@
       </div><!-- /glyphControls -->
 
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
-      <div class="hint">Adds " Cheer100 " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
+      <div class="hint">Adds " Cheer&lt;bits&gt; " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
+
+      <label>Bits per receipt: <input type="number" id="bitsAmount" min="100" step="100" value="100" style="width:6em"></label>
+      <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts &mdash; shown under the preview.</div>
 
       <div id="textControls">
         <label>Text
@@ -776,8 +779,14 @@
         sizeFactor: getSizeFactor(),
       };
     }
+    // Bits per cheer (min 100). The "100" in "Cheer100" is just the bit count, so a
+    // different amount is a different token — the bot prints on any amount >= 100.
+    function getBits() {
+      var n = parseInt(els.bitsAmount && els.bitsAmount.value, 10);
+      return isFinite(n) && n >= 100 ? n : 100;
+    }
     function cheerOptsFor(i) {
-      return { cheer: els.cheer.checked, nonce: nonceForPart(i) };
+      return { cheer: els.cheer.checked, cheerToken: "Cheer" + getBits(), nonce: nonceForPart(i) };
     }
     // Big Text: split the rendered CellGrid into ordered top-to-bottom bands
     // whenever it's taller than one <=MAX_CHARS message can hold. rowsPerMsg
@@ -933,7 +942,7 @@
           mode: currentMode, tier: els.tier.value, cols: els.cols.value,
           dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
-          cheer: els.cheer.checked, text: els.textInput.value,
+          cheer: els.cheer.checked, bits: els.bitsAmount.value, text: els.textInput.value,
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
           rotateLen: els.rotateLen.value,
           imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
@@ -963,6 +972,7 @@
       if (saved.contrast != null) els.contrast.value = saved.contrast;
       els.invert.checked = !!saved.invert;
       els.cheer.checked = saved.cheer !== false;
+      if (saved.bits && parseInt(saved.bits, 10) >= 100) els.bitsAmount.value = saved.bits;
       if (saved.text != null) els.textInput.value = saved.text;
       // textSize is now a px font-size (>=12); ignore any old fractional value.
       if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
@@ -1001,7 +1011,7 @@
     function receiptFrame(bodyNode) {
       var r = document.createElement("div");
       r.className = "rcpt";
-      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">100 BITS</div><div class="rcpt-sub">shamu4life</div>';
+      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">' + getBits() + ' BITS</div><div class="rcpt-sub">shamu4life</div>';
       bodyNode.className = "rcpt-body";
       r.appendChild(bodyNode);
       r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot">twitch</div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
@@ -1241,10 +1251,12 @@
         }
         container.appendChild(card);
       });
+      var copyableParts = items.filter(function (it) { return it.copyable; }).length;
       if (n > 1) {
         var note = document.createElement("p");
         note.className = "parts-note";
-        note.textContent = "Paste the parts into chat in order — each is a separate 100-bit cheer.";
+        note.textContent = "Paste the parts into chat in order — each is a separate " + getBits()
+          + "-bit cheer (" + copyableParts + " × " + getBits() + " = " + (copyableParts * getBits()) + " bits total).";
         container.appendChild(note);
       }
       // Only warn about the /px round-trip when it will actually happen: thermal
@@ -1344,6 +1356,7 @@
         contrastVal: document.getElementById("contrastVal"),
         invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
+        bitsAmount: document.getElementById("bitsAmount"),
         textInput: document.getElementById("textInput"),
         bigStyle: document.getElementById("bigStyle"),
         sizeControl: document.getElementById("sizeControl"),
@@ -1372,7 +1385,7 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.textInput, els.textSize, els.rotateLen,
+       els.invert, els.cheer, els.bitsAmount, els.textInput, els.textSize, els.rotateLen,
        els.imgUrl, els.imgWidth].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;

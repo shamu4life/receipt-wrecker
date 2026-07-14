@@ -675,10 +675,13 @@
       // The fit-cap keeps the widest line <= ~250 < PAPER_PX, so it never touches the edge.
       var W = PAPER_PX, cx = Math.round(W / 2);
       for (var i = 0; i < lines.length; i++) {
-        kids += '<text x="' + cx + '" y="' + (i * lh + Math.round(S * 0.82) + pad)
-          + '" font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + escapeHtml(lines[i]) + '</text>';
+        kids += '<text x="' + cx + '" y="' + (i * lh + Math.round(S * 0.82) + pad) + '">' + escapeHtml(lines[i]) + '</text>';
       }
-      return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + kids + '</svg>';
+      // Shared text attributes ride on a <g> (inherited by every line) instead of being
+      // repeated per <text> — a big payload saving on multi-line captions, so an image +
+      // caption fits in ONE cheer instead of being split. (verified on the real engine)
+      var body = '<g font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + kids + '</g>';
+      return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + body + '</svg>';
     }
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
@@ -859,8 +862,10 @@
       }
       if (!aspect) probeBlockAspect(block);
       var W = Math.min(PAPER_PX, Math.round(w * PX_PER_MM)), H = Math.max(1, Math.round(W * (aspect || 1)));
+      // preserveAspectRatio omitted: "xMidYMid meet" is the default, so dropping it is a
+      // free ~34-char saving with no visual change (helps fit image + caption in one cheer).
       var svg = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
-        + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
+        + escapeAttr(url) + '" width="' + W + '" height="' + H + '"/></svg>';
       return [{ html: svg, chars: payloadLength(svg), heightPx: H, preview: { kind: "img", imgUrl: url } }];
     }
     // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.

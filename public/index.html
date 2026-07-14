@@ -52,20 +52,25 @@
      an 80mm roll with ~5mm unprintable margins each side => 70mm printable content.
      Avatar / 100 BITS / username / content / twitch / date, centered. View-only, so
      pointer-events:none — same reason as above (Rotate's span steals clicks). */
+  /* Numbers mirror the printer-bot's real template (print_receipt.py): 80mm page with a
+     1em body margin, 16px base, avatar max-height 15em, title 1.5em/900, subtitle
+     1.2em/700, content .5em 0, date .7em. Keeping these identical makes the browser
+     preview render nearly the same as the real wkhtmltopdf print. (border/shadow are
+     screen-only chrome and are stripped in the thermal raster.) */
   .rcpt {
     width: 80mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
-    padding: 5mm 5mm 3mm; background: #fff; color: #000; border: 1px solid #bbb;
+    padding: 1em; background: #fff; color: #000; border: 1px solid #bbb;
     border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    pointer-events: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; pointer-events: none;
   }
-  .rcpt-av { width: 20mm; height: 20mm; border-radius: 50%; background: #dcdcdc; margin: 0 auto 2mm; }
-  .rcpt-title { font-weight: 900; font-size: 1.4em; text-transform: uppercase; line-height: 1.05; }
-  .rcpt-sub { font-weight: 700; font-size: 1.1em; }
+  .rcpt-av { width: 15em; max-width: 90%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; object-fit: cover; margin: 0 auto; }
+  .rcpt-title { font-weight: 900; font-size: 1.5em; text-transform: uppercase; }
+  .rcpt-sub { font-weight: 700; font-size: 1.2em; }
   .rcpt-body { padding: .5em 0; }
   .rcpt-body > svg, .rcpt-body > img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
   .rcpt-foot { font-weight: 700; font-size: .85em; color: #772ce8; }
-  .rcpt-date { font-size: .7em; text-transform: uppercase; opacity: .7; margin-top: .5mm; }
+  .rcpt-date { font-size: .7em; text-transform: uppercase; margin: .5em 0; }
   /* 1-bit thermal render of a receipt frame (see thermalize()). Shown at print-dot
      resolution; pixelated so the dither texture survives any responsive down-scale. */
   .rcpt-thermal { display: block; margin: 0 0 .5rem; max-width: 100%; height: auto;
@@ -1235,14 +1240,14 @@
     // receipt styling must ride along as an embedded <style>. Kept in sync with
     // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
     var RCPT_CSS =
-      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:5mm 5mm 3mm;background:#fff;color:#000;text-align:center;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}' +
-      '.rcpt-av{width:20mm;height:20mm;border-radius:50%;background:#dcdcdc;margin:0 auto 2mm;}' +
-      '.rcpt-title{font-weight:900;font-size:1.4em;text-transform:uppercase;line-height:1.05;}' +
-      '.rcpt-sub{font-weight:700;font-size:1.1em;}' +
+      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;}' +
+      '.rcpt-av{width:15em;height:15em;max-width:90%;border-radius:50%;background:#dcdcdc;object-fit:cover;margin:0 auto;}' +
+      '.rcpt-title{font-weight:900;font-size:1.5em;text-transform:uppercase;}' +
+      '.rcpt-sub{font-weight:700;font-size:1.2em;}' +
       '.rcpt-body{padding:.5em 0;}' +
       '.rcpt-body>svg,.rcpt-body>img{max-width:100%;height:auto;display:block;margin:0 auto;}' +
       '.rcpt-foot{font-weight:700;font-size:.85em;color:#772ce8;}' +
-      '.rcpt-date{font-size:.7em;text-transform:uppercase;opacity:.7;margin-top:.5mm;}';
+      '.rcpt-date{font-size:.7em;text-transform:uppercase;margin:.5em 0;}';
     // Atkinson dither, in place on ImageData: Rec.601 gray, threshold 128,
     // diffuse err/8 to 6 neighbours — the soft, slightly-blown-out look of a
     // cheap thermal head (leaks 2/8 of the error, so highlights lift out).

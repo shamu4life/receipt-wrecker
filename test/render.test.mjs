@@ -16,9 +16,9 @@ test("render output never contains space or < > &", () => {
   for (const bad of [" ", "<", ">", "&"]) assert.ok(!s.includes(bad), "found " + bad);
 });
 
-test("MAX_CHARS is 490 and withinBudget uses code-point length", () => {
-  assert.equal(C.MAX_CHARS, 490);
+test("MAX_CHARS is 500 (Twitch's real limit) and withinBudget uses code-point length", () => {
+  assert.equal(C.MAX_CHARS, 500);
   assert.equal(C.payloadLength("龍龍龍"), 3);
-  assert.equal(C.withinBudget("█".repeat(490)), true);
-  assert.equal(C.withinBudget("█".repeat(491)), false);
+  assert.equal(C.withinBudget("█".repeat(500)), true);
+  assert.equal(C.withinBudget("█".repeat(501)), false);
 });

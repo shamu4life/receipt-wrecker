@@ -139,7 +139,7 @@ All functions live inside the one IIFE in `public/index.html`.
 5. `lumaToDots(luma, opts)` / `packBraille(dots)` — for the Braille tier: threshold
    a fine 2×-wide/4×-tall luma grid to booleans, then pack each 2×4 block into one
    Braille codepoint (U+2800 + bitmask).
-6. `render(cells)` / `payloadLength(s)` / `withinBudget(s)` / `MAX_CHARS` (490) —
+6. `render(cells)` / `payloadLength(s)` / `withinBudget(s)` / `MAX_CHARS` (500) —
    flatten a `CellGrid` to one newline-free string and check it against the
    character budget (see Global Constraints below).
 7. `makeNonce(i)` / `packageCheer(body, opts)` / `CHEER_TOKEN` (`"Cheer100"`) —
@@ -181,7 +181,8 @@ not arbitrary style choices:
 
 - **Single line, no newlines.** The payload is exactly one newline-free string.
   Twitch chat messages are single-line; no `\n`/`\r` survives delivery anyway.
-- **Character budget: `MAX_CHARS = 490`**, counted by **code points**
+- **Character budget: `MAX_CHARS = 500`** (Twitch's real per-message limit; the whole
+  payload incl. the cheer token counts), counted by **code points**
   (`Array.from(s).length`), leaving headroom under Twitch's ~500-char cap. Over
   budget is **reported, never silently truncated** — truncation shears the grid.
 - **The "off" cell is always a real, non-collapsing glyph** (`░` by default),
@@ -214,9 +215,9 @@ These are the project's defining properties (shared with the sibling tools).
 > **Exception (added by explicit request):** an **optional** image backend.
 > `src/worker.js` is a tiny Cloudflare Worker that serves the static site as before
 > **plus** three routes: `POST /upload` (stashes an image in the `RW_IMG` KV namespace
-> with a native 5-minute `expirationTtl`, 5 MB cap, image/* only), `GET /i/<hex>`
+> with a native 15-minute `expirationTtl`, 5 MB cap, image/* only), `GET /i/<hex>`
 > (serves it back), and `GET /px?u=<url>` (an image proxy — see below). The client
-> calls `/upload` **only** when the user clicks "Upload for a 5-min link"; the
+> calls `/upload` **only** when the user clicks "Upload for a 15-min link"; the
 > returned URL feeds an `<object data>` real-image payload.
 >
 > `/px` exists because **Thermal preview cannot dither a picture without it.**

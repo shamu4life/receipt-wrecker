@@ -4,8 +4,8 @@
 // This Worker exists for two optional features; everything else — every request
 // that isn't /upload, /i/… or /px — is served straight from the static assets.
 //
-//   /upload + /i/<key>  "upload my own image, get a 5-minute link": stashes an
-//     uploaded image in Cloudflare KV with a native 5-minute TTL and serves it
+//   /upload + /i/<key>  "upload my own image, get a 15-minute link": stashes an
+//     uploaded image in Cloudflare KV with a native 15-minute TTL and serves it
 //     back at a short URL, so the URL can go in an <object data="…"> payload
 //     (the printer fetches the real picture).
 //
@@ -18,7 +18,7 @@
 // on Thermal preview with a pasted URL sends that URL through /px. Big Text,
 // glyph-art, and a plain (non-thermal) URL preview all stay fully local.
 
-const TTL_SECONDS = 300;               // 5 minutes, enforced natively by KV
+const TTL_SECONDS = 900;               // 15 minutes, enforced natively by KV
 const MAX_BYTES = 5 * 1024 * 1024;     // 5 MB cap (KV values allow up to 25 MB; this is an abuse guard)
 const OK_TYPE = /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i;
 const PROXY_TIMEOUT_MS = 8000;

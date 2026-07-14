@@ -211,9 +211,9 @@
           <input type="file" id="imgFile" accept="image/*">
         </label>
         <div class="hint">A file makes <strong>glyph-art</strong> locally (nothing leaves your device). To print it as the <strong>real picture</strong> instead, upload it for a throwaway link:</div>
-        <button type="button" id="uploadBtn">Upload for a 5-min link</button>
+        <button type="button" id="uploadBtn">Upload for a 15-min link</button>
         <div id="uploadStatus" class="hint" aria-live="polite"></div>
-        <div class="hint">Shrunk to a print-sized <strong>PNG</strong> first (so WebP &amp; JPEG print at the right size &mdash; the printer mangles those), uploaded to your own server, and <strong>auto-deleted after 5 minutes</strong> &mdash; long enough to cheer it, then it&rsquo;s gone.</div>
+        <div class="hint">Shrunk to a print-sized <strong>PNG</strong> first (so WebP &amp; JPEG print at the right size &mdash; the printer mangles those), uploaded to your own server, and <strong>auto-deleted after 15 minutes</strong> &mdash; long enough to cheer it, then it&rsquo;s gone.</div>
       </div>
     </section>
     <section class="preview">
@@ -367,7 +367,7 @@
     return out;
   }
 
-  var MAX_CHARS = 490;
+  var MAX_CHARS = 500;   // Twitch's real per-message limit (whole payload incl. the cheer token)
   function render(cells) {
     return cells.map(function (row) { return row.join(""); }).join("");
   }
@@ -1660,7 +1660,7 @@
           if (!res.ok) { setStatus("Rotate failed: " + ((res.d && res.d.error) || "server")); return; }
           block.outUrl = res.d.url; block.aspect = res.aspect;
           setImgAspect(res.d.url, res.aspect);
-          setStatus("Rotated ✓"); saveBlocks(); update();
+          setStatus("Rotated ✓ (link expires ~15 min)"); saveBlocks(); update();
         })
         .catch(function (e) { setStatus("Rotate failed (" + e.message + ")"); });
     }
@@ -1684,7 +1684,7 @@
               if (!res.ok) { setStatus("Upload failed: " + ((res.d && res.d.error) || "server")); return; }
               block.url = res.d.url; block.outUrl = null; block.aspect = aspect; setImgAspect(res.d.url, aspect);
               if (block.rotate) { setStatus("Uploaded — rotating…"); rotateAndUpload(block, setStatus); }
-              else { setStatus("Uploaded ✓"); saveBlocks(); update(); }
+              else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
             })
             .catch(function () { setStatus("Upload failed (network)."); });
         }, "image/png");
@@ -1957,7 +1957,7 @@
         reader.readAsDataURL(file);
       });
 
-      // POST the image to the Worker's /upload (KV, 5-min TTL) and drop the returned
+      // POST the image to the Worker's /upload (KV, 15-min TTL) and drop the returned
       // link into the URL box. The ONLY network call in the app, only on this click.
       function sendUpload(blob, aspect) {
         els.uploadStatus.textContent = "Uploading…";
@@ -1969,7 +1969,7 @@
             setImgAspect(res.d.url, aspect);   // we already know it from the canvas — skip probing the KV URL (not propagated yet)
             els.imgUrl.value = res.d.url;
             els.imgUrl.dispatchEvent(new Event("input", { bubbles: true }));   // -> real-image mode
-            els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~5 min. Cheer it now.";
+            els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~15 min. Cheer it now.";
           })
           .catch(function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Upload failed (network)."; });
       }

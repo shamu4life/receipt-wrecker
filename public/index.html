@@ -100,6 +100,8 @@
   .block-card textarea, .block-card input[type=url], .block-card select, .block-card input[type=range] { width: 100%; box-sizing: border-box; }
   .add-row { display: flex; gap: .5rem; margin: .2rem 0 .3rem; }
   .add-row button { flex: 1; padding: .45rem; }
+  .block-card .bc-val { font-weight: 700; }
+  .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
@@ -1551,6 +1553,23 @@
       return e;
     }
     function opt(val, label, sel) { var o = mkEl("option", { value: val }, label); if (sel) o.selected = true; return o; }
+    // Wrap a range/number input with a live value readout + a reset-to-default button
+    // (restores the readouts/resets the old tabbed UI had). `input` keeps its own change
+    // handler; this adds the value display and a reset that re-fires that handler.
+    function sliderRow(labelText, input, def, unit) {
+      unit = unit || "";
+      var row = mkEl("div");
+      var lab = mkEl("label");
+      lab.appendChild(document.createTextNode(labelText + ": "));
+      var val = mkEl("span", { "class": "bc-val" }, String(input.value) + unit);
+      lab.appendChild(val);
+      var rst = mkEl("button", { type: "button", "class": "bc-reset", title: "Reset to " + def + unit }, "↺");
+      rst.addEventListener("click", function () { input.value = String(def); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      lab.appendChild(rst);
+      input.addEventListener("input", function () { val.textContent = String(input.value) + unit; });
+      row.appendChild(lab); row.appendChild(input);
+      return row;
+    }
     function cardHead(block) {
       var head = mkEl("div", { "class": "bc-head" });
       head.appendChild(mkEl("span", { "class": "bc-type" }, block.type === "image" ? "Image" : "Text"));
@@ -1594,24 +1613,21 @@
       });
       typeWrap.appendChild(orient);
       lenWrap = mkEl("div"); lenWrap.style.display = isSideways(block.orient) ? "" : "none";
-      lenWrap.appendChild(mkEl("label", null, "Length per receipt (px)"));
       var len = mkEl("input", { type: "range", min: "300", max: "1400", step: "50" }); len.value = block.rotateLen || 800;
       len.addEventListener("input", function () { block.rotateLen = parseInt(len.value, 10); saveBlocks(); update(); });
-      lenWrap.appendChild(len);
+      lenWrap.appendChild(sliderRow("Length per receipt", len, 800, "px"));
       typeWrap.appendChild(lenWrap);
       card.appendChild(typeWrap);
       // Hanzi-only control: Detail (columns) — the resolution lever for tiled glyphs.
       var hanziWrap = mkEl("div");
-      hanziWrap.appendChild(mkEl("label", null, "Detail (columns)"));
       var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 20;
       cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 20; saveBlocks(); update(); });
-      hanziWrap.appendChild(cols);
+      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 20, ""));
       card.appendChild(hanziWrap);
       // Size (both renders use it).
-      card.appendChild(mkEl("label", null, "Size"));
       var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
       size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
-      card.appendChild(size);
+      card.appendChild(sliderRow("Size", size, 90, "%"));
       var applyRender = function () {
         var hanzi = block.render === "hanzi";
         typeWrap.style.display = hanzi ? "none" : "";
@@ -1724,9 +1740,8 @@
       var rot = mkEl("select");
       [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
       realWrap.appendChild(rot);
-      realWrap.appendChild(mkEl("label", null, "Print width (mm)"));
       var w = mkEl("input", { type: "range", min: "20", max: "70", step: "1" }); w.value = block.width || 70;
-      realWrap.appendChild(w);
+      realWrap.appendChild(sliderRow("Print width (mm)", w, 70, "mm"));
       realWrap.appendChild(mkEl("label", null, "Render as"));
       var ra = mkEl("select");
       ra.appendChild(opt("svg", "SVG (default)", block.renderAs !== "object"));
@@ -1741,12 +1756,10 @@
       [["ascii", "ASCII — letters (safest)"], ["asciifull", "ASCII — full detail"], ["cjk", "Hanzi — prints on RP332"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
         .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "ascii") === t[0])); });
       glyphWrap.appendChild(tier);
-      glyphWrap.appendChild(mkEl("label", null, "Detail (columns)"));
       var gcols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); gcols.value = block.cols || 40;
-      glyphWrap.appendChild(gcols);
-      glyphWrap.appendChild(mkEl("label", null, "Contrast"));
+      glyphWrap.appendChild(sliderRow("Detail (columns)", gcols, 40, ""));
       var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = block.contrast != null ? block.contrast : 128;
-      glyphWrap.appendChild(contrast);
+      glyphWrap.appendChild(sliderRow("Contrast", contrast, 128, ""));
       var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = block.dither !== false;
       ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Dither (photos)"));
       glyphWrap.appendChild(ditherLbl);

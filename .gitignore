@@ -4,3 +4,4 @@ package-lock.json
 .dev.vars*
 .env*
 .DS_Store
+.claude/

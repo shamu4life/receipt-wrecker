@@ -7,7 +7,11 @@
   :root { color-scheme: light dark; }
   body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 1rem; }
   #app { max-width: 960px; margin: 0 auto; }
-  h1 { font-size: 1.25rem; margin: 0 0 .25rem; }
+  h1 { font-size: 1.25rem; margin: 0; }
+  .pagehead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 0 0 .25rem; }
+  .gh-link { display: inline-flex; align-items: center; gap: .4rem; font-size: .9rem; font-weight: 600; text-decoration: none; color: inherit; border: 1px solid #888; border-radius: 999px; padding: .35rem .8rem; white-space: nowrap; }
+  .gh-link:hover, .gh-link:focus-visible { border-color: currentColor; background: rgba(128,128,128,.15); }
+  .gh-link svg { width: 1.1em; height: 1.1em; fill: currentColor; }
   .intro { font-size: .9rem; opacity: .85; margin: 0 0 1rem; }
   .tabs { display: flex; gap: .5rem; margin-bottom: .25rem; }
   .tab { padding: .5rem 1rem; border: 1px solid #888; background: transparent; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
@@ -114,7 +118,13 @@
 </head>
 <body>
 <main id="app">
-  <h1>Receipt Wrecker</h1>
+  <div class="pagehead">
+    <h1>Receipt Wrecker</h1>
+    <a class="gh-link" href="https://github.com/shamu4life/receipt-wrecker" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
   <p class="intro">Your words as giant type, or a picture (a real image by link, or glyph-art from a file) — paste the result into Twitch chat as a Cheer100 and it prints on the streamer&rsquo;s receipt printer.</p>
   <div class="tabs">
     <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>

@@ -135,7 +135,7 @@ sticks to glyph art only.
    is always a real glyph (never a space) — a run of spaces collapses under HTML's
    default whitespace handling and would shear the grid apart.
 4. **Package** — if **Cheer-ready** is on, ` Cheer100 ` plus a visible rotating
-   nonce is appended; a live character counter (budget: 490 of Twitch's ~500-char
+   nonce is appended; a live character counter (budget: 500, Twitch's per-message
    cap, leaving headroom) turns red if you go over instead of silently truncating.
 5. **Census** — the **Print test strip** button runs the same pipeline over a
    fixed diagnostic string instead of your input, giving you the blind-first-print

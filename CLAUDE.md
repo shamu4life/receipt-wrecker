@@ -139,7 +139,7 @@ All functions live inside the one IIFE in `public/index.html`.
 5. `lumaToDots(luma, opts)` / `packBraille(dots)` — for the Braille tier: threshold
    a fine 2×-wide/4×-tall luma grid to booleans, then pack each 2×4 block into one
    Braille codepoint (U+2800 + bitmask).
-6. `render(cells)` / `payloadLength(s)` / `withinBudget(s)` / `MAX_CHARS` (490) —
+6. `render(cells)` / `payloadLength(s)` / `withinBudget(s)` / `MAX_CHARS` (500) —
    flatten a `CellGrid` to one newline-free string and check it against the
    character budget (see Global Constraints below).
 7. `makeNonce(i)` / `packageCheer(body, opts)` / `CHEER_TOKEN` (`"Cheer100"`) —
@@ -181,7 +181,8 @@ not arbitrary style choices:
 
 - **Single line, no newlines.** The payload is exactly one newline-free string.
   Twitch chat messages are single-line; no `\n`/`\r` survives delivery anyway.
-- **Character budget: `MAX_CHARS = 490`**, counted by **code points**
+- **Character budget: `MAX_CHARS = 500`** (Twitch's real per-message limit; the whole
+  payload incl. the cheer token counts), counted by **code points**
   (`Array.from(s).length`), leaving headroom under Twitch's ~500-char cap. Over
   budget is **reported, never silently truncated** — truncation shears the grid.
 - **The "off" cell is always a real, non-collapsing glyph** (`░` by default),
@@ -211,15 +212,29 @@ not arbitrary style choices:
 These are the project's defining properties (shared with the sibling tools).
 **Do not break them without an explicit request:**
 
-> **Exception (added by explicit request):** an **optional** image-upload backend.
+> **Exception (added by explicit request):** an **optional** image backend.
 > `src/worker.js` is a tiny Cloudflare Worker that serves the static site as before
-> **plus** two routes: `POST /upload` (stashes an image in the `RW_IMG` KV namespace
-> with a native 5-minute `expirationTtl`, 5 MB cap, image/* only) and `GET /i/<hex>`
-> (serves it back). The client calls `/upload` **only** when the user clicks "Upload
-> for a 5-min link"; the returned URL feeds an `<object data>` real-image payload.
-> This is the one sanctioned network call / server-side piece — the rest of the app
-> (Big Text, glyph-art, paste-a-URL) is still fully local. The constraints below hold
-> for everything *except* that explicit upload flow.
+> **plus** three routes: `POST /upload` (stashes an image in the `RW_IMG` KV namespace
+> with a native 15-minute `expirationTtl`, 5 MB cap, image/* only), `GET /i/<hex>`
+> (serves it back), and `GET /px?u=<url>` (an image proxy — see below). The client
+> calls `/upload` **only** when the user clicks "Upload for a 15-min link"; the
+> returned URL feeds an `<object data>` real-image payload.
+>
+> `/px` exists because **Thermal preview cannot dither a picture without it.**
+> `thermalize()` rasterizes the receipt by loading it as an SVG `<img>`, and an SVG
+> loaded that way may not fetch *any* external resource — a remote `<img>` inside the
+> `foreignObject` never paints at all. So the picture has to be inlined as a `data:`
+> URI first, and reading a cross-origin image's bytes from JS is exactly what CORS
+> forbids; the bytes come back through our own origin instead. `/px` is guarded by
+> `isPublicHttpUrl()` (public http(s) only — no other scheme, no loopback/private/
+> link-local host, redirects re-validated hop by hop), enforces image/* + the 5 MB
+> cap, and is covered by `test/proxy.test.mjs`. **Without that guard it is an open
+> relay / SSRF gadget — do not loosen it.**
+>
+> These are the only sanctioned network calls / server-side pieces. The privacy line
+> is now: Big Text and glyph-art are **fully local**; paste-a-URL is local *until you
+> turn on Thermal preview*, which sends that URL through `/px` to fetch its bytes.
+> The constraints below hold for everything *except* those explicit flows.
 
 - **One file.** No build step, no framework, no external resources. System font
   stacks only — **no web fonts, no CDN, no external images** (the upload backend

@@ -52,20 +52,25 @@
      an 80mm roll with ~5mm unprintable margins each side => 70mm printable content.
      Avatar / 100 BITS / username / content / twitch / date, centered. View-only, so
      pointer-events:none — same reason as above (Rotate's span steals clicks). */
+  /* Numbers mirror the printer-bot's real template (print_receipt.py): 80mm page with a
+     1em body margin, 16px base, avatar max-height 15em, title 1.5em/900, subtitle
+     1.2em/700, content .5em 0, date .7em. Keeping these identical makes the browser
+     preview render nearly the same as the real wkhtmltopdf print. (border/shadow are
+     screen-only chrome and are stripped in the thermal raster.) */
   .rcpt {
     width: 80mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
-    padding: 5mm 5mm 3mm; background: #fff; color: #000; border: 1px solid #bbb;
+    padding: 1em; background: #fff; color: #000; border: 1px solid #bbb;
     border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    pointer-events: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; pointer-events: none;
   }
-  .rcpt-av { width: 20mm; height: 20mm; border-radius: 50%; background: #dcdcdc; margin: 0 auto 2mm; }
-  .rcpt-title { font-weight: 900; font-size: 1.4em; text-transform: uppercase; line-height: 1.05; }
-  .rcpt-sub { font-weight: 700; font-size: 1.1em; }
+  .rcpt-av { width: 15em; max-width: 90%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; object-fit: cover; margin: 0 auto; }
+  .rcpt-title { font-weight: 900; font-size: 1.5em; text-transform: uppercase; }
+  .rcpt-sub { font-weight: 700; font-size: 1.2em; }
   .rcpt-body { padding: .5em 0; }
   .rcpt-body > svg, .rcpt-body > img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
   .rcpt-foot { font-weight: 700; font-size: .85em; color: #772ce8; }
-  .rcpt-date { font-size: .7em; text-transform: uppercase; opacity: .7; margin-top: .5mm; }
+  .rcpt-date { font-size: .7em; text-transform: uppercase; margin: .5em 0; }
   /* 1-bit thermal render of a receipt frame (see thermalize()). Shown at print-dot
      resolution; pixelated so the dither texture survives any responsive down-scale. */
   .rcpt-thermal { display: block; margin: 0 0 .5rem; max-width: 100%; height: auto;
@@ -81,6 +86,22 @@
   .part-count.over { color: #d33; font-weight: 700; }
   .over-note { font-size: .8rem; color: #d33; margin: -.15rem 0 .4rem; }
   .parts-note { font-size: .85rem; opacity: .8; margin: .25rem 0 1rem; }
+  /* Legacy per-mode controls are superseded by the composer; hide hard so the old
+     applyVisibility() (which still runs) can't reveal them. */
+  .tabs, #glyphControls, #textControls, #imageControls { display: none !important; }
+  #composer { margin: 0 0 1rem; }
+  .composer-h { font-size: 1rem; margin: 0 0 .5rem; }
+  .block-card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem .7rem; margin: 0 0 .6rem; background: rgba(0,0,0,.02); }
+  .block-card > .bc-head { display: flex; align-items: center; gap: .4rem; margin: 0 0 .5rem; }
+  .block-card .bc-type { font-weight: 700; font-size: .85rem; text-transform: uppercase; letter-spacing: .03em; }
+  .block-card .bc-head .spacer { margin-left: auto; }
+  .block-card .bc-head button { padding: .1rem .45rem; font-size: .9rem; line-height: 1.2; }
+  .block-card label { display: block; margin: .35rem 0 .1rem; font-size: .85rem; }
+  .block-card textarea, .block-card input[type=url], .block-card select, .block-card input[type=range] { width: 100%; box-sizing: border-box; }
+  .add-row { display: flex; gap: .5rem; margin: .2rem 0 .3rem; }
+  .add-row button { flex: 1; padding: .45rem; }
+  .block-card .bc-val { font-weight: 700; }
+  .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
@@ -102,6 +123,15 @@
   <div class="hint"><strong>Big Text</strong> = your words printed BIG as real type (press Enter for line breaks). <strong>Image</strong> = the real picture from a link, or glyph-art from an uploaded file. Both ride out on a 100-bit cheer.</div>
   <div class="layout">
     <section class="controls">
+      <div id="composer">
+        <div class="composer-h">Blocks — stacked top to bottom on the receipt</div>
+        <div id="blockList"></div>
+        <div class="add-row">
+          <button type="button" id="addTextBtn">+ Text</button>
+          <button type="button" id="addImageBtn">+ Image</button>
+        </div>
+        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more &mdash; each is its own cheer (see the bits total under the preview).</div>
+      </div>
       <div id="glyphControls">
       <div id="tierControl">
       <label>Tier
@@ -140,7 +170,10 @@
       </div><!-- /glyphControls -->
 
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
-      <div class="hint">Adds " Cheer100 " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
+      <div class="hint">Adds " Cheer&lt;bits&gt; " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
+
+      <label>Bits per receipt: <input type="number" id="bitsAmount" min="100" step="100" value="100" style="width:6em"></label>
+      <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts &mdash; shown under the preview.</div>
 
       <div id="textControls">
         <label>Text
@@ -164,7 +197,7 @@
         <div id="rotateLenControl">
           <label>Length per receipt: <span id="rotateLenVal">800</span>px
             <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
-            <input type="range" id="rotateLen" min="300" max="2000" step="50" value="800">
+            <input type="range" id="rotateLen" min="300" max="1400" step="50" value="800">
           </label>
           <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging <em>worse</em>, so calibrate to your printer. Long messages split into more strips; <strong>tape them together in order</strong>.</div>
         </div>
@@ -185,9 +218,9 @@
           <input type="file" id="imgFile" accept="image/*">
         </label>
         <div class="hint">A file makes <strong>glyph-art</strong> locally (nothing leaves your device). To print it as the <strong>real picture</strong> instead, upload it for a throwaway link:</div>
-        <button type="button" id="uploadBtn">Upload for a 5-min link</button>
+        <button type="button" id="uploadBtn">Upload for a 15-min link</button>
         <div id="uploadStatus" class="hint" aria-live="polite"></div>
-        <div class="hint">Shrunk to a print-sized <strong>PNG</strong> first (so WebP &amp; JPEG print at the right size &mdash; the printer mangles those), uploaded to your own server, and <strong>auto-deleted after 5 minutes</strong> &mdash; long enough to cheer it, then it&rsquo;s gone.</div>
+        <div class="hint">Shrunk to a print-sized <strong>PNG</strong> first (so WebP &amp; JPEG print at the right size &mdash; the printer mangles those), uploaded to your own server, and <strong>auto-deleted after 15 minutes</strong> &mdash; long enough to cheer it, then it&rsquo;s gone.</div>
       </div>
     </section>
     <section class="preview">
@@ -341,7 +374,7 @@
     return out;
   }
 
-  var MAX_CHARS = 490;
+  var MAX_CHARS = 500;   // Twitch's real per-message limit (whole payload incl. the cheer token)
   function render(cells) {
     return cells.map(function (row) { return row.join(""); }).join("");
   }
@@ -361,6 +394,48 @@
     var token = opts.cheerToken || CHEER_TOKEN;
     var nonce = opts.nonce || "";
     return body + " " + token + (nonce ? " " + nonce : "");
+  }
+  // Physical page ceiling for one receipt, in CSS px. The 80mm x 500mm page fits ~1552px
+  // of content with a typical header — but the header height VARIES with the streamer's
+  // avatar (up to 15em) which we can't measure, and our per-body height estimates aren't
+  // exact, so a strip near the true edge still occasionally gouged. 1400 leaves a safety
+  // margin against both. A rotate strip is few CHARS but ~this many px tall, so packing
+  // must honour height, not just the ~490-char Twitch limit.
+  var HEIGHT_BUDGET = 1400;
+  // Pack an ordered list of Body objects into receipts. Body = {html, chars, heightPx}.
+  // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
+  // cheer overhead) and the height budget hold; else start a new receipt. A single body
+  // always gets at least its own receipt (over-budget is warned in the UI). One nonce and
+  // one LEAD_GUARD per receipt. opts = {bits, cheer}. Returns Part[] = {payload, chars,
+  // heightPx, bodies, nonce}. Pure (no DOM) so the test harness can exercise it.
+  function packStackBodies(bodies, opts) {
+    opts = opts || {};
+    var token = "Cheer" + (opts.bits && opts.bits >= 100 ? opts.bits : 100);
+    var overhead = opts.cheer ? token.length + 4 : LEAD_GUARD.length;  // "<token> nn " ; else nbsp
+    var maxBody = MAX_CHARS - overhead;
+    var parts = [], cur = [], curChars = 0, curH = 0;
+    function flush() {
+      if (!cur.length) return;
+      var nonce = opts.cheer ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
+      var html = cur.map(function (b) { return b.html; }).join("");
+      // Cheer token + nonce LEAD the message: they survive any trailing-strip the bot/
+      // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
+      // so the separate LEAD_GUARD isn't needed when cheering. (<object> is what the
+      // automod was blocking; images now render as SVG — see imageBodies.)
+      var payload = opts.cheer ? (token + (nonce ? " " + nonce : "") + " " + html) : (LEAD_GUARD + html);
+      parts.push({ payload: payload, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      cur = []; curChars = 0; curH = 0;
+    }
+    for (var i = 0; i < bodies.length; i++) {
+      var b = bodies[i];
+      var bChars = b.chars != null ? b.chars : payloadLength(b.html);
+      var bH = b.heightPx || 0;
+      var fits = cur.length === 0 || ((curChars + bChars <= maxBody) && (curH + bH <= HEIGHT_BUDGET));
+      if (!fits) flush();
+      cur.push(b); curChars += bChars; curH += bH;
+    }
+    flush();
+    return parts;
   }
   function buildCensus() {
     // One print tells us what the target printer actually renders (vs tofu boxes)
@@ -562,10 +637,12 @@
     // strip. Calibrated by the user to their printer's page break — see the hint.
     function getRotateLen() {
       var v = parseInt(els.rotateLen.value, 10);
-      // Ceiling raised 1000 -> 2000: a field print fit what the tool split into two
-      // strips onto ONE receipt, so the real page break is well above the old 1000px
-      // guess. Default stays 800 (safe for the uncalibrated); calibrate up per printer.
-      return isFinite(v) ? Math.max(300, Math.min(2000, v)) : 800;
+      // Ceiling = 1400px. The real page (80mm x 500mm, measured on wkhtmltopdf 0.12.6)
+      // fits ~1552px with a typical header, but the header height varies with the
+      // streamer's avatar (up to 15em) which we can't measure — so 1400 leaves a safety
+      // margin against gouging. (History: 1000 guess -> 2000 overshoot -> 1552 measured
+      // -> 1400 with margin.) Default stays 800; nudge up per printer.
+      return isFinite(v) ? Math.max(300, Math.min(1400, v)) : 800;
     }
     function escapeHtml(s) {
       return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -605,10 +682,13 @@
       // The fit-cap keeps the widest line <= ~250 < PAPER_PX, so it never touches the edge.
       var W = PAPER_PX, cx = Math.round(W / 2);
       for (var i = 0; i < lines.length; i++) {
-        kids += '<text x="' + cx + '" y="' + (i * lh + Math.round(S * 0.82) + pad)
-          + '" font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + escapeHtml(lines[i]) + '</text>';
+        kids += '<text x="' + cx + '" y="' + (i * lh + Math.round(S * 0.82) + pad) + '">' + escapeHtml(lines[i]) + '</text>';
       }
-      return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + kids + '</svg>';
+      // Shared text attributes ride on a <g> (inherited by every line) instead of being
+      // repeated per <text> — a big payload saving on multi-line captions, so an image +
+      // caption fits in ONE cheer instead of being split. (verified on the real engine)
+      var body = '<g font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + kids + '</g>';
+      return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + body + '</svg>';
     }
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
@@ -661,7 +741,12 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S) {
+    function rotatedSpan(cols, colW, S, angle) {
+      angle = angle || 90;
+      // Both 90 and 270 keep the input line order: at 270 (read by turning the tape the
+      // opposite way from 90) the rotation already lands line 1 in the column that ends
+      // up on top, so NO reversal — reversing was the "wrong orientation" bug on
+      // multi-line text (it swapped the lines).
       var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
       var blockH = cols.length * colW;    // N stacked columns, pre-rotation height
@@ -675,7 +760,7 @@
       var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
         + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
         + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
-        + '-webkit-transform:translate(-50%,-50%) rotate(90deg)">'
+        + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)">'
         + inner + '</span></div>';
       return { html: html, maxL: maxL };
     }
@@ -715,34 +800,171 @@
     // page break. Each column (input line) is chunked into page-fitting word segments;
     // part k renders segment k of every column. Tape the strips in order and each
     // column reads continuously. Short messages come back as a single part.
-    function buildRotatedParts(text) {
+    // Giant-sideways BODIES (no cheer wrapper): one per taped strip. heightPx = the
+    // strip's run length (its physical length down the tape) so the packer respects
+    // the page. `factor`/`len` override the live controls when a composer block carries
+    // its own size/length; they default to the current sliders.
+    function rotateBodies(text, factor, len, angle) {
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
       if (!lines.length) lines = [" "];
       var N = lines.length;
-      // Two knobs now shape the sideways output (as the user intuited): Length-per-
-      // receipt (where a strip ends) AND letter size. The Size slider (25..100%) scales
-      // the letters DOWN from the paper-filling max, same fill-% meaning as Big type.
-      // Smaller letters => shorter run per character => more text fits before a strip
-      // ends. colW is each column's width across the paper; S fills that column.
-      var factor = getSizeFactor();
+      factor = factor || getSizeFactor();
       var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
-      // Centering is handled inside rotatedSpan (translate(-50%,-50%), default
-      // origin) — no computed offset needed. At 100% the block fills the paper;
-      // shrunk, it sits centered with even margins.
-      var T = getRotateLen();
+      var T = len || getRotateLen();
       var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
-      var parts = [];
+      var bodies = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S);
-        var payload = packageCheer(LEAD_GUARD + span.html, cheerOptsFor(k));
-        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true,
-                     bigText: true, previewHtml: span.html });
+        var span = rotatedSpan(cols, colW, S, angle);
+        bodies.push({ html: span.html, heightPx: span.maxL, chars: payloadLength(span.html),
+                      preview: { kind: "html", html: span.html } });
       }
-      return parts;
+      return bodies;
+    }
+    function buildRotatedParts(text) {
+      return rotateBodies(text).map(function (b, k) {
+        var payload = packageCheer(LEAD_GUARD + b.html, cheerOptsFor(k));
+        return { payload: payload, chars: payloadLength(payload), copyable: true,
+                 bigText: true, previewHtml: b.html };
+      });
+    }
+    // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
+    // proven on the real engine). Default transform-origin (centre) so it flips in place.
+    function bigTypeBodies(text, factor, orient) {
+      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor());
+      var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
+      var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
+      return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
+    }
+    // The URL actually embedded: the rotated+reuploaded link when a rotation is set and
+    // ready, else the original. Rotation always processes FROM block.url so it never
+    // compounds; block.outUrl holds the rotated result.
+    function embedUrl(block) { return ((block.rotate || block.adjBright || block.adjContrast) && block.outUrl) ? block.outUrl : block.url; }
+    // Probe an image block's aspect (height/width) and cache it on the block. The legacy
+    // probeAspect() is tied to the now-hidden URL box, so composer blocks need their own.
+    function probeBlockAspect(block) {
+      var u = embedUrl(block);
+      if (!u || block.aspect || block._probing === u) return;
+      block._probing = u;
+      var im = new Image();
+      im.onload = function () { block._probing = null; if (im.naturalWidth && embedUrl(block) === u) { block.aspect = im.naturalHeight / im.naturalWidth; update(); } };
+      im.onerror = function () { block._probing = null; };
+      im.src = u;
+    }
+    // Real-image BODY. Default renders as SVG <image> (renders on the real engine AND
+    // isn't the <object> tag the automod blocks); only an explicit renderAs:"object"
+    // emits <object>. SVG needs the aspect; we probe per-block and use a 1:1 box until it
+    // lands (then re-render), never falling back to <object>.
+    function imageBodies(block) {
+      var url = embedUrl(block), w = block.width || 70;
+      var aspect = block.aspect || 0;
+      // Instant preview feedback: while a brightness/contrast bake is still pending (outUrl
+      // not yet ready), approximate it with a CSS filter on the preview <img>. Once baked,
+      // outUrl carries the adjustment and no filter is applied (would double it).
+      var pending = (block.adjBright || block.adjContrast) && !block.outUrl;
+      var filter = pending ? ("brightness(" + (100 + (block.adjBright || 0)) + "%) contrast(" + (100 + (block.adjContrast || 0)) + "%)") : "";
+      if (block.renderAs === "object") {
+        var body = '<object data="' + escapeAttr(url) + '" style="width:' + w + 'mm;display:block"></object>';
+        var hpx = aspect ? Math.round(Math.min(PAPER_PX, w * PX_PER_MM) * aspect) : Math.round(w * PX_PER_MM);
+        if (!aspect) probeBlockAspect(block);
+        return [{ html: body, chars: payloadLength(body), heightPx: hpx, preview: { kind: "img", imgUrl: url, filter: filter } }];
+      }
+      if (!aspect) probeBlockAspect(block);
+      var W = Math.min(PAPER_PX, Math.round(w * PX_PER_MM)), H = Math.max(1, Math.round(W * (aspect || 1)));
+      // preserveAspectRatio omitted: "xMidYMid meet" is the default, so dropping it is a
+      // free ~34-char saving with no visual change (helps fit image + caption in one cheer).
+      var svg = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
+        + escapeAttr(url) + '" width="' + W + '" height="' + H + '"/></svg>';
+      return [{ html: svg, chars: payloadLength(svg), heightPx: H, preview: { kind: "img", imgUrl: url, filter: filter } }];
+    }
+    // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.
+    // Bands like buildTextParts; cols is the resolution lever (size is floored so tiny
+    // letters can't turn illegible). CJK ramp + defaults, no per-block glyph knobs beyond
+    // Detail (columns).
+    function hanziBodies(text, cols, sizeFactor) {
+      var tier = getTier("cjk");
+      var o = { cols: Math.max(8, Math.min(48, cols || 20)), threshold: 128, invert: false,
+                dither: false, sizeFactor: Math.max(0.85, sizeFactor || 0.9), text: text || "" };
+      var grid = computeGrid("text", tier, o);
+      if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
+      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - 14) / o.cols));
+      var bodies = [];
+      for (var r = 0; r < grid.length; r += rowsPerMsg) {
+        var band = grid.slice(r, r + rowsPerMsg);
+        var g = render(band);
+        bodies.push({ html: g, chars: payloadLength(g), heightPx: band.length * 18,
+                      preview: { kind: "grid", grid: band.map(function (row) { return row.join(""); }).join("\n") } });
+      }
+      return bodies.length ? bodies : [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
+    }
+    // Glyph-art picture BODIES: tile a decoded image into a monospace grid, banded like
+    // the old Image mode. Decoding is async (fetch via /px for a URL, or a picked File);
+    // the decoded Image is cached on block._img (a runtime-only field, stripped on save).
+    // Produces markup-free text — no upload needed, and it's the un-filterable fallback.
+    function decodeGlyphImage(block, file) {
+      block._decoding = true;
+      var p = file
+        ? Promise.resolve(URL.createObjectURL(file))
+        : fetch(proxied(block.url), { credentials: "omit" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
+      p.then(function (objUrl) {
+        return new Promise(function (res, rej) {
+          var im = new Image();
+          im.onload = function () { res(im); };
+          im.onerror = function () { rej(new Error("decode")); };
+          im.src = objUrl;
+        });
+      }).then(function (im) {
+        block._img = im; block._decoding = false; saveBlocks(); update();
+      })["catch"](function () { block._decoding = false; });
+    }
+    function glyphImageBodies(block) {
+      if (!block._img) {
+        if (block.url && !block._decoding) decodeGlyphImage(block);
+        return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: block._decoding ? "(decoding image…)" : "(paste an image URL or pick a file)" } }];
+      }
+      var tier = getTier(block.tier || "ascii");
+      var o = { cols: Math.max(8, Math.min(48, block.cols || 40)),
+                threshold: block.contrast != null ? block.contrast : 128,
+                invert: !!block.invert, dither: block.dither != null ? block.dither : true,
+                img: block._img };
+      o.rows = rowsForImage(o.cols, block._img.naturalWidth || block._img.width, block._img.naturalHeight || block._img.height);
+      var raw = computeGrid("image", tier, o);
+      var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
+      var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));
+      var open = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">';
+      var overhead = LEAD_GUARD.length + open.length + 7 + 14;
+      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - overhead) / (o.cols + 4)));
+      var bodies = [];
+      for (var r = 0; r < grid.length; r += rowsPerMsg) {
+        var strip = grid.slice(r, r + rowsPerMsg);
+        var body = open + strip.map(function (row) { return escapeHtml(row.join("")); }).join("<br>") + "</span>";
+        bodies.push({ html: body, chars: payloadLength(body), heightPx: strip.length * F,
+                      preview: { kind: "grid", grid: strip.map(function (row) { return row.join(""); }).join("\n") } });
+      }
+      return bodies;
+    }
+    // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
+    function renderBlockBodies(block) {
+      if (block.type === "image") {
+        if (block.imgKind === "glyph") return glyphImageBodies(block);
+        return block.url ? imageBodies(block) : [];
+      }
+      var text = block.text || "";
+      var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
+      if (block.render === "hanzi") return hanziBodies(text, block.cols, factor);
+      var orient = block.orient || 0;
+      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient);
+      return bigTypeBodies(text, factor, orient);   // 0 or 180
+    }
+    // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
+    // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
+    function packStack(blocks, opts) {
+      var bodies = [];
+      for (var i = 0; i < blocks.length; i++) bodies = bodies.concat(renderBlockBodies(blocks[i]));
+      return packStackBodies(bodies, opts);
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
     // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via
@@ -773,8 +995,14 @@
         sizeFactor: getSizeFactor(),
       };
     }
+    // Bits per cheer (min 100). The "100" in "Cheer100" is just the bit count, so a
+    // different amount is a different token — the bot prints on any amount >= 100.
+    function getBits() {
+      var n = parseInt(els.bitsAmount && els.bitsAmount.value, 10);
+      return isFinite(n) && n >= 100 ? n : 100;
+    }
     function cheerOptsFor(i) {
-      return { cheer: els.cheer.checked, nonce: nonceForPart(i) };
+      return { cheer: els.cheer.checked, cheerToken: "Cheer" + getBits(), nonce: nonceForPart(i) };
     }
     // Big Text: split the rendered CellGrid into ordered top-to-bottom bands
     // whenever it's taller than one <=MAX_CHARS message can hold. rowsPerMsg
@@ -930,7 +1158,7 @@
           mode: currentMode, tier: els.tier.value, cols: els.cols.value,
           dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
-          cheer: els.cheer.checked, text: els.textInput.value,
+          cheer: els.cheer.checked, bits: els.bitsAmount.value, text: els.textInput.value,
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
           rotateLen: els.rotateLen.value,
           imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
@@ -960,6 +1188,7 @@
       if (saved.contrast != null) els.contrast.value = saved.contrast;
       els.invert.checked = !!saved.invert;
       els.cheer.checked = saved.cheer !== false;
+      if (saved.bits && parseInt(saved.bits, 10) >= 100) els.bitsAmount.value = saved.bits;
       if (saved.text != null) els.textInput.value = saved.text;
       // textSize is now a px font-size (>=12); ignore any old fractional value.
       if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
@@ -998,10 +1227,10 @@
     function receiptFrame(bodyNode) {
       var r = document.createElement("div");
       r.className = "rcpt";
-      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">100 BITS</div><div class="rcpt-sub">shamu4life</div>';
+      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">' + getBits() + ' BITS</div><div class="rcpt-sub">shamu4life</div>';
       bodyNode.className = "rcpt-body";
       r.appendChild(bodyNode);
-      r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot">twitch</div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
+      r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot"><svg viewBox="0 0 24 24" width="22" height="22" fill="#772ce8" style="display:block;margin:0 auto" aria-label="twitch"><path d="M2.149 0 .521 4.093v16.353h5.62V24h3.077l3.541-3.554h4.545L24 14.272V0H2.149zM21.393 13.191l-3.541 3.554h-5.62l-3.078 3.082v-3.082H4.706V2.149h16.687v11.042zM12.149 4.735H9.999v6.174h2.15V4.735zm5.619 0h-2.149v6.174h2.149V4.735z"/></svg></div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
       return r;
     }
 
@@ -1018,14 +1247,14 @@
     // receipt styling must ride along as an embedded <style>. Kept in sync with
     // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
     var RCPT_CSS =
-      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:5mm 5mm 3mm;background:#fff;color:#000;text-align:center;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}' +
-      '.rcpt-av{width:20mm;height:20mm;border-radius:50%;background:#dcdcdc;margin:0 auto 2mm;}' +
-      '.rcpt-title{font-weight:900;font-size:1.4em;text-transform:uppercase;line-height:1.05;}' +
-      '.rcpt-sub{font-weight:700;font-size:1.1em;}' +
+      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;}' +
+      '.rcpt-av{width:15em;height:15em;max-width:90%;border-radius:50%;background:#dcdcdc;object-fit:cover;margin:0 auto;}' +
+      '.rcpt-title{font-weight:900;font-size:1.5em;text-transform:uppercase;}' +
+      '.rcpt-sub{font-weight:700;font-size:1.2em;}' +
       '.rcpt-body{padding:.5em 0;}' +
       '.rcpt-body>svg,.rcpt-body>img{max-width:100%;height:auto;display:block;margin:0 auto;}' +
       '.rcpt-foot{font-weight:700;font-size:.85em;color:#772ce8;}' +
-      '.rcpt-date{font-size:.7em;text-transform:uppercase;opacity:.7;margin-top:.5mm;}';
+      '.rcpt-date{font-size:.7em;text-transform:uppercase;margin:.5em 0;}';
     // Atkinson dither, in place on ImageData: Rec.601 gray, threshold 128,
     // diffuse err/8 to 6 neighbours — the soft, slightly-blown-out look of a
     // cheap thermal head (leaks 2/8 of the error, so highlights lift out).
@@ -1203,7 +1432,30 @@
           warn.textContent = "Too long for Twitch (~500 chars) — trim it: fewer columns, shorter text, or a smaller size.";
           card.appendChild(warn);
         }
-        if (item.bigText || item.previewImgUrl) {
+        if (item.bodies) {
+          // Composed stack: render each block's preview, in order, inside one receipt.
+          var stackBody = document.createElement("div");
+          item.bodies.forEach(function (b) {
+            var pv = b.preview || {};
+            if (pv.kind === "img") {
+              var im = new Image(); im.alt = ""; var tries = 0;
+              im.onerror = function () { if (tries++ < 4) setTimeout(function () { im.src = pv.imgUrl + (pv.imgUrl.indexOf("?") < 0 ? "?" : "&") + "r=" + tries; }, 1200); };
+              if (pv.filter) im.style.filter = pv.filter;   // live brightness/contrast feedback until baked
+              im.src = pv.imgUrl;
+              stackBody.appendChild(im);
+            } else if (pv.kind === "grid") {
+              var pre2 = document.createElement("pre"); pre2.className = "receipt"; pre2.textContent = pv.grid || "";
+              stackBody.appendChild(pre2);
+            } else {
+              // html (big SVG / rotate span): append as direct children so the
+              // .rcpt-body > svg centering rule (and the rotate div's own margin) apply.
+              stackBody.insertAdjacentHTML("beforeend", pv.html || b.html);
+            }
+          });
+          var frame2 = receiptFrame(stackBody);
+          frame2.setAttribute("data-thermalable", "1");
+          card.appendChild(frame2);
+        } else if (item.bigText || item.previewImgUrl) {
           // Faithful receipt frame around the visual content (real type / rotate SVG,
           // or the actual image).
           var body = document.createElement("div");
@@ -1238,27 +1490,382 @@
         }
         container.appendChild(card);
       });
+      var copyableParts = items.filter(function (it) { return it.copyable; }).length;
       if (n > 1) {
         var note = document.createElement("p");
         note.className = "parts-note";
-        note.textContent = "Paste the parts into chat in order — each is a separate 100-bit cheer.";
+        note.textContent = "Paste the parts into chat in order — each is a separate " + getBits()
+          + "-bit cheer (" + copyableParts + " × " + getBits() + " = " + (copyableParts * getBits()) + " bits total).";
         container.appendChild(note);
       }
       // Only warn about the /px round-trip when it will actually happen: thermal
       // on AND a linked picture on screen. (Big Text / glyph-art never call it.)
-      var linked = items.some(function (it) { return !!it.previewImgUrl; });
+      var linked = items.some(function (it) {
+        return !!it.previewImgUrl || (it.bodies && it.bodies.some(function (b) { return b.preview && b.preview.kind === "img"; }));
+      });
       if (els.thermalNote) els.thermalNote.hidden = !(linked && els.thermalView && els.thermalView.checked);
       scheduleThermal();   // if the toggle is on, swap thermalable frames for their dithered render
     }
     // Census and Image route through the same 1-part list shape as Big Text's
     // (possibly multi-part) list, so renderParts never needs to special-case them.
+    // ============ COMPOSER (block stack) ============
+    var blocks = [], blockIdSeq = 1, BLOCKS_KEY = "rw_blocks_v1";
+    function newBlock(type) {
+      if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
+        rotate: 0, adjBright: 0, adjContrast: 0, renderAs: "svg", tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
+      return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
+    }
+    function blockHasContent(b) {
+      if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
+      return !!(b.text && String(b.text).trim());
+    }
+    function saveBlocks() {
+      try {
+        // Strip runtime-only fields (a decoded <img>, in-flight flags) — they aren't
+        // serialisable and shouldn't persist; block.url re-decodes on load.
+        var clean = blocks.map(function (b) {
+          var o = {}; for (var k in b) if (k.charAt(0) !== "_") o[k] = b[k]; return o;
+        });
+        localStorage.setItem(BLOCKS_KEY, JSON.stringify(clean));
+      } catch (e) {}
+    }
+    function loadBlocks() { try { var r = localStorage.getItem(BLOCKS_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
+    function seedBlocks() {
+      var saved = loadBlocks();
+      if (saved && saved.length) {
+        blocks = saved;
+        blockIdSeq = blocks.reduce(function (m, b) { return Math.max(m, b.id || 0); }, 0) + 1;
+        return;
+      }
+      var t = newBlock("text");
+      t.text = (els.textInput && els.textInput.value) || "HELLO";   // migrate old single-text state
+      blocks = [t];
+    }
+    function addBlock(type) { blocks.push(newBlock(type)); renderComposer(); update(); }
+    function removeBlock(id) { blocks = blocks.filter(function (b) { return b.id !== id; }); renderComposer(); update(); }
+    function moveBlock(id, dir) {
+      var i = -1, k; for (k = 0; k < blocks.length; k++) if (blocks[k].id === id) i = k;
+      var j = i + dir;
+      if (i < 0 || j < 0 || j >= blocks.length) return;
+      var t = blocks[i]; blocks[i] = blocks[j]; blocks[j] = t;
+      renderComposer(); update();
+    }
+    // Card builders. Value inputs mutate the block in place + save + update() but do NOT
+    // re-render the composer (that would drop focus mid-type); add/remove/move re-render.
+    function mkEl(tag, attrs, text) {
+      var e = document.createElement(tag);
+      if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
+      if (text != null) e.textContent = text;
+      return e;
+    }
+    function opt(val, label, sel) { var o = mkEl("option", { value: val }, label); if (sel) o.selected = true; return o; }
+    // Wrap a range/number input with a live value readout + a reset-to-default button
+    // (restores the readouts/resets the old tabbed UI had). `input` keeps its own change
+    // handler; this adds the value display and a reset that re-fires that handler.
+    function sliderRow(labelText, input, def, unit) {
+      unit = unit || "";
+      var row = mkEl("div");
+      var lab = mkEl("label");
+      lab.appendChild(document.createTextNode(labelText + ": "));
+      var val = mkEl("span", { "class": "bc-val" }, String(input.value) + unit);
+      lab.appendChild(val);
+      var rst = mkEl("button", { type: "button", "class": "bc-reset", title: "Reset to " + def + unit }, "↺");
+      rst.addEventListener("click", function () { input.value = String(def); input.dispatchEvent(new Event("input", { bubbles: true })); });
+      lab.appendChild(rst);
+      input.addEventListener("input", function () { val.textContent = String(input.value) + unit; });
+      row.appendChild(lab); row.appendChild(input);
+      return row;
+    }
+    function cardHead(block) {
+      var head = mkEl("div", { "class": "bc-head" });
+      head.appendChild(mkEl("span", { "class": "bc-type" }, block.type === "image" ? "Image" : "Text"));
+      head.appendChild(mkEl("span", { "class": "spacer" }));
+      var up = mkEl("button", { type: "button", title: "Move up" }, "↑");
+      var dn = mkEl("button", { type: "button", title: "Move down" }, "↓");
+      var rm = mkEl("button", { type: "button", title: "Remove" }, "×");
+      up.addEventListener("click", function () { moveBlock(block.id, -1); });
+      dn.addEventListener("click", function () { moveBlock(block.id, 1); });
+      rm.addEventListener("click", function () { removeBlock(block.id); });
+      head.appendChild(up); head.appendChild(dn); head.appendChild(rm);
+      return head;
+    }
+    function textCard(block) {
+      var card = mkEl("div", { "class": "block-card" });
+      card.appendChild(cardHead(block));
+      card.appendChild(mkEl("label", null, "Text"));
+      var ta = mkEl("textarea", { rows: "2" }); ta.value = block.text || "";
+      ta.addEventListener("input", function () { block.text = ta.value; saveBlocks(); update(); });
+      card.appendChild(ta);
+      // Render: crisp vector Type, or markup-free Hanzi tiling (the filter-proof mode).
+      card.appendChild(mkEl("label", null, "Render"));
+      var render = mkEl("select");
+      render.appendChild(opt("type", "Type — crisp", block.render !== "hanzi"));
+      render.appendChild(opt("hanzi", "Hanzi tiling — filter-proof", block.render === "hanzi"));
+      card.appendChild(render);
+      var isSideways = function (o) { return o === 90 || o === 270; };
+      // Type-only controls: orientation + (length when sideways).
+      var typeWrap = mkEl("div");
+      typeWrap.appendChild(mkEl("label", null, "Orientation"));
+      var orient = mkEl("select");
+      orient.appendChild(opt("0", "Normal", block.orient === 0));
+      orient.appendChild(opt("180", "Upside-down", block.orient === 180));
+      orient.appendChild(opt("90", "Giant sideways ▷", block.orient === 90));
+      orient.appendChild(opt("270", "Giant sideways ◁", block.orient === 270));
+      var lenWrap;
+      orient.addEventListener("change", function () {
+        block.orient = parseInt(orient.value, 10) || 0;
+        if (lenWrap) lenWrap.style.display = isSideways(block.orient) ? "" : "none";
+        saveBlocks(); update();
+      });
+      typeWrap.appendChild(orient);
+      lenWrap = mkEl("div"); lenWrap.style.display = isSideways(block.orient) ? "" : "none";
+      var len = mkEl("input", { type: "range", min: "300", max: "1400", step: "50" }); len.value = block.rotateLen || 800;
+      len.addEventListener("input", function () { block.rotateLen = parseInt(len.value, 10); saveBlocks(); update(); });
+      lenWrap.appendChild(sliderRow("Length per receipt", len, 800, "px"));
+      typeWrap.appendChild(lenWrap);
+      card.appendChild(typeWrap);
+      // Hanzi-only control: Detail (columns) — the resolution lever for tiled glyphs.
+      var hanziWrap = mkEl("div");
+      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 20;
+      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 20; saveBlocks(); update(); });
+      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 20, ""));
+      card.appendChild(hanziWrap);
+      // Size (both renders use it).
+      var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
+      size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
+      card.appendChild(sliderRow("Size", size, 90, "%"));
+      var applyRender = function () {
+        var hanzi = block.render === "hanzi";
+        typeWrap.style.display = hanzi ? "none" : "";
+        hanziWrap.style.display = hanzi ? "" : "none";
+      };
+      render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
+      applyRender();
+      return card;
+    }
+    // Adjust brightness/contrast in place on ImageData. br, ct in -100..100 (0 = none).
+    function applyBrightnessContrast(imageData, br, ct) {
+      var d = imageData.data, bright = br * 2.55, C = ct * 2.55;
+      var f = (259 * (C + 255)) / (255 * (259 - C));   // standard contrast factor
+      for (var i = 0; i < d.length; i += 4) {
+        for (var k = 0; k < 3; k++) {
+          var v = f * (d[i + k] + bright - 128) + 128;
+          d[i + k] = v < 0 ? 0 : v > 255 ? 255 : v;
+        }
+      }
+    }
+    var adjKey = function (b) { return b.url + "|" + (b.rotate || 0) + "|" + (b.adjBright || 0) + "|" + (b.adjContrast || 0); };
+    // Bake pixel adjustments (rotation + brightness + contrast) into a real image: fetch via
+    // /px (so a cross-origin image isn't canvas-tainted), apply on a canvas, re-encode PNG,
+    // upload → block.outUrl. Always processes FROM block.url so repeats never compound. The
+    // printer can't do CSS filters/transforms, so it's all baked into the pixels.
+    function processImage(block, setStatus) {
+      var deg = block.rotate || 0, br = block.adjBright || 0, ct = block.adjContrast || 0;
+      if (!block.url || (!deg && !br && !ct)) { block.outUrl = null; block.aspect = null; return; }
+      var key = adjKey(block);
+      setStatus("Processing…");
+      fetch(proxied(block.url), { credentials: "omit" })
+        .then(function (r) { if (!r.ok) throw new Error("fetch " + r.status); return r.blob(); })
+        .then(function (blob) {
+          return new Promise(function (res, rej) {
+            var im = new Image();
+            im.onload = function () { res(im); };
+            im.onerror = function () { rej(new Error("decode")); };
+            im.src = URL.createObjectURL(blob);
+          });
+        })
+        .then(function (im) {
+          var iw = im.naturalWidth, ih = im.naturalHeight;
+          var scale = Math.min(1, 720 / Math.max(iw, ih));
+          var w = Math.max(1, Math.round(iw * scale)), h = Math.max(1, Math.round(ih * scale));
+          var swap = (deg === 90 || deg === 270);
+          var cv = document.createElement("canvas");
+          cv.width = swap ? h : w; cv.height = swap ? w : h;
+          var ctx = cv.getContext("2d", { willReadFrequently: true });
+          ctx.translate(cv.width / 2, cv.height / 2);
+          ctx.rotate(deg * Math.PI / 180);
+          ctx.drawImage(im, -w / 2, -h / 2, w, h);
+          URL.revokeObjectURL(im.src);
+          if (br || ct) {
+            var data = ctx.getImageData(0, 0, cv.width, cv.height);
+            applyBrightnessContrast(data, br, ct);
+            ctx.putImageData(data, 0, 0);
+          }
+          var aspect = cv.height / cv.width;
+          return new Promise(function (res) { cv.toBlob(function (b) { res({ blob: b, aspect: aspect }); }, "image/png"); });
+        })
+        .then(function (o) {
+          if (!o.blob) throw new Error("encode");
+          if (o.blob.size > 5 * 1024 * 1024) throw new Error("too big");
+          return fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: o.blob })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d, aspect: o.aspect }; }); });
+        })
+        .then(function (res) {
+          if (adjKey(block) !== key) return;   // user moved on — drop stale result
+          if (!res.ok) { setStatus("Adjust failed: " + ((res.d && res.d.error) || "server")); return; }
+          block.outUrl = res.d.url; block.aspect = res.aspect;
+          setImgAspect(res.d.url, res.aspect);
+          setStatus("Adjusted ✓ (link expires ~15 min)"); saveBlocks(); update();
+        })
+        .catch(function (e) { setStatus("Adjust failed (" + e.message + ")"); });
+    }
+    // Debounce processing so dragging a brightness/contrast slider doesn't spam /px + /upload.
+    function scheduleProcess(block, setStatus) {
+      if (block._proc) clearTimeout(block._proc);
+      block._proc = setTimeout(function () { block._proc = null; processImage(block, setStatus); }, 400);
+    }
+    // Re-encode a local file to a print-sized PNG and upload → block.url; then rotate if set.
+    function uploadFileForBlock(block, file, setStatus) {
+      setStatus("Uploading…");
+      var img = new Image();
+      img.onload = function () {
+        var scale = Math.min(1, 720 / Math.max(img.naturalWidth, img.naturalHeight));
+        var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
+        var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(img.src);
+        var aspect = h / w;
+        cv.toBlob(function (blob) {
+          if (!blob) { setStatus("Couldn't process that image."); return; }
+          if (blob.size > 5 * 1024 * 1024) { setStatus("Too big even after shrinking."); return; }
+          fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: blob })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+              if (!res.ok) { setStatus("Upload failed: " + ((res.d && res.d.error) || "server")); return; }
+              block.url = res.d.url; block.outUrl = null; block.aspect = aspect; setImgAspect(res.d.url, aspect);
+              if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded — adjusting…"); processImage(block, setStatus); }
+              else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
+            })
+            .catch(function () { setStatus("Upload failed (network)."); });
+        }, "image/png");
+      };
+      img.onerror = function () { setStatus("Couldn't read that image."); URL.revokeObjectURL(img.src); };
+      img.src = URL.createObjectURL(file);
+    }
+    function imageCard(block) {
+      var card = mkEl("div", { "class": "block-card" });
+      card.appendChild(cardHead(block));
+      // Kind: the real picture (prints the photo) or glyph-art (tiles it into text — the
+      // markup-free fallback that always prints).
+      card.appendChild(mkEl("label", null, "Kind"));
+      var kind = mkEl("select");
+      kind.appendChild(opt("real", "Real picture", block.imgKind !== "glyph"));
+      kind.appendChild(opt("glyph", "Glyph-art (tiled text)", block.imgKind === "glyph"));
+      card.appendChild(kind);
+      // Shared source: a URL or a picked file.
+      card.appendChild(mkEl("label", null, "Image URL"));
+      var url = mkEl("input", { type: "url", placeholder: "https://…/pic.jpg" }); url.value = block.url || "";
+      card.appendChild(url);
+      card.appendChild(mkEl("label", null, "… or pick a file"));
+      var file = mkEl("input", { type: "file", accept: "image/*" });
+      card.appendChild(file);
+      var status = mkEl("div", { "class": "hint" });
+      var setStatus = function (t) { status.textContent = t; };
+      card.appendChild(status);
+
+      // --- Real-picture controls ---
+      var realWrap = mkEl("div");
+      realWrap.appendChild(mkEl("label", null, "Rotate"));
+      var rot = mkEl("select");
+      [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
+      realWrap.appendChild(rot);
+      var w = mkEl("input", { type: "range", min: "20", max: "70", step: "1" }); w.value = block.width || 70;
+      realWrap.appendChild(sliderRow("Print width (mm)", w, 70, "mm"));
+      // Brightness / contrast are baked into the pixels (debounced) so a photo dithers the
+      // way you want on the 1-bit printer. block.outUrl is cleared while adjusting; the live
+      // preview shows a CSS-filter approximation until the baked version lands.
+      var bright = mkEl("input", { type: "range", min: "-100", max: "100", step: "5" }); bright.value = block.adjBright || 0;
+      bright.addEventListener("input", function () { block.adjBright = parseInt(bright.value, 10) || 0; block.outUrl = null; if (block.url) scheduleProcess(block, setStatus); saveBlocks(); update(); });
+      realWrap.appendChild(sliderRow("Brightness", bright, 0, ""));
+      var ctr = mkEl("input", { type: "range", min: "-100", max: "100", step: "5" }); ctr.value = block.adjContrast || 0;
+      ctr.addEventListener("input", function () { block.adjContrast = parseInt(ctr.value, 10) || 0; block.outUrl = null; if (block.url) scheduleProcess(block, setStatus); saveBlocks(); update(); });
+      realWrap.appendChild(sliderRow("Contrast", ctr, 0, ""));
+      realWrap.appendChild(mkEl("label", null, "Render as"));
+      var ra = mkEl("select");
+      ra.appendChild(opt("svg", "SVG (default)", block.renderAs !== "object"));
+      ra.appendChild(opt("object", "object tag", block.renderAs === "object"));
+      realWrap.appendChild(ra);
+      card.appendChild(realWrap);
+
+      // --- Glyph-art controls ---
+      var glyphWrap = mkEl("div");
+      glyphWrap.appendChild(mkEl("label", null, "Tier (glyph set)"));
+      var tier = mkEl("select");
+      [["ascii", "ASCII — letters (safest)"], ["asciifull", "ASCII — full detail"], ["cjk", "Hanzi — prints on RP332"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
+        .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "ascii") === t[0])); });
+      glyphWrap.appendChild(tier);
+      var gcols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); gcols.value = block.cols || 40;
+      glyphWrap.appendChild(sliderRow("Detail (columns)", gcols, 40, ""));
+      var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = block.contrast != null ? block.contrast : 128;
+      glyphWrap.appendChild(sliderRow("Contrast", contrast, 128, ""));
+      var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = block.dither !== false;
+      ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Dither (photos)"));
+      glyphWrap.appendChild(ditherLbl);
+      var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = !!block.invert;
+      invLbl.appendChild(invert); invLbl.appendChild(document.createTextNode(" Invert"));
+      glyphWrap.appendChild(invLbl);
+      card.appendChild(glyphWrap);
+
+      var applyKind = function () {
+        var glyph = block.imgKind === "glyph";
+        realWrap.style.display = glyph ? "none" : "";
+        glyphWrap.style.display = glyph ? "" : "none";
+      };
+
+      url.addEventListener("input", function () {
+        block.url = url.value; block.outUrl = null; block._img = null; block.aspect = null;
+        if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
+        else if (block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
+        saveBlocks(); update();
+      });
+      file.addEventListener("change", function (e) {
+        var f = e.target.files && e.target.files[0];
+        if (!f) return;
+        if (block.imgKind === "glyph") { block._img = null; decodeGlyphImage(block, f); setStatus("Decoding…"); }
+        else uploadFileForBlock(block, f, setStatus);
+      });
+      kind.addEventListener("change", function () {
+        block.imgKind = kind.value; block.outUrl = null; block._img = null; block.aspect = null; applyKind();
+        if (block.imgKind === "glyph" && block.url) decodeGlyphImage(block);
+        else if (block.imgKind !== "glyph" && block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
+        saveBlocks(); update();
+      });
+      rot.addEventListener("change", function () {
+        block.rotate = parseInt(rot.value, 10) || 0; block.outUrl = null; block.aspect = null;
+        if (block.url) processImage(block, setStatus);   // clears outUrl if nothing's set
+        saveBlocks(); update();
+      });
+      w.addEventListener("input", function () { block.width = parseInt(w.value, 10); saveBlocks(); update(); });
+      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
+      tier.addEventListener("change", function () { block.tier = tier.value; saveBlocks(); update(); });
+      gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 40; saveBlocks(); update(); });
+      contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
+      dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
+      invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
+      applyKind();
+      return card;
+    }
+    function renderComposer() {
+      var list = document.getElementById("blockList");
+      if (!list) return;
+      list.textContent = "";
+      blocks.forEach(function (b) { list.appendChild(b.type === "image" ? imageCard(b) : textCard(b)); });
+    }
+    function composeParts() {
+      if (!blocks.some(blockHasContent)) {
+        return [{ payload: "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
+      }
+      var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart });
+      return parts.map(function (p) {
+        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies };
+      });
+    }
     function computeParts() {
       if (currentKind === "census") {
         var body = buildCensus() + " " + nonceForPart(0);   // nonce so a re-print isn't dup-blocked
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
-      if (currentKind === "image") return (els.imgUrl.value || "").trim() ? buildUrlImageParts() : buildImageParts();
-      return bigTextParts();
+      return composeParts();
     }
     function refresh() {
       lastParts = computeParts();
@@ -1341,6 +1948,7 @@
         contrastVal: document.getElementById("contrastVal"),
         invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
+        bitsAmount: document.getElementById("bitsAmount"),
         textInput: document.getElementById("textInput"),
         bigStyle: document.getElementById("bigStyle"),
         sizeControl: document.getElementById("sizeControl"),
@@ -1369,7 +1977,7 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.textInput, els.textSize, els.rotateLen,
+       els.invert, els.cheer, els.bitsAmount, els.textInput, els.textSize, els.rotateLen,
        els.imgUrl, els.imgWidth].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
@@ -1405,7 +2013,7 @@
         reader.readAsDataURL(file);
       });
 
-      // POST the image to the Worker's /upload (KV, 5-min TTL) and drop the returned
+      // POST the image to the Worker's /upload (KV, 15-min TTL) and drop the returned
       // link into the URL box. The ONLY network call in the app, only on this click.
       function sendUpload(blob, aspect) {
         els.uploadStatus.textContent = "Uploading…";
@@ -1417,7 +2025,7 @@
             setImgAspect(res.d.url, aspect);   // we already know it from the canvas — skip probing the KV URL (not propagated yet)
             els.imgUrl.value = res.d.url;
             els.imgUrl.dispatchEvent(new Event("input", { bubbles: true }));   // -> real-image mode
-            els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~5 min. Cheer it now.";
+            els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~15 min. Cheer it now.";
           })
           .catch(function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Upload failed (network)."; });
       }
@@ -1459,7 +2067,15 @@
       els.contrastVal.textContent = els.contrast.value;
       els.rotateLenVal.textContent = els.rotateLen.value;
       els.imgWidthVal.textContent = els.imgWidth.value;
-      setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel()
+
+      // Composer: seed the block stack (migrating old single-text state), draw the
+      // cards, and wire the add buttons. Seed BEFORE setMode so its refresh composes.
+      seedBlocks();
+      renderComposer();
+      document.getElementById("addTextBtn").addEventListener("click", function () { addBlock("text"); });
+      document.getElementById("addImageBtn").addEventListener("click", function () { addBlock("image"); });
+
+      setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel(); refreshes preview
     }
 
     document.addEventListener("DOMContentLoaded", init);
@@ -1474,6 +2090,7 @@
       lumaToDots: lumaToDots, packBraille: packBraille,
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
+      packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
     };
   }
 </script>

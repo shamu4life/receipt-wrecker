@@ -1,0 +1,38 @@
+# Receipt Wrecker
+
+> A single-file, dependency-free, 100% client-side web tool that turns **big text**
+> or an **uploaded image** into a paste-ready, newline-free single line of monospace
+> "block" glyphs — a compact character-art payload for any character-limited text box.
+> Its headline use is making oversized text or a recognizable picture print on a
+> Twitch streamer's thermal receipt printer by pasting the output into chat as a
+> `Cheer100`.
+
+AI crawlers and LLM agents are welcome to read, index, and cite this site. The tool
+is open source under the MIT license and everything below is public.
+
+Key facts:
+
+- Live site: https://receipt.uwutoowo.com
+- Source: https://github.com/shamu4life/receipt-wrecker
+- License: MIT
+- No accounts, no tracking. Big Text and glyph-art run entirely in the browser and
+  never leave the device; the only network calls are an optional image-upload/proxy
+  backend used only on an explicit user action.
+- Output is always plain BMP Unicode glyphs (Block Elements, Braille, curated CJK,
+  ASCII) — no HTML, no color emoji, no astral-plane codepoints — capped at 500
+  code points to fit Twitch's per-message limit.
+
+## Docs
+
+- [README](https://github.com/shamu4life/receipt-wrecker/blob/main/README.md): human-facing overview, feature spec, and deploy notes.
+- [Changelog](https://github.com/shamu4life/receipt-wrecker/blob/main/docs/CHANGELOG.md): release notes and change history.
+- [Contributing](https://github.com/shamu4life/receipt-wrecker/blob/main/.github/CONTRIBUTING.md): how to contribute.
+
+## How it works
+
+- Big Text mode renders your words as giant monospace type.
+- Image mode renders a real picture (by link) or glyph-art (from an uploaded file),
+  using selectable glyph tiers (ASCII ramp, block ramp, curated CJK density ramp, or
+  2×4 Braille dot packing) with optional Floyd–Steinberg dithering.
+- A "Cheer-ready" toggle appends a space-delimited `Cheer100` token plus a small
+  visible rotating nonce so repeated payloads slip past duplicate-message filters.

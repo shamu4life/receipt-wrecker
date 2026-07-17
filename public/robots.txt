@@ -1,0 +1,46 @@
+# Receipt Wrecker — https://receipt.uwutoowo.com
+# AI crawlers and LLM training/retrieval bots are explicitly welcome.
+# This tool is 100% client-side, open source, and MIT licensed:
+# https://github.com/shamu4life/receipt-wrecker
+
+User-agent: *
+Allow: /
+
+# Named AI agents, called out so their operators can see the welcome is deliberate.
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+Sitemap: https://receipt.uwutoowo.com/sitemap.xml

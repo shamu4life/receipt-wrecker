@@ -112,9 +112,15 @@ manually browser-verified so far). CI runs the same `npm test` (see
   dry-run.
 - Config is `wrangler.jsonc`: `name` = `receipt-wrecker`, `assets.directory` =
   `./public`.
-- CI validates every push/PR to `main` with `npx wrangler deploy --dry-run` but
-  does **not** run a real deploy — deploys are a manual/deliberate step
-  (`npx wrangler deploy`).
+- CI validates every push/PR to `main` with `npx wrangler deploy --dry-run` — the
+  GitHub Actions workflow itself never deploys.
+- **Workers Builds does, though: every push to `main` auto-deploys to production,
+  within ~15s.** Pushes to any other branch build but never reach production.
+  Merging *anything* to `main` — even a docs- or CI-only change — republishes
+  `main`'s `public/` and `src/` over whatever is currently live.
+- `npx wrangler deploy` also exists and deploys **whatever is checked out**. Using
+  it from a feature branch puts un-merged code in production; see the divergence
+  rule under "Working in this repo".
 
 ## Architecture of the app (glyph pipeline)
 
@@ -277,9 +283,43 @@ These are the project's defining properties (shared with the sibling tools).
 - Branch: do development on the assigned feature branch; **never push directly to
   `main`** without explicit permission (a push to `main` triggers a production
   deploy).
-- Pushing to a branch and opening a PR is the normal flow — PRs get Cloudflare
-  preview deploys, which is how to verify changes safely.
+- Pushing to a branch and opening a PR is the normal flow. Branch pushes build but
+  do **not** deploy, so they cannot disturb production.
 - After pushing, ensure a PR exists for the branch.
+
+### Before merging ANYTHING to `main`: check prod has not diverged
+
+**`main` is only the source of truth if nothing was deployed from outside it.**
+A `wrangler deploy` run from a feature branch (or a rollback in the Cloudflare
+dashboard) puts production *ahead of* `main` with no trace in git — and then the
+next merge to `main`, however trivial, silently **reverts production** to whatever
+`main` still holds.
+
+This has happened: prod ran the `stack-composer` build for two days while `main`
+sat 22 commits behind it. Three Dependabot merges and a `.gitignore` merge each
+auto-deployed `main` and rolled the live app back ~35 hours before anyone noticed.
+"This PR only touches CI/docs, so the deploy is a harmless no-op" is **exactly the
+reasoning that caused it** — it is only true if prod already matches `main`.
+
+So, before merging anything to `main`:
+
+```sh
+# what prod actually serves, vs what main would ship
+curl -sS https://receipt.uwutoowo.com/ | shasum -a 256
+git show main:public/index.html        | shasum -a 256
+```
+
+- **Hashes match** → merge freely; the deploy really is a no-op.
+- **Hashes differ** → **stop.** Production is running something that is not in
+  `main`. Find out what (`npx wrangler deployments list --name receipt-wrecker`,
+  and diff prod against each branch), and land that work into `main` *first*.
+  Do not merge, and do not "fix" it by force-deploying `main`.
+
+Probing a route is a good second check that the live **Worker** (not just the
+assets) is what you think — `/px?u=http://127.0.0.1/x.png` returns **400** when the
+proxy + SSRF guard are deployed, versus **404** on a build that predates `/px`.
+Note that the Cloudflare API's "get worker code" can return a stale script; trust
+a live probe over it.
 - The real-world acceptance test for any change to the glyph engine is a physical
   **Census print** on the target rig (see README → "Tiers & the Census") — unit
   tests prove the generation logic, not what actually comes off the printer.

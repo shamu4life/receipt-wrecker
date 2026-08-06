@@ -8,3 +8,9 @@ package-lock.json
 
 # Local browser-automation scratch (Playwright MCP)
 .playwright-mcp/
+
+# Print-engine measurement scratch — render test pages and their PDF/PNG output
+# here (see CLAUDE.md, "Measuring against the real engine"). Keeping it in one
+# ignored directory stops stray t*.html / *.pdf / *-1.png artifacts from being
+# swept into a commit, which has happened.
+.render/

@@ -232,6 +232,9 @@ To measure: install wkhtmltopdf 0.12.6 (the **patched-qt** build — the distro
 QtWebKit 5.212 build behaves differently), generate pages with the real
 `buildImageEmbed` via `test/_harness.mjs`, render with the flags above, and check
 for an image XObject with `pdfimages -list` plus an ink bbox off `pdftoppm`.
+**Write the test pages and their output into `.render/`** (gitignored) — loose
+`t*.html` / `*.pdf` / `*-1.png` in the repo root have already been swept into a
+commit by a `git add -A` once. Stage explicit paths, not `-A`.
 
 Things already settled this way, so you don't have to re-derive them:
 

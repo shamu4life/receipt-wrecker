@@ -51,13 +51,29 @@ test("the blocked tokens appear ONLY in the surfaces flagged blocked", () => {
   assert.ok(live.length >= 4, "want several live fallbacks, got " + live.join(","));
 });
 
-test("the CSS backdrop never spells 'image' at all — the one surface a tag-name term can't reach", () => {
-  const html = C.buildImageEmbed("css", BOX);
-  assert.ok(!/image/i.test(html), "css surface leaked the word 'image': " + html);
-  assert.ok(!/<(?!div|\/div)/.test(html), "css surface should be a bare div: " + html);
-  assert.ok(html.indexOf("background:url(") >= 0, "css surface lost its backdrop");
-  // Explicit box: a backdrop has no intrinsic size, so both dimensions must be stated.
-  assert.ok(html.indexOf("width:263px") >= 0 && html.indexOf("height:197px") >= 0);
+test("no carrier leans on a CSS background — printer-bot prints with --no-background", () => {
+  // Measured on the exact binary printer-bot ships: a background-image div draws
+  // nothing, because its Print Routine passes --no-background (and the
+  // `background:url(x) 0 0/100%` slash shorthand is separately invalid in WebKit
+  // 534.34). A tagless CSS backdrop LOOKS like the durable answer to a blocked tag
+  // list, so this guards against it being reintroduced on that reasoning.
+  for (const e of C.EMBEDS) {
+    const html = C.buildImageEmbed(e.id, BOX);
+    assert.ok(!/background/i.test(html), e.id + " relies on a CSS background: " + html);
+  }
+});
+
+test("the two top carriers work with an extensionless URL; the rest are labelled as needing one", () => {
+  // WebKit picks the image renderer from the URL extension for <embed>/<object>, so
+  // those two draw nothing for a bare /i/<hex>. <img> and <input type=image> don't
+  // care. The top two entries must be the extension-independent ones.
+  // joined, not deepEqual: arrays built inside the vm realm aren't reference-equal
+  // to this realm's Array, which assert/strict's deep compare rejects.
+  assert.equal(ids().slice(0, 2).join(","), "img,input");
+  for (const id of ["embed", "object"]) {
+    const e = C.getEmbed(id);
+    assert.ok(/needs a|blocked/i.test(e.label), id + " should warn about the URL extension: " + e.label);
+  }
 });
 
 test("a hostile URL can't break out of any attribute, style, or url() token", () => {
@@ -74,16 +90,13 @@ test("a hostile URL can't break out of any attribute, style, or url() token", ()
   }
 });
 
-test("cssUrl percent-encodes everything that could close url() or start a new declaration", () => {
-  const enc = C.cssUrl("https://x.test/a b(c)'d\"e\\f");
-  for (const ch of ["(", ")", "'", "\\", " "]) {
-    assert.ok(enc.indexOf(ch) < 0, "cssUrl left a raw " + JSON.stringify(ch) + ": " + enc);
+test("a carrier marked blocked or cropping says so in its label, so the dropdown can't mislead", () => {
+  for (const e of C.EMBEDS) {
+    if (e.blocked) assert.ok(/blocked/i.test(e.label), e.id + " is blocked but doesn't say so: " + e.label);
   }
-  assert.ok(enc.indexOf('"') < 0, "cssUrl left a raw quote: " + enc);
-  assert.ok(enc.indexOf("%20") >= 0 && enc.indexOf("%28") >= 0, "expected percent-escapes: " + enc);
-  // …and the escaping survives into the built markup.
-  const html = C.buildImageEmbed("css", { ...BOX, url: "https://x.test/a b(c).png" });
-  assert.ok(/url\(https:\/\/x\.test\/a%20b%28c%29\.png\)/.test(html), html);
+  // iframe renders but draws the picture at natural size and clips it (a subframe
+  // gets no shrink-to-fit), so it must not read like a clean fallback.
+  assert.ok(/crop/i.test(C.getEmbed("iframe").label), "iframe should warn that it crops");
 });
 
 test("sizes are normalized, so a missing aspect probe or junk slider can't emit a broken box", () => {

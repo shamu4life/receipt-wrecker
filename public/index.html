@@ -476,19 +476,6 @@
   // For a value going into a double-quoted HTML attribute (the image URL): also
   // neutralize the quote so a crafted URL can't break out of the attribute/tag.
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
-  // For a URL going inside CSS url(...): percent-encode everything that could close
-  // the token or start a declaration of its own (parens, quotes, backslash,
-  // whitespace) BEFORE the attribute escaping. All of them are legal percent-escapes
-  // in a URL, so the link still resolves. The parens and the apostrophe are spelled
-  // out because encodeURIComponent deliberately leaves !'()* alone — exactly the
-  // characters that would end the url() token early.
-  var CSS_URL_ESC = { "(": "%28", ")": "%29", "'": "%27", "\"": "%22", "\\": "%5C" };
-  function cssUrl(s) {
-    return escapeAttr(String(s).replace(/[()'"\\\s]/g, function (c) {
-      return CSS_URL_ESC[c] || encodeURIComponent(c);
-    }));
-  }
-
   // ── REAL-IMAGE EMBED SURFACES ─────────────────────────────────────────────
   // A real picture rides as markup pointing at a URL — printer-bot drops the chat
   // message straight into its page, so a tag renders. WHICH tag is a moving target:
@@ -506,56 +493,70 @@
   // to the paper), mm the same width in millimetres. h is derived from the probed
   // aspect ratio and is only a guess until that probe lands, so a form that can size
   // itself from the picture's own aspect beats one that needs a height told to it.
+  //
+  // ORDER IS MEASURED, NOT GUESSED. Every entry below was rendered through the exact
+  // binary printer-bot ships (wkhtmltopdf 0.12.6 "with patched qt" = Qt 4.8.7 /
+  // WebKit 534.34) using its exact Print Routine flags — including `--no-background`,
+  // which turns out to matter a lot. Notes on each say what actually came out.
   var EMBEDS = [
-    // The shortest, oldest, most universally implemented way to put a picture on a
-    // page — and one of only two here that need no height, since the engine takes it
-    // from the picture itself (a stale aspect can't letterbox or squash it).
-    { id: "img", label: "img tag — shortest, self-sizing",
+    // MEASURED: renders, scaled to exactly the width given, height from the picture's
+    // own aspect — and it is one of only two forms that still work when the URL has
+    // NO file extension (our own /i/<hex> upload links). Shortest, too.
+    { id: "img", label: "img tag — works, any URL",
       build: function (o) { return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '">'; } },
-    // No picture TAG at all — a plain box wearing the photo as its backdrop. The one
-    // surface a term keyed on a tag name can't reach, and it never spells "image"
-    // either: the `background` shorthand carries the size after the slash, so the
-    // literal "background-image" never appears. Costs an explicit height, and it only
-    // prints on a renderer that prints backgrounds (wkhtmltopdf does by default).
-    { id: "css", label: "CSS backdrop — no picture tag at all",
-      build: function (o) {
-        return '<div style="width:' + o.w + 'px;height:' + o.h + 'px;margin:0 auto;background:url('
-          + cssUrl(o.url) + ') 0 0/100% no-repeat"></div>';
-      } },
-    // Same plugin/image path <object> took, under a different name: if the engine
-    // rendered the old <object> payloads, it renders this one.
-    { id: "embed", label: "embed tag",
-      build: function (o) {
-        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '">';
-      } },
-    // A form control that happens to BE a picture. Spells "image" as an attribute
-    // VALUE rather than a tag name, so a term keyed on "<image" doesn't see it
-    // (a bare "image" term would).
-    { id: "input", label: "input type=image",
+    // MEASURED: renders identically to <img> — a bare image, no button chrome — and
+    // likewise works with an extensionless URL. Spells "image" as an attribute VALUE
+    // rather than a tag name, so a term keyed on "<image" doesn't see it (a bare
+    // "image" term would). The strongest fallback if <img itself gets blocked.
+    { id: "input", label: "input type=image — works, any URL",
       build: function (o) {
         return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w + '">';
       } },
-    // Last resort: the picture as its own little document. Renders wherever remote
-    // frames load, but the engine wraps a bare image in a page of its own, so expect
-    // a small inset rather than an exact fit.
-    { id: "iframe", label: "iframe — picture as its own page",
+    // MEASURED: renders, width/height honoured — but ONLY when the URL ends in a
+    // known image extension. WebKit picks the image renderer from the extension, and
+    // with an extensionless URL (a bare /i/<hex>) it draws nothing at all. That is
+    // also the real reason the old <object> payloads "ignored the width". /upload
+    // returns links ending in .png for exactly this reason.
+    { id: "embed", label: "embed tag — needs a .png/.jpg URL",
+      build: function (o) {
+        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '">';
+      } },
+    // MEASURED: renders, but CROPS. A subframe gets no shrink-to-fit (WebKit only
+    // does that for the main frame), so the picture is drawn at its natural pixel
+    // size and clipped by the frame box — a 400px-wide photo in a 263px frame shows
+    // its left ~2/3 and nothing else. Genuine last resort, and only tolerable for a
+    // picture already smaller than the paper.
+    { id: "iframe", label: "iframe — renders but CROPS",
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
           + '" frameborder="0" scrolling="no"></iframe>';
       } },
-    // Blocked 2026-08: the list took "<image". Kept for A/B if it's ever pruned.
+    // Blocked Aug 2026: the list took "<image". MEASURED: it still renders correctly
+    // on the engine — this is purely a blocked-terms casualty, not a broken form — so
+    // it's worth re-probing if the list is ever pruned. (One caveat found the hard
+    // way while measuring: an `svg { height: auto }` rule collapses it to nothing,
+    // which is a property of OUR preview stylesheet, not of the printer's.)
     { id: "svg", label: "SVG image — blocked (Aug 2026)", blocked: true,
       build: function (o) {
         return '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + o.w + '" height="' + o.h
           + '"><image xlink:href="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '"/></svg>';
       } },
-    // Blocked earlier: the list took "<object". Also rendered WebP and some JPEGs at
-    // native size, ignoring the width — the reason we moved off it even before it went.
+    // Blocked earlier (the list took "<object"). Renders when the URL carries an
+    // image extension, nothing when it doesn't — same MIME-from-extension rule as
+    // <embed>, which is what the old "renders at native size" folklore really was.
     { id: "object", label: "object tag — blocked (earlier)", blocked: true,
       build: function (o) {
         return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm + 'mm;display:block"></object>';
       } },
   ];
+  // NOT IN THE TABLE, and don't re-add it without re-measuring: a <div> wearing the
+  // photo as a CSS background. It's the one surface with no tag name to block, so it
+  // looks like the obvious durable answer — but printer-bot's Print Routine passes
+  // `--no-background`, which drops every element background from the print. Measured
+  // dead twice over: the `background:url(x) 0 0/100%` slash shorthand is also invalid
+  // in WebKit 534.34 (the whole declaration is discarded, silently), so it drew
+  // nothing even with backgrounds enabled. The longhand form does render, but only
+  // once `--no-background` is off — which is hardcoded in printer-bot's C#.
   var EMBED_DEFAULT = "img";
   // Single pass, no recursion: an EMBED_DEFAULT that named nothing would otherwise
   // spin forever, and a lookup miss must never be able to hang the page.
@@ -781,8 +782,8 @@
       // -> 1400 with margin.) Default stays 800; nudge up per printer.
       return isFinite(v) ? Math.max(300, Math.min(1400, v)) : 800;
     }
-    // escapeHtml / escapeAttr / cssUrl live in the pure core (shared with the embed
-    // builders and unit-tested there).
+    // escapeHtml / escapeAttr live in the pure core (shared with the embed builders
+    // and unit-tested there).
     // Big Text is REAL oversized type, not a glyph mosaic: the chat message carries
     // its own inline CSS, which printer-bot drops straight into the page via
     // innerHTML (confirmed live — <br> prints a line break). Size/weight/family ride
@@ -2275,7 +2276,7 @@
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
-      escapeHtml: escapeHtml, escapeAttr: escapeAttr, cssUrl: cssUrl,
+      escapeHtml: escapeHtml, escapeAttr: escapeAttr,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
     };

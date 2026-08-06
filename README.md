@@ -123,20 +123,29 @@ target — a channel's blocked-terms list took `<object` first, then `<image` (t
 SVG form), and each block silently kills *every* picture the tool makes.
 
 So the tag is a setting, not a hardcode. Each **Carrier tag** on an Image block
-builds the same picture out of a different token:
+builds the same picture out of a different token. The verdicts below are
+**measured**, not assumed — every form was rendered through the exact binary
+printer-bot ships (wkhtmltopdf 0.12.6 "with patched qt" = Qt 4.8.7 / WebKit
+534.34) using its exact print flags:
 
-| Carrier | Payload | Notes |
+| Carrier | Payload | Measured on the real engine |
 |---|---|---|
-| `img tag` | ~30 chars + URL | Default. Shortest, and it takes its height from the picture, so it can't letterbox. |
-| `CSS backdrop` | ~100 chars + URL | A plain box wearing the photo as its background — **no picture tag at all**, and it never spells "image". Needs an explicit height, and only prints on a renderer that prints backgrounds. |
-| `embed tag` | ~45 chars + URL | Same image path `<object>` took, different name. |
-| `input type=image` | ~45 chars + URL | A form control that happens to be a picture. Spells "image" as an attribute *value*, not a tag. |
-| `iframe` | ~90 chars + URL | The picture as its own little page. Expect a small inset rather than an exact fit. |
-| `SVG image` | ~120 chars + URL | **Blocked (Aug 2026).** Kept for A/B in case a list gets pruned. |
-| `object tag` | ~60 chars + URL | **Blocked (earlier).** Also renders WebP and some JPEGs at native size, ignoring the width. |
+| `img tag` | ~30 chars + URL | **Default.** Renders, scaled to exactly the width given, height from the picture's own aspect. Works even when the URL has no file extension. |
+| `input type=image` | ~45 chars + URL | Renders identically to `<img>`, extensionless URLs included. Spells "image" as an attribute *value*, not a tag name — the strongest fallback if `<img` itself gets blocked. |
+| `embed tag` | ~45 chars + URL | Renders — **but only when the URL ends in `.png`/`.jpg`/etc.** Given a bare link it draws nothing (that's the real cause of the old "renders at native size, ignores the width" folklore). |
+| `iframe` | ~90 chars + URL | Renders, but **crops.** A subframe gets no shrink-to-fit, so the picture is drawn at natural pixel size and clipped — a 400px photo in a 263px frame shows its left two-thirds. Last resort. |
+| `SVG image` | ~120 chars + URL | **Blocked (Aug 2026).** Still renders correctly, so worth re-probing if a list is ever pruned. |
+| `object tag` | ~60 chars + URL | **Blocked (earlier).** Same extension requirement as `embed`. |
+
+**Why there's no "CSS background" option**, even though a `<div>` wearing the photo
+as its backdrop would be the one surface with no tag name to block: printer-bot's
+print step passes `--no-background`, which drops every element background from the
+print. Measured dead — twice over, since the `background:url(x) 0 0/100%` slash
+shorthand is separately invalid in that WebKit vintage. Don't re-add it without
+re-measuring.
 
 When pictures stop printing, hit **Find what still sends** under the preview. It
-builds the same picture with every carrier, one cheer each, labelled `A`–`G`. Send
+builds the same picture with every carrier, one cheer each, labelled `A`–`F`. Send
 them **one at a time** (a single blocked term kills the whole message, so they
 can't share a cheer) and read the tape:
 

@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- **Real pictures print again.** The channel's blocked-terms list added `<image`, which killed the SVG form every real-image payload was built on (`<object`, the form before it, was already blocked). Picture payloads now default to a plain `img` tag.
+
+### Added
+- **Carrier tags** — the tag that carries a real picture is now a per-block setting with **seven** interchangeable surfaces, each building the same picture out of a different token: `img` (default), a **CSS backdrop** (a `<div>` wearing the photo as its background — no picture tag at all, and it never spells "image"), `embed`, `input type=image`, `iframe`, plus the two blocked forms (`SVG image`, `object`) kept for A/B in case a list gets pruned. Recovering from the next block is a dropdown change, not a release.
+- **Find what still sends** — a second diagnostic button beside *Print test strip*. It builds the same picture with every carrier, one labelled cheer each (`A`–`G`), to be sent one at a time: a letter that prints *with a picture under it* names the carrier to pick, a bare letter means the tag didn't render, and a missing letter means chat blocked it.
+- Saved Image blocks still pointing at a blocked carrier are migrated to the working default once, stamped so a deliberate re-pick of a blocked tag still survives a reload.
+
+### Changed
+- All real-image markup is built in one pure-core function (`buildImageEmbed`), unit-tested for escaping, sizing, and payload budget — the legacy tabbed-UI path routes through it too, so no code path emits a blocked tag any more.
+- `escapeHtml` / `escapeAttr` moved into the pure core and joined by `cssUrl`, which percent-encodes the characters that could close a CSS `url()` token early — including the parens and apostrophe `encodeURIComponent` deliberately leaves alone.
+
+---
+
 ## [0.2.0] — 2026-07-17
 
 ### Added

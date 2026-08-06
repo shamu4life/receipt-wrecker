@@ -94,7 +94,9 @@ An **inert `module.exports` hook** at the end of the IIFE (guarded by
 test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `quantizeTone`, `quantizeBinary`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`,
-`makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`. The canvas-rasterizing
+`makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
+`HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `cssUrl`, `EMBEDS`, `EMBED_DEFAULT`,
+`getEmbed`, `buildImageEmbed`, `buildEmbedProbe`. The canvas-rasterizing
 functions (`rasterizeText`, `rasterizeImage`, `computeGrid`, and the UI wiring in
 `init()`) are **not** exported — they need a real canvas/DOM, so they're verified
 by hand in a browser instead (see `.superpowers/sdd/progress.md` for what's been
@@ -155,6 +157,23 @@ All functions live inside the one IIFE in `public/index.html`.
    button: labeled samples of every tier plus a numbered ruler, so a single print
    on the target rig reveals which tiers render vs. tofu and the true column
    count.
+9. `escapeHtml` / `escapeAttr` / `cssUrl` — escaping for anything user-supplied
+   that lands in markup. `cssUrl` also percent-encodes the characters that could
+   close a CSS `url()` token early — note `encodeURIComponent` deliberately leaves
+   `!'()*` alone, which is exactly the wrong set here, so those are spelled out.
+10. `EMBEDS` / `EMBED_DEFAULT` / `getEmbed(id)` / `buildImageEmbed(id, box)` — the
+    **carrier tag** table: every interchangeable way to put a real picture on the
+    printed page, each building the same picture out of a different token, because
+    the blocked-terms list keeps eating them one at a time. `buildImageEmbed` is the
+    only place that markup is built (it also normalizes the box, so a missing aspect
+    probe can't emit a zero-sized frame). See Global Constraints for the drill when
+    the next one gets blocked.
+11. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
+    sends** button: the same picture through every carrier, labeled `A`…`G`, one
+    message each (they can't share a cheer — one blocked term kills the whole
+    message). A letter that prints *with a picture under it* names the carrier that
+    works; a bare letter means the tag didn't render; a missing letter means chat
+    blocked it. This is `buildCensus`'s counterpart for markup rather than glyphs.
 
 **Browser glue** (canvas + DOM, guarded, browser-verified rather than
 unit-tested):
@@ -170,6 +189,11 @@ unit-tested):
 - `buildTextPayload()` / `buildImagePayload()` — read the current controls,
   call `computeGrid` + `render` + `packageCheer`, and return the paste-ready
   string (or `null` for Image mode with no image chosen yet).
+- `imageBox(block)` / `imageBodies(block)` — the print box for a real-picture block
+  (requested width capped to the paper; height from the probed aspect, square until
+  that probe lands and re-renders) and the body built from it via `buildImageEmbed`.
+  `probeBlockAspect` does the one-off aspect probe. `probeParts()` reuses `imageBox`
+  so the probe measures the carrier tag and nothing else.
 - `copyToClipboard(text)` — `navigator.clipboard.writeText()` with an
   `execCommand('copy')` fallback (`fallbackCopy()`).
 - `saveControls()` / `restoreControls()` / `loadSavedControls()` — persist/restore
@@ -194,9 +218,13 @@ not arbitrary style choices:
 - **The "off" cell is always a real, non-collapsing glyph** (`░` by default),
   **never a space.** HTML whitespace collapsing would shear the grid, and a space
   is the wrong advance width in a proportional fallback font.
-- **No `<`, `>`, or `&`** may appear in generated output — defensive, in case of
-  downstream mangling/sanitization. None of the tier glyph sets include them;
-  don't add a tier or ramp entry that does.
+- **No `<`, `>`, or `&`** may appear in *glyph* output. None of the tier glyph sets
+  include them; don't add a tier or ramp entry that does. (The markup modes — big
+  type, rotate, real pictures — obviously emit tags; everything user-supplied that
+  goes into them runs through `escapeHtml` / `escapeAttr` / `cssUrl` in the pure core.)
+- **A payload must never *lead* with `<`** — some sends get dropped outright on a
+  leading angle bracket. When cheering, the `Cheer<N>` token leads; otherwise
+  `LEAD_GUARD` (a non-breaking space) does.
 - **No color emoji / astral-plane codepoints.** The target renderer (old
   Qt-WebKit) has zero color-font support — these tofu. Stick to BMP glyphs with
   broad legacy-font coverage (Block Elements, Braille, curated CJK).
@@ -208,10 +236,23 @@ not arbitrary style choices:
 - **The nonce is visible, never zero-width.** It exists to defeat a duplicate-
   message filter; an invisible/zero-width character is likely to be stripped by
   the same sanitizing behavior that rules out HTML injection.
-- **HTML/markup injection is out of scope — do not add it.** This was evaluated
-  and rejected (see `docs/superpowers/specs/2026-07-05-block-glyph-art-generator-design.md`,
-  §2) because it depends on undocumented client-side sanitization behavior that
-  can't be relied on. Keep this tool to glyph art only.
+- **Markup was originally out of scope; that was overtaken by field evidence.** The
+  v1 spec rejected it (see
+  `docs/superpowers/specs/2026-07-05-block-glyph-art-generator-design.md`, §2) on
+  the grounds that it depended on undocumented sanitization. It was then confirmed
+  live that printer-bot renders the chat message as HTML, so big type, sideways
+  type, and real pictures are all markup now. **The spec's reasoning still holds as
+  a warning, though:** markup is the surface mods block, and every markup mode
+  needs a markup-free fallback behind it (Hanzi tiling for text, glyph-art for
+  pictures). Don't ship a markup-only feature.
+- **Carrier tags: the tag for a real picture is DATA, not a hardcode.** The
+  blocked-terms list has already eaten `<object` and then `<image`, each block
+  killing every picture the tool makes. `EMBEDS` in the pure core lists the
+  interchangeable surfaces (`img` default, CSS backdrop, `embed`,
+  `input type=image`, `iframe`, plus the two blocked ones kept for A/B) and
+  `buildImageEmbed()` is the only place that markup gets built. When the next one
+  gets blocked: mark it `blocked: true`, move `EMBED_DEFAULT`, bump `EMBED_V` so
+  saved blocks migrate — do **not** hardcode a new tag at a call site.
 
 ## Hard constraints — keep these true
 

@@ -241,7 +241,9 @@
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="censusBtn">Print test strip</button>
+        <button type="button" id="probeBtn">Find what still sends</button>
       </div>
+      <div class="hint">Pictures ride on an HTML tag, and mods block those one at a time (<code>object</code> went first, then the SVG one). <strong>Find what still sends</strong> builds the same picture with every tag we know, one cheer each &mdash; send them one at a time and whichever letter prints <em>with a picture under it</em> names the <strong>Carrier tag</strong> to pick in the block above.</div>
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer &mdash; only the first-party client actually cheers.</p>
@@ -465,6 +467,131 @@
     return parts.join("  ") + "  " + CHEER_TOKEN;
   }
 
+  // ── ESCAPING ──────────────────────────────────────────────────────────────
+  // Everything we emit is markup, so anything user-supplied (their text, their
+  // image URL) is escaped before it goes in.
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  // For a value going into a double-quoted HTML attribute (the image URL): also
+  // neutralize the quote so a crafted URL can't break out of the attribute/tag.
+  function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+  // For a URL going inside CSS url(...): percent-encode everything that could close
+  // the token or start a declaration of its own (parens, quotes, backslash,
+  // whitespace) BEFORE the attribute escaping. All of them are legal percent-escapes
+  // in a URL, so the link still resolves. The parens and the apostrophe are spelled
+  // out because encodeURIComponent deliberately leaves !'()* alone — exactly the
+  // characters that would end the url() token early.
+  var CSS_URL_ESC = { "(": "%28", ")": "%29", "'": "%27", "\"": "%22", "\\": "%5C" };
+  function cssUrl(s) {
+    return escapeAttr(String(s).replace(/[()'"\\\s]/g, function (c) {
+      return CSS_URL_ESC[c] || encodeURIComponent(c);
+    }));
+  }
+
+  // ── REAL-IMAGE EMBED SURFACES ─────────────────────────────────────────────
+  // A real picture rides as markup pointing at a URL — printer-bot drops the chat
+  // message straight into its page, so a tag renders. WHICH tag is a moving target:
+  // the channel's blocked-terms list ate `<object` first, then `<image` (the SVG
+  // form), and each block silently kills every picture the tool makes.
+  //
+  // So the tag is DATA, not a hardcode. Every entry below paints the same picture
+  // out of a different token, so recovering from the next block is a dropdown change
+  // rather than a release — and "Find what still sends" (buildEmbedProbe) says which
+  // one to pick. `blocked` marks the ones the list has already eaten; they stay in
+  // the table because blocked-term lists get pruned as often as they get extended,
+  // and the probe re-tests them for free.
+  //
+  // Builders take {url, w, h, mm}: w/h are the print box in CSS px (w already capped
+  // to the paper), mm the same width in millimetres. h is derived from the probed
+  // aspect ratio and is only a guess until that probe lands, so a form that can size
+  // itself from the picture's own aspect beats one that needs a height told to it.
+  var EMBEDS = [
+    // The shortest, oldest, most universally implemented way to put a picture on a
+    // page — and one of only two here that need no height, since the engine takes it
+    // from the picture itself (a stale aspect can't letterbox or squash it).
+    { id: "img", label: "img tag — shortest, self-sizing",
+      build: function (o) { return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '">'; } },
+    // No picture TAG at all — a plain box wearing the photo as its backdrop. The one
+    // surface a term keyed on a tag name can't reach, and it never spells "image"
+    // either: the `background` shorthand carries the size after the slash, so the
+    // literal "background-image" never appears. Costs an explicit height, and it only
+    // prints on a renderer that prints backgrounds (wkhtmltopdf does by default).
+    { id: "css", label: "CSS backdrop — no picture tag at all",
+      build: function (o) {
+        return '<div style="width:' + o.w + 'px;height:' + o.h + 'px;margin:0 auto;background:url('
+          + cssUrl(o.url) + ') 0 0/100% no-repeat"></div>';
+      } },
+    // Same plugin/image path <object> took, under a different name: if the engine
+    // rendered the old <object> payloads, it renders this one.
+    { id: "embed", label: "embed tag",
+      build: function (o) {
+        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '">';
+      } },
+    // A form control that happens to BE a picture. Spells "image" as an attribute
+    // VALUE rather than a tag name, so a term keyed on "<image" doesn't see it
+    // (a bare "image" term would).
+    { id: "input", label: "input type=image",
+      build: function (o) {
+        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w + '">';
+      } },
+    // Last resort: the picture as its own little document. Renders wherever remote
+    // frames load, but the engine wraps a bare image in a page of its own, so expect
+    // a small inset rather than an exact fit.
+    { id: "iframe", label: "iframe — picture as its own page",
+      build: function (o) {
+        return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
+          + '" frameborder="0" scrolling="no"></iframe>';
+      } },
+    // Blocked 2026-08: the list took "<image". Kept for A/B if it's ever pruned.
+    { id: "svg", label: "SVG image — blocked (Aug 2026)", blocked: true,
+      build: function (o) {
+        return '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + o.w + '" height="' + o.h
+          + '"><image xlink:href="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '"/></svg>';
+      } },
+    // Blocked earlier: the list took "<object". Also rendered WebP and some JPEGs at
+    // native size, ignoring the width — the reason we moved off it even before it went.
+    { id: "object", label: "object tag — blocked (earlier)", blocked: true,
+      build: function (o) {
+        return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm + 'mm;display:block"></object>';
+      } },
+  ];
+  var EMBED_DEFAULT = "img";
+  // Single pass, no recursion: an EMBED_DEFAULT that named nothing would otherwise
+  // spin forever, and a lookup miss must never be able to hang the page.
+  function getEmbed(id) {
+    var def = null;
+    for (var i = 0; i < EMBEDS.length; i++) {
+      if (EMBEDS[i].id === id) return EMBEDS[i];
+      if (EMBEDS[i].id === EMBED_DEFAULT) def = EMBEDS[i];
+    }
+    return def || EMBEDS[0];
+  }
+  // The single place markup for a real picture gets built. Sizes are normalized here
+  // (not in each builder) so a missing aspect probe or a junk slider value can only
+  // ever produce a sane box.
+  function buildImageEmbed(id, o) {
+    o = o || {};
+    function n(v, d) { v = Math.round(v); return isFinite(v) && v > 0 ? v : d; }
+    return getEmbed(id).build({
+      url: o.url == null ? "" : String(o.url),
+      w: n(o.w, 263), h: n(o.h, 263), mm: n(o.mm, 70),
+    });
+  }
+  // One labelled message per surface, for finding out which tags still get through.
+  // They can't share a cheer — a single blocked term kills the WHOLE message, so one
+  // dead surface would take the others down with it. Send them one at a time and read
+  // the tape: a letter with a picture under it is a surface that works; a bare letter
+  // means the message sent but the engine didn't render that tag; a missing letter
+  // means the message never made it out of chat.
+  function buildEmbedProbe(o) {
+    return EMBEDS.map(function (e, i) {
+      var label = String.fromCharCode(65 + i);   // A, B, C… plain ASCII, always prints
+      return { id: e.id, label: label, name: e.label, blocked: !!e.blocked,
+               html: label + " " + buildImageEmbed(e.id, o) };
+    });
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // Everything in this block is either (a) a function *definition* (never executes its
   // body until called) or (b) the single `document.addEventListener("DOMContentLoaded", init)`
@@ -654,12 +781,8 @@
       // -> 1400 with margin.) Default stays 800; nudge up per printer.
       return isFinite(v) ? Math.max(300, Math.min(1400, v)) : 800;
     }
-    function escapeHtml(s) {
-      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-    // For a value going into a double-quoted HTML attribute (the image URL): also
-    // neutralize the quote so a crafted URL can't break out of the attribute/tag.
-    function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+    // escapeHtml / escapeAttr / cssUrl live in the pure core (shared with the embed
+    // builders and unit-tested there).
     // Big Text is REAL oversized type, not a glyph mosaic: the chat message carries
     // its own inline CSS, which printer-bot drops straight into the page via
     // innerHTML (confirmed live — <br> prints a line break). Size/weight/family ride
@@ -864,31 +987,27 @@
       im.onerror = function () { block._probing = null; };
       im.src = u;
     }
-    // Real-image BODY. Default renders as SVG <image> (renders on the real engine AND
-    // isn't the <object> tag the automod blocks); only an explicit renderAs:"object"
-    // emits <object>. SVG needs the aspect; we probe per-block and use a 1:1 box until it
-    // lands (then re-render), never falling back to <object>.
+    // The print box for one image block, in CSS px: the requested width capped to the
+    // paper, and a height from the probed aspect (square until the probe lands, which
+    // then re-renders). Shared by the payload and the probe so both size identically.
+    function imageBox(block) {
+      var mm = block.width || 70, aspect = block.aspect || 0;
+      if (!aspect) probeBlockAspect(block);
+      var W = Math.min(PAPER_PX, Math.round(mm * PX_PER_MM));
+      return { url: embedUrl(block), w: W, h: Math.max(1, Math.round(W * (aspect || 1))), mm: mm };
+    }
+    // Real-image BODY. Which tag carries it is the block's own choice (see EMBEDS) —
+    // the blocked-terms list has already taken two of them, so this stays a lookup.
     function imageBodies(block) {
-      var url = embedUrl(block), w = block.width || 70;
-      var aspect = block.aspect || 0;
+      var box = imageBox(block);
       // Instant preview feedback: while a brightness/contrast bake is still pending (outUrl
       // not yet ready), approximate it with a CSS filter on the preview <img>. Once baked,
       // outUrl carries the adjustment and no filter is applied (would double it).
       var pending = (block.adjBright || block.adjContrast) && !block.outUrl;
       var filter = pending ? ("brightness(" + (100 + (block.adjBright || 0)) + "%) contrast(" + (100 + (block.adjContrast || 0)) + "%)") : "";
-      if (block.renderAs === "object") {
-        var body = '<object data="' + escapeAttr(url) + '" style="width:' + w + 'mm;display:block"></object>';
-        var hpx = aspect ? Math.round(Math.min(PAPER_PX, w * PX_PER_MM) * aspect) : Math.round(w * PX_PER_MM);
-        if (!aspect) probeBlockAspect(block);
-        return [{ html: body, chars: payloadLength(body), heightPx: hpx, preview: { kind: "img", imgUrl: url, filter: filter } }];
-      }
-      if (!aspect) probeBlockAspect(block);
-      var W = Math.min(PAPER_PX, Math.round(w * PX_PER_MM)), H = Math.max(1, Math.round(W * (aspect || 1)));
-      // preserveAspectRatio omitted: "xMidYMid meet" is the default, so dropping it is a
-      // free ~34-char saving with no visual change (helps fit image + caption in one cheer).
-      var svg = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
-        + escapeAttr(url) + '" width="' + W + '" height="' + H + '"/></svg>';
-      return [{ html: svg, chars: payloadLength(svg), heightPx: H, preview: { kind: "img", imgUrl: url, filter: filter } }];
+      var html = buildImageEmbed(block.renderAs, box);
+      return [{ html: html, chars: payloadLength(html), heightPx: box.h,
+                preview: { kind: "img", imgUrl: box.url, filter: filter } }];
     }
     // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.
     // Bands like buildTextParts; cols is the resolution lever (size is floored so tiny
@@ -1069,14 +1188,11 @@
       });
     }
     // Real image, sized reliably. The picture lives at the URL (payload is ~150 chars
-    // regardless of image size — inlining base64 blows past Twitch's ~500 cap). We size
-    // it with SVG's <image>, a replaced element that scales to its width/height
-    // (confirmed on the printer) — unlike <object>, which renders WebP and some JPEGs at
-    // native size and ignores the width. SVG 1.1 needs an explicit height, so we use the
-    // picture's real aspect ratio (from the canvas on upload, or by probing the URL once)
-    // and set height = width * aspect: fills the width, no distortion, no letterbox.
-    // Until the aspect is known we fall back to <object width>. No "font", so it clears
-    // the filters. The preview shows payload TEXT, so the tool never renders the image.
+    // regardless of image size — inlining base64 blows past Twitch's ~500 cap). The tag
+    // that carries it comes from EMBEDS; the picture's real aspect ratio (from the canvas
+    // on upload, or by probing the URL once) gives the box its height, so it fills the
+    // width with no distortion and no letterbox. Legacy tabbed-UI path — the composer
+    // (imageBodies) is the live one; both build their markup through buildImageEmbed.
     var imgAspect = 0, imgAspectUrl = "", probingUrl = "";   // aspect = naturalHeight/naturalWidth, tied to one URL
     function setImgAspect(url, aspect) { if (aspect > 0) { imgAspect = aspect; imgAspectUrl = url; } }
     function probeAspect(url) {
@@ -1090,16 +1206,10 @@
     function buildUrlImageParts() {
       var url = (els.imgUrl.value || "").trim();
       if (!url) return [{ payload: "(paste an image URL above)", chars: 0, copyable: false, showHead: false }];
-      var body;
-      if (imgAspect > 0 && imgAspectUrl === url) {
-        var W = Math.min(PAPER_PX, Math.round(getImgWidth() * PX_PER_MM));   // mm -> px, capped to the paper
-        var H = Math.max(1, Math.round(W * imgAspect));
-        body = '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + W + '" height="' + H + '"><image xlink:href="'
-          + escapeAttr(url) + '" width="' + W + '" height="' + H + '" preserveAspectRatio="xMidYMid meet"/></svg>';
-      } else {
-        probeAspect(url);   // learn the aspect, then this re-renders into the SVG form
-        body = '<object data="' + escapeAttr(url) + '" style="width:' + getImgWidth() + 'mm;display:block"></object>';
-      }
+      var known = imgAspect > 0 && imgAspectUrl === url;
+      if (!known) probeAspect(url);   // learn the aspect, then this re-renders at the true height
+      var W = Math.min(PAPER_PX, Math.round(getImgWidth() * PX_PER_MM));   // mm -> px, capped to the paper
+      var body = buildImageEmbed(EMBED_DEFAULT, { url: url, w: W, h: Math.max(1, Math.round(W * (known ? imgAspect : 1))), mm: getImgWidth() });
       var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
       return [{ payload: payload, chars: payloadLength(payload), copyable: true, previewImgUrl: url }];
     }
@@ -1430,7 +1540,11 @@
           head.className = "part-head";
           var count = document.createElement("span");
           count.className = "part-count" + (item.chars > MAX_CHARS ? " over" : "");
-          count.textContent = (n > 1 ? "Part " + (i + 1) + " of " + n + " — " : "") + item.chars + " / " + MAX_CHARS;
+          // Probe parts are alternatives, not a sequence, so they get their tag's name
+          // instead of a "Part i of N" that would imply you send them all in order.
+          count.textContent = (item.headNote ? item.headNote + " — "
+                               : (n > 1 ? "Part " + (i + 1) + " of " + n + " — " : ""))
+            + item.chars + " / " + MAX_CHARS;
           head.appendChild(count);
           card.appendChild(head);
         }
@@ -1501,7 +1615,15 @@
         container.appendChild(card);
       });
       var copyableParts = items.filter(function (it) { return it.copyable; }).length;
-      if (n > 1) {
+      if (items.length && items[0].headNote) {
+        var pnote = document.createElement("p");
+        pnote.className = "parts-note";
+        pnote.textContent = "These are ALTERNATIVES, not a sequence — send them one at a time (each is its own "
+          + getBits() + "-bit cheer). A letter that prints WITH a picture under it = that tag works, pick it as the "
+          + "block's Carrier tag. A letter alone = it sent, but the printer ignored the tag. A letter that never "
+          + "shows up = chat blocked it.";
+        container.appendChild(pnote);
+      } else if (n > 1) {
         var note = document.createElement("p");
         note.className = "parts-note";
         note.textContent = "Paste the parts into chat in order — each is a separate " + getBits()
@@ -1520,9 +1642,21 @@
     // (possibly multi-part) list, so renderParts never needs to special-case them.
     // ============ COMPOSER (block stack) ============
     var blocks = [], blockIdSeq = 1, BLOCKS_KEY = "rw_blocks_v1";
+    // Bumped whenever a carrier tag gets blocked, so saved blocks still pointing at the
+    // dead one get moved to the current default ONCE. Stamped per block, so someone who
+    // then deliberately re-picks the blocked tag (to A/B whether a list got pruned)
+    // keeps that choice across reloads instead of being dragged back every time.
+    var EMBED_V = 2;
+    function migrateEmbed(b) {
+      if (b.type !== "image" || b.embedV === EMBED_V) return b;
+      if (getEmbed(b.renderAs).blocked) b.renderAs = EMBED_DEFAULT;
+      b.embedV = EMBED_V;
+      return b;
+    }
     function newBlock(type) {
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
-        rotate: 0, adjBright: 0, adjContrast: 0, renderAs: "svg", tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
+        rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
+        tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
@@ -1543,8 +1677,9 @@
     function seedBlocks() {
       var saved = loadBlocks();
       if (saved && saved.length) {
-        blocks = saved;
+        blocks = saved.map(migrateEmbed);
         blockIdSeq = blocks.reduce(function (m, b) { return Math.max(m, b.id || 0); }, 0) + 1;
+        saveBlocks();   // persist the migration so it runs once, not every load
         return;
       }
       var t = newBlock("text");
@@ -1790,11 +1925,18 @@
       var ctr = mkEl("input", { type: "range", min: "-100", max: "100", step: "5" }); ctr.value = block.adjContrast || 0;
       ctr.addEventListener("input", function () { block.adjContrast = parseInt(ctr.value, 10) || 0; block.outUrl = null; if (block.url) scheduleProcess(block, setStatus); saveBlocks(); update(); });
       realWrap.appendChild(sliderRow("Contrast", ctr, 0, ""));
-      realWrap.appendChild(mkEl("label", null, "Render as"));
+      // Which tag carries the picture. Two entries are already dead to the channel's
+      // blocked-terms list and the next one will go the same way, so this is a one-click
+      // switch backed by a probe ("Find what still sends") that says which to switch to.
+      realWrap.appendChild(mkEl("label", null, "Carrier tag"));
       var ra = mkEl("select");
-      ra.appendChild(opt("svg", "SVG (default)", block.renderAs !== "object"));
-      ra.appendChild(opt("object", "object tag", block.renderAs === "object"));
+      var curEmbed = getEmbed(block.renderAs).id;
+      EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === curEmbed)); });
       realWrap.appendChild(ra);
+      realWrap.appendChild(mkEl("div", { "class": "hint" },
+        "The HTML tag that carries the picture. Mods block these one at a time — when pictures "
+        + "stop printing, work down the list, or hit “Find what still sends” under the "
+        + "preview to test every tag in one round."));
       card.appendChild(realWrap);
 
       // --- Glyph-art controls ---
@@ -1870,11 +2012,36 @@
         return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies };
       });
     }
+    // "Find what still sends": one cheer per carrier tag, labelled A, B, C…, each
+    // pointing at the SAME picture so the only variable is the tag. They're
+    // alternatives, not a sequence — see buildEmbedProbe for how to read the results.
+    // Borrows the first real-image block for a link and a print width.
+    function probeParts() {
+      var b = null, i;
+      for (i = 0; i < blocks.length; i++) {
+        if (blocks[i].type === "image" && blocks[i].imgKind !== "glyph" && blocks[i].url) { b = blocks[i]; break; }
+      }
+      if (!b) {
+        return [{ payload: "(add an Image block with a link or an upload first — the probe needs a real picture to point at)",
+                  chars: 0, copyable: false, showHead: false }];
+      }
+      var box = imageBox(b);
+      return buildEmbedProbe(box).map(function (p, k) {
+        // One body through the normal packer, so a probe cheer is byte-for-byte the
+        // shape a real one would be (leading token + nonce) — otherwise we'd be
+        // testing the probe's framing instead of the tag.
+        var part = packStackBodies([{ html: p.html, chars: payloadLength(p.html), heightPx: box.h }],
+          { bits: getBits(), cheer: els.cheer.checked, nonceFn: function () { return nonceForPart(k); } })[0];
+        return { payload: part.payload, chars: part.chars, copyable: true,
+                 headNote: p.label + " — " + p.name, previewImgUrl: box.url };
+      });
+    }
     function computeParts() {
       if (currentKind === "census") {
         var body = buildCensus() + " " + nonceForPart(0);   // nonce so a re-print isn't dup-blocked
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
+      if (currentKind === "probe") return probeParts();
       return composeParts();
     }
     function refresh() {
@@ -1890,7 +2057,7 @@
     // the census has none to advance), then recompute and redisplay so the
     // clipboard content matches exactly what's now on screen.
     function copyPart(index) {
-      if (currentKind === "text" || currentKind === "image" || currentKind === "census") {
+      if (currentKind === "text" || currentKind === "image" || currentKind === "census" || currentKind === "probe") {
         partNonces[index] = nextNonce();
       }
       refresh();
@@ -1977,6 +2144,7 @@
         imgWidthVal: document.getElementById("imgWidthVal"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
+        probeBtn: document.getElementById("probeBtn"),
         thermalView: document.getElementById("thermalView"),
         thermalNote: document.getElementById("thermalNote"),
       };
@@ -2070,6 +2238,12 @@
         currentKind = "census";
         refresh();
       });
+      // Both diagnostics live outside the normal render (update() resets currentKind to
+      // the mode), so any edit to a control drops you back to your actual payload.
+      els.probeBtn.addEventListener("click", function () {
+        currentKind = "probe";
+        refresh();
+      });
       // Toggling thermal view just re-renders: renderParts rebuilds clean frames,
       // then scheduleThermal() dithers them when the box is checked (no-op when off).
       els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
@@ -2101,6 +2275,9 @@
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
+      escapeHtml: escapeHtml, escapeAttr: escapeAttr, cssUrl: cssUrl,
+      EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
+      buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
     };
   }
 </script>

@@ -112,11 +112,42 @@ Twitch's side — entirely out of this tool's control, and no client-side change
 work around it. If a paste doesn't show up, check the channel's AutoMod settings
 before assuming the tool is broken.
 
-Receipt Wrecker only emits plain Unicode text — no HTML or markup injection. That
-was considered and deliberately **cut** (see [`CLAUDE.md`](CLAUDE.md) and the
-design spec under `docs/superpowers/specs/`): it depends on undocumented sanitizing
-behavior in Twitch's first-party client that can't be relied on, so this tool
-sticks to glyph art only.
+---
+
+## Carrier tags — how a real picture gets there, and what to do when it stops
+
+Glyph art is just text, so nothing can really stop it. A **real picture** is
+different: printer-bot drops the chat message into its page as markup, so the photo
+rides on an HTML tag pointing at a URL. Which tag that is has turned into a moving
+target — a channel's blocked-terms list took `<object` first, then `<image` (the
+SVG form), and each block silently kills *every* picture the tool makes.
+
+So the tag is a setting, not a hardcode. Each **Carrier tag** on an Image block
+builds the same picture out of a different token:
+
+| Carrier | Payload | Notes |
+|---|---|---|
+| `img tag` | ~30 chars + URL | Default. Shortest, and it takes its height from the picture, so it can't letterbox. |
+| `CSS backdrop` | ~100 chars + URL | A plain box wearing the photo as its background — **no picture tag at all**, and it never spells "image". Needs an explicit height, and only prints on a renderer that prints backgrounds. |
+| `embed tag` | ~45 chars + URL | Same image path `<object>` took, different name. |
+| `input type=image` | ~45 chars + URL | A form control that happens to be a picture. Spells "image" as an attribute *value*, not a tag. |
+| `iframe` | ~90 chars + URL | The picture as its own little page. Expect a small inset rather than an exact fit. |
+| `SVG image` | ~120 chars + URL | **Blocked (Aug 2026).** Kept for A/B in case a list gets pruned. |
+| `object tag` | ~60 chars + URL | **Blocked (earlier).** Also renders WebP and some JPEGs at native size, ignoring the width. |
+
+When pictures stop printing, hit **Find what still sends** under the preview. It
+builds the same picture with every carrier, one cheer each, labelled `A`–`G`. Send
+them **one at a time** (a single blocked term kills the whole message, so they
+can't share a cheer) and read the tape:
+
+- **a letter with a picture under it** → that carrier works; pick it on the block
+- **a letter on its own** → the message sent, but the printer ignored that tag
+- **a letter that never shows up** → chat blocked it
+
+**Honest caveat:** none of this is guaranteed, and it isn't a fix for moderation —
+a mod can block the next tag the same afternoon. The durable answer is
+**glyph-art**: it's plain text with no markup at all, so there's no tag to block.
+It's lower fidelity than the real photo, and it always prints.
 
 ---
 

@@ -1,0 +1,14 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body{font:12px monospace;margin:8px}
+.box{width:200px;height:50px;border:1px solid #000;margin:2px 0}
+#r1{background-image:url(http://127.0.0.1:8099/test.png);background-size:100% 100%;background-repeat:no-repeat}
+#r2{background-image:url(data:image/png;base64,);background-size:100% 100%;background-repeat:no-repeat}
+#r3{background-image:url(http://127.0.0.1:8099/missing.png);background-color:#ccc}
+#r4{background:url(http://127.0.0.1:8099/test.png) 0 0/100% 100% no-repeat}
+</style></head><body>
+<div>R1 bg via http:// URL (longhand)</div><div class="box" id="r1"></div>
+<div>R2 bg via data: URI (longhand)</div><div class="box" id="r2"></div>
+<div>R3 bg via http:// 404 (grey fallback)</div><div class="box" id="r3"></div>
+<div>R4 bg via http:// URL (slash shorthand)</div><div class="box" id="r4"></div>
+<div>R5 img via http:// URL</div><img src="http://127.0.0.1:8099/test.png" style="width:200px;height:50px;border:1px solid #000">
+</body></html>

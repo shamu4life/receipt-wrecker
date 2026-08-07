@@ -113,7 +113,7 @@ test("no carrier leans on a CSS background — printer-bot prints with --no-back
 test("the carriers are ordered by what actually printed, live ones first", () => {
   // joined, not deepEqual: arrays built inside the vm realm aren't reference-equal
   // to this realm's Array, which assert/strict's deep compare rejects.
-  assert.equal(ids().slice(0, 2).join(","), "embed,input", "field-confirmed pair leads");
+  assert.equal(ids().slice(0, 2).join(","), "input,embed", "field-confirmed pair leads, robust one first");
   const firstBlocked = C.EMBEDS.findIndex(e => e.blocked);
   const lastLive = ids().length - 1 - [...C.EMBEDS].reverse().findIndex(e => !e.blocked);
   assert.ok(firstBlocked > lastLive, "blocked carriers must sort below every live one");
@@ -192,4 +192,14 @@ test("probe bodies survive the real packer as one cheer each", () => {
     assert.ok(part[0].payload.startsWith("Cheer100 07 "), part[0].payload);
     assert.ok(part[0].chars <= C.MAX_CHARS, "probe " + i + " over the cap at " + part[0].chars);
   }
+});
+
+test("the default carrier cannot be one that fails silently on a bare URL", () => {
+  // embed/object pick their renderer from the file extension and print a blank
+  // space without one — no error, nothing on the tape to tell you why. Whatever
+  // leads the list has to work with any link a user might paste.
+  const def = C.getEmbed(C.EMBED_DEFAULT);
+  assert.ok(!def.needsExt, "default " + def.id + " fails silently on an extensionless URL");
+  assert.ok(!def.blocked, "default " + def.id + " is blocked");
+  assert.ok(C.buildImageEmbed(C.EMBED_DEFAULT, { ...BOX, url: "https://x.test/i/a1b2c3d4" }).length > 0);
 });

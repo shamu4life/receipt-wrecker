@@ -132,8 +132,8 @@ channel and printed on the real machine. Where the two disagreed, the tape won.
 
 | Carrier | Payload | What came off the tape |
 |---|---|---|
-| `embed tag` | ~45 chars + URL | **Default. Printed perfectly.** Only catch: the URL must end in `.png`/`.jpg`/etc., because the engine picks its image renderer from the extension — given a bare link it prints *blank*, and the app now warns you before you send. |
-| `input type=image` | ~45 chars + URL | **Prints, and needs no file extension** — the one to reach for when a link has no `.png` on the end. Spells "image" as an attribute *value*, not a tag name. |
+| `input type=image` | ~45 chars + URL | **Default. Prints, and needs no file extension** — so it works with any link you paste. Spells "image" as an attribute *value*, not a tag name. It came off the tape too wide, but that was the universal overrun below, not this tag. |
+| `embed tag` | ~45 chars + URL | **Prints perfectly**, and 13 chars shorter — but it's the one live carrier that fails *silently*: the URL must end in `.png`/`.jpg`/etc., because the engine picks its image renderer from the extension. Given a bare link it prints blank with no error, so the app warns you before you send. |
 | `iframe` | ~90 chars + URL | **Prints** — but a subframe gets no shrink-to-fit, so a picture bigger than the box is **cropped**, losing its right and bottom. Fine for a small picture; uploads (re-encoded up to 720px) will crop. |
 | `img tag` | ~30 chars + URL | **Blocked (Aug 2026).** Shortest payload and it renders fine on the engine — it just never reaches chat any more. |
 | `SVG image` | ~120 chars + URL | **Blocked (Aug 2026).** Still renders correctly, so worth re-probing if a list is ever pruned. |

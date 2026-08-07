@@ -502,8 +502,10 @@
   // the blocked-terms list would have to match to kill that entry.
   //
   // FIELD RESULT, Aug 2026 (a full probe round on the real channel + printer):
-  //   embed   printed perfectly           -> default
-  //   input   printed, but ran too wide   -> fixed below with max-width
+  //   input   printed, but ran too wide   -> default (the overrun was universal,
+  //                                          not an input problem; clamped below)
+  //   embed   printed perfectly           -> equal on the tape, but it alone fails
+  //                                          silently on an extensionless URL
   //   iframe  printed perfectly           -> but see the crop note
   //   img     NEVER SENT — blocked        -> the list took "<img" too
   //   svg     blocked earlier             -> "<image"
@@ -516,7 +518,22 @@
   // margin. A clamp fixes it adaptively — narrower paper shrinks to fit, wider paper
   // still gets the full 263 — which beats hardcoding another guess at the width.
   var EMBEDS = [
-    // MEASURED + FIELD-CONFIRMED: prints perfectly. The height attribute is dropped
+    // DEFAULT. Field-confirmed to SEND — the hard half — and it renders as a bare
+    // picture with no button chrome. It came off the tape too wide, but measurement
+    // showed that was the universal 263-vs-240 overrun rather than anything about
+    // this tag: every carrier overran identically, and the clamp below fixes them
+    // all. What sets it apart is that it needs NO file extension, so it can't hit
+    // embed's silent-blank failure on a bare link. Spells "image" as an attribute
+    // VALUE rather than a tag name, so a term keyed on "<image" doesn't see it.
+    { id: "input", label: "input type=image — default, works with any URL", token: "<input",
+      build: function (o) {
+        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
+          + '" style="max-width:100%">';
+      } },
+    // MEASURED + FIELD-CONFIRMED: prints perfectly, and 13 chars shorter than the
+    // default — but NOT the default, because it is the one live carrier that fails
+    // silently: no file extension on the URL, no picture, no error. The height
+    // attribute is dropped
     // deliberately — with it, the clamp shrinks the width but the stated height
     // stays, stretching the picture ~8%; without it the engine takes the height from
     // the image and the aspect stays true (240x180 for a 4:3 source, measured).
@@ -526,16 +543,6 @@
     { id: "embed", label: "embed tag — prints clean (needs a .png/.jpg URL)", token: "<embed", needsExt: true,
       build: function (o) {
         return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
-      } },
-    // FIELD-CONFIRMED to SEND — which is the hard half — and it renders as a bare
-    // picture with no button chrome. It came off the tape too wide; that was the
-    // 263-vs-240 overrun, now clamped. Spells "image" as an attribute VALUE rather
-    // than a tag name, and unlike embed it needs no file extension, so this is the
-    // one to reach for when a link has no .png on the end.
-    { id: "input", label: "input type=image — works, any URL", token: "<input",
-      build: function (o) {
-        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
-          + '" style="max-width:100%">';
       } },
     // FIELD-CONFIRMED to print — but keep the caveat: a subframe gets no
     // shrink-to-fit (WebKit does that for the main frame only), so the picture draws
@@ -582,7 +589,7 @@
   // in WebKit 534.34 (the whole declaration is discarded, silently), so it drew
   // nothing even with backgrounds enabled. The longhand form does render, but only
   // once `--no-background` is off — which is hardcoded in printer-bot's C#.
-  var EMBED_DEFAULT = "embed";
+  var EMBED_DEFAULT = "input";
   // The extension-sniffing carriers (embed, object) fail SILENTLY on a link without
   // one — the message sends, the tape prints, and there's just no picture. So the UI
   // warns instead of leaving you to guess. wkhtmltopdf strips the query string before

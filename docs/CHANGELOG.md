@@ -18,7 +18,11 @@ First field results from a real probe round, cheered at the live channel and pri
 - **A warning before a blank print.** `embed` and `object` pick their image renderer from the URL's file extension and fail *silently* without one — the message sends, the tape prints, and there's just no picture. Picking one of those with an extensionless link now shows a warning naming the fix. (`urlHasImageExt` strips the query string first, so a CDN link ending `.png?ex=…` still counts.)
 - Each carrier now declares the literal `token` a blocked-terms list would have to match, and tests assert every entry emits its own token and that no two share one — otherwise a single blocked term would take out two supposed "alternatives" at once.
 
+### Fixed (UI)
+- **Two hint blocks were overlapping the controls above them.** `.hint` carried a negative top margin that only makes sense directly under a `<label>` (it cancels the label's bottom margin); applied after a `<select>` or a button row it dragged the text up into them. It's now an adjacent-sibling rule — `label + .hint` snugs up, everything else gets normal spacing — so the carrier-tag hint and the *Find what still sends* explanation no longer collide with the select and the buttons. Same for `.over-note`.
+
 ### Notes
+- The probe now says **how many letters are worth sending**. Live carriers lead the list, so a normal round is the first three; the rest are already known blocked and only worth a re-test if a mod prunes the list. At 100 bits a cheer that's 300 bits saved per round.
 - The probe's letters are positional, so they shifted with the reordering: **A** is now `input`, **B** `embed`, **C** `iframe`, **D** `img`, **E** `SVG image`, **F** `object`.
 - `iframe` printed cleanly in the field, but the crop caveat stands — it has no shrink-to-fit, so it only looks right for a picture already smaller than the box, and `/upload` re-encodes up to 720 px.
 

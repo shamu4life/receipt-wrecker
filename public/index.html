@@ -83,12 +83,18 @@
   .thermal-toggle input { width: auto; margin: 0; }
   .thermal-note { font-size: .78rem; color: #a60; margin: -.3rem 0 .5rem; }
   .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
-  .hint { font-size:.8rem; opacity:.7; margin:-.4rem 0 .75rem; }
+  /* Hints sit snug under the label they explain — but ONLY under a label. The
+     negative top margin cancels `.controls label`'s .75rem bottom margin; applied
+     after anything else (a select, a button row) it drags the hint up into it and
+     the text collides. Adjacent-sibling so it can't. */
+  .hint { font-size:.8rem; opacity:.7; margin:.35rem 0 .75rem; }
+  label + .hint { margin-top: -.4rem; }
   .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
   .part { margin: 0 0 1rem; }
   .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
   .part-count.over { color: #d33; font-weight: 700; }
-  .over-note { font-size: .8rem; color: #d33; margin: -.15rem 0 .4rem; }
+  .over-note { font-size: .8rem; color: #d33; margin: .35rem 0 .4rem; }
+  .part-head + .over-note { margin-top: -.15rem; }   /* snug under the char count */
   .parts-note { font-size: .85rem; opacity: .8; margin: .25rem 0 1rem; }
   /* Legacy per-mode controls are superseded by the composer; hide hard so the old
      applyVisibility() (which still runs) can't reveal them. */
@@ -106,7 +112,7 @@
   .add-row button { flex: 1; padding: .45rem; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
-  .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+  .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .9rem; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
     body { padding: .75rem; }
@@ -494,49 +500,94 @@
   // aspect ratio and is only a guess until that probe lands, so a form that can size
   // itself from the picture's own aspect beats one that needs a height told to it.
   //
-  // ORDER IS MEASURED, NOT GUESSED. Every entry below was rendered through the exact
-  // binary printer-bot ships (wkhtmltopdf 0.12.6 "with patched qt" = Qt 4.8.7 /
-  // WebKit 534.34) using its exact Print Routine flags — including `--no-background`,
-  // which turns out to matter a lot. Notes on each say what actually came out.
+  // ORDER IS MEASURED AND THEN FIELD-TESTED. Every entry was first rendered through
+  // the exact binary printer-bot ships (wkhtmltopdf 0.12.6 "with patched qt" =
+  // Qt 4.8.7 / WebKit 534.34) with its exact Print Routine flags — including
+  // `--no-background`, which matters a lot — and then actually cheered at the real
+  // rig. Where the two disagree, the tape wins. `token` records the literal string
+  // the blocked-terms list would have to match to kill that entry.
+  //
+  // FIELD RESULT, Aug 2026 (a full probe round on the real channel + printer):
+  //   input   printed, but ran too wide   -> default (the overrun was universal,
+  //                                          not an input problem; clamped below)
+  //   embed   printed perfectly           -> equal on the tape, but it alone fails
+  //                                          silently on an extensionless URL
+  //   iframe  printed perfectly           -> but see the crop note
+  //   img     NEVER SENT — blocked        -> the list took "<img" too
+  //   svg     blocked earlier             -> "<image"
+  //   object  blocked before that         -> "<object"
+  //
+  // EVERY LIVE ENTRY CARRIES `max-width:100%`. The print box we ask for (263px, i.e.
+  // 70mm) is wider than the receipt body actually is: printer-bot renders at
+  // `paperWidth-8`mm and its template sets `body{margin:1em}`, leaving ~240px on an
+  // 80mm roll. Measured, every carrier drew to the paper edge and lost its right
+  // margin. A clamp fixes it adaptively — narrower paper shrinks to fit, wider paper
+  // still gets the full 263 — which beats hardcoding another guess at the width.
   var EMBEDS = [
-    // MEASURED: renders, scaled to exactly the width given, height from the picture's
-    // own aspect — and it is one of only two forms that still work when the URL has
-    // NO file extension (our own /i/<hex> upload links). Shortest, too.
-    { id: "img", label: "img tag — works, any URL",
-      build: function (o) { return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '">'; } },
-    // MEASURED: renders identically to <img> — a bare image, no button chrome — and
-    // likewise works with an extensionless URL. Spells "image" as an attribute VALUE
-    // rather than a tag name, so a term keyed on "<image" doesn't see it (a bare
-    // "image" term would). The strongest fallback if <img itself gets blocked.
-    { id: "input", label: "input type=image — works, any URL",
+    // DEFAULT. Measured on the engine AND field-confirmed: printed perfectly on the
+    // real machine, and it's the shortest live payload. Its one limitation is real
+    // but KNOWN and detectable: the URL must end in an image extension or it prints
+    // blank, because the engine picks the image renderer from it — so the UI warns
+    // before you send (see needsExt). A limitation you can be warned about beats one
+    // nothing can see coming. The height attribute is dropped
+    // deliberately — with it, the clamp shrinks the width but the stated height
+    // stays, stretching the picture ~8%; without it the engine takes the height from
+    // the image and the aspect stays true (240x180 for a 4:3 source, measured).
+    // Only catch: the URL must end in a known image extension, because WebKit picks
+    // the image renderer from it — a bare /i/<hex> draws nothing. /upload returns
+    // .png links for exactly this reason.
+    { id: "embed", label: "embed tag — default, prints clean (needs a .png/.jpg URL)", token: "<embed",
+      needsExt: true, field: "prints",
       build: function (o) {
-        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w + '">';
+        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
       } },
-    // MEASURED: renders, width/height honoured — but ONLY when the URL ends in a
-    // known image extension. WebKit picks the image renderer from the extension, and
-    // with an extensionless URL (a bare /i/<hex>) it draws nothing at all. That is
-    // also the real reason the old <object> payloads "ignored the width". /upload
-    // returns links ending in .png for exactly this reason.
-    { id: "embed", label: "embed tag — needs a .png/.jpg URL",
+    // Field-confirmed to SEND — the hard half — and its selling point is that it
+    // needs NO file extension, so it's the one to reach for when a link has no .png
+    // on the end and embed would print blank. Spells "image" as an attribute VALUE
+    // rather than a tag name, so a term keyed on "<image" doesn't see it.
+    //
+    // NOT the default, because it is the one form that printed WRONG in the field:
+    // it came off the tape too wide. The bench can't reproduce that — every carrier
+    // overran identically here, and the clamp fixes them all — so there is a real
+    // unexplained delta on the target rig. Best hypothesis: <input> is a form
+    // CONTROL and Qt themes those per-platform, so the Windows build may draw native
+    // chrome around it that this Linux build of the same binary does not. The
+    // border/padding reset below is aimed at that, but it is UNVERIFIED: the only
+    // machine that can confirm it is the one that printed it wrong. Until someone
+    // re-probes it there, a known-and-warnable limitation (embed's extension) beats
+    // an unexplained failure nothing can detect.
+    { id: "input", label: "input type=image — any URL, but printed too wide once", token: "<input",
+      field: "too-wide",
       build: function (o) {
-        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '">';
+        // border/padding zeroed on the hypothesis that native form-control chrome is
+        // what made this print wide on Windows — unverified, see the note above.
+        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
+          + '" style="max-width:100%;border:0;padding:0">';
       } },
-    // MEASURED: renders, but CROPS. A subframe gets no shrink-to-fit (WebKit only
-    // does that for the main frame), so the picture is drawn at its natural pixel
-    // size and clipped by the frame box — a 400px-wide photo in a 263px frame shows
-    // its left ~2/3 and nothing else. Genuine last resort, and only tolerable for a
-    // picture already smaller than the paper.
-    { id: "iframe", label: "iframe — renders but CROPS",
+    // FIELD-CONFIRMED to print — but keep the caveat: a subframe gets no
+    // shrink-to-fit (WebKit does that for the main frame only), so the picture draws
+    // at its natural pixel size and is CLIPPED by the frame. It looks perfect for a
+    // picture already smaller than the box and loses the right/bottom of anything
+    // bigger — and /upload re-encodes up to 720px, so uploads will crop.
+    { id: "iframe", label: "iframe — prints, but crops a big picture", token: "<iframe", field: "prints",
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
-          + '" frameborder="0" scrolling="no"></iframe>';
+          + '" frameborder="0" scrolling="no" style="max-width:100%"></iframe>';
+      } },
+    // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
+    // the SVG form. It renders fine on the engine (shortest payload of the lot, no
+    // extension needed); it just never reaches chat. Kept for a re-probe.
+    { id: "img", label: "img tag — blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
+      build: function (o) {
+        return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
       } },
     // Blocked Aug 2026: the list took "<image". MEASURED: it still renders correctly
     // on the engine — this is purely a blocked-terms casualty, not a broken form — so
     // it's worth re-probing if the list is ever pruned. (One caveat found the hard
     // way while measuring: an `svg { height: auto }` rule collapses it to nothing,
-    // which is a property of OUR preview stylesheet, not of the printer's.)
-    { id: "svg", label: "SVG image — blocked (Aug 2026)", blocked: true,
+    // which is a property of OUR preview stylesheet, not of the printer's. No clamp
+    // here either: this SVG has no viewBox, so max-width would crop rather than scale.)
+    { id: "svg", label: "SVG image — blocked (Aug 2026)", token: "<image", blocked: true, field: "blocked",
       build: function (o) {
         return '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + o.w + '" height="' + o.h
           + '"><image xlink:href="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '"/></svg>';
@@ -544,9 +595,11 @@
     // Blocked earlier (the list took "<object"). Renders when the URL carries an
     // image extension, nothing when it doesn't — same MIME-from-extension rule as
     // <embed>, which is what the old "renders at native size" folklore really was.
-    { id: "object", label: "object tag — blocked (earlier)", blocked: true,
+    { id: "object", label: "object tag — blocked (earlier)", token: "<object", blocked: true,
+      needsExt: true, field: "blocked",
       build: function (o) {
-        return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm + 'mm;display:block"></object>';
+        return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm
+          + 'mm;max-width:100%;display:block"></object>';
       } },
   ];
   // NOT IN THE TABLE, and don't re-add it without re-measuring: a <div> wearing the
@@ -557,7 +610,13 @@
   // in WebKit 534.34 (the whole declaration is discarded, silently), so it drew
   // nothing even with backgrounds enabled. The longhand form does render, but only
   // once `--no-background` is off — which is hardcoded in printer-bot's C#.
-  var EMBED_DEFAULT = "img";
+  var EMBED_DEFAULT = "embed";
+  // The extension-sniffing carriers (embed, object) fail SILENTLY on a link without
+  // one — the message sends, the tape prints, and there's just no picture. So the UI
+  // warns instead of leaving you to guess. wkhtmltopdf strips the query string before
+  // it looks, which is why a CDN link ending in ".png?ex=abc" still counts.
+  var IMG_EXT_RE = /\.(png|jpe?g|gif|svg)(?:[?#]|$)/i;
+  function urlHasImageExt(u) { return IMG_EXT_RE.test(String(u == null ? "" : u)); }
   // Single pass, no recursion: an EMBED_DEFAULT that named nothing would otherwise
   // spin forever, and a lookup miss must never be able to hang the page.
   function getEmbed(id) {
@@ -1619,10 +1678,15 @@
       if (items.length && items[0].headNote) {
         var pnote = document.createElement("p");
         pnote.className = "parts-note";
+        // Live carriers lead the list, so the round you actually need is the first
+        // few. Say so — every extra letter is another cheer's worth of bits spent
+        // re-confirming something already known to be dead.
+        var liveN = items.filter(function (it) { return !it.probeBlocked; }).length;
         pnote.textContent = "These are ALTERNATIVES, not a sequence — send them one at a time (each is its own "
           + getBits() + "-bit cheer). A letter that prints WITH a picture under it = that tag works, pick it as the "
           + "block's Carrier tag. A letter alone = it sent, but the printer ignored the tag. A letter that never "
-          + "shows up = chat blocked it.";
+          + "shows up = chat blocked it. You only need " + (liveN === 1 ? "the first" : "the first " + liveN)
+          + " — the rest are already known blocked, and are only worth a re-test if you think a mod pruned the list.";
         container.appendChild(pnote);
       } else if (n > 1) {
         var note = document.createElement("p");
@@ -1647,7 +1711,9 @@
     // dead one get moved to the current default ONCE. Stamped per block, so someone who
     // then deliberately re-picks the blocked tag (to A/B whether a list got pruned)
     // keeps that choice across reloads instead of being dragged back every time.
-    var EMBED_V = 2;
+    // v3: the list took "<img" too, so the previous default is blocked — anyone whose
+    // saved block still points at it gets moved to the current default on next load.
+    var EMBED_V = 3;
     function migrateEmbed(b) {
       if (b.type !== "image" || b.embedV === EMBED_V) return b;
       if (getEmbed(b.renderAs).blocked) b.renderAs = EMBED_DEFAULT;
@@ -1938,6 +2004,21 @@
         "The HTML tag that carries the picture. Mods block these one at a time — when pictures "
         + "stop printing, work down the list, or hit “Find what still sends” under the "
         + "preview to test every tag in one round."));
+      // embed/object pick their renderer from the URL's file extension; without one
+      // they print a blank space and nothing tells you why. Say so up front.
+      var extWarn = mkEl("div", { "class": "over-note" });
+      extWarn.hidden = true;
+      realWrap.appendChild(extWarn);
+      var syncExtWarn = function () {
+        var e = getEmbed(block.renderAs);
+        var bad = !!e.needsExt && !!block.url && !urlHasImageExt(block.url);
+        extWarn.hidden = !bad;
+        if (bad) {
+          extWarn.textContent = "That link doesn’t end in .png/.jpg — the “" + e.label
+            + "” carrier picks its renderer from the extension, so it will print blank. "
+            + "Use “input type=image” instead, or re-upload the file here to get a .png link.";
+        }
+      };
       card.appendChild(realWrap);
 
       // --- Glyph-art controls ---
@@ -1967,6 +2048,7 @@
 
       url.addEventListener("input", function () {
         block.url = url.value; block.outUrl = null; block._img = null; block.aspect = null;
+        syncExtWarn();
         if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
         else if (block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
         saveBlocks(); update();
@@ -1989,13 +2071,14 @@
         saveBlocks(); update();
       });
       w.addEventListener("input", function () { block.width = parseInt(w.value, 10); saveBlocks(); update(); });
-      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
+      ra.addEventListener("change", function () { block.renderAs = ra.value; syncExtWarn(); saveBlocks(); update(); });
       tier.addEventListener("change", function () { block.tier = tier.value; saveBlocks(); update(); });
       gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 40; saveBlocks(); update(); });
       contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
       dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
       applyKind();
+      syncExtWarn();
       return card;
     }
     function renderComposer() {
@@ -2033,7 +2116,7 @@
         // testing the probe's framing instead of the tag.
         var part = packStackBodies([{ html: p.html, chars: payloadLength(p.html), heightPx: box.h }],
           { bits: getBits(), cheer: els.cheer.checked, nonceFn: function () { return nonceForPart(k); } })[0];
-        return { payload: part.payload, chars: part.chars, copyable: true,
+        return { payload: part.payload, chars: part.chars, copyable: true, probeBlocked: p.blocked,
                  headNote: p.label + " — " + p.name, previewImgUrl: box.url };
       });
     }
@@ -2276,7 +2359,7 @@
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
-      escapeHtml: escapeHtml, escapeAttr: escapeAttr,
+      escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
     };

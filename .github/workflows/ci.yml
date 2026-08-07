@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual re-run. Needed because a pull_request opened by a GitHub App token
+  # does NOT trigger Actions (GitHub's guard against workflows spawning
+  # workflows) — so a PR whose branch was pushed BEFORE it was opened never gets
+  # a Validate run at all, and there was previously no way to ask for one. Push
+  # any commit and `synchronize` fires normally; this covers the case where
+  # there's nothing legitimate left to push.
+  workflow_dispatch:
 
 # Least-privilege GITHUB_TOKEN: this workflow only reads the repo.
 permissions:

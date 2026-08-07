@@ -96,7 +96,8 @@ test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`,
 `makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
 `HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
-`getEmbed`, `buildImageEmbed`, `buildEmbedProbe`. The canvas-rasterizing
+`getEmbed`, `buildImageEmbed`, `buildEmbedProbe`, `buildTakeover`, `takeoverBox`,
+`TAKEOVER_PULL_PT`. The canvas-rasterizing
 functions (`rasterizeText`, `rasterizeImage`, `computeGrid`, and the UI wiring in
 `init()`) are **not** exported — they need a real canvas/DOM, so they're verified
 by hand in a browser instead (see `.superpowers/sdd/progress.md` for what's been
@@ -167,7 +168,18 @@ All functions live inside the one IIFE in `public/index.html`.
     probe can't emit a zero-sized frame). See Global Constraints for the drill when
     the next one gets blocked. **The order and the labels are measured** — see
     "Measuring against the real engine" below before editing either.
-11. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
+11. `buildTakeover(o)` / `takeoverBox(pullPt)` / `TAKEOVER_PULL_PT` — the **Takeover**
+    block: an opaque SVG lifted over printer-bot's own header with a negative top
+    margin, so the tape reads as your artwork instead of a receipt with a message
+    stapled under it. Three optional lines plus an optional picture (which rides in a
+    `<foreignObject>` through `buildImageEmbed`, so it inherits the carrier table
+    rather than hardcoding SVG's blocked `<image`). Everything derives from one
+    calibration number, `pullPt` — the bot's header height varies with the streamer's
+    avatar, so it needs one print to dial in. **Deliberately has no "sender"
+    template**: it paints your lines, not a name-plus-avatar-plus-bits triple posing
+    as who paid. Erasing the bot's header is a sticker over the receipt; fabricating
+    a named sender is a forged record, and this isn't that. Don't add one.
+12. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
     sends** button: the same picture through every carrier, labeled `A`…`G`, one
     message each (they can't share a cheer — one blocked term kills the whole
     message). A letter that prints *with a picture under it* names the carrier that
@@ -247,6 +259,14 @@ Things already settled this way, so you don't have to re-derive them:
   `--load-error-handling ignore` does not suppress it. This is why `/upload`
   returns `.png` links.
 - An `<iframe>` gets **no shrink-to-fit** (that's main-frame only), so it crops.
+- **`<foreignObject>` swallows every SVG sibling that follows it.** It's an HTML
+  integration point; the parser switches to HTML inside and never cleanly returns to
+  SVG context, so `<text>` emitted *after* one is parsed as HTML and silently never
+  drawn — the markup looks perfect and the print comes out blank. Measured. Anything
+  riding in a `foreignObject` must be emitted **last** (see `buildTakeover`).
+- A **takeover** — an opaque `<rect>` in an SVG lifted with `margin-top:-Npt` —
+  reliably paints out the bot's own header, and a message after it still flows
+  below. The pull is per-rig: the header's height depends on the streamer's avatar.
 - The usable body width is `paperWidth - 8`mm minus the 1em margins — **240 px** on
   an 80 mm roll, against `PAPER_PX = 263`. Field-confirmed: a real print came out
   too wide. Real-image carriers now carry `max-width:100%` so they clamp to whatever

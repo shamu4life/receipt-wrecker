@@ -145,6 +145,7 @@
         <div class="add-row">
           <button type="button" id="addTextBtn">+ Text</button>
           <button type="button" id="addImageBtn">+ Image</button>
+          <button type="button" id="addTakeoverBtn">+ Takeover</button>
         </div>
         <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more &mdash; each is its own cheer (see the bits total under the preview).</div>
       </div>
@@ -602,6 +603,81 @@
           + 'mm;max-width:100%;display:block"></object>';
       } },
   ];
+  // ── TAKEOVER (paint over the receipt's own header) ────────────────────────
+  // printer-bot draws a header above the message — avatar, "<N> BITS", the cheerer's
+  // name — and the message lands underneath. A takeover is an opaque SVG lifted UP
+  // over that header with a negative top margin: the <rect> paints out what the bot
+  // drew and your own lines go in its place, so the tape comes out as your artwork
+  // rather than a receipt with a message stapled under it. Anything after this block
+  // still flows below it, untouched.
+  //
+  // MEASURED on the real engine (wkhtmltopdf 0.12.6 patched-qt, printer-bot's exact
+  // flags): the overlay lands where it's told, fully hides the header, and a
+  // following message still renders below.
+  //
+  // SCOPE — deliberately no "sender" template here. This paints your own lines and
+  // your own picture. It does NOT reproduce the header's identity structure (a
+  // name + profile picture presented as who paid, with a bits figure), because that
+  // combination makes a tape that can't be told from a genuine record of a payment
+  // somebody never made. Erasing the bot's header is a sticker over the receipt;
+  // fabricating a named sender is a different thing, and this isn't it.
+  //
+  // The pull is in POINTS; the engine works in CSS px at 96dpi
+  // (--disable-smart-shrinking), hence the 4/3. Everything derives from that one
+  // number, so it stays a single calibration knob — the bot's header height varies
+  // with the streamer's avatar, so the right value is per-rig.
+  var TAKEOVER_PULL_PT = 220;
+  var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
+  function takeoverBox(pullPt) {
+    var pt = isFinite(pullPt) && pullPt > 0 ? Math.round(pullPt) : TAKEOVER_PULL_PT;
+    var px = Math.round(pt * 4 / 3);
+    return { pullPt: pt, pullPx: px, h: px + TAKEOVER_TAIL_PX };
+  }
+  // o = {lines:[{text,size,weight,italic}], picture, carrier, pullPt, w}. Any line may
+  // be blank and is simply not drawn. `picture` rides in a <foreignObject> through the
+  // ordinary carrier table, so it inherits the blocked-tag data instead of hardcoding
+  // SVG's own <image (which the list ate in Aug 2026) — measured working with both the
+  // embed and input carriers.
+  function buildTakeover(o) {
+    o = o || {};
+    var W = Math.round(o.w) > 0 ? Math.round(o.w) : 263;
+    var b = takeoverBox(o.pullPt), cx = Math.round(W / 2);
+    var out = '<rect width="' + W + '" height="' + b.h + '" fill="#fff"/>';
+    // Lines stack from the bottom of the covered area upward, so the block always
+    // reads as a unit sitting where the header used to be however tall the pull is.
+    var lines = (o.lines || []).filter(function (l) { return l && String(l.text || "") !== ""; });
+    if (lines.length) {
+      var y = b.pullPx - 24, kids = "";
+      for (var i = lines.length - 1; i >= 0; i--) {
+        var l = lines[i], size = Math.max(8, Math.min(48, Math.round(l.size) || 20));
+        kids = '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
+          + (l.weight ? ' font-weight="' + (Math.round(l.weight) || 700) + '"' : "")
+          + (l.italic ? ' font-style="italic"' : "")
+          + '>' + escapeHtml(l.text) + '</text>' + kids;
+        y -= Math.round(size * 1.35);
+      }
+      out += '<g text-anchor="middle">' + kids + '</g>';
+    }
+    // THE PICTURE GOES LAST, AND THAT ORDER IS LOAD-BEARING. <foreignObject> is an
+    // HTML integration point: the parser switches to HTML inside it and — measured on
+    // the real engine — never cleanly returns to SVG context, so any SVG sibling that
+    // FOLLOWS it is parsed as HTML and silently never drawn. With the picture first,
+    // the text simply vanished from the print. Emitting it last costs one thing: SVG
+    // paints in document order, so a picture tall enough to reach the text will cover
+    // it. Losing the text to overlap at least shows up in the preview; losing it to a
+    // parser quirk does not.
+    if (o.picture) {
+      var pw = Math.round(o.pictureW) > 0 ? Math.round(o.pictureW) : 120;
+      var ph = Math.round(o.pictureH) > 0 ? Math.round(o.pictureH) : 120;
+      out += '<foreignObject x="' + Math.round(cx - pw / 2) + '" y="6" width="' + pw
+        + '" height="' + ph + '">'
+        + buildImageEmbed(o.carrier, { url: o.picture, w: pw, h: ph, mm: Math.round(pw / 3.75) })
+        + '</foreignObject>';
+    }
+    return '<svg width="' + W + '" height="' + b.h + '" style="margin-top:-' + b.pullPt + 'pt">'
+      + out + '</svg>';
+  }
+
   // NOT IN THE TABLE, and don't re-add it without re-measuring: a <div> wearing the
   // photo as a CSS background. It's the one surface with no tag name to block, so it
   // looks like the obvious durable answer — but printer-bot's Print Routine passes
@@ -1137,6 +1213,20 @@
     }
     // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
     function renderBlockBodies(block) {
+      if (block.type === "takeover") {
+        var tHtml = buildTakeover({
+          lines: [{ text: block.l1, size: block.s1, weight: 900 },
+                  { text: block.l2, size: block.s2, weight: 700 },
+                  { text: block.l3, size: block.s3, italic: true }],
+          picture: block.picture, pictureW: block.pictureW,
+          pictureH: Math.round((block.pictureW || 120) * 1.4),
+          carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        // heightPx 0 on purpose: a takeover sits on top of the header the bot already
+        // drew, so it consumes no extra tape. Charging the height packer for it would
+        // split receipts apart over space that isn't actually being used.
+        return [{ html: tHtml, chars: payloadLength(tHtml), heightPx: 0,
+                  preview: { kind: "html", html: tHtml } }];
+      }
       if (block.type === "image") {
         if (block.imgKind === "glyph") return glyphImageBodies(block);
         return block.url ? imageBodies(block) : [];
@@ -1724,9 +1814,16 @@
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
         tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
+      if (type === "takeover") return { id: blockIdSeq++, type: "takeover",
+        l1: "", s1: 24, l2: "", s2: 19, l3: "", s3: 13,
+        picture: "", pictureW: 120, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
+        pullPt: TAKEOVER_PULL_PT };
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
+      if (b.type === "takeover") {
+        return !!((b.l1 || "") + (b.l2 || "") + (b.l3 || "") + (b.picture || "")).trim();
+      }
       if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
       return !!(b.text && String(b.text).trim());
     }
@@ -1790,7 +1887,8 @@
     }
     function cardHead(block) {
       var head = mkEl("div", { "class": "bc-head" });
-      head.appendChild(mkEl("span", { "class": "bc-type" }, block.type === "image" ? "Image" : "Text"));
+      head.appendChild(mkEl("span", { "class": "bc-type" },
+        block.type === "image" ? "Image" : block.type === "takeover" ? "Takeover" : "Text"));
       head.appendChild(mkEl("span", { "class": "spacer" }));
       var up = mkEl("button", { type: "button", title: "Move up" }, "↑");
       var dn = mkEl("button", { type: "button", title: "Move down" }, "↓");
@@ -1954,6 +2052,60 @@
       img.onerror = function () { setStatus("Couldn't read that image."); URL.revokeObjectURL(img.src); };
       img.src = URL.createObjectURL(file);
     }
+    // Takeover: paints over printer-bot's own header so the tape reads as your
+    // artwork instead of a receipt. Three optional lines + an optional picture, and
+    // one calibration knob for how far up to reach (the bot's header height depends
+    // on the streamer's avatar, so it can't be a constant).
+    function takeoverCard(block) {
+      var card = mkEl("div", { "class": "block-card" });
+      card.appendChild(cardHead(block));
+      card.appendChild(mkEl("div", { "class": "hint" },
+        "Paints over the receipt’s own header — the avatar, the bits line and the name "
+        + "printer-bot drew — and puts your lines there instead. Put it FIRST in the "
+        + "stack; anything below it prints as normal underneath."));
+
+      var mkLine = function (labelText, key, sizeKey, def) {
+        card.appendChild(mkEl("label", null, labelText));
+        var ta = mkEl("input", { type: "text" });
+        ta.value = block[key] || "";
+        ta.addEventListener("input", function () { block[key] = ta.value; saveBlocks(); update(); });
+        card.appendChild(ta);
+        var sz = mkEl("input", { type: "range", min: "8", max: "48", step: "1" });
+        sz.value = block[sizeKey] || def;
+        sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; saveBlocks(); update(); });
+        card.appendChild(sliderRow("Size", sz, def, ""));
+      };
+      mkLine("Line 1 (big)", "l1", "s1", 24);
+      mkLine("Line 2", "l2", "s2", 19);
+      mkLine("Line 3 (italic)", "l3", "s3", 13);
+
+      card.appendChild(mkEl("label", null, "Picture URL (optional)"));
+      var pic = mkEl("input", { type: "url", placeholder: "https://…/pic.png" });
+      pic.value = block.picture || "";
+      pic.addEventListener("input", function () { block.picture = pic.value; saveBlocks(); update(); });
+      card.appendChild(pic);
+      var pw = mkEl("input", { type: "range", min: "40", max: "240", step: "5" });
+      pw.value = block.pictureW || 120;
+      pw.addEventListener("input", function () { block.pictureW = parseInt(pw.value, 10) || 120; saveBlocks(); update(); });
+      card.appendChild(sliderRow("Picture width (px)", pw, 120, ""));
+
+      card.appendChild(mkEl("label", null, "Carrier tag (for the picture)"));
+      var ra = mkEl("select");
+      var cur = getEmbed(block.renderAs).id;
+      EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === cur)); });
+      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
+      card.appendChild(ra);
+
+      var pull = mkEl("input", { type: "range", min: "60", max: "400", step: "5" });
+      pull.value = block.pullPt || TAKEOVER_PULL_PT;
+      pull.addEventListener("input", function () { block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; saveBlocks(); update(); });
+      card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
+      card.appendChild(mkEl("div", { "class": "hint" },
+        "How far up to paint. The bot’s header is taller or shorter depending on the "
+        + "streamer’s avatar, so this needs one calibration print: too little leaves a "
+        + "strip of the old header showing, too much eats into the paper above."));
+      return card;
+    }
     function imageCard(block) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block));
@@ -2085,7 +2237,10 @@
       var list = document.getElementById("blockList");
       if (!list) return;
       list.textContent = "";
-      blocks.forEach(function (b) { list.appendChild(b.type === "image" ? imageCard(b) : textCard(b)); });
+      blocks.forEach(function (b) {
+        list.appendChild(b.type === "takeover" ? takeoverCard(b)
+          : b.type === "image" ? imageCard(b) : textCard(b));
+      });
     }
     function composeParts() {
       if (!blocks.some(blockHasContent)) {
@@ -2342,6 +2497,7 @@
       renderComposer();
       document.getElementById("addTextBtn").addEventListener("click", function () { addBlock("text"); });
       document.getElementById("addImageBtn").addEventListener("click", function () { addBlock("image"); });
+      document.getElementById("addTakeoverBtn").addEventListener("click", function () { addBlock("takeover"); });
 
       setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel(); refreshes preview
     }
@@ -2362,6 +2518,7 @@
       escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
+      buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
     };
   }
 </script>

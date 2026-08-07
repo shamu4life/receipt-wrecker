@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.2] — 2026-08-07
+
+### Added
+- **Takeover blocks.** A third block type that paints over printer-bot's own header — the avatar, the bits line and the name it draws — so the tape comes out as your artwork rather than a receipt with a message stapled underneath. It's an opaque SVG lifted over the header with a negative top margin; anything below it in the stack still prints as normal. Three optional lines with independent sizes, an optional picture, and one **Reach up (pt)** calibration slider, since the bot's header height depends on the streamer's avatar and can't be a constant.
+  - The picture rides in a `<foreignObject>` through the ordinary **carrier tag** table, so it inherits the blocked-tag data instead of hardcoding SVG's `<image` (blocked since Aug 2026). Measured working through both the `embed` and `input` carriers.
+  - Measured: a three-line takeover is 350 chars, and a takeover **plus** a full real-picture payload plus the cheer wrapper is 458 — one cheer, not two. A test locks that in, since it's the difference between the gag costing 100 or 200 bits.
+  - The preview is WYSIWYG: it renders the same receipt chrome, so the overlay covers the preview's header exactly as it covers the real one.
+  - **No sender template, by design.** A takeover paints your own lines; it does not offer a name + profile picture + bits triple presented as who paid. Painting over the bot's header is a sticker on the receipt; fabricating a named sender and an amount produces a tape indistinguishable from a record of a payment nobody made, which is a different thing and isn't in here.
+
+### Measured, not assumed
+- **`<foreignObject>` swallows every SVG sibling that follows it.** It's an HTML integration point: the parser switches to HTML inside and never cleanly returns to SVG context, so a `<text>` emitted *after* one is parsed as HTML and silently never drawn. The markup looked perfect and the print came out with the text simply missing. `buildTakeover` emits the picture **last** for this reason, with a regression test — the cost is that a picture tall enough to reach the text will overlap it, which at least shows up in the preview.
+
+---
+
 ## [0.3.1] — 2026-08-07
 
 First field results from a real probe round, cheered at the live channel and printed on the real machine. Two of the six carriers came back clean, one came back too wide, and the default came back **not at all**.

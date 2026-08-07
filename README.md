@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.1" src="https://img.shields.io/badge/version-0.3.1-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.2" src="https://img.shields.io/badge/version-0.3.2-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -111,6 +111,30 @@ message before it ever reaches chat. That's a per-channel moderation setting on
 Twitch's side — entirely out of this tool's control, and no client-side change can
 work around it. If a paste doesn't show up, check the channel's AutoMod settings
 before assuming the tool is broken.
+
+---
+
+## Takeover — make the tape your artwork, not a receipt
+
+printer-bot draws its own header above your message: the avatar, a `<N> BITS` line,
+and the cheerer's name. A **Takeover** block paints over it — an opaque panel lifted
+up with a negative margin, with your own lines (and optionally a picture) where the
+header used to be. Anything below it in the stack still prints as normal underneath.
+
+- **Reach up (pt)** is the one thing that needs calibrating. The header is taller or
+  shorter depending on the streamer's avatar, so 220pt is a starting point, not a
+  constant: too little leaves a strip of the old header showing, too much eats into
+  the paper above. One print settles it.
+- The optional picture rides through the same **carrier tag** table as a normal
+  image block, so it benefits from whatever tag currently survives chat.
+- Budget: a three-line takeover is ~350 chars, and a takeover **plus** a full picture
+  payload still fits one 100-bit cheer (458 of 500).
+
+**What it doesn't do:** there's no "fake cheer" template — no name + profile picture
++ bits amount presented as the sender. Painting over the bot's header is a sticker on
+the receipt; fabricating a named sender and a donation total produces a tape that
+can't be told apart from a record of a payment that never happened, and that isn't
+something this tool generates.
 
 ---
 

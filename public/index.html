@@ -524,38 +524,52 @@
   // margin. A clamp fixes it adaptively — narrower paper shrinks to fit, wider paper
   // still gets the full 263 — which beats hardcoding another guess at the width.
   var EMBEDS = [
-    // DEFAULT. Field-confirmed to SEND — the hard half — and it renders as a bare
-    // picture with no button chrome. It came off the tape too wide, but measurement
-    // showed that was the universal 263-vs-240 overrun rather than anything about
-    // this tag: every carrier overran identically, and the clamp below fixes them
-    // all. What sets it apart is that it needs NO file extension, so it can't hit
-    // embed's silent-blank failure on a bare link. Spells "image" as an attribute
-    // VALUE rather than a tag name, so a term keyed on "<image" doesn't see it.
-    { id: "input", label: "input type=image — default, works with any URL", token: "<input",
-      build: function (o) {
-        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
-          + '" style="max-width:100%">';
-      } },
-    // MEASURED + FIELD-CONFIRMED: prints perfectly, and 13 chars shorter than the
-    // default — but NOT the default, because it is the one live carrier that fails
-    // silently: no file extension on the URL, no picture, no error. The height
-    // attribute is dropped
+    // DEFAULT. Measured on the engine AND field-confirmed: printed perfectly on the
+    // real machine, and it's the shortest live payload. Its one limitation is real
+    // but KNOWN and detectable: the URL must end in an image extension or it prints
+    // blank, because the engine picks the image renderer from it — so the UI warns
+    // before you send (see needsExt). A limitation you can be warned about beats one
+    // nothing can see coming. The height attribute is dropped
     // deliberately — with it, the clamp shrinks the width but the stated height
     // stays, stretching the picture ~8%; without it the engine takes the height from
     // the image and the aspect stays true (240x180 for a 4:3 source, measured).
     // Only catch: the URL must end in a known image extension, because WebKit picks
     // the image renderer from it — a bare /i/<hex> draws nothing. /upload returns
     // .png links for exactly this reason.
-    { id: "embed", label: "embed tag — prints clean (needs a .png/.jpg URL)", token: "<embed", needsExt: true,
+    { id: "embed", label: "embed tag — default, prints clean (needs a .png/.jpg URL)", token: "<embed",
+      needsExt: true, field: "prints",
       build: function (o) {
         return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
+      } },
+    // Field-confirmed to SEND — the hard half — and its selling point is that it
+    // needs NO file extension, so it's the one to reach for when a link has no .png
+    // on the end and embed would print blank. Spells "image" as an attribute VALUE
+    // rather than a tag name, so a term keyed on "<image" doesn't see it.
+    //
+    // NOT the default, because it is the one form that printed WRONG in the field:
+    // it came off the tape too wide. The bench can't reproduce that — every carrier
+    // overran identically here, and the clamp fixes them all — so there is a real
+    // unexplained delta on the target rig. Best hypothesis: <input> is a form
+    // CONTROL and Qt themes those per-platform, so the Windows build may draw native
+    // chrome around it that this Linux build of the same binary does not. The
+    // border/padding reset below is aimed at that, but it is UNVERIFIED: the only
+    // machine that can confirm it is the one that printed it wrong. Until someone
+    // re-probes it there, a known-and-warnable limitation (embed's extension) beats
+    // an unexplained failure nothing can detect.
+    { id: "input", label: "input type=image — any URL, but printed too wide once", token: "<input",
+      field: "too-wide",
+      build: function (o) {
+        // border/padding zeroed on the hypothesis that native form-control chrome is
+        // what made this print wide on Windows — unverified, see the note above.
+        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
+          + '" style="max-width:100%;border:0;padding:0">';
       } },
     // FIELD-CONFIRMED to print — but keep the caveat: a subframe gets no
     // shrink-to-fit (WebKit does that for the main frame only), so the picture draws
     // at its natural pixel size and is CLIPPED by the frame. It looks perfect for a
     // picture already smaller than the box and loses the right/bottom of anything
     // bigger — and /upload re-encodes up to 720px, so uploads will crop.
-    { id: "iframe", label: "iframe — prints, but crops a big picture", token: "<iframe",
+    { id: "iframe", label: "iframe — prints, but crops a big picture", token: "<iframe", field: "prints",
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
           + '" frameborder="0" scrolling="no" style="max-width:100%"></iframe>';
@@ -563,7 +577,7 @@
     // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
     // the SVG form. It renders fine on the engine (shortest payload of the lot, no
     // extension needed); it just never reaches chat. Kept for a re-probe.
-    { id: "img", label: "img tag — blocked (Aug 2026)", token: "<img", blocked: true,
+    { id: "img", label: "img tag — blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
       build: function (o) {
         return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
       } },
@@ -573,7 +587,7 @@
     // way while measuring: an `svg { height: auto }` rule collapses it to nothing,
     // which is a property of OUR preview stylesheet, not of the printer's. No clamp
     // here either: this SVG has no viewBox, so max-width would crop rather than scale.)
-    { id: "svg", label: "SVG image — blocked (Aug 2026)", token: "<image", blocked: true,
+    { id: "svg", label: "SVG image — blocked (Aug 2026)", token: "<image", blocked: true, field: "blocked",
       build: function (o) {
         return '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + o.w + '" height="' + o.h
           + '"><image xlink:href="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '"/></svg>';
@@ -581,7 +595,8 @@
     // Blocked earlier (the list took "<object"). Renders when the URL carries an
     // image extension, nothing when it doesn't — same MIME-from-extension rule as
     // <embed>, which is what the old "renders at native size" folklore really was.
-    { id: "object", label: "object tag — blocked (earlier)", token: "<object", blocked: true, needsExt: true,
+    { id: "object", label: "object tag — blocked (earlier)", token: "<object", blocked: true,
+      needsExt: true, field: "blocked",
       build: function (o) {
         return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm
           + 'mm;max-width:100%;display:block"></object>';
@@ -595,7 +610,7 @@
   // in WebKit 534.34 (the whole declaration is discarded, silently), so it drew
   // nothing even with backgrounds enabled. The longhand form does render, but only
   // once `--no-background` is off — which is hardcoded in printer-bot's C#.
-  var EMBED_DEFAULT = "input";
+  var EMBED_DEFAULT = "embed";
   // The extension-sniffing carriers (embed, object) fail SILENTLY on a link without
   // one — the message sends, the tape prints, and there's just no picture. So the UI
   // warns instead of leaving you to guess. wkhtmltopdf strips the query string before

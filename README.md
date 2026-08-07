@@ -132,12 +132,18 @@ channel and printed on the real machine. Where the two disagreed, the tape won.
 
 | Carrier | Payload | What came off the tape |
 |---|---|---|
-| `input type=image` | ~45 chars + URL | **Default. Prints, and needs no file extension** — so it works with any link you paste. Spells "image" as an attribute *value*, not a tag name. It came off the tape too wide, but that was the universal overrun below, not this tag. |
-| `embed tag` | ~45 chars + URL | **Prints perfectly**, and 13 chars shorter — but it's the one live carrier that fails *silently*: the URL must end in `.png`/`.jpg`/etc., because the engine picks its image renderer from the extension. Given a bare link it prints blank with no error, so the app warns you before you send. |
+| `embed tag` | ~45 chars + URL | **Default — printed perfectly on the real machine.** Its one limitation is real but *known and detectable*: the URL must end in `.png`/`.jpg`/etc., because the engine picks its image renderer from the extension. Given a bare link it prints blank, so the app warns you before you send. |
+| `input type=image` | ~45 chars + URL | **Needs no file extension**, so it's the fallback when a link has no `.png` on the end. Spells "image" as an attribute *value*, not a tag name. **But it printed too wide in the field and the bench can't reproduce why** — likely native form-control chrome on Windows — so it isn't the default until someone re-probes it on the real rig. |
 | `iframe` | ~90 chars + URL | **Prints** — but a subframe gets no shrink-to-fit, so a picture bigger than the box is **cropped**, losing its right and bottom. Fine for a small picture; uploads (re-encoded up to 720px) will crop. |
 | `img tag` | ~30 chars + URL | **Blocked (Aug 2026).** Shortest payload and it renders fine on the engine — it just never reaches chat any more. |
 | `SVG image` | ~120 chars + URL | **Blocked (Aug 2026).** Still renders correctly, so worth re-probing if a list is ever pruned. |
 | `object tag` | ~60 chars + URL | **Blocked (earlier).** Same extension requirement as `embed`. |
+
+**The default is whatever last printed correctly on the real machine** — not
+whatever measures best on a bench. `embed` leads because it came off the tape
+clean; `input` sits second despite being more forgiving about URLs, because it
+printed too wide once and that hasn't been explained. A bench result never
+overrides the tape.
 
 **Everything live clamps to the paper.** The box the app asks for (263px = 70mm) is
 wider than the receipt body actually is: printer-bot renders at `paperWidth - 8`mm

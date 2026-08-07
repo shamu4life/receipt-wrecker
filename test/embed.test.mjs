@@ -113,7 +113,7 @@ test("no carrier leans on a CSS background — printer-bot prints with --no-back
 test("the carriers are ordered by what actually printed, live ones first", () => {
   // joined, not deepEqual: arrays built inside the vm realm aren't reference-equal
   // to this realm's Array, which assert/strict's deep compare rejects.
-  assert.equal(ids().slice(0, 2).join(","), "input,embed", "field-confirmed pair leads, robust one first");
+  assert.equal(ids().slice(0, 2).join(","), "embed,input", "the two that printed lead, best-printing first");
   const firstBlocked = C.EMBEDS.findIndex(e => e.blocked);
   const lastLive = ids().length - 1 - [...C.EMBEDS].reverse().findIndex(e => !e.blocked);
   assert.ok(firstBlocked > lastLive, "blocked carriers must sort below every live one");
@@ -194,12 +194,16 @@ test("probe bodies survive the real packer as one cheer each", () => {
   }
 });
 
-test("the default carrier cannot be one that fails silently on a bare URL", () => {
-  // embed/object pick their renderer from the file extension and print a blank
-  // space without one — no error, nothing on the tape to tell you why. Whatever
-  // leads the list has to work with any link a user might paste.
+test("the default must be a carrier that PRINTED CORRECTLY on the real machine", () => {
+  // The rule the hard way: a bench measurement never overrides what came off the
+  // tape. `field` records the real-rig verdict, and only "prints" may lead. This
+  // exists because the default was once set to a carrier the owner had reported
+  // printing wrong, on the strength of a bench result that couldn't reproduce it.
   const def = C.getEmbed(C.EMBED_DEFAULT);
-  assert.ok(!def.needsExt, "default " + def.id + " fails silently on an extensionless URL");
+  assert.equal(def.field, "prints", "default " + def.id + " is field-recorded as '" + def.field + "'");
   assert.ok(!def.blocked, "default " + def.id + " is blocked");
-  assert.ok(C.buildImageEmbed(C.EMBED_DEFAULT, { ...BOX, url: "https://x.test/i/a1b2c3d4" }).length > 0);
+  for (const e of C.EMBEDS) {
+    assert.ok(["prints", "too-wide", "blocked"].includes(e.field),
+      e.id + " needs a field verdict from the real rig, got " + JSON.stringify(e.field));
+  }
 });

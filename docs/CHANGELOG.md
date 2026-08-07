@@ -10,7 +10,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 First field results from a real probe round, cheered at the live channel and printed on the real machine. Two of the six carriers came back clean, one came back too wide, and the default came back **not at all**.
 
 ### Fixed
-- **The default carrier was blocked.** The list took `<img` in the same round that killed the SVG form, so 0.3.0's default never reached chat — every real-picture payload was dead on arrival. `img` is now flagged blocked and the default moves to **`input type=image`**. Both it and `embed` printed in the field; `input` leads because it needs no file extension, so it can't hit `embed`'s silent-blank failure on a bare link. (`embed`'s field report was "perfect" and `input`'s was "too wide" — but measurement showed the overrun was universal, not a property of `input`, so it was never a reason to prefer one over the other.) Saved blocks still pointing at `img` migrate on next load (`EMBED_V` 2 → 3).
+- **The default carrier was blocked.** The list took `<img` in the same round that killed the SVG form, so 0.3.0's default never reached chat — every real-picture payload was dead on arrival. `img` is now flagged blocked and the default moves to **`embed`**, the carrier that printed perfectly on the real machine. `input type=image` is more forgiving about URLs and sits second, but it printed *too wide* in the field and the bench can't reproduce why (best guess: Qt themes form controls per-platform, so Windows may draw native chrome the Linux build doesn't) — so it doesn't lead until someone re-probes it there. Each entry now records its real-rig verdict in a `field` property, and a test enforces that only a carrier marked `"prints"` can be the default. Saved blocks still pointing at `img` migrate on next load (`EMBED_V` 2 → 3).
 - **Pictures printed too wide.** The box the app asks for (263 px = 70 mm) is wider than the receipt body: printer-bot renders at `paperWidth - 8` mm with `body { margin: 1em }`, leaving ~240 px on an 80 mm roll. Measured, every carrier drew to the paper edge and lost its right margin. Every live carrier now carries `max-width:100%`, which adapts to whatever the body really is instead of betting on another hardcoded number — verified on the engine at a true 240×180 with the aspect intact.
 - **`embed` no longer states a height.** With one, the width clamp left the stated height in place and stretched the picture ~8%; without it the engine takes the height from the image. Shorter payload, correct aspect.
 
@@ -23,7 +23,7 @@ First field results from a real probe round, cheered at the live channel and pri
 
 ### Notes
 - The probe now says **how many letters are worth sending**. Live carriers lead the list, so a normal round is the first three; the rest are already known blocked and only worth a re-test if a mod prunes the list. At 100 bits a cheer that's 300 bits saved per round.
-- The probe's letters are positional, so they shifted with the reordering: **A** is now `input`, **B** `embed`, **C** `iframe`, **D** `img`, **E** `SVG image`, **F** `object`.
+- The probe's letters are positional, so they shifted with the reordering: **A** is now `embed`, **B** `input`, **C** `iframe`, **D** `img`, **E** `SVG image`, **F** `object`.
 - `iframe` printed cleanly in the field, but the crop caveat stands — it has no shrink-to-fit, so it only looks right for a picture already smaller than the box, and `/upload` re-encodes up to 720 px.
 
 ---

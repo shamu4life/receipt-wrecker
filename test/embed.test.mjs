@@ -39,16 +39,63 @@ test("the default carrier is a live surface, not one the blocked-terms list alre
   assert.ok(html.indexOf("<object") < 0, "default still emits the blocked <object tag");
 });
 
-test("the blocked tokens appear ONLY in the surfaces flagged blocked", () => {
-  // The point of the table: switching carrier has to actually change the token that
-  // got blocked, otherwise the fallback is theatre.
+test("every carrier declares the exact token a blocked-terms list would have to match", () => {
+  // The point of the table: switching carrier has to actually change the token the
+  // list is keyed on, otherwise the fallback is theatre. Each entry names its token
+  // and must actually emit it — and no two may share one, or a single blocked term
+  // would take out two "alternatives" at once.
+  const seen = new Set();
   for (const e of C.EMBEDS) {
+    assert.ok(e.token && e.token.startsWith("<"), e.id + " must declare its blocked-term token");
     const html = C.buildImageEmbed(e.id, BOX);
-    const dead = html.indexOf("<image") >= 0 || html.indexOf("<object") >= 0;
-    assert.equal(dead, !!e.blocked, e.id + ": blocked flag disagrees with the markup it emits");
+    assert.ok(html.indexOf(e.token) >= 0, e.id + " doesn't emit its declared token " + e.token);
+    assert.ok(!seen.has(e.token), "two carriers share the token " + e.token + " — not real alternatives");
+    seen.add(e.token);
+  }
+});
+
+test("the tokens already eaten by the list are all flagged blocked", () => {
+  // Field record as of Aug 2026: object, then the SVG image form, then img.
+  const dead = new Set(["<object", "<image", "<img"]);
+  for (const e of C.EMBEDS) {
+    if (dead.has(e.token)) assert.ok(e.blocked, e.token + " is blocked in the field but not flagged");
   }
   const live = C.EMBEDS.filter(e => !e.blocked).map(e => e.id);
-  assert.ok(live.length >= 4, "want several live fallbacks, got " + live.join(","));
+  assert.ok(live.length >= 3, "want several live fallbacks left, got " + live.join(","));
+  assert.ok(live.includes("input"), "input is the extension-independent fallback — keep it live");
+});
+
+test("every live carrier clamps to the receipt body, which is narrower than the box we ask for", () => {
+  // Measured on the real engine: at the requested 263px every carrier drew to the
+  // paper edge and lost its right margin (the body is ~240px on an 80mm roll). The
+  // clamp adapts instead of hardcoding another guess. This is what made the field
+  // print come out "too wide".
+  for (const e of C.EMBEDS) {
+    if (e.blocked) continue;                       // dead forms aren't worth the chars
+    const html = C.buildImageEmbed(e.id, BOX);
+    assert.ok(/max-width:100%/.test(html), e.id + " can overflow the paper: " + html);
+  }
+});
+
+test("the embed carrier states no height, so the clamp can't stretch the picture", () => {
+  // With an explicit height, clamping the width leaves the height stated and the
+  // picture stretches ~8%; without it the engine takes the height from the image.
+  const html = C.buildImageEmbed("embed", BOX);
+  assert.ok(!/height/.test(html), "embed must not state a height: " + html);
+});
+
+test("urlHasImageExt spots the links that would print blank on an extension-sniffing carrier", () => {
+  for (const u of ["https://x.test/a.png", "https://x.test/a.JPG", "https://x.test/a.jpeg",
+                   "https://x.test/a.gif", "https://x.test/a.png?ex=deadbeef", "https://x.test/a.png#x"]) {
+    assert.ok(C.urlHasImageExt(u), "should count as an image link: " + u);
+  }
+  for (const u of ["https://receipt.uwutoowo.com/i/a1b2c3d4", "https://x.test/a.webp",
+                   "https://x.test/pngfile", "https://x.test/", "", null, undefined]) {
+    assert.ok(!C.urlHasImageExt(u), "should NOT count as an image link: " + u);
+  }
+  // The carriers that need one are exactly the ones flagged.
+  assert.ok(C.getEmbed("embed").needsExt, "embed sniffs the extension");
+  assert.ok(!C.getEmbed("input").needsExt, "input does not");
 });
 
 test("no carrier leans on a CSS background — printer-bot prints with --no-background", () => {
@@ -63,16 +110,18 @@ test("no carrier leans on a CSS background — printer-bot prints with --no-back
   }
 });
 
-test("the two top carriers work with an extensionless URL; the rest are labelled as needing one", () => {
-  // WebKit picks the image renderer from the URL extension for <embed>/<object>, so
-  // those two draw nothing for a bare /i/<hex>. <img> and <input type=image> don't
-  // care. The top two entries must be the extension-independent ones.
+test("the carriers are ordered by what actually printed, live ones first", () => {
   // joined, not deepEqual: arrays built inside the vm realm aren't reference-equal
   // to this realm's Array, which assert/strict's deep compare rejects.
-  assert.equal(ids().slice(0, 2).join(","), "img,input");
-  for (const id of ["embed", "object"]) {
-    const e = C.getEmbed(id);
-    assert.ok(/needs a|blocked/i.test(e.label), id + " should warn about the URL extension: " + e.label);
+  assert.equal(ids().slice(0, 2).join(","), "embed,input", "field-confirmed pair leads");
+  const firstBlocked = C.EMBEDS.findIndex(e => e.blocked);
+  const lastLive = ids().length - 1 - [...C.EMBEDS].reverse().findIndex(e => !e.blocked);
+  assert.ok(firstBlocked > lastLive, "blocked carriers must sort below every live one");
+  // A carrier that sniffs the extension has to say so, since it fails silently.
+  for (const e of C.EMBEDS) {
+    if (e.needsExt && !e.blocked) {
+      assert.ok(/needs a/i.test(e.label), e.id + " should warn about the URL extension: " + e.label);
+    }
   }
 });
 

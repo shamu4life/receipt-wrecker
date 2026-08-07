@@ -95,7 +95,7 @@ test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `quantizeTone`, `quantizeBinary`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`,
 `makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
-`HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `EMBEDS`, `EMBED_DEFAULT`,
+`HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
 `getEmbed`, `buildImageEmbed`, `buildEmbedProbe`. The canvas-rasterizing
 functions (`rasterizeText`, `rasterizeImage`, `computeGrid`, and the UI wiring in
 `init()`) are **not** exported — they need a real canvas/DOM, so they're verified
@@ -248,9 +248,17 @@ Things already settled this way, so you don't have to re-derive them:
   returns `.png` links.
 - An `<iframe>` gets **no shrink-to-fit** (that's main-frame only), so it crops.
 - The usable body width is `paperWidth - 8`mm minus the 1em margins — **240 px** on
-  an 80 mm roll, against `PAPER_PX = 263`. Left as-is deliberately (it's shared
-  with field-verified text modes and depends on the streamer's paper setting), but
-  know it when you touch print geometry.
+  an 80 mm roll, against `PAPER_PX = 263`. Field-confirmed: a real print came out
+  too wide. Real-image carriers now carry `max-width:100%` so they clamp to whatever
+  the body really is; `PAPER_PX` itself is left alone because the text modes are
+  field-verified at it. Prefer a clamp over another hardcoded number here.
+- **Field record of the blocked-terms list** (each block killed every picture until
+  the carrier moved): `<object` → `<image` (SVG form) → `<img`. Still live as of
+  Aug 2026: `<embed` (default, printed perfectly), `<input` (needs no file
+  extension), `<iframe` (prints, but crops anything bigger than the box).
+- `<embed>` / `<object>` fail **silently** on an extensionless URL — the message
+  sends and the tape prints with a blank where the picture should be. `needsExt` on
+  those entries drives a UI warning; don't make one of them the default without it.
 
 ## Global Constraints (payload & glyph rules — do not relax without an explicit request)
 
@@ -297,7 +305,7 @@ not arbitrary style choices:
 - **Carrier tags: the tag for a real picture is DATA, not a hardcode.** The
   blocked-terms list has already eaten `<object` and then `<image`, each block
   killing every picture the tool makes. `EMBEDS` in the pure core lists the
-  interchangeable surfaces (`img` default, `input type=image`, `embed`, `iframe`,
+  interchangeable surfaces (`embed` default, `input type=image`, `iframe`,
   plus the two blocked ones kept for A/B) and `buildImageEmbed()` is the only place
   that markup gets built. When the next one gets blocked: mark it `blocked: true`,
   move `EMBED_DEFAULT`, bump `EMBED_V` so saved blocks migrate — do **not** hardcode

@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.1" src="https://img.shields.io/badge/version-0.3.1-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -120,22 +120,31 @@ Glyph art is just text, so nothing can really stop it. A **real picture** is
 different: printer-bot drops the chat message into its page as markup, so the photo
 rides on an HTML tag pointing at a URL. Which tag that is has turned into a moving
 target — a channel's blocked-terms list took `<object` first, then `<image` (the
-SVG form), and each block silently kills *every* picture the tool makes.
+SVG form), then `<img` as well, and each block silently kills *every* picture the
+tool makes.
 
 So the tag is a setting, not a hardcode. Each **Carrier tag** on an Image block
-builds the same picture out of a different token. The verdicts below are
-**measured**, not assumed — every form was rendered through the exact binary
-printer-bot ships (wkhtmltopdf 0.12.6 "with patched qt" = Qt 4.8.7 / WebKit
-534.34) using its exact print flags:
+builds the same picture out of a different token. The verdicts below were first
+**measured** — every form rendered through the exact binary printer-bot ships
+(wkhtmltopdf 0.12.6 "with patched qt" = Qt 4.8.7 / WebKit 534.34) with its exact
+print flags — and then **field-tested**: a full probe round cheered at the real
+channel and printed on the real machine. Where the two disagreed, the tape won.
 
-| Carrier | Payload | Measured on the real engine |
+| Carrier | Payload | What came off the tape |
 |---|---|---|
-| `img tag` | ~30 chars + URL | **Default.** Renders, scaled to exactly the width given, height from the picture's own aspect. Works even when the URL has no file extension. |
-| `input type=image` | ~45 chars + URL | Renders identically to `<img>`, extensionless URLs included. Spells "image" as an attribute *value*, not a tag name — the strongest fallback if `<img` itself gets blocked. |
-| `embed tag` | ~45 chars + URL | Renders — **but only when the URL ends in `.png`/`.jpg`/etc.** Given a bare link it draws nothing (that's the real cause of the old "renders at native size, ignores the width" folklore). |
-| `iframe` | ~90 chars + URL | Renders, but **crops.** A subframe gets no shrink-to-fit, so the picture is drawn at natural pixel size and clipped — a 400px photo in a 263px frame shows its left two-thirds. Last resort. |
+| `embed tag` | ~45 chars + URL | **Default. Printed perfectly.** Only catch: the URL must end in `.png`/`.jpg`/etc., because the engine picks its image renderer from the extension — given a bare link it prints *blank*, and the app now warns you before you send. |
+| `input type=image` | ~45 chars + URL | **Prints, and needs no file extension** — the one to reach for when a link has no `.png` on the end. Spells "image" as an attribute *value*, not a tag name. |
+| `iframe` | ~90 chars + URL | **Prints** — but a subframe gets no shrink-to-fit, so a picture bigger than the box is **cropped**, losing its right and bottom. Fine for a small picture; uploads (re-encoded up to 720px) will crop. |
+| `img tag` | ~30 chars + URL | **Blocked (Aug 2026).** Shortest payload and it renders fine on the engine — it just never reaches chat any more. |
 | `SVG image` | ~120 chars + URL | **Blocked (Aug 2026).** Still renders correctly, so worth re-probing if a list is ever pruned. |
 | `object tag` | ~60 chars + URL | **Blocked (earlier).** Same extension requirement as `embed`. |
+
+**Everything live clamps to the paper.** The box the app asks for (263px = 70mm) is
+wider than the receipt body actually is: printer-bot renders at `paperWidth - 8`mm
+and its template sets `body { margin: 1em }`, leaving ~240px on an 80mm roll. That
+overrun is what made a field print come out too wide. Every live carrier now carries
+`max-width:100%`, so it adapts — narrower paper shrinks to fit, wider paper still
+gets the full width — rather than betting on another hardcoded number.
 
 **Why there's no "CSS background" option**, even though a `<div>` wearing the photo
 as its backdrop would be the one surface with no tag name to block: printer-bot's

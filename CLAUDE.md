@@ -94,7 +94,9 @@ An **inert `module.exports` hook** at the end of the IIFE (guarded by
 test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `quantizeTone`, `quantizeBinary`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`,
-`makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`. The canvas-rasterizing
+`makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
+`HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `EMBEDS`, `EMBED_DEFAULT`,
+`getEmbed`, `buildImageEmbed`, `buildEmbedProbe`. The canvas-rasterizing
 functions (`rasterizeText`, `rasterizeImage`, `computeGrid`, and the UI wiring in
 `init()`) are **not** exported — they need a real canvas/DOM, so they're verified
 by hand in a browser instead (see `.superpowers/sdd/progress.md` for what's been
@@ -155,6 +157,22 @@ All functions live inside the one IIFE in `public/index.html`.
    button: labeled samples of every tier plus a numbered ruler, so a single print
    on the target rig reveals which tiers render vs. tofu and the true column
    count.
+9. `escapeHtml` / `escapeAttr` — escaping for anything user-supplied that lands in
+   markup.
+10. `EMBEDS` / `EMBED_DEFAULT` / `getEmbed(id)` / `buildImageEmbed(id, box)` — the
+    **carrier tag** table: every interchangeable way to put a real picture on the
+    printed page, each building the same picture out of a different token, because
+    the blocked-terms list keeps eating them one at a time. `buildImageEmbed` is the
+    only place that markup is built (it also normalizes the box, so a missing aspect
+    probe can't emit a zero-sized frame). See Global Constraints for the drill when
+    the next one gets blocked. **The order and the labels are measured** — see
+    "Measuring against the real engine" below before editing either.
+11. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
+    sends** button: the same picture through every carrier, labeled `A`…`G`, one
+    message each (they can't share a cheer — one blocked term kills the whole
+    message). A letter that prints *with a picture under it* names the carrier that
+    works; a bare letter means the tag didn't render; a missing letter means chat
+    blocked it. This is `buildCensus`'s counterpart for markup rather than glyphs.
 
 **Browser glue** (canvas + DOM, guarded, browser-verified rather than
 unit-tested):
@@ -170,6 +188,11 @@ unit-tested):
 - `buildTextPayload()` / `buildImagePayload()` — read the current controls,
   call `computeGrid` + `render` + `packageCheer`, and return the paste-ready
   string (or `null` for Image mode with no image chosen yet).
+- `imageBox(block)` / `imageBodies(block)` — the print box for a real-picture block
+  (requested width capped to the paper; height from the probed aspect, square until
+  that probe lands and re-renders) and the body built from it via `buildImageEmbed`.
+  `probeBlockAspect` does the one-off aspect probe. `probeParts()` reuses `imageBox`
+  so the probe measures the carrier tag and nothing else.
 - `copyToClipboard(text)` — `navigator.clipboard.writeText()` with an
   `execCommand('copy')` fallback (`fallbackCopy()`).
 - `saveControls()` / `restoreControls()` / `loadSavedControls()` — persist/restore
@@ -178,6 +201,56 @@ unit-tested):
   in-session counter if storage is unavailable) and feeds it through `makeNonce`.
 - `init()` — wires all DOM elements and event listeners; only runs on
   `DOMContentLoaded`, so it never executes under the test harness.
+
+## Measuring against the real engine (do this before claiming a markup form works)
+
+The destination is not a guess any more. printer-bot's own shipped files pin it
+down, and anything about how markup *renders* can be tested locally instead of
+argued about:
+
+- **Engine:** `wkhtmltopdf 0.12.6 (with patched qt)` — patched **Qt 4.8.7**, i.e.
+  QtWebKit ~**534.34** (a 2011 snapshot). Not Chromium, not Qt 5. Then printed via
+  SumatraPDF 3.5.2. There is no ESC/POS text path.
+- **The message is inserted with raw `innerHTML`**, unsanitised, then re-serialised
+  into a standalone HTML document and parsed a second time by wkhtmltopdf.
+- **Its exact print flags** (from the Print Routine) — several of these decide
+  whether a given form renders at all:
+
+  ```
+  --page-width {paperWidth-8}mm --page-height 500mm --disable-smart-shrinking
+  --load-error-handling ignore --no-background --enable-javascript
+  --enable-local-file-access --javascript-delay 800 --margin-{top,bottom,left,right} 0
+  ```
+
+- **Its receipt CSS** is `body { margin: 1em }` + `#receipt-content { padding:
+  0.5em 0em }`, and **nothing clamps message content** — no `max-width`, no
+  `height: auto`. Do not test against Receipt Wrecker's own preview CSS by mistake:
+  its `.rcpt-body > svg { height: auto }` collapses an SVG carrier to zero height
+  and will make you conclude the engine can't render SVG. It can.
+
+To measure: install wkhtmltopdf 0.12.6 (the **patched-qt** build — the distro
+QtWebKit 5.212 build behaves differently), generate pages with the real
+`buildImageEmbed` via `test/_harness.mjs`, render with the flags above, and check
+for an image XObject with `pdfimages -list` plus an ink bbox off `pdftoppm`.
+**Write the test pages and their output into `.render/`** (gitignored) — loose
+`t*.html` / `*.pdf` / `*-1.png` in the repo root have already been swept into a
+commit by a `git add -A` once. Stage explicit paths, not `-A`.
+
+Things already settled this way, so you don't have to re-derive them:
+
+- `--no-background` means **no CSS-background carrier can ever work**, however
+  tempting a tagless surface looks.
+- `<embed>` / `<object>` pick the image renderer from the URL's **file extension**;
+  a bare `/i/<hex>` renders nothing. `<img>` / `<input type=image>` don't care.
+- A failed subresource whose extension isn't in wkhtmltopdf's hardcoded media list
+  (`css/js/svg/png/jpg/jpeg/gif`) is a **fatal** error — exit 1, whole job — and
+  `--load-error-handling ignore` does not suppress it. This is why `/upload`
+  returns `.png` links.
+- An `<iframe>` gets **no shrink-to-fit** (that's main-frame only), so it crops.
+- The usable body width is `paperWidth - 8`mm minus the 1em margins — **240 px** on
+  an 80 mm roll, against `PAPER_PX = 263`. Left as-is deliberately (it's shared
+  with field-verified text modes and depends on the streamer's paper setting), but
+  know it when you touch print geometry.
 
 ## Global Constraints (payload & glyph rules — do not relax without an explicit request)
 
@@ -194,9 +267,13 @@ not arbitrary style choices:
 - **The "off" cell is always a real, non-collapsing glyph** (`░` by default),
   **never a space.** HTML whitespace collapsing would shear the grid, and a space
   is the wrong advance width in a proportional fallback font.
-- **No `<`, `>`, or `&`** may appear in generated output — defensive, in case of
-  downstream mangling/sanitization. None of the tier glyph sets include them;
-  don't add a tier or ramp entry that does.
+- **No `<`, `>`, or `&`** may appear in *glyph* output. None of the tier glyph sets
+  include them; don't add a tier or ramp entry that does. (The markup modes — big
+  type, rotate, real pictures — obviously emit tags; everything user-supplied that
+  goes into them runs through `escapeHtml` / `escapeAttr` in the pure core.)
+- **A payload must never *lead* with `<`** — some sends get dropped outright on a
+  leading angle bracket. When cheering, the `Cheer<N>` token leads; otherwise
+  `LEAD_GUARD` (a non-breaking space) does.
 - **No color emoji / astral-plane codepoints.** The target renderer (old
   Qt-WebKit) has zero color-font support — these tofu. Stick to BMP glyphs with
   broad legacy-font coverage (Block Elements, Braille, curated CJK).
@@ -208,10 +285,25 @@ not arbitrary style choices:
 - **The nonce is visible, never zero-width.** It exists to defeat a duplicate-
   message filter; an invisible/zero-width character is likely to be stripped by
   the same sanitizing behavior that rules out HTML injection.
-- **HTML/markup injection is out of scope — do not add it.** This was evaluated
-  and rejected (see `docs/superpowers/specs/2026-07-05-block-glyph-art-generator-design.md`,
-  §2) because it depends on undocumented client-side sanitization behavior that
-  can't be relied on. Keep this tool to glyph art only.
+- **Markup was originally out of scope; that was overtaken by field evidence.** The
+  v1 spec rejected it (see
+  `docs/superpowers/specs/2026-07-05-block-glyph-art-generator-design.md`, §2) on
+  the grounds that it depended on undocumented sanitization. It was then confirmed
+  live that printer-bot renders the chat message as HTML, so big type, sideways
+  type, and real pictures are all markup now. **The spec's reasoning still holds as
+  a warning, though:** markup is the surface mods block, and every markup mode
+  needs a markup-free fallback behind it (Hanzi tiling for text, glyph-art for
+  pictures). Don't ship a markup-only feature.
+- **Carrier tags: the tag for a real picture is DATA, not a hardcode.** The
+  blocked-terms list has already eaten `<object` and then `<image`, each block
+  killing every picture the tool makes. `EMBEDS` in the pure core lists the
+  interchangeable surfaces (`img` default, `input type=image`, `embed`, `iframe`,
+  plus the two blocked ones kept for A/B) and `buildImageEmbed()` is the only place
+  that markup gets built. When the next one gets blocked: mark it `blocked: true`,
+  move `EMBED_DEFAULT`, bump `EMBED_V` so saved blocks migrate — do **not** hardcode
+  a new tag at a call site, and **measure a candidate before adding it** (see
+  "Measuring against the real engine"; a CSS-background carrier was written, found
+  dead, and cut, because `--no-background` makes it unrenderable).
 
 ## Hard constraints — keep these true
 

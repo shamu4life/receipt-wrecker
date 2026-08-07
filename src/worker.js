@@ -47,11 +47,29 @@ async function handleUpload(request, env, url) {
   for (var i = 0; i < bytes.length; i++) key += (bytes[i] + 0x100).toString(16).slice(1);
 
   await env.RW_IMG.put(key, buf, { expirationTtl: TTL_SECONDS, metadata: { ct: ct } });
-  return json({ url: url.origin + "/i/" + key, expiresIn: TTL_SECONDS });
+  // The returned link ENDS IN AN EXTENSION, and that is load-bearing twice over on
+  // the printer's engine (wkhtmltopdf 0.12.6 / Qt-WebKit — both measured):
+  //
+  //  1. <embed>/<object> pick the image renderer from the URL's extension. Given a
+  //     bare /i/<hex> they draw nothing at all — which is what the old "renders at
+  //     native size, ignores the width" folklore actually was.
+  //  2. Worse: wkhtmltopdf only treats a FAILED subresource as a soft "media" error
+  //     if its extension is in a hardcoded list (css/js/svg/png/jpg/jpeg/gif).
+  //     Anything else is escalated to a fatal page error — exit code 1, whole print
+  //     job dead, not just a missing picture. `--load-error-handling ignore` (which
+  //     printer-bot does pass) does NOT suppress it. These links expire after 15
+  //     minutes, so cheering a stale one is the ordinary case, not the edge case.
+  //
+  // The extension is honest: /upload only ever stores what the client re-encodes to
+  // PNG. handleServe strips any suffix, so links minted before this still resolve.
+  return json({ url: url.origin + "/i/" + key + ".png", expiresIn: TTL_SECONDS });
 }
 
 async function handleServe(url, env) {
-  const key = url.pathname.slice(3).replace(/[^a-f0-9]/gi, "");   // /i/<hex>
+  // /i/<hex> or /i/<hex>.png — the filter drops the dot and every letter outside
+  // a-f, so an extension (which the printer's engine needs; see handleUpload) falls
+  // away on its own and pre-extension links keep resolving.
+  const key = url.pathname.slice(3).replace(/[^a-f0-9]/gi, "");
   if (key.length < 8) return new Response("not found", { status: 404 });
   const got = await env.RW_IMG.getWithMetadata(key, { type: "arrayBuffer" });
   if (!got || !got.value) return new Response("expired or not found", { status: 404 });

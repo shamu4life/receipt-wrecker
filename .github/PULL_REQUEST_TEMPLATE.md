@@ -23,7 +23,8 @@
 - [ ] Kept single-file — CSS and JS stay inline in `public/index.html`; no separate `.css`/`.js` assets, no dependencies, no bundler, no framework, no CDN, no web fonts
 - [ ] No network calls added (`fetch`/XHR stay out; images stay local via `FileReader`)
 - [ ] No new `localStorage`/`sessionStorage` beyond `rw_controls_v1` / `rw_nonce_seq` **— or** N/A
-- [ ] No HTML/markup injection reintroduced — output stays plain Unicode glyphs
+- [ ] Every markup mode still has a markup-free fallback behind it (Hanzi tiling for text, glyph-art for pictures), and anything user-supplied that lands in markup goes through `escapeHtml`/`escapeAttr`
+- [ ] A real picture's carrier tag still comes from `EMBEDS` via `buildImageEmbed()` — no tag hardcoded at a call site
 - [ ] New pure-core behavior has a `test/*.test.mjs` case added/updated **— or** N/A
 - [ ] Smoke-tested in a browser (open `public/index.html` or `npx wrangler dev`) — describe how in the Summary
 

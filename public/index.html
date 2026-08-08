@@ -829,6 +829,18 @@
   // message down the tape instead of sailing off the top of it.
   var CHEER_MAX_LIFT_PX = 293;  // = takeoverBox(220).pullPx, the default calibration
   // o = {bits, name, note, avatar, avatarW, sizes:{bits,name,note}, carrier, pullPt, w}
+  // What a built overlay actually drew, read back off the markup. Deliberately parses
+  // the output instead of re-deriving the layout: a second copy of the geometry is the
+  // drift that put the picture on top of the text in the first place. Used by the UI to
+  // explain a drop, which is otherwise silent — the payload just quietly gets smaller.
+  function takeoverReport(html, wantLines, wantPicture) {
+    return {
+      linesDrawn: (String(html).match(/<text/g) || []).length,
+      linesWanted: wantLines,
+      pictureDrawn: /<foreignObject/.test(String(html)),
+      pictureWanted: !!wantPicture,
+    };
+  }
   function buildFakeCheer(o) {
     o = o || {};
     var sz = o.sizes || {};
@@ -2414,19 +2426,73 @@
         }
         frameWarn.hidden = true;
       };
-      ra.addEventListener("change", syncFrameWarn);
-      style.addEventListener("change", syncFrameWarn);
+      // A dropped picture or line is CORRECT — a sub-120px picture prints nothing while
+      // costing ~90 chars, and a clipped line costs 63 for ink that never appears — but
+      // it is silent, and "Reach up" is a knob the app tells you to calibrate. At the
+      // default sizes every stop at or below 150pt drops the picture: 19 of the 69
+      // positions, the bottom quarter of the slider, 70pt below the default. Without
+      // this note the avatar just vanishes and nothing connects it to the slider.
+      var dropNote = mkEl("div", { "class": "hint" });
+      dropNote.hidden = true;
+      card.appendChild(dropNote);
+      var syncDropNote = function () {
+        var wantPic = !!(block.tkStyle === "cheer" ? block.avatar : block.picture);
+        var html, wantLines;
+        if (block.tkStyle === "cheer") {
+          wantLines = [block.cBits, block.cName, block.cNote]
+            .filter(function (t) { return String(t || "").trim() !== ""; }).length;
+          html = buildFakeCheer({ bits: block.cBits, name: block.cName, note: block.cNote,
+            avatar: block.avatar, avatarW: block.avatarW,
+            sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+            carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        } else {
+          wantLines = [block.l1, block.l2, block.l3]
+            .filter(function (t) { return String(t || "").trim() !== ""; }).length;
+          html = buildTakeover({
+            lines: [{ text: block.l1, size: block.s1, weight: 900 },
+                    { text: block.l2, size: block.s2, weight: 700 },
+                    { text: block.l3, size: block.s3, italic: true }],
+            picture: block.picture, pictureW: block.pictureW,
+            pictureH: Math.round((block.pictureW || 120) * 1.4),
+            carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        }
+        var r = takeoverReport(html, wantLines, wantPic);
+        var msgs = [];
+        if (r.pictureWanted && !r.pictureDrawn) {
+          msgs.push("The picture isn’t in this payload — there’s no room for one at least "
+            + CHEER_MIN_PIC_PX + "px, which is the smallest that renders on the printer. "
+            + "Raise “Reach up”, or shorten a line.");
+        }
+        if (r.linesDrawn < r.linesWanted) {
+          msgs.push("Only " + r.linesDrawn + " of " + r.linesWanted + " lines fit the covered "
+            + "area; the rest are left out rather than printed off the edge. Raise “Reach up” "
+            + "or drop a size.");
+        }
+        dropNote.hidden = msgs.length === 0;
+        dropNote.textContent = msgs.join(" ");
+      };
+      var syncNotes = function () { syncFrameWarn(); syncDropNote(); };
+      ra.addEventListener("change", syncNotes);
+      style.addEventListener("change", syncNotes);
+      aw.addEventListener("input", syncNotes);
+      pw.addEventListener("input", syncNotes);
+      for (var sc = 0; sc < sizeCopies.length; sc++) sizeCopies[sc].el.addEventListener("input", syncNotes);
+      [blankWrap, cheerWrap].forEach(function (w) {
+        var ins = w.querySelectorAll ? w.querySelectorAll("input") : [];
+        for (var i = 0; i < ins.length; i++) ins[i].addEventListener("input", syncNotes);
+      });
 
       var pull = mkEl("input", { type: "range", min: "60", max: "400", step: "5" });
       pull.value = block.pullPt || TAKEOVER_PULL_PT;
       pull.addEventListener("input", function () { block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; saveBlocks(); update(); });
+      pull.addEventListener("input", syncNotes);   // wired here: `pull` doesn't exist yet above
       card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
       card.appendChild(mkEl("div", { "class": "hint" },
         "How far up to paint. The bot’s header is taller or shorter depending on the "
         + "streamer’s avatar, so this needs one calibration print: too little leaves a "
         + "strip of the old header showing, too much eats into the paper above."));
       applyStyle();
-      syncFrameWarn();
+      syncNotes();
       return card;
     }
     function imageCard(block) {
@@ -2843,6 +2909,7 @@
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
+      CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
     };
   }
 </script>

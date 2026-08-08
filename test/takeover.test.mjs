@@ -460,3 +460,24 @@ test("an absurd pull can't emit Infinity into the markup", () => {
     assert.ok(!/Infinity|NaN/.test(h), "width " + w + " emitted a junk dimension: " + h.slice(0, 120));
   }
 });
+
+test("takeoverReport reads what was drawn off the markup, not off a second copy of the maths", () => {
+  // The UI needs to know when a line or the picture was dropped, because both are
+  // silent otherwise — the payload just quietly gets smaller. It asks by INSPECTING the
+  // built output rather than re-deriving the layout: a second copy of the geometry is
+  // exactly the drift that put the picture on top of the text in the first place.
+  const full = C.buildFakeCheer(CHEER);
+  let r = C.takeoverReport(full, 3, true);
+  assert.deepEqual(r, { linesDrawn: 3, linesWanted: 3, pictureDrawn: true, pictureWanted: true });
+
+  // At a short pull there is no room for a picture that could actually render.
+  const dropped = C.buildFakeCheer({ ...CHEER, pullPt: 150 });
+  r = C.takeoverReport(dropped, 3, true);
+  assert.equal(r.pictureDrawn, false, "expected the picture to be dropped at pull 150");
+  assert.equal(r.linesDrawn, 3, "the lines should survive when the picture is dropped");
+  assert.ok(r.pictureWanted && !r.pictureDrawn, "this is the state the UI must explain");
+
+  // And a stack too tall for the cover loses trailing lines.
+  const squeezed = C.buildFakeCheer({ ...CHEER, pullPt: 60, sizes: { bits: 48, name: 48, note: 48 } });
+  assert.ok(C.takeoverReport(squeezed, 3, true).linesDrawn < 3, "expected lines to be dropped at pull 60/48s");
+});

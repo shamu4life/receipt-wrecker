@@ -19,16 +19,19 @@ Unicode has to stand in for a picture or a poster-sized word.
   <a href="https://developers.cloudflare.com/workers/static-assets/"><img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" /></a>
 </p>
 
-Receipt Wrecker is a **single-file, dependency-free** web tool. Pick a mode:
+Receipt Wrecker is a **single-file, dependency-free** web tool. You build a
+**stack of blocks** and it packs them into as few chat messages as possible:
 
-- **Big Text** — type a word or short phrase; it's rendered as oversized block
-  letters, one per line of glyphs.
-- **Image** — pick a picture from your device; it's downsampled and quantized into
-  a grid of tone glyphs.
+- **Text** — a word or phrase as oversized type, straight or sideways, or tiled
+  out of Hanzi as a markup-free fallback.
+- **Image** — a real picture (printed as an actual image) or glyph-art (the
+  picture tiled into monospace characters, which nothing can filter).
+- **Takeover** — paints over printer-bot's own header so the tape reads as your
+  artwork. Two styles: your own lines, or a **fake cheer** laid out like a real one.
 
-Either way you get back **one newline-free line** of monospace glyphs, sized to fit
-a character budget, ready to paste anywhere that accepts plain text. It runs
-**100% in your browser** — nothing you type or pick is ever uploaded anywhere.
+The output is **one newline-free line per message**, sized to Twitch's 500-character
+limit. The glyph engine runs entirely in your browser; the optional image upload and
+proxy go to this project's own Worker — see [Privacy](#privacy--what-stays-local-and-what-doesnt).
 
 > Its headline use: a friend runs [nutty.gg's **printer-bot**](https://nutty.gg/)
 > (via Streamer.bot) on a thermal **receipt printer**, which prints chat messages
@@ -75,10 +78,15 @@ one is to render correctly almost anywhere:
 
 | Tier | Glyphs | Notes |
 |---|---|---|
-| **Blocks `░▒▓█`** (Image mode default) | 4-level tone ramp | Widest compatibility — ships in the default Windows symbol font, common heritage font, tiles reliably. The safe choice. |
-| **CJK ramp** | curated Han character density ramp | Higher tonal range for photos; CJK fonts ship by default on Windows, but width/fallback is more rig-dependent. |
-| **Braille** | U+2800–28FF (2×4 dot cells) | Highest resolution — packs 8 dots per glyph — at the cost of being the least universally supported and most prone to dot-bleed at small sizes on thermal paper. |
-| **Big text (on/off)** | `█` / `░` binary | Big Text mode's default tier — maximum-contrast, near-universally rendered, tolerant of a column of wrap drift. The tier selector overrides it, so you can render big text in CJK or Braille too. |
+| **ASCII — letters** (glyph-art default) | ` icvoxnsaewmq08BWM` | Plain letters, so there is no font to be missing. The safest thing to send, and the default for a reason. |
+| **ASCII — full detail** | ` .:-=+*oaewm8%#B@M` | Denser ramp, more tonal steps, same no-font-needed property. |
+| **Hanzi** | curated Han density ramp | Higher tonal range, and field-confirmed to print on the RP332. Width/fallback is more rig-dependent than ASCII. |
+| **Blocks `░▒▓█`** | 4-level tone ramp | Looks ideal and often **prints blank** on the real machine — the app's own selector says so. Kept because it renders fine in other destinations. |
+| **Braille** | U+2800–28FF (2×4 dot cells) | Highest resolution — 8 dots per glyph — and the least universally supported. Marked experimental. |
+| **Big text (on/off)** | `█` / `░` binary | Used by big type: maximum contrast, tolerant of a column of wrap drift. |
+
+Both ASCII ramps use a **literal space** as their lightest cell. That's safe because
+every glyph body ships inside `white-space:pre`, so runs of spaces can't collapse.
 
 **"Print a test strip" (Census).** Because the tool can't see the destination
 renderer, there's a dedicated **Print test strip** button that emits a single
@@ -155,9 +163,10 @@ figure only; ` BITS` is appended for you. It's free text rather than a number, b
 - Over-pulling is safe. Reach past your rig's real header and the block follows the
   message down the tape instead of sailing off the top of the roll.
 - **Budget, measured — and the margin is genuinely thin.** The three lines alone come to
-  ~357 chars with the cheer wrapper. *With* a picture on an uploaded link it's **497 of
-  500**. That fits one 100-bit cheer, but a longer name eats the rest: `IRS` gives 497,
-  `shamu4life` gives 504 and is over. **Going over does not cost a second cheer** — a
+  ~357 chars with the cheer wrapper. *With* a picture on an uploaded link it's **491 of
+  500**. That fits one 100-bit cheer, and a realistic name still fits: `IRS` gives 491,
+  `shamu4life` gives 498. A very long name (`the_actual_streamer`, 507) still doesn't.
+  **Going over does not cost a second cheer** — a
   takeover is one SVG and can't be split, so Twitch rejects the message and nothing
   prints at all. Watch the counter; it turns red before you send. **Upload for a 15-min
   link** on an Image block mints the shortest link there is.
@@ -240,11 +249,14 @@ It's lower fidelity than the real photo, and it always prints.
    defaults to binary and Image mode defaults to the Blocks tone ramp, but the
    tier selector overrides either default; the Braille tier instead packs a
    finer 2×4 dot grid per cell.
-3. **Render** — the grid flattens to a single newline-free string. The "off" cell
-   is always a real glyph (never a space) — a run of spaces collapses under HTML's
-   default whitespace handling and would shear the grid apart.
-4. **Package** — if **Cheer-ready** is on, ` Cheer100 ` plus a visible rotating
-   nonce is appended; a live character counter (budget: 500, Twitch's per-message
+3. **Render** — the grid flattens to a single newline-free string, wrapped in
+   `white-space:pre` so runs of spaces can't collapse and shear the grid apart.
+   That wrapper is what lets the ASCII tiers use a plain space as their lightest
+   cell.
+4. **Package** — if **Cheer-ready** is on, the payload is *prefixed* with
+   `Cheer<N>` plus a visible rotating nonce (leading, so they survive any
+   trailing-strip and the message never starts with `<`); a live character counter
+   (budget: 500, Twitch's per-message
    cap, leaving headroom) turns red if you go over instead of silently truncating.
 5. **Census** — the **Print test strip** button runs the same pipeline over a
    fixed diagnostic string instead of your input, giving you the blind-first-print
@@ -283,36 +295,66 @@ space where the picture should be.
 
 ---
 
-## Privacy
+## Privacy — what stays local, and what doesn't
 
-Everything happens client-side, in the page:
+Earlier versions of this file claimed the app makes no network calls at all. That
+is no longer true, and the honest breakdown matters more than the slogan:
 
-- **No network calls.** No `fetch`/XHR. Your text and any picked image never
-  leave your device.
-- **No analytics, no servers, no accounts.**
-- **Storage:** your control settings (tier, columns, mode, etc.) and a small
-  send-counter (used only to advance the visible nonce) are saved to
-  `localStorage`, wrapped in `try/catch` so locked-down/sandboxed contexts still
-  work. Nothing you type or upload is ever sent anywhere.
+**Stays on your device:**
 
-Because it's one self-contained file, you can audit it in a single read, save it
-offline, and run it with your network unplugged.
+- **Big Text** in every style — nothing is sent.
+- **A picture you pick from disk for glyph-art** — decoded locally in a canvas.
+- **No analytics, no accounts, no third parties.** Every request below goes to this
+  project's own Cloudflare Worker and nowhere else.
+
+**Goes to the Worker:**
+
+| what you do | what happens |
+|---|---|
+| Click **Upload** (Image block or Takeover card) | The file is shrunk to a PNG and `POST`ed to `/upload`, stored in Cloudflare KV, and auto-deleted after **15 minutes**. |
+| **Paste an image URL** into a glyph-art block | That URL is fetched through `/px` so the browser can read its pixels — a canvas can't read cross-origin bytes directly. |
+| **Drag brightness / contrast**, or rotate a real picture | The image is re-fetched through `/px`, baked on a canvas, and re-uploaded. |
+| Turn on **Thermal preview** with a pasted URL | Same `/px` fetch, to inline the picture so the preview can dither it. |
+
+Two of those fire without a dedicated button — typing a URL, and dragging a
+slider — so "I never clicked upload" is not the same as "nothing left the device".
+
+**Storage:** three `localStorage` keys — control settings (`rw_controls_v1`), the
+nonce counter (`rw_nonce_seq`), and your block stack (`rw_blocks_v1`) — all wrapped
+in `try/catch` so locked-down contexts still work.
+
+The app is still one auditable file, and it still runs offline if you only use Big
+Text and locally-picked pictures.
 
 ---
 
 ## Self-hosting
 
-The repo is wired up for **Cloudflare Workers** (Workers Builds), serving the
-`public/` directory as
-[static assets](https://developers.cloudflare.com/workers/static-assets/) — there is
-no Worker script, just files. The config is [`wrangler.jsonc`](wrangler.jsonc):
+The repo is wired up for **Cloudflare Workers** (Workers Builds). There **is** a
+Worker script — [`src/worker.js`](src/worker.js) — which serves `public/` as
+[static assets](https://developers.cloudflare.com/workers/static-assets/) *and*
+handles `POST /upload`, the image-serving routes, and the `/px` image proxy. The
+config is [`wrangler.jsonc`](wrangler.jsonc):
 
 ```jsonc
 {
   "name": "receipt-wrecker",
-  "assets": { "directory": "./public" }
+  "main": "src/worker.js",
+  "routes": [
+    { "pattern": "receipt.uwutoowo.com", "custom_domain": true },
+    { "pattern": "i.uwutoowo.com",       "custom_domain": true }
+  ],
+  "vars": { "RW_IMG_HOST": "i.uwutoowo.com" },
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "kv_namespaces": [{ "binding": "RW_IMG", "id": "…" }]
 }
 ```
+
+**Both domains must stay in `routes`.** Once routes live in config, config is the
+source of truth for them — listing only one invites a deploy to reconcile the route
+set and drop the other. `RW_IMG_HOST` is what makes uploaded links 39 characters
+instead of 45; it falls back to the request origin when unset, so leave it out until
+that host actually answers, or every picture prints blank.
 
 Local development and deployment:
 
@@ -325,8 +367,11 @@ The production deploy target for this project is **`receipt.uwutoowo.com`**
 (configured as a custom domain/route for the Worker in the Cloudflare dashboard or
 `wrangler.jsonc` `routes` — a deploy step, not something `npm test` exercises).
 
-Since it's just static files, you can equally host `public/` on any static host
-(GitHub Pages, Netlify, an S3 bucket, your own server) — or just open the file.
+You can host `public/` on any static host (GitHub Pages, Netlify, S3, your own
+server) or just open the file — **the glyph and markup generators are entirely
+client-side and work with no backend at all.** You only lose the optional extras the
+Worker provides: uploading a file to get a short link, pasting a *cross-origin*
+image URL for glyph-art, and the image adjustment bake.
 
 ---
 
@@ -361,7 +406,8 @@ A few house rules keep the project what it is (see also [CLAUDE.md](CLAUDE.md)):
 
 - **Stay single-file.** Keep CSS and JS inline; don't add dependencies, bundlers, or
   external resources.
-- **No network calls**, and no storage beyond control settings / the nonce counter.
+- **No new network calls** — the app's `fetch` stays limited to our own `/upload`
+  and `/px` — and no storage beyond the three documented `localStorage` keys.
 - **Match the idiom:** vanilla JS, IIFE-wrapped, `"use strict"`, ES5-ish style.
 - **Branch + PR.** Develop on a feature branch and open a PR — avoid pushing
   straight to `main` (it deploys to production).

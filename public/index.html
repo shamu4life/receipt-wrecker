@@ -2401,10 +2401,10 @@
       // fitting whatever its length ("cur.length === 0 ||"), and a takeover is a single
       // SVG that cannot be split anyway — so going over doesn't cost 200 bits, it means
       // Twitch rejects the message and nothing prints. Measured margins with an uploaded
-      // link: name "IRS" 497/500, "shamu4life" 504 — over. The
+      // link: name "IRS" 491/500, "shamu4life" 498 — both fit; a very long name does not. The
       // name eats the budget just as fast as the URL does, so say so.
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "With a picture this nearly fills the message — about 497 of 500 with a short "
+        "With a picture this nearly fills the message — about 491 of 500 with a short "
         + "name — so watch the counter. Going over doesn’t cost a second cheer: Twitch "
         + "rejects an over-length message outright and nothing prints. A long name or a "
         + "pasted Discord/imgur link will do it — upload the file here instead and you "

@@ -15,17 +15,27 @@ Twitch streamer's thermal receipt printer via nutty.gg's **printer-bot**
 (Streamer.bot), by pasting the output into chat as a `Cheer100`. The tool itself
 is framed neutrally, like its siblings `cheer-splitter-9k` (chunking) and
 `transliterate-me` (phonetic transliteration) — the cheer use is one application
-of a general glyph-art generator. **HTML/markup injection was considered and
-deliberately cut** (see the design spec under `docs/superpowers/specs/` for the
-full reasoning) — this tool only ever emits plain Unicode glyphs.
+of a general glyph-art generator.
+
+**The app emits HTML markup, and that is the main path now.** The v1 spec
+deliberately cut markup (see `docs/superpowers/specs/`) on the grounds that it
+depended on undocumented sanitization — then it was confirmed in the field that
+printer-bot renders the chat message as raw HTML. Big type, sideways type, real
+pictures, takeovers and the fake cheer are all markup. Glyph-art is still here as
+the markup-free fallback that always prints. Do not "restore" the glyphs-only
+rule: it describes a product that no longer exists.
 
 ## The one file that matters
 
 **[`public/index.html`](public/index.html) is the entire application.** It is a
 self-contained HTML page with inline `<style>` and a single inline `<script>`
 (vanilla JS, IIFE, `"use strict"`). **This is the only file to edit when changing
-app behavior.** There is no `src/`, no bundler, no package manager for the app
-itself.
+app behavior.** There is no bundler and no package manager for the app itself.
+
+`src/worker.js` is the other piece of shipped code — a small Cloudflare Worker
+that serves the static site plus `/upload`, the image-serving routes and `/px`.
+It is `main` in `wrangler.jsonc`, so it is the deployed entrypoint, and
+`test/proxy.test.mjs` and `test/imgpath.test.mjs` import it directly.
 
 Everything else in the repo is documentation, tests, or deploy config.
 
@@ -35,7 +45,8 @@ Everything else in the repo is documentation, tests, or deploy config.
 |---|---|
 | `public/` | **The deployed site.** Cloudflare serves *only* this directory, so docs/tests stay out of production. |
 | `public/index.html` | **The app.** Edit this. |
-| `wrangler.jsonc` | Cloudflare Workers config — serves `public/` as static assets. |
+| `src/worker.js` | The Cloudflare Worker: serves `public/` as assets **plus** `POST /upload`, the image-serving routes (`/<hex>.png` and legacy `/i/<hex>`), and the `/px` image proxy. `main` in `wrangler.jsonc`. |
+| `wrangler.jsonc` | Workers config — `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, and the `RW_IMG` KV binding. |
 | `package.json` | Dev-only metadata: `npm test` (Node's `node:test`) and the Wrangler dev/deploy scripts. No runtime deps. |
 | `test/` | Node `node:test` suite — extracts the inline script from `public/index.html` and unit-tests the pure glyph engine. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, then `wrangler deploy --dry-run` on push/PR to `main`. |
@@ -97,25 +108,30 @@ test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
 `HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
 `getEmbed`, `buildImageEmbed`, `buildEmbedProbe`, `buildTakeover`, `takeoverBox`,
-`buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_SUFFIX`,
-`TAKEOVER_PULL_PT`. The canvas-rasterizing
-functions (`rasterizeText`, `rasterizeImage`, `computeGrid`, and the UI wiring in
-`init()`) are **not** exported — they need a real canvas/DOM, so they're verified
-by hand in a browser instead (see `.superpowers/sdd/progress.md` for what's been
-manually browser-verified so far). CI runs the same `npm test` (see
+`TAKEOVER_PULL_PT`, `buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_SUFFIX`,
+`CHEER_MIN_PIC_PX`, `takeoverReport`. (That list is easy to let rot — regenerate it
+with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
+rather than trusting it.) The canvas/DOM functions — `rasterizeImage`, `computeGrid`,
+the body builders and the UI wiring in `init()` — are **not** exported and are
+verified by hand in a browser instead. CI runs the same `npm test` (see
 `.github/workflows/ci.yml`).
 
 ## Deployment (Cloudflare Workers)
 
-- Connected via **Workers Builds**. `public/` is served as
-  [static assets](https://developers.cloudflare.com/workers/static-assets/);
-  there is no Worker script, just assets.
-- **Target domain: `receipt.uwutoowo.com`** — configured as a custom
-  domain/route for the Worker (Cloudflare dashboard or `wrangler.jsonc` `routes`).
-  This is a deploy-time step; it is not exercised by `npm test` or the CI
-  dry-run.
-- Config is `wrangler.jsonc`: `name` = `receipt-wrecker`, `assets.directory` =
-  `./public`.
+- Connected via **Workers Builds**. `src/worker.js` is the entrypoint; it serves
+  `public/` as [static assets](https://developers.cloudflare.com/workers/static-assets/)
+  and handles `/upload`, the image routes and `/px`.
+- **Two custom domains, both declared in `wrangler.jsonc` `routes`:**
+  `receipt.uwutoowo.com` (the app) and `i.uwutoowo.com` (short host for uploaded
+  image links). **Both must stay listed.** This file used to declare no routes at
+  all and the app domain lived only in the dashboard — once routes are in config,
+  config is the source of truth, and declaring only one invites a deploy to
+  reconcile the route set and drop the other.
+- `vars.RW_IMG_HOST` = `i.uwutoowo.com` makes `/upload` mint 39-char links instead
+  of 45. It falls back to the request origin when unset, so previews and
+  `wrangler dev` work either way — but **only set it while that host really
+  answers**, or every picture prints blank.
+- `kv_namespaces`: `RW_IMG` holds uploaded images with a native 15-minute TTL.
 - CI validates every push/PR to `main` with `npx wrangler deploy --dry-run` — the
   GitHub Actions workflow itself never deploys.
 - **Workers Builds does, though: every push to `main` auto-deploys to production,
@@ -132,13 +148,15 @@ All functions live inside the one IIFE in `public/index.html`.
 
 **Pure core** (DOM-free, unit-tested):
 
-1. `TIERS` / `getTier(id)` — the glyph tier table: `safe` (`░▒▓█` block ramp,
-   Image mode's default), `cjk` (curated Han density ramp), `braille` (2×4 dot
-   packing, highest resolution), `text` (binary `█`/`░`, Big Text mode's
-   default for crisp letters — the tier selector overrides it, so big text can
-   also render in CJK or Braille). Quadrant and fullwidth-ASCII tiers are
-   **explicitly deferred** — do not add them without an explicit request; keep
-   the tier table's shape (`id`, `label`, `kind`, `ramp`/`on`/`off`) if you do.
+1. `TIERS` / `getTier(id)` — the glyph tier table. **Six tiers, in this order:**
+   `ascii` (letter ramp, *the glyph-art default*), `asciifull` (denser ASCII ramp),
+   `safe` (`░▒▓█` blocks), `cjk` (curated Han density ramp), `braille` (2×4 dot
+   packing), `text` (binary `█`/`░`, used by big type). The ASCII ramps lead because
+   they need no particular font to be installed; the app's own selector labels the
+   block tier "often blank on printer", so do NOT call blocks the safe choice. Both
+   ASCII ramps start with a literal space as their lightest cell — see the
+   `white-space:pre` note in Global Constraints. Keep the table's shape (`id`,
+   `label`, `kind`, `ramp`/`on`/`off`) if you add one.
 2. `sampleLuma(pixels, imgW, imgH, cols, rows)` — downsamples an RGBA buffer to a
    `cols×rows` luminance grid, compositing alpha over white.
 3. `quantizeTone(luma, ramp, opts)` / `quantizeBinary(luma, opts)` — map
@@ -203,9 +221,9 @@ All functions live inside the one IIFE in `public/index.html`.
     follows the message down instead of sailing off the top of the roll — at pullPt 380+
     it used to print a blank white slab.
     **Measured cost:** three lines alone are ~357 chars with the cheer wrapper; *with*
-    a picture on a minted link it is **495 of 500 — one cheer**. Getting there took two
-    things and the margin is thin enough to lose by accident, so both are tested:
-    the link went 67 chars -> 45 (see "Short links" below), and the body-width clamp is
+    a picture on a minted link it is **491 of 500 — one cheer**. Getting there took
+    three things and the margin is thin enough to lose by accident, so they are tested:
+    the link went 67 chars -> 45 -> 39 (see "Short links" below), and the body-width clamp is
     dropped inside the fixed `foreignObject` where it is a provable no-op (`framed`, see
     `clampAttr`). A *pasted* CDN link is longer than anything we mint and still does not
     fit — the card says so, and the packer splits rather than truncating.
@@ -321,14 +339,15 @@ Things already settled this way, so you don't have to re-derive them:
   "disprove" by accident:** test with a portrait source and it draws tall enough to
   clear the threshold no matter how narrow you set it. Test with a SQUARE source.
 - **The uploaded-image URL is payload, and its length is a product constraint.**
-  `/upload` mints `https://<host>/<12 hex>.png` (45 chars on `receipt.uwutoowo.com`),
-  down from `/i/<32 hex>.png` (67). 12 hex = 48 bits against a 15-minute TTL, which is
-  ample; 128 bits was 20 characters of margin that never did anything. The root path is
-  matched by SHAPE (`imageKeyFor`), so it cannot shadow a static asset — that is what
-  `test/imgpath.test.mjs` guards. Both older shapes still resolve. Setting the
-  `RW_IMG_HOST` var to a short image host saves 6 more, but **only set it once that
-  host really routes to the Worker** — it defaults to the request origin so previews
-  and `wrangler dev` keep working. Do NOT drop the `.png` suffix to save 4 more: an
+  `/upload` mints `https://i.uwutoowo.com/<12 hex>.png` — **39 chars**, down from
+  45 (`receipt.uwutoowo.com/<12 hex>.png`) and 67 before that (`/i/<32 hex>.png`).
+  12 hex = 48 bits against a 15-minute TTL, which is ample; 128 bits was 20 characters
+  of margin that never did anything. The root path is matched by SHAPE (`imageKeyFor`),
+  so it cannot shadow a static asset — that is what `test/imgpath.test.mjs` guards.
+  Both older shapes still resolve. The short host comes from `vars.RW_IMG_HOST`, which
+  is now SET and verified live; it falls back to the request origin when unset, so
+  previews and `wrangler dev` keep working. If that host ever stops answering, clear
+  the var first — every picture prints blank otherwise. Do NOT drop the `.png` suffix to save 4 more: an
   unknown extension on a failed subresource is a fatal, whole-job error (above).
 - **The width clamp may be dropped inside a fixed `<foreignObject>`, and nowhere else.**
   `max-width:100%` on a top-level carrier is field-verified — without it real pictures
@@ -357,9 +376,13 @@ not arbitrary style choices:
   payload incl. the cheer token counts), counted by **code points**
   (`Array.from(s).length`), leaving headroom under Twitch's ~500-char cap. Over
   budget is **reported, never silently truncated** — truncation shears the grid.
-- **The "off" cell is always a real, non-collapsing glyph** (`░` by default),
-  **never a space.** HTML whitespace collapsing would shear the grid, and a space
-  is the wrong advance width in a proportional fallback font.
+- **Grid rows ship inside `white-space:pre`, and that is what makes spaces safe.**
+  The old rule here was "the off cell is never a space, because HTML collapsing
+  would shear the grid". That got solved a better way: every glyph body is wrapped
+  in `<span style="white-space:pre;…monospace">`, so runs of spaces survive intact.
+  The two ASCII tiers — now the glyph-art default — use a literal space as their
+  lightest cell and print correctly. Keep the wrapper; that is the load-bearing
+  part, not the choice of glyph.
 - **No `<`, `>`, or `&`** may appear in *glyph* output. None of the tier glyph sets
   include them; don't add a tier or ramp entry that does. (The markup modes — big
   type, rotate, real pictures — obviously emit tags; everything user-supplied that
@@ -370,11 +393,13 @@ not arbitrary style choices:
 - **No color emoji / astral-plane codepoints.** The target renderer (old
   Qt-WebKit) has zero color-font support — these tofu. Stick to BMP glyphs with
   broad legacy-font coverage (Block Elements, Braille, curated CJK).
-- **The `Cheer100` token is space-delimited and never leads the payload.** The
-  grid comes first, `Cheer100` + nonce sits in the footer, so the cheermote
-  renders below the image instead of pushing it down the tape. The payload must
-  not begin with `/` or `.` (Twitch command parsing) — naturally satisfied since
-  it starts with a block glyph.
+- **The cheer token LEADS the payload.** This file claimed the opposite for a long
+  time; the code is right. `packStackBodies` emits `Cheer<bits> <nonce> <html>`, for
+  two reasons given in its own comment: the token and nonce survive any
+  trailing-strip a bot or filter does to a long HTML blob, and a leading `Cheer…`
+  guarantees the message doesn't start with `<`, which is the hard rule just above.
+  When not cheering, `LEAD_GUARD` (a non-breaking space) leads instead. Don't
+  "restore" a trailing token.
 - **The nonce is visible, never zero-width.** It exists to defeat a duplicate-
   message filter; an invisible/zero-width character is likely to be stripped by
   the same sanitizing behavior that rules out HTML injection.
@@ -386,7 +411,10 @@ not arbitrary style choices:
   type, and real pictures are all markup now. **The spec's reasoning still holds as
   a warning, though:** markup is the surface mods block, and every markup mode
   needs a markup-free fallback behind it (Hanzi tiling for text, glyph-art for
-  pictures). Don't ship a markup-only feature.
+  pictures). The Takeover and the fake cheer are the standing exception: painting
+  over the bot's header is inherently a markup trick with no glyph equivalent, so
+  they ship markup-only by necessity. Everything that *can* have a fallback still
+  should.
 - **Carrier tags: the tag for a real picture is DATA, not a hardcode.** The
   blocked-terms list has already eaten `<object` and then `<image`, each block
   killing every picture the tool makes. `EMBEDS` in the pure core lists the
@@ -406,12 +434,17 @@ These are the project's defining properties (shared with the sibling tools).
 > **Exception (added by explicit request):** an **optional** image backend.
 > `src/worker.js` is a tiny Cloudflare Worker that serves the static site as before
 > **plus** three routes: `POST /upload` (stashes an image in the `RW_IMG` KV namespace
-> with a native 15-minute `expirationTtl`, 5 MB cap, image/* only), `GET /i/<hex>`
-> (serves it back), and `GET /px?u=<url>` (an image proxy — see below). The client
-> calls `/upload` **only** when the user clicks "Upload for a 15-min link"; the
-> returned URL feeds an `<object data>` real-image payload.
+> with a native 15-minute `expirationTtl`, 5 MB cap, image/* only), the image-serving
+> routes (`/<hex>.png` at the root, and legacy `/i/<hex>` — matched by SHAPE via
+> `imageKeyFor`), and `GET /px?u=<url>` (an image proxy — see below). `/upload` is
+> called from the Image block's uploader **and** from the Takeover card's, in both
+> styles; the returned URL feeds a real-picture payload built through the `EMBEDS`
+> carrier table — `<embed>` by default, not `<object>`, which the blocked-terms list
+> ate long ago.
 >
-> `/px` exists because **Thermal preview cannot dither a picture without it.**
+> `/px` began as a Thermal-preview-only path and is no longer that: it also backs
+> glyph-art decoding of a pasted URL and the debounced image-adjust bake, so it can
+> fire from typing and from dragging a slider. The underlying reason it exists:
 > `thermalize()` rasterizes the receipt by loading it as an SVG `<img>`, and an SVG
 > loaded that way may not fetch *any* external resource — a remote `<img>` inside the
 > `foreignObject` never paints at all. So the picture has to be inlined as a `data:`
@@ -422,10 +455,13 @@ These are the project's defining properties (shared with the sibling tools).
 > cap, and is covered by `test/proxy.test.mjs`. **Without that guard it is an open
 > relay / SSRF gadget — do not loosen it.**
 >
-> These are the only sanctioned network calls / server-side pieces. The privacy line
-> is now: Big Text and glyph-art are **fully local**; paste-a-URL is local *until you
-> turn on Thermal preview*, which sends that URL through `/px` to fetch its bytes.
-> The constraints below hold for everything *except* those explicit flows.
+> These are the only sanctioned network calls / server-side pieces. **The honest
+> privacy line:** Big Text is fully local, and a picture picked from disk for
+> glyph-art is decoded locally. Everything else touches the Worker — pasting an image
+> URL sends it through `/px`, adjusting brightness/contrast re-uploads a baked PNG,
+> and the uploaders POST the file. User-facing docs must say that plainly rather than
+> claim nothing leaves the device. The constraints below hold for everything *except*
+> those flows.
 
 - **One file.** No build step, no framework, no external resources. System font
   stacks only — **no web fonts, no CDN, no external images** (the upload backend
@@ -437,24 +473,32 @@ These are the project's defining properties (shared with the sibling tools).
   (`node:test`, `node:vm`, `node:fs`). Neither is bundled into `public/`. Do not
   add a runtime dependency, a `<script src>`, or any external fetch to the app,
   and do not split the single file to accommodate tooling.
-- **No network calls.** `fetch`/XHR are not used and must not be added. Images
-  are read from a local file input via `FileReader`, never uploaded.
-- **Storage:** `localStorage` is used only for (a) the control-panel settings
-  (`rw_controls_v1`) and (b) the nonce sequence counter (`rw_nonce_seq`), both
-  wrapped in `try/catch` so sandboxed previews that block storage still render
-  and run. Don't add other `localStorage`/`sessionStorage` use without an
-  explicit request.
+- **Network calls go only to our own Worker, and there are no new ones.** Six
+  `fetch` call sites in `public/index.html`, all same-origin: three `/px`
+  (glyph-art decoding a pasted URL, Thermal preview inlining, the debounced
+  image-adjust bake) and three `/upload`. Two fire without a dedicated click —
+  **typing an image URL** and **dragging an adjustment slider**. Don't add a
+  seventh, don't call a third party, and don't describe the app as making no
+  network calls.
+- **Storage:** `localStorage` holds exactly three keys — the control-panel
+  settings (`rw_controls_v1`), the nonce sequence counter (`rw_nonce_seq`), and
+  the block composer's stack (`rw_blocks_v1`). All wrapped in `try/catch` so
+  sandboxed previews that block storage still render and run. Don't add a fourth
+  without an explicit request.
 - **Vanilla JS**, IIFE-wrapped, `"use strict"`, ES5-ish style (`var`, function
   expressions) — match the surrounding code's idiom when editing.
-- **Privacy:** everything runs client-side; text and images never leave the
-  device. Preserve this.
+- **Privacy — state it accurately.** Big Text and a locally-picked glyph-art
+  picture never leave the device, and there are no analytics, accounts or third
+  parties. Uploading a file, pasting an image URL, or dragging an adjustment
+  slider *does* send data to our Worker. Preserve the no-third-parties property;
+  don't let this drift back to "nothing is ever sent".
 
 ## Conventions & gotchas for editors
 
 - Keep style/markup/script **inline in the one file** — do not split into
   separate `.css`/`.js` assets.
 - Known v1 limitations, accepted as-is unless a task says otherwise (see
-  `.superpowers/sdd/progress.md` for the full accepted-minors list): `buildCensus`
+  this list is the record — there is no `.superpowers/` directory in this repo): `buildCensus`
   hardcodes its sample glyphs rather than deriving them from `TIERS`; no keystroke
   debounce (each keystroke still burns a control-settings `localStorage` write via
   `saveControls()`, though the nonce itself only advances on Copy); `TEXT_ROWS`/

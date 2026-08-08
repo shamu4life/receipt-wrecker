@@ -130,11 +130,31 @@ header used to be. Anything below it in the stack still prints as normal underne
 - Budget: a three-line takeover is ~350 chars, and a takeover **plus** a full picture
   payload still fits one 100-bit cheer (458 of 500).
 
-**What it doesn't do:** there's no "fake cheer" template — no name + profile picture
-+ bits amount presented as the sender. Painting over the bot's header is a sticker on
-the receipt; fabricating a named sender and a donation total produces a tape that
-can't be told apart from a record of a payment that never happened, and that isn't
-something this tool generates.
+### Two styles
+
+**Blank** gives you three free lines and an optional picture, bottom-anchored to the
+area it paints over.
+
+**Fake cheer** arranges the same overlay the way printer-bot arranges a real one —
+picture on top, then the bits figure, then the name, then an italic message. Type the
+figure only; ` BITS` is appended for you. It's free text rather than a number, because
+`-100000` and `∞` are the jokes people actually want.
+
+- The layout reproduces the hand-built payload this was reverse-engineered from, the
+  one that printed correctly on a real rig: an 80 px picture up top, then 24/900,
+  19/700, 13/italic.
+- Text and picture are both **clamped into the painted panel**, so a short *Reach up*
+  or an oversized picture can't spill onto the header underneath — it shrinks to fit
+  instead of quietly printing over the thing it's meant to cover.
+- **Budget, measured:** the three lines alone come to ~357 chars with the cheer wrapper
+  and fit one message. *With* a picture it's ~520 against Twitch's 500 — even on the
+  shortest link the uploader can mint — so it goes out as **two cheers, 200 bits**.
+  Nothing is truncated; the part count under the preview shows both, and the card says
+  so before you send. Drop the picture and you're back to one.
+
+The tape isn't a record of anything — Twitch's bits ledger is server-side, and the
+cheer that triggers the print carries your real name in chat where the whole room sees
+it. The paper is the gag; everyone watching knows it's lying, which is the joke.
 
 ---
 

@@ -97,6 +97,7 @@ test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
 `HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
 `getEmbed`, `buildImageEmbed`, `buildEmbedProbe`, `buildTakeover`, `takeoverBox`,
+`buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_SUFFIX`,
 `TAKEOVER_PULL_PT`. The canvas-rasterizing
 functions (`rasterizeText`, `rasterizeImage`, `computeGrid`, and the UI wiring in
 `init()`) are **not** exported — they need a real canvas/DOM, so they're verified
@@ -175,11 +176,33 @@ All functions live inside the one IIFE in `public/index.html`.
     `<foreignObject>` through `buildImageEmbed`, so it inherits the carrier table
     rather than hardcoding SVG's blocked `<image`). Everything derives from one
     calibration number, `pullPt` — the bot's header height varies with the streamer's
-    avatar, so it needs one print to dial in. **Deliberately has no "sender"
-    template**: it paints your lines, not a name-plus-avatar-plus-bits triple posing
-    as who paid. Erasing the bot's header is a sticker over the receipt; fabricating
-    a named sender is a forged record, and this isn't that. Don't add one.
-12. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
+    avatar, so it needs one print to dial in. Lines are bottom-anchored to the covered
+    area by default; pass `startY` to hang them downward from a given baseline instead,
+    which is what the fake cheer does. Either way the stack is **clamped into the
+    painted box** — a baseline outside it prints *on top of* the header this block
+    exists to paint over, which reads as the feature simply not working.
+12. `buildFakeCheer(o)` / `CHEER_AVATAR_W` / `CHEER_SUFFIX` — the **Fake cheer**: the
+    same takeover arranged like the bot's own header (picture on top, then `<N> BITS`,
+    then a name, then an italic note). It **composes `buildTakeover`** rather than
+    emitting its own markup, so escaping, the carrier table and the `foreignObject`-last
+    rule are inherited instead of re-implemented — keep it that way. The layout numbers
+    reproduce the hand-built payload this was reverse-engineered from, which printed
+    correctly on the real rig: an 80 px picture at the top, baselines 24/900, 19/700,
+    13/italic. The bits figure is **free text, not a number** — `-100000` and `∞` are
+    both jokes people want, and coercing it to a number kills them.
+    **Measured cost:** three lines alone are ~357 chars with the cheer wrapper and fit
+    one message; *with* a picture it is ~520 against the 500 cap, even on the shortest
+    `/i/<hex>.png` link — so it splits into two parts, i.e. two cheers, i.e. 200 bits.
+    That is reported (a card hint plus the live part count), never truncated. A test
+    locks it in **both** directions, so if the markup ever shrinks enough to fit, the
+    suite tells you to update the docs.
+    On scope: the tape is not a record of anything. Twitch's bits ledger is server-side
+    and authoritative, nobody reconciles it against thermal paper, and the printer is a
+    gag the streamer runs for laughs — the cheer that triggers a print carries the real
+    sender's name in chat, in front of the whole room. (An earlier version of this file
+    argued the opposite and refused a sender template on "forged record" grounds. That
+    was wrong: it treated *looks like a receipt* as *functions as a financial record*.)
+13. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
     sends** button: the same picture through every carrier, labeled `A`…`G`, one
     message each (they can't share a cheer — one blocked term kills the whole
     message). A letter that prints *with a picture under it* names the carrier that

@@ -115,3 +115,150 @@ test("a takeover fits a cheer with room for a caption beside it", () => {
   assert.ok(together <= C.MAX_CHARS,
     "takeover + a picture no longer share one cheer (" + together + " chars) — that doubles the bits");
 });
+
+// ── FAKE CHEER ──────────────────────────────────────────────────────────────
+// The takeover in the header's own shape. It composes buildTakeover rather than
+// emitting its own markup, so most of the hard-won rules above are inherited — the
+// tests here are for what the composition itself has to get right.
+
+const CHEER = { bits: "-100000", name: "IRS", note: "tax lien",
+                avatar: "https://x.test/p.png", carrier: "embed", pullPt: 220 };
+
+test("the bits figure gets the suffix, and an empty one draws no line at all", () => {
+  const html = C.buildFakeCheer(CHEER);
+  assert.ok(html.indexOf(">-100000 BITS<") >= 0, "expected the suffixed figure: " + html);
+  // No figure means no line — never a stray " BITS" with nothing in front of it.
+  for (const bits of ["", "   ", null, undefined]) {
+    const h = C.buildFakeCheer({ ...CHEER, bits });
+    assert.ok(h.indexOf("BITS") < 0, JSON.stringify(bits) + " emitted a bare suffix: " + h);
+    assert.equal((h.match(/<text/g) || []).length, 2, "the other two lines should survive");
+  }
+  // Surrounding whitespace is trimmed, not baked into the line.
+  assert.ok(C.buildFakeCheer({ ...CHEER, bits: "  42  " }).indexOf(">42 BITS<") >= 0);
+});
+
+test("the figure is free text — the jokes people actually want aren't numbers", () => {
+  // A negative amount is the whole gag in the payload this was built from, and it
+  // must not be coerced, clamped or NaN'd into nothing.
+  for (const bits of ["-100000", "∞", "0.5", "ONE MILLION"]) {
+    const h = C.buildFakeCheer({ ...CHEER, bits });
+    assert.ok(h.indexOf(">" + bits + " BITS<") >= 0, bits + " didn't survive: " + h);
+  }
+});
+
+test("a fake cheer reproduces the reference layout it was measured from", () => {
+  // The hand-built payload that printed correctly on the real rig: an 80px-wide
+  // picture at the top, baselines at 150/178/208, sizes 24/900, 19/700, 13/italic.
+  const html = C.buildFakeCheer(CHEER);
+  const ys = [...html.matchAll(/<text x="(\d+)" y="(\d+)"/g)].map(m => Number(m[2]));
+  assert.equal(ys.length, 3);
+  assert.deepEqual(ys, [150, 182, 208], "drifted off the reference baselines: " + ys);
+  assert.ok(/font-size="24" font-weight="900"/.test(html), "bits line lost its weight");
+  assert.ok(/font-size="19" font-weight="700"/.test(html), "name line lost its weight");
+  assert.ok(/font-size="13" font-style="italic"/.test(html), "note line lost its italic");
+  // Centered on the paper, like the header it replaces. (263 is odd, so the true
+  // centre is 131.5 — assert the property, not whichever side it rounds to.)
+  const xs = [...html.matchAll(/<text x="(\d+)"/g)].map(m => Number(m[1]));
+  assert.ok(xs.every(x => x === xs[0]), "lines must share one centre: " + xs);
+  assert.ok(Math.abs(xs[0] - 263 / 2) <= 0.5, "off-centre on 263px paper: " + xs[0]);
+});
+
+test("the text hangs off the picture, and stays inside the covered area", () => {
+  // A header reads top-down from its picture. With one, the block anchors under it;
+  // without one it can't, so it sits mid-way up instead of drifting to the top.
+  const withPic = C.buildFakeCheer(CHEER);
+  const noPic = C.buildFakeCheer({ ...CHEER, avatar: "" });
+  const firstY = h => Number(h.match(/<text x="\d+" y="(\d+)"/)[1]);
+  const box = C.takeoverBox(220);
+  assert.ok(firstY(withPic) > 6 + Math.round(C.CHEER_AVATAR_W * 1.4),
+    "the first line must clear the picture, not sit on top of it");
+  assert.ok(firstY(noPic) > 0 && firstY(noPic) < box.pullPx, "must stay inside the cover");
+  // A wider picture pushes the text further down; it can't be a fixed baseline.
+  assert.ok(firstY(C.buildFakeCheer({ ...CHEER, avatarW: 160 })) > firstY(withPic),
+    "a taller picture must push the lines down or it will overlap them");
+  // Every line lands inside the painted box, whatever the pull.
+  for (const pullPt of [60, 120, 220, 400]) {
+    const h = C.buildFakeCheer({ ...CHEER, pullPt });
+    const b = C.takeoverBox(pullPt);
+    for (const m of h.matchAll(/<text x="\d+" y="(\d+)"/g)) {
+      assert.ok(Number(m[1]) <= b.h, "pull " + pullPt + ": baseline " + m[1] + " past the cover " + b.h);
+    }
+  }
+});
+
+test("a fake cheer inherits the takeover's rules — escaping, carriers, picture last", () => {
+  const nasty = { ...CHEER, name: '</text><script>x</script>&"', bits: '"><b>' };
+  const html = C.buildFakeCheer(nasty);
+  assert.ok(html.indexOf("<script") < 0, "passed a raw tag through: " + html);
+  assert.ok(html.indexOf("&lt;/text&gt;") >= 0, "should escape the closing tag");
+  // The foreignObject-last rule is the one that silently kills the print.
+  assert.ok(html.lastIndexOf("<text") < html.indexOf("<foreignObject"),
+    "every line must precede the picture, else the engine drops the text");
+  // The picture rides the carrier table, never SVG's blocked image tag.
+  for (const id of C.EMBEDS.filter(e => !e.blocked).map(e => e.id)) {
+    const h = C.buildFakeCheer({ ...CHEER, carrier: id });
+    assert.ok(h.indexOf("<image") < 0 && h.indexOf("<img") < 0, id + " leaked a blocked tag: " + h);
+  }
+  // Same opaque, lifted overlay as any other takeover.
+  assert.ok(/^<svg /.test(html) && /style="margin-top:-220pt"/.test(html));
+  assert.ok(html.indexOf("<rect") < html.indexOf("<text"), "rect must paint first");
+  assert.ok(!/[\r\n]/.test(html), "payload stays newline-free");
+});
+
+test("the picture is what pushes a fake cheer past one cheer — measured, not assumed", () => {
+  // Without a picture there is comfortable room.
+  const bare = C.buildFakeCheer({ ...CHEER, avatar: "" });
+  const bareChars = C.payloadLength(bare) + 12;   // + "Cheer100 nn "
+  assert.ok(bareChars <= C.MAX_CHARS, "a bare fake cheer must fit one cheer, got " + bareChars);
+
+  // With one it does NOT, even on the shortest link the tool can mint (/i/<hex>.png,
+  // 47 chars) — measured at 520 against the 500 cap. Nothing is truncated: the packer
+  // splits it across two parts, which is two cheers, which is 200 bits instead of 100,
+  // and both parts show in the UI. Locked in both directions — so the markup can't
+  // quietly get fatter, and so that if anyone ever shrinks it enough to fit, this test
+  // is what tells them to update the docs and the card's warning.
+  const withPic = C.buildFakeCheer({ ...CHEER,
+    avatar: "https://receipt.uwutoowo.com/i/a1b2c3d4e5f6.png" });
+  const picChars = C.payloadLength(withPic) + 12;
+  assert.ok(picChars > C.MAX_CHARS, "a picture now fits one cheer at " + picChars
+    + " — good news: update the README, the changelog and the card hint");
+  assert.ok(picChars < 560, "fake-cheer markup has grown to " + picChars + " chars; it should shrink, not grow");
+});
+
+test("an oversized picture or a short pull can't push anything outside the cover", () => {
+  // Everything this block draws has to land on the white rect. Anything hanging past
+  // it prints on top of the header the block exists to paint over — which looks like
+  // the feature simply not working.
+  for (const pullPt of [60, 90, 220, 400]) {
+    for (const avatarW of [40, 80, 200]) {
+      const h = C.buildFakeCheer({ ...CHEER, pullPt, avatarW });
+      const box = C.takeoverBox(pullPt);
+      const fo = h.match(/<foreignObject x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/);
+      const where = "pull " + pullPt + " / picture " + avatarW;
+      assert.ok(Number(fo[2]) + Number(fo[4]) <= box.h, where + ": picture overruns the cover");
+      assert.ok(Number(fo[1]) + Number(fo[3]) <= 263, where + ": picture overruns the paper");
+      for (const m of h.matchAll(/<text x="\d+" y="(\d+)"/g)) {
+        assert.ok(Number(m[1]) <= box.h, where + ": baseline " + m[1] + " past the cover " + box.h);
+      }
+    }
+  }
+});
+
+test("a takeover's picture rides the same carrier table, so it must migrate too", () => {
+  // Regression guard for the block-schema side of the carrier story. A takeover stores a
+  // renderAs exactly like an image block does, so when a tag gets blocked and the default
+  // moves, a SAVED takeover has to be moved off it as well — otherwise its picture
+  // silently never prints again. The migration lives in the browser glue (not exported),
+  // so what's asserted here is the invariant it exists to uphold: every carrier the app
+  // can migrate TO is one that still sends.
+  assert.ok(!C.getEmbed(C.EMBED_DEFAULT).blocked, "the default carrier must not be blocked");
+  // And a blocked id must resolve to that default rather than to itself.
+  const blocked = C.EMBEDS.filter(e => e.blocked).map(e => e.id);
+  assert.ok(blocked.length, "expected the table to still record the blocked tags for A/B");
+  for (const id of blocked) {
+    assert.equal(C.getEmbed(id).id, id, "an explicit re-pick of a blocked tag should be honoured");
+  }
+  // A takeover built with the default carrier never emits a blocked token.
+  const html = C.buildFakeCheer({ ...CHEER, carrier: C.EMBED_DEFAULT });
+  assert.ok(html.indexOf("<image") < 0 && html.indexOf("<img") < 0, "default carrier leaked a blocked tag");
+});

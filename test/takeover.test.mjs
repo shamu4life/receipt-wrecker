@@ -468,7 +468,13 @@ test("takeoverReport reads what was drawn off the markup, not off a second copy 
   // exactly the drift that put the picture on top of the text in the first place.
   const full = C.buildFakeCheer(CHEER);
   let r = C.takeoverReport(full, 3, true);
-  assert.deepEqual(r, { linesDrawn: 3, linesWanted: 3, pictureDrawn: true, pictureWanted: true });
+  // Field-by-field, not deepEqual: the core runs in a node:vm sandbox, so its objects
+  // carry that realm's Object.prototype and strict deepEqual rejects them as
+  // "same structure but not reference-equal" however identical the contents.
+  assert.equal(r.linesDrawn, 3);
+  assert.equal(r.linesWanted, 3);
+  assert.equal(r.pictureDrawn, true);
+  assert.equal(r.pictureWanted, true);
 
   // At a short pull there is no room for a picture that could actually render.
   const dropped = C.buildFakeCheer({ ...CHEER, pullPt: 150 });

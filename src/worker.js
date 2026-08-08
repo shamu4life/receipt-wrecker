@@ -20,6 +20,32 @@
 
 const TTL_SECONDS = 900;               // 15 minutes, enforced natively by KV
 const MAX_BYTES = 5 * 1024 * 1024;     // 5 MB cap (KV values allow up to 25 MB; this is an abuse guard)
+
+// EVERY CHARACTER OF THE LINK IS PAYLOAD. The URL is pasted into a Twitch message
+// with a hard 500-char cap, alongside markup that is already most of the budget, so
+// the link length is a product constraint and not a detail. Measured: the old form,
+// https://receipt.uwutoowo.com/i/<32 hex>.png, was 67 chars. The current form is 39.
+//
+// KEY_BYTES = 6 gives 12 hex chars = 48 bits. The security model is "unguessable
+// link, alive for 15 minutes": 2.8e14 keys against a 900-second window means a
+// guessing attack needs ~3e11 requests/second to expect a single hit, which is not a
+// thing that happens through Cloudflare. The previous 16 bytes (128 bits) was 20
+// characters of payload spent on margin that was never load-bearing.
+const KEY_BYTES = 6;
+const KEY_RE = /^[0-9a-f]{8,64}$/;     // accept longer keys forever: links minted at 32 hex still resolve
+
+// Where minted links point. Defaults to whatever origin served /upload, so preview
+// deployments and local dev keep working with no config. Set the RW_IMG_HOST var to a
+// shorter host to shave the difference off every picture payload — but ONLY once that
+// host actually routes to this Worker, because a link to a host that doesn't resolve
+// is worse than a long one: on the printer's engine a failed subresource whose
+// extension IS in the media list is a soft error, but the picture is simply missing.
+function imgOrigin(env, url) {
+  const h = env && env.RW_IMG_HOST;
+  if (!h) return url.origin;
+  const s = String(h).trim().replace(/\/+$/, "");
+  return /^https?:\/\//.test(s) ? s : "https://" + s;
+}
 const OK_TYPE = /^image\/(png|jpe?g|gif|webp|bmp|avif)$/i;
 const PROXY_TIMEOUT_MS = 8000;
 const PROXY_MAX_HOPS = 3;              // follow redirects by hand so every hop is re-validated
@@ -40,8 +66,8 @@ async function handleUpload(request, env, url) {
   if (!buf || buf.byteLength === 0) return json({ error: "empty upload" }, 400);
   if (buf.byteLength > MAX_BYTES) return json({ error: "too big — 5 MB max" }, 413);
 
-  // Random hex key; KV auto-expires the value after TTL_SECONDS.
-  const bytes = new Uint8Array(16);
+  // Random hex key; KV auto-expires the value after TTL_SECONDS. See KEY_BYTES.
+  const bytes = new Uint8Array(KEY_BYTES);
   crypto.getRandomValues(bytes);
   var key = "";
   for (var i = 0; i < bytes.length; i++) key += (bytes[i] + 0x100).toString(16).slice(1);
@@ -62,15 +88,26 @@ async function handleUpload(request, env, url) {
   //
   // The extension is honest: /upload only ever stores what the client re-encodes to
   // PNG. handleServe strips any suffix, so links minted before this still resolve.
-  return json({ url: url.origin + "/i/" + key + ".png", expiresIn: TTL_SECONDS });
+  //
+  // Served from the ROOT, not /i/ — those two characters are two characters of Twitch
+  // budget. /i/<key> still resolves so links minted before this keep working.
+  return json({ url: imgOrigin(env, url) + "/" + key + ".png", expiresIn: TTL_SECONDS });
 }
 
-async function handleServe(url, env) {
-  // /i/<hex> or /i/<hex>.png — the filter drops the dot and every letter outside
-  // a-f, so an extension (which the printer's engine needs; see handleUpload) falls
-  // away on its own and pre-extension links keep resolving.
-  const key = url.pathname.slice(3).replace(/[^a-f0-9]/gi, "");
-  if (key.length < 8) return new Response("not found", { status: 404 });
+// The key for a request path, or null if this path isn't an image request at all.
+// Two shapes: /<hex>.png (current, shortest) and /i/<hex>.png (legacy). The suffix is
+// stripped rather than required, so both pre-extension and pre-root links resolve.
+// Deliberately strict on the root form — it shares a namespace with the static site,
+// so it must match ONLY a hex key and never shadow /robots.txt, /llms.txt or similar.
+export function imageKeyFor(pathname) {
+  const p = String(pathname || "");
+  const raw = p.startsWith("/i/") ? p.slice(3) : p.slice(1);
+  if (raw.indexOf("/") >= 0) return null;
+  const key = raw.replace(/\.(png|jpe?g|gif|webp|bmp|avif)$/i, "").toLowerCase();
+  return KEY_RE.test(key) ? key : null;
+}
+
+async function handleServe(key, env) {
   const got = await env.RW_IMG.getWithMetadata(key, { type: "arrayBuffer" });
   if (!got || !got.value) return new Response("expired or not found", { status: 404 });
   return new Response(got.value, {
@@ -194,8 +231,14 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/upload") return handleUpload(request, env, url);
-    if (url.pathname.startsWith("/i/")) return handleServe(url, env);
     if (url.pathname === "/px") return handleProxy(url);
+    // Image keys are matched by SHAPE, not by host, so the same Worker serves them on
+    // receipt.uwutoowo.com and on a short image host alike with no host-sniffing. The
+    // pattern is narrow enough that it cannot swallow a real static asset — those all
+    // have non-hex names or a longer path — and the static fetch below still runs for
+    // anything that isn't a key.
+    const key = imageKeyFor(url.pathname);
+    if (key) return handleServe(key, env);
     return env.ASSETS.fetch(request);   // the static site (index.html, etc.)
   },
 };

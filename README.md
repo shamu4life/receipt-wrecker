@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.1" src="https://img.shields.io/badge/version-0.3.1-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.2" src="https://img.shields.io/badge/version-0.3.2-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -114,6 +114,60 @@ before assuming the tool is broken.
 
 ---
 
+## Takeover — make the tape your artwork, not a receipt
+
+printer-bot draws its own header above your message: the avatar, a `<N> BITS` line,
+and the cheerer's name. A **Takeover** block paints over it — an opaque panel lifted
+up with a negative margin, with your own lines (and optionally a picture) where the
+header used to be. Anything below it in the stack still prints as normal underneath.
+
+- **Reach up (pt)** is the one thing that needs calibrating. The header is taller or
+  shorter depending on the streamer's avatar, so 220pt is a starting point, not a
+  constant: too little leaves a strip of the old header showing, too much eats into
+  the paper above. One print settles it.
+- The optional picture rides through the same **carrier tag** table as a normal
+  image block, so it benefits from whatever tag currently survives chat.
+- Budget: a three-line takeover is ~350 chars, and a takeover **plus** a full picture
+  payload still fits one 100-bit cheer (458 of 500).
+
+### Two styles
+
+**Blank** gives you three free lines and an optional picture, bottom-anchored to the
+area it paints over.
+
+**Fake cheer** arranges the same overlay the way printer-bot arranges a real one —
+picture on top, then the bits figure, then the name, then an italic message. Type the
+figure only; ` BITS` is appended for you. It's free text rather than a number, because
+`-100000` and `∞` are the jokes people actually want.
+
+- The layout follows the hand-built payload this was reverse-engineered from — picture
+  up top, then 24/900, 19/700, 13/italic — with two corrections the print engine forced.
+  The picture is reserved **square** (a profile picture is square, and the carrier tags
+  state only a width, so reserving 1.4× left a slab of white under it), and it is at
+  least **120 px**: measured, a picture drawn shorter than that renders *nothing at all*
+  inside the lifted overlay. The old 80 px default printed blank paper where the picture
+  should be. A picture that can't clear the floor is dropped rather than sent as ~90
+  characters buying nothing.
+- Text and picture are both **clamped into the painted panel**, and are laid out so they
+  can never overlap. That ordering matters: the picture has to be emitted last (see the
+  `foreignObject` note in the changelog), so it paints *over* the lines — and sizing it
+  first once left `-100000 BITS` rendering with zero ink at ordinary slider positions.
+- Over-pulling is safe. Reach past your rig's real header and the block follows the
+  message down the tape instead of sailing off the top of the roll.
+- **Budget, measured — and the margin is genuinely thin.** The three lines alone come to
+  ~357 chars with the cheer wrapper. *With* a picture on an uploaded link it's **497 of
+  500**. That fits one 100-bit cheer, but a longer name eats the rest: `IRS` gives 497,
+  `shamu4life` gives 504 and is over. **Going over does not cost a second cheer** — a
+  takeover is one SVG and can't be split, so Twitch rejects the message and nothing
+  prints at all. Watch the counter; it turns red before you send. **Upload for a 15-min
+  link** on an Image block mints the shortest link there is.
+
+The tape isn't a record of anything — Twitch's bits ledger is server-side, and the
+cheer that triggers the print carries your real name in chat where the whole room sees
+it. The paper is the gag; everyone watching knows it's lying, which is the joke.
+
+---
+
 ## Carrier tags — how a real picture gets there, and what to do when it stops
 
 Glyph art is just text, so nothing can really stop it. A **real picture** is
@@ -198,6 +252,34 @@ It's lower fidelity than the real photo, and it always prints.
 
 Everything above happens synchronously in the page; there is no server round-trip
 at any step.
+
+---
+
+## Short image links (why the URL shape is a product decision)
+
+Every character of an uploaded picture's URL is **payload**. It gets pasted into a
+Twitch message with a hard 500-character cap, next to markup that's already most of
+the budget — so the link's length decides whether a payload costs 100 bits or 200.
+
+`POST /upload` mints `https://<host>/<12 hex>.png` — **45 characters** on
+`receipt.uwutoowo.com`. It used to be `/i/<32 hex>.png`, which was 67, and those 22
+characters were the whole difference between a fake cheer fitting one cheer and
+needing two.
+
+| what changed | why it's safe |
+|---|---|
+| key `32 hex` → `12 hex` | 48 bits against a **15-minute** TTL. Guessing one needs ~3×10¹¹ requests/second to expect a single hit — 128 bits was margin that was never load-bearing. |
+| path `/i/<key>` → `/<key>` | Matched by shape (`^[0-9a-f]{8,64}` + optional image extension), so it can't shadow `/robots.txt`, `/llms.txt`, `/sitemap.xml` or the app itself. Tested. |
+| `.png` suffix kept | Load-bearing twice: `embed`/`object` pick their renderer from the extension, and wkhtmltopdf escalates a failed subresource with an *unknown* extension to a **fatal** error — exit 1, whole print job dead. Since these links expire in 15 minutes, cheering a stale one is the ordinary case. |
+
+Links minted in either older shape still resolve, so nothing breaks mid-cheer.
+
+**A shorter image host buys 6 more characters.** Point a hostname at this Worker
+(`i.uwutoowo.com/*`) and set the `RW_IMG_HOST` var; `/upload` then mints 39-character
+links. It's unset by default and falls back to whatever origin served the request, so
+preview deployments and `wrangler dev` keep working — **only set it once that host
+actually routes here**, since a link to a host that doesn't resolve prints a blank
+space where the picture should be.
 
 ---
 

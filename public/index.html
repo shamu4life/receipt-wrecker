@@ -145,6 +145,7 @@
         <div class="add-row">
           <button type="button" id="addTextBtn">+ Text</button>
           <button type="button" id="addImageBtn">+ Image</button>
+          <button type="button" id="addTakeoverBtn">+ Takeover</button>
         </div>
         <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more &mdash; each is its own cheer (see the bits total under the preview).</div>
       </div>
@@ -482,6 +483,24 @@
   // For a value going into a double-quoted HTML attribute (the image URL): also
   // neutralize the quote so a crafted URL can't break out of the attribute/tag.
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+  // ── THE WIDTH CLAMP, AND THE ONE PLACE IT MAY BE DROPPED ──────────────────
+  // A top-level picture is laid out against the receipt BODY, whose real width we do
+  // not know: printer-bot renders at paperWidth-8 mm with `body { margin: 1em }`,
+  // which measured ~240px on an 80mm roll against PAPER_PX's 263. Field-confirmed by
+  // a print that came out too wide. So the carriers clamp and adapt to whatever the
+  // body really is, rather than betting on another hardcoded number. That is
+  // load-bearing — do not remove it from the ordinary path.
+  //
+  // Inside a fixed-size <foreignObject> there is nothing to adapt TO: the containing
+  // block IS the frame, and the tag already carries width="<the frame's width>", so
+  // the declaration can only ever resolve to the width it already has. It is a
+  // provable no-op there, costing up to 23 of a 500-character Twitch budget — which
+  // is exactly the margin between a fake cheer going out as one cheer or two.
+  //
+  // `framed` drops it THERE AND ONLY THERE. buildTakeover is the sole caller that
+  // sets it, and a test asserts every carrier still clamps when unframed.
+  function clampAttr(o) { return o.framed ? "" : ' style="max-width:100%"'; }
+  function clampCss(o) { return o.framed ? "" : "max-width:100%;"; }
   // ── REAL-IMAGE EMBED SURFACES ─────────────────────────────────────────────
   // A real picture rides as markup pointing at a URL — printer-bot drops the chat
   // message straight into its page, so a tag renders. WHICH tag is a moving target:
@@ -539,7 +558,7 @@
     { id: "embed", label: "embed tag — default, prints clean (needs a .png/.jpg URL)", token: "<embed",
       needsExt: true, field: "prints",
       build: function (o) {
-        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
+        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
     // Field-confirmed to SEND — the hard half — and its selling point is that it
     // needs NO file extension, so it's the one to reach for when a link has no .png
@@ -562,24 +581,32 @@
         // border/padding zeroed on the hypothesis that native form-control chrome is
         // what made this print wide on Windows — unverified, see the note above.
         return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
-          + '" style="max-width:100%;border:0;padding:0">';
+          + '" style="' + clampCss(o) + 'border:0;padding:0">';
       } },
     // FIELD-CONFIRMED to print — but keep the caveat: a subframe gets no
     // shrink-to-fit (WebKit does that for the main frame only), so the picture draws
     // at its natural pixel size and is CLIPPED by the frame. It looks perfect for a
     // picture already smaller than the box and loses the right/bottom of anything
     // bigger — and /upload re-encodes up to 720px, so uploads will crop.
+    // framedOk:false — MEASURED on the real engine: an <iframe> inside the takeover's
+    // <foreignObject> swallows the content that follows the whole SVG, so everything
+    // stacked below a takeover silently vanishes from the print. Isolated against an
+    // otherwise identical page: embed-in-foreignObject printed the trailing block, the
+    // same page with iframe printed none of it on either PDF page, and a bare iframe
+    // with no foreignObject printed it fine. Same class as the foreignObject sibling
+    // rule, one level out. Fine as a top-level picture; never inside the frame.
     { id: "iframe", label: "iframe — prints, but crops a big picture", token: "<iframe", field: "prints",
+      framedOk: false,
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
-          + '" frameborder="0" scrolling="no" style="max-width:100%"></iframe>';
+          + '" frameborder="0" scrolling="no"' + clampAttr(o) + '></iframe>';
       } },
     // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
     // the SVG form. It renders fine on the engine (shortest payload of the lot, no
     // extension needed); it just never reaches chat. Kept for a re-probe.
     { id: "img", label: "img tag — blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
       build: function (o) {
-        return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
+        return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
     // Blocked Aug 2026: the list took "<image". MEASURED: it still renders correctly
     // on the engine — this is purely a blocked-terms casualty, not a broken form — so
@@ -599,9 +626,274 @@
       needsExt: true, field: "blocked",
       build: function (o) {
         return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm
-          + 'mm;max-width:100%;display:block"></object>';
+          + 'mm;' + clampCss(o) + 'display:block"></object>';
       } },
   ];
+  // ── TAKEOVER (paint over the receipt's own header) ────────────────────────
+  // printer-bot draws a header above the message — avatar, "<N> BITS", the cheerer's
+  // name — and the message lands underneath. A takeover is an opaque SVG lifted UP
+  // over that header with a negative top margin: the <rect> paints out what the bot
+  // drew and your own lines go in its place, so the tape comes out as your artwork
+  // rather than a receipt with a message stapled under it. Anything after this block
+  // still flows below it, untouched.
+  //
+  // MEASURED on the real engine (wkhtmltopdf 0.12.6 patched-qt, printer-bot's exact
+  // flags): the overlay lands where it's told, fully hides the header, and a
+  // following message still renders below.
+  //
+  // Two arrangements ride on this one builder: a blank takeover (your own lines,
+  // bottom-anchored) and a fake cheer (avatar + bits + name in the header's own
+  // shape) — see buildFakeCheer below.
+  //
+  // The pull is in POINTS; the engine works in CSS px at 96dpi
+  // (--disable-smart-shrinking), hence the 4/3. Everything derives from that one
+  // number, so it stays a single calibration knob — the bot's header height varies
+  // with the streamer's avatar, so the right value is per-rig.
+  var TAKEOVER_PULL_PT = 220;
+  var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
+  function takeoverBox(pullPt) {
+    // Upper bound as well as lower: isFinite(1e308) is true, and 1e308*4/3 overflows to
+    // Infinity, which reaches the markup as height="Infinity". The UI can't produce it,
+    // but the pure core is the contract the tests and the constraints doc rest on.
+    var pt = isFinite(pullPt) && pullPt > 0 ? Math.min(Math.round(pullPt), 4000) : TAKEOVER_PULL_PT;
+    var px = Math.round(pt * 4 / 3);
+    return { pullPt: pt, pullPx: px, h: px + TAKEOVER_TAIL_PX };
+  }
+  // A line's size, normalized. 0/NaN/absent mean "unset" and take the default; a real
+  // but silly number is clamped to the ends. (0 deliberately does not clamp up to the
+  // 8px floor — a zero-height line is never what anyone meant.)
+  function takeoverSize(s) { return Math.max(8, Math.min(48, Math.round(s) || 20)); }
+  // Distance from the first baseline to the last. Leading between two lines is set by
+  // the larger of the two. SHARED on purpose: buildFakeCheer has to reserve exactly the
+  // room buildTakeover is going to consume, and these two getting out of step is what
+  // let a picture land on top of the text (measured: the bits line erased to 0 ink).
+  // Baseline offsets from the first line, and therefore the total run (the last one).
+  // BOTH callers use this: buildFakeCheer to reserve exactly the room buildTakeover
+  // will consume, and buildTakeover to place the lines. It only protects against the
+  // two drifting apart if they genuinely share it — an earlier version left the same
+  // sum inlined in buildTakeover with a comment claiming it was shared, which would
+  // have let a leading-rule change silently reintroduce the picture-over-text bug.
+  function takeoverOffsets(lines) {
+    var offs = [0], run = 0;
+    for (var i = 0; i + 1 < lines.length; i++) {
+      run += Math.round(Math.max(takeoverSize(lines[i].size),
+                                 takeoverSize(lines[i + 1].size)) * 1.35);
+      offs.push(run);
+    }
+    return offs;
+  }
+  function takeoverStackRun(lines) {
+    var o = takeoverOffsets(lines);
+    return o[o.length - 1] || 0;
+  }
+  // The payload is one newline-free line, and that is a pure-core constraint — but
+  // escapeHtml only handles & < >, so a CR/LF in a saved block (hand-edited storage, a
+  // future textarea) would sail straight through into the emitted SVG. Collapse here,
+  // where the guarantee is claimed, instead of relying on <input> stripping newlines.
+  function takeoverLineText(t) { return String(t == null ? "" : t).replace(/[\r\n\t]+/g, " ").trim(); }
+  function takeoverText(cx, y, size, l) {
+    return '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
+      + (l.weight ? ' font-weight="' + (Math.round(l.weight) || 700) + '"' : "")
+      + (l.italic ? ' font-style="italic"' : "")
+      + '>' + escapeHtml(l.text) + '</text>';
+  }
+  // o = {lines:[{text,size,weight,italic}], startY, picture, carrier, pullPt, w}. Any
+  // line may be blank and is simply not drawn. `picture` rides in a <foreignObject>
+  // through the ordinary carrier table, so it inherits the blocked-tag data instead of
+  // hardcoding SVG's own <image (which the list ate in Aug 2026) — measured working
+  // with both the embed and input carriers.
+  // A positive, finite, bounded pixel dimension, or the default. Math.round(Infinity) is
+  // Infinity and sails through a bare `> 0`, which reached the markup as width="Infinity".
+  function takeoverDim(v, def) {
+    var n = Math.round(v);
+    return isFinite(n) && n > 0 ? Math.min(n, 4000) : def;
+  }
+  function buildTakeover(o) {
+    o = o || {};
+    var W = takeoverDim(o.w, 263);
+    var b = takeoverBox(o.pullPt), cx = Math.round(W / 2);
+    var out = '<rect width="' + W + '" height="' + b.h + '" fill="#fff"/>';
+    var lines = [];
+    for (var li = 0; li < (o.lines || []).length; li++) {
+      var src = o.lines[li];
+      if (!src) continue;
+      var txt = takeoverLineText(src.text);
+      // Trimmed, so a lone space no longer buys a real <text> element (63 chars of a
+      // 500-char budget) plus a layout slot that pushes the picture's room down.
+      if (txt !== "") lines.push({ text: txt, size: src.size, weight: src.weight, italic: src.italic });
+    }
+    if (lines.length) {
+      var kids = "", startY = Math.round(o.startY);
+      if (startY > 0) {
+        // Given a baseline, the block hangs DOWNWARD from it — a header reads top-down
+        // from its picture, so the fake-cheer layout anchors under the picture rather
+        // than floating at the bottom of the covered area. Leading between two lines is
+        // set by the larger of the two, which keeps a 24px line from crowding a 13px one.
+        //
+        // The offsets are computed first so the stack can be placed AND CLAMPED as a
+        // unit. That clamp is the point: a baseline outside the white box doesn't just
+        // look wrong, it prints on top of the header this block exists to paint over.
+        // A short pull (or an oversized picture) is exactly when that happens.
+        var offs = takeoverOffsets(lines), acc = offs[offs.length - 1], i;
+        var lastSize = takeoverSize(lines[lines.length - 1].size);
+        var maxStart = b.h - 6 - acc - Math.round(lastSize * 0.3);   // keep the descender in
+        var minStart = takeoverSize(lines[0].size);                  // keep the cap-height in
+        // maxStart can fall BELOW minStart when the stack is simply taller than the box
+        // (three 48px lines in a 120px cover — 189 of 2898 reachable slider combinations
+        // do it). Clamping cannot satisfy both ends then, and the obvious
+        // Math.max(min, Math.min(y, max)) silently resolves to minStart and lets the
+        // tail fall outside the viewport — where the SVG clips it, so the line never
+        // prints AND is still paid for in characters. Take the top, then drop whatever
+        // genuinely doesn't fit rather than emitting invisible text.
+        var y0 = maxStart >= minStart
+          ? Math.max(minStart, Math.min(Math.round(startY), maxStart))
+          : minStart;
+        for (i = 0; i < lines.length; i++) {
+          var size3 = takeoverSize(lines[i].size), yy = y0 + offs[i];
+          if (yy + Math.round(size3 * 0.3) > b.h) break;   // past the cover; would be clipped
+          kids += takeoverText(cx, yy, size3, lines[i]);
+        }
+      } else {
+        // Default: stack from the bottom of the covered area upward, so the block always
+        // reads as a unit sitting where the header used to be however tall the pull is.
+        var y2 = b.pullPx - 24;
+        for (var j = lines.length - 1; j >= 0; j--) {
+          var size2 = takeoverSize(lines[j].size);
+          kids = takeoverText(cx, y2, size2, lines[j]) + kids;
+          y2 -= Math.round(size2 * 1.35);
+        }
+      }
+      out += '<g text-anchor="middle">' + kids + '</g>';
+    }
+    // THE PICTURE GOES LAST, AND THAT ORDER IS LOAD-BEARING. <foreignObject> is an
+    // HTML integration point: the parser switches to HTML inside it and — measured on
+    // the real engine — never cleanly returns to SVG context, so any SVG sibling that
+    // FOLLOWS it is parsed as HTML and silently never drawn. With the picture first,
+    // the text simply vanished from the print. Emitting it last costs one thing: SVG
+    // paints in document order, so a picture tall enough to reach the text will cover
+    // it. Losing the text to overlap at least shows up in the preview; losing it to a
+    // parser quirk does not.
+    if (o.picture) {
+      var pw = takeoverDim(o.pictureW, 120);
+      var ph = takeoverDim(o.pictureH, 120);
+      var py = takeoverDim(o.pictureY, 6);
+      out += '<foreignObject x="' + Math.round(cx - pw / 2) + '" y="' + py + '" width="' + pw
+        + '" height="' + ph + '">'
+        // framed: the foreignObject above is a fixed box the tag already fills, so the
+        // body-width clamp is a no-op here and is 23 chars we need. See clampAttr.
+        + buildImageEmbed(o.carrier, { url: o.picture, w: pw, h: ph, mm: Math.round(pw / 3.75),
+                                       framed: true })
+        + '</foreignObject>';
+    }
+    return '<svg width="' + W + '" height="' + b.h + '" style="margin-top:-' + b.pullPt + 'pt">'
+      + out + '</svg>';
+  }
+  // ── FAKE CHEER ────────────────────────────────────────────────────────────
+  // The takeover wearing the header's own shape: a profile picture on top, a bits
+  // figure, a name. It is the same overlay through the same builder — only the
+  // arrangement differs — so escaping, the carrier table and the foreignObject-last
+  // rule all come along for free instead of being re-implemented here.
+  //
+  // The reference layout is the payload this was reverse-engineered from, which
+  // printed correctly on the real rig: an 80px-wide picture at the top, then
+  // baselines at 24px/900, 19px/700 and 13px/italic. The numbers below reproduce it.
+  //
+  // On what this is: the tape is not a record of anything. Twitch's bits ledger is
+  // server-side and authoritative, nobody reconciles it against thermal paper, and
+  // the printer is a gag the streamer runs for laughs. The cheer that triggers the
+  // print also carries the real sender's name in chat, in front of everyone — the
+  // joke lands *because* the room can see the paper is lying.
+  // MEASURED, and it decides the default: inside the takeover's lifted <foreignObject>
+  // a picture whose DRAWN HEIGHT is under ~120 CSS px does not render at all on the
+  // printer's engine — no image XObject in the PDF, just blank paper. Not width, not
+  // area: a 60x240 draw renders and a 200x67 draw does not, at near-identical areas.
+  // All three live carriers behave the same, so it isn't a carrier quirk. It only
+  // happens under the negative top margin; the same markup unlifted renders at 80.
+  //
+  // A profile picture is square, so its drawn height IS its width — which is why the
+  // floor below is a width. The old 80px default drew 80 tall and printed nothing; it
+  // survived earlier testing only because that test used a 1:3 portrait source, which
+  // drew 240 tall and cleared the threshold by accident.
+  var CHEER_MIN_PIC_PX = 120;   // drawn height below this simply does not print
+  var CHEER_AVATAR_W = 120;     // the smallest square that renders
+  var CHEER_GAP_PX = 32;        // picture bottom -> first baseline
+  var CHEER_TOP_PX = 6;         // top of the covered area -> top of the picture
+  var CHEER_SUFFIX = " BITS";   // what the bot puts after the figure
+  // How far above the message the block may sit, in px. The pull slider reaches 400pt
+  // (533px) but the paper above the message is only ever as tall as the rig's real
+  // header — so a block anchored to the TOP of an over-pulled cover climbs 1:1 with the
+  // slider until it is off the roll entirely. Measured on the engine: at pullPt 300 the
+  // picture had vanished, and at 380+ the tape printed a blank white slab. Capping the
+  // lift at the default calibration's worth means nothing moves at or below the default
+  // (the reference layout is preserved exactly) and beyond it the block follows the
+  // message down the tape instead of sailing off the top of it.
+  var CHEER_MAX_LIFT_PX = 293;  // = takeoverBox(220).pullPx, the default calibration
+  // o = {bits, name, note, avatar, avatarW, sizes:{bits,name,note}, carrier, pullPt, w}
+  // What a built overlay actually drew, read back off the markup. Deliberately parses
+  // the output instead of re-deriving the layout: a second copy of the geometry is the
+  // drift that put the picture on top of the text in the first place. Used by the UI to
+  // explain a drop, which is otherwise silent — the payload just quietly gets smaller.
+  function takeoverReport(html, wantLines, wantPicture) {
+    return {
+      linesDrawn: (String(html).match(/<text/g) || []).length,
+      linesWanted: wantLines,
+      pictureDrawn: /<foreignObject/.test(String(html)),
+      pictureWanted: !!wantPicture,
+    };
+  }
+  function buildFakeCheer(o) {
+    o = o || {};
+    var sz = o.sizes || {};
+    // The figure is free text, not a number: "-100000" and "∞" are both jokes someone
+    // will want, and it gets escaped downstream like every other line.
+    var bits = String(o.bits == null ? "" : o.bits).trim();
+    var box = takeoverBox(o.pullPt);
+    var lines = [{ text: bits ? bits + CHEER_SUFFIX : "", size: sz.bits || 24, weight: 900 },
+                 { text: o.name || "", size: sz.name || 19, weight: 700 },
+                 { text: o.note || "", size: sz.note || 13, italic: true }]
+      .filter(function (l) { return String(l.text || "") !== ""; });
+
+    var top = Math.max(CHEER_TOP_PX, box.pullPx - CHEER_MAX_LIFT_PX);   // see CHEER_MAX_LIFT_PX
+
+    // RESERVE THE TEXT'S ROOM FIRST, THEN GIVE THE PICTURE WHAT IS LEFT.
+    // Done the other way round — picture sized first, text clamped into the remainder —
+    // buildTakeover's clamp drags the stack UP into the picture's rectangle, and since
+    // the picture is painted last (the foreignObject rule below), it erases the line.
+    // Measured on the real engine: the default pull with the width slider at its maximum
+    // rendered "-100000 BITS" with ZERO visible ink while every test still passed.
+    var first = lines.length ? takeoverSize(lines[0].size) : 0;
+    var last = lines.length ? takeoverSize(lines[lines.length - 1].size) : 0;
+    var textNeed = lines.length
+      ? CHEER_GAP_PX + first + takeoverStackRun(lines) + Math.round(last * 0.3)
+      : 0;
+
+    // SQUARE, because a profile picture is square. The carriers state only a width, so
+    // the drawn height is the source's own aspect: reserving 1.4x left a slab of white
+    // between a square avatar and the text (measured 32px at the default, 80px at the
+    // max). A portrait source is top-cropped by the foreignObject, which for an avatar
+    // is what you want anyway.
+    var aw = takeoverDim(o.avatarW, CHEER_AVATAR_W);
+    if (aw < CHEER_MIN_PIC_PX) aw = CHEER_MIN_PIC_PX;   // a saved pre-floor value still prints
+    var room = box.h - top - textNeed;
+    if (aw > room) aw = room;
+    // Below a floor a picture is a smear that still costs ~90 chars. Drop it and keep
+    // the text, rather than shipping both badly.
+    var hasPic = !!o.avatar && aw >= CHEER_MIN_PIC_PX;
+
+    // With no picture there is nothing to hang from, and anchoring the bare lines at the
+    // top left them jammed against the edge with ~240px of blank tape between them and
+    // the message. Sit them mid-cover instead, which is close to where the reference
+    // put them and reads as a header rather than a stray caption.
+    var startY = hasPic ? top + aw + CHEER_GAP_PX + first
+                        : Math.max(top + first, Math.round(box.pullPx * 0.5));
+    return buildTakeover({
+      lines: lines,
+      startY: startY,
+      picture: hasPic ? o.avatar : "", pictureW: aw, pictureH: aw, pictureY: top,
+      carrier: o.carrier, pullPt: o.pullPt, w: o.w
+    });
+  }
+
   // NOT IN THE TABLE, and don't re-add it without re-measuring: a <div> wearing the
   // photo as a CSS background. It's the one surface with no tag name to block, so it
   // looks like the obvious durable answer — but printer-bot's Print Routine passes
@@ -636,6 +928,7 @@
     return getEmbed(id).build({
       url: o.url == null ? "" : String(o.url),
       w: n(o.w, 263), h: n(o.h, 263), mm: n(o.mm, 70),
+      framed: !!o.framed,        // see clampAttr — only buildTakeover sets this
     });
   }
   // One labelled message per surface, for finding out which tags still get through.
@@ -1137,6 +1430,26 @@
     }
     // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
     function renderBlockBodies(block) {
+      if (block.type === "takeover") {
+        var tHtml = block.tkStyle === "cheer"
+          ? buildFakeCheer({
+              bits: block.cBits, name: block.cName, note: block.cNote,
+              avatar: block.avatar, avatarW: block.avatarW,
+              sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+              carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX })
+          : buildTakeover({
+              lines: [{ text: block.l1, size: block.s1, weight: 900 },
+                      { text: block.l2, size: block.s2, weight: 700 },
+                      { text: block.l3, size: block.s3, italic: true }],
+              picture: block.picture, pictureW: block.pictureW,
+              pictureH: Math.round((block.pictureW || 120) * 1.4),
+              carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        // heightPx 0 on purpose: a takeover sits on top of the header the bot already
+        // drew, so it consumes no extra tape. Charging the height packer for it would
+        // split receipts apart over space that isn't actually being used.
+        return [{ html: tHtml, chars: payloadLength(tHtml), heightPx: 0,
+                  preview: { kind: "html", html: tHtml } }];
+      }
       if (block.type === "image") {
         if (block.imgKind === "glyph") return glyphImageBodies(block);
         return block.url ? imageBodies(block) : [];
@@ -1714,8 +2027,11 @@
     // v3: the list took "<img" too, so the previous default is blocked — anyone whose
     // saved block still points at it gets moved to the current default on next load.
     var EMBED_V = 3;
+    // Takeover blocks carry a renderAs too (their picture rides the same carrier table),
+    // so they need the same migration — without this a takeover saved when the default
+    // was a since-blocked tag keeps pointing at it forever and its picture never prints.
     function migrateEmbed(b) {
-      if (b.type !== "image" || b.embedV === EMBED_V) return b;
+      if ((b.type !== "image" && b.type !== "takeover") || b.embedV === EMBED_V) return b;
       if (getEmbed(b.renderAs).blocked) b.renderAs = EMBED_DEFAULT;
       b.embedV = EMBED_V;
       return b;
@@ -1724,9 +2040,23 @@
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
         tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
+      // The two styles keep SEPARATE text fields on purpose — flipping the selector to
+      // compare them and flipping back must not eat what you typed. The three size
+      // sliders are shared, because they're the same three visual slots either way.
+      if (type === "takeover") return { id: blockIdSeq++, type: "takeover",
+        tkStyle: "blank",
+        l1: "", s1: 24, l2: "", s2: 19, l3: "", s3: 13,
+        cBits: "", cName: "", cNote: "", avatar: "", avatarW: CHEER_AVATAR_W,
+        picture: "", pictureW: CHEER_AVATAR_W, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
+        pullPt: TAKEOVER_PULL_PT };
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
+      if (b.type === "takeover") {
+        return b.tkStyle === "cheer"
+          ? !!((b.cBits || "") + (b.cName || "") + (b.cNote || "") + (b.avatar || "")).trim()
+          : !!((b.l1 || "") + (b.l2 || "") + (b.l3 || "") + (b.picture || "")).trim();
+      }
       if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
       return !!(b.text && String(b.text).trim());
     }
@@ -1790,7 +2120,8 @@
     }
     function cardHead(block) {
       var head = mkEl("div", { "class": "bc-head" });
-      head.appendChild(mkEl("span", { "class": "bc-type" }, block.type === "image" ? "Image" : "Text"));
+      head.appendChild(mkEl("span", { "class": "bc-type" },
+        block.type === "image" ? "Image" : block.type === "takeover" ? "Takeover" : "Text"));
       head.appendChild(mkEl("span", { "class": "spacer" }));
       var up = mkEl("button", { type: "button", title: "Move up" }, "↑");
       var dn = mkEl("button", { type: "button", title: "Move down" }, "↓");
@@ -1954,6 +2285,216 @@
       img.onerror = function () { setStatus("Couldn't read that image."); URL.revokeObjectURL(img.src); };
       img.src = URL.createObjectURL(file);
     }
+    // Takeover: paints over printer-bot's own header so the tape reads as your
+    // artwork instead of a receipt. Three optional lines + an optional picture, and
+    // one calibration knob for how far up to reach (the bot's header height depends
+    // on the streamer's avatar, so it can't be a constant).
+    function takeoverCard(block) {
+      var card = mkEl("div", { "class": "block-card" });
+      card.appendChild(cardHead(block));
+      card.appendChild(mkEl("div", { "class": "hint" },
+        "Paints over the receipt’s own header — the avatar, the bits line and the name "
+        + "printer-bot drew — and puts yours there instead. Put it FIRST in the "
+        + "stack; anything below it prints as normal underneath."));
+
+      card.appendChild(mkEl("label", null, "Style"));
+      var style = mkEl("select");
+      style.appendChild(opt("blank", "Blank — your own three lines", block.tkStyle !== "cheer"));
+      style.appendChild(opt("cheer", "Fake cheer — picture, bits, name", block.tkStyle === "cheer"));
+      card.appendChild(style);
+
+      // Size sliders are shared by both styles (same three visual slots), so they're
+      // built once here and the two field groups only own their text inputs.
+      // s1/s2/s3 are ONE value per block but get a slider in each style's field group.
+      // Without re-syncing, setting the size in one style left the other showing a stale
+      // number while the preview rendered the new one — and nudging the stale control
+      // silently jumped the size back. Every copy is registered and refreshed on switch.
+      var sizeCopies = [];
+      var syncSizes = function () {
+        for (var i = 0; i < sizeCopies.length; i++) {
+          var c = sizeCopies[i], v = block[c.key] || c.def;
+          if (c.el.value !== String(v)) { c.el.value = v; if (c.el.oninput) c.el.oninput(); }
+          if (c.out) c.out.textContent = v;
+        }
+      };
+      var mkSize = function (parent, sizeKey, def) {
+        var sz = mkEl("input", { type: "range", min: "8", max: "48", step: "1" });
+        sz.value = block[sizeKey] || def;
+        sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; saveBlocks(); update(); });
+        var row = sliderRow("Size", sz, def, "");
+        parent.appendChild(row);
+        sizeCopies.push({ el: sz, key: sizeKey, def: def, out: row.querySelector && row.querySelector("output, .slider-val") });
+      };
+      var mkText = function (parent, labelText, key, attrs) {
+        parent.appendChild(mkEl("label", null, labelText));
+        var ta = mkEl("input", attrs || { type: "text" });
+        ta.value = block[key] || "";
+        ta.addEventListener("input", function () { block[key] = ta.value; saveBlocks(); update(); });
+        parent.appendChild(ta);
+        return ta;
+      };
+
+      // --- Blank takeover: three free lines + a picture ---
+      var blankWrap = mkEl("div");
+      mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24);
+      mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19);
+      mkText(blankWrap, "Line 3 (italic)", "l3"); mkSize(blankWrap, "s3", 13);
+      mkText(blankWrap, "Picture URL (optional)", "picture", { type: "url", placeholder: "https://…/pic.png" })
+        .addEventListener("input", function () { syncFrameWarn(); });
+      // min 120: below that the picture does not render at all on the print engine
+      // (see CHEER_MIN_PIC_PX) — offering 40 would just be a slider that prints nothing.
+      var pw = mkEl("input", { type: "range", min: "120", max: "240", step: "5" });
+      pw.value = Math.max(120, block.pictureW || 120);
+      pw.addEventListener("input", function () { block.pictureW = parseInt(pw.value, 10) || 120; saveBlocks(); update(); });
+      blankWrap.appendChild(sliderRow("Picture width (px)", pw, 120, ""));
+      card.appendChild(blankWrap);
+
+      // --- Fake cheer: the header's own shape ---
+      var cheerWrap = mkEl("div");
+      cheerWrap.appendChild(mkEl("div", { "class": "hint" },
+        "Lays your lines out the way printer-bot lays out a real cheer — picture on "
+        + "top, then the bits figure, then the name. “ BITS” is added for you, so put "
+        + "just the number (or whatever you want in its place)."));
+      mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24);
+      mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19);
+      mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13);
+      mkText(cheerWrap, "Picture URL (optional)", "avatar", { type: "url", placeholder: "https://…/pic.png" })
+        .addEventListener("input", function () { syncFrameWarn(); });
+      // An earlier version of this hint said an over-length fake cheer "splits into a
+      // second cheer". It does NOT: packStackBodies treats the first body of a part as
+      // fitting whatever its length ("cur.length === 0 ||"), and a takeover is a single
+      // SVG that cannot be split anyway — so going over doesn't cost 200 bits, it means
+      // Twitch rejects the message and nothing prints. Measured margins with an uploaded
+      // link: name "IRS" 497/500, "shamu4life" 504 — over. The
+      // name eats the budget just as fast as the URL does, so say so.
+      cheerWrap.appendChild(mkEl("div", { "class": "hint" },
+        "With a picture this nearly fills the message — about 497 of 500 with a short "
+        + "name — so watch the counter. Going over doesn’t cost a second cheer: Twitch "
+        + "rejects an over-length message outright and nothing prints. A long name or a "
+        + "pasted Discord/imgur link will do it; “Upload for a 15-min link” on an Image "
+        + "block mints the shortest link there is."));
+      var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
+      aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
+      aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });
+      cheerWrap.appendChild(sliderRow("Picture width (px)", aw, CHEER_AVATAR_W, ""));
+      card.appendChild(cheerWrap);
+
+      var applyStyle = function () {
+        var cheer = block.tkStyle === "cheer";
+        blankWrap.style.display = cheer ? "none" : "";
+        cheerWrap.style.display = cheer ? "" : "none";
+        syncSizes();          // the hidden copy is stale until it's shown again
+      };
+      style.addEventListener("change", function () {
+        block.tkStyle = style.value; applyStyle(); saveBlocks(); update();
+      });
+
+      card.appendChild(mkEl("label", null, "Carrier tag (for the picture)"));
+      var ra = mkEl("select");
+      var cur = getEmbed(block.renderAs).id;
+      EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === cur)); });
+      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
+      card.appendChild(ra);
+
+      // A carrier can be fine at top level and destructive inside the takeover's frame
+      // — iframe eats everything stacked below the takeover. Warn rather than silently
+      // overriding the pick: an explicit choice should still be honoured.
+      var frameWarn = mkEl("div", { "class": "over-note" });
+      frameWarn.hidden = true;
+      card.appendChild(frameWarn);
+      var syncFrameWarn = function () {
+        var e = getEmbed(block.renderAs);
+        var url = block.tkStyle === "cheer" ? block.avatar : block.picture;
+        // Two independent ways the picture prints blank, both silent on the tape.
+        if (e.framedOk === false && url) {
+          frameWarn.hidden = false;
+          frameWarn.textContent = "“" + e.label + "” breaks inside a Takeover: everything "
+            + "you stack BELOW this block disappears from the print. Pick another carrier "
+            + "for the picture here (it's fine on an ordinary Image block).";
+          return;
+        }
+        // Same trap the Image block already warns about, and the takeover's default
+        // carrier is the one that has it: embed picks its renderer from the file
+        // extension and draws NOTHING without one, with no error anywhere.
+        if (e.needsExt && url && !urlHasImageExt(url)) {
+          frameWarn.hidden = false;
+          frameWarn.textContent = "That link doesn’t end in .png/.jpg — the “" + e.label
+            + "” carrier picks its renderer from the extension, so the picture will print "
+            + "blank. Use “input type=image” instead, or upload the file on an Image block "
+            + "to get a .png link.";
+          return;
+        }
+        frameWarn.hidden = true;
+      };
+      // A dropped picture or line is CORRECT — a sub-120px picture prints nothing while
+      // costing ~90 chars, and a clipped line costs 63 for ink that never appears — but
+      // it is silent, and "Reach up" is a knob the app tells you to calibrate. At the
+      // default sizes every stop at or below 150pt drops the picture: 19 of the 69
+      // positions, the bottom quarter of the slider, 70pt below the default. Without
+      // this note the avatar just vanishes and nothing connects it to the slider.
+      var dropNote = mkEl("div", { "class": "hint" });
+      dropNote.hidden = true;
+      card.appendChild(dropNote);
+      var syncDropNote = function () {
+        var wantPic = !!(block.tkStyle === "cheer" ? block.avatar : block.picture);
+        var html, wantLines;
+        if (block.tkStyle === "cheer") {
+          wantLines = [block.cBits, block.cName, block.cNote]
+            .filter(function (t) { return String(t || "").trim() !== ""; }).length;
+          html = buildFakeCheer({ bits: block.cBits, name: block.cName, note: block.cNote,
+            avatar: block.avatar, avatarW: block.avatarW,
+            sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+            carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        } else {
+          wantLines = [block.l1, block.l2, block.l3]
+            .filter(function (t) { return String(t || "").trim() !== ""; }).length;
+          html = buildTakeover({
+            lines: [{ text: block.l1, size: block.s1, weight: 900 },
+                    { text: block.l2, size: block.s2, weight: 700 },
+                    { text: block.l3, size: block.s3, italic: true }],
+            picture: block.picture, pictureW: block.pictureW,
+            pictureH: Math.round((block.pictureW || 120) * 1.4),
+            carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        }
+        var r = takeoverReport(html, wantLines, wantPic);
+        var msgs = [];
+        if (r.pictureWanted && !r.pictureDrawn) {
+          msgs.push("The picture isn’t in this payload — there’s no room for one at least "
+            + CHEER_MIN_PIC_PX + "px, which is the smallest that renders on the printer. "
+            + "Raise “Reach up”, or shorten a line.");
+        }
+        if (r.linesDrawn < r.linesWanted) {
+          msgs.push("Only " + r.linesDrawn + " of " + r.linesWanted + " lines fit the covered "
+            + "area; the rest are left out rather than printed off the edge. Raise “Reach up” "
+            + "or drop a size.");
+        }
+        dropNote.hidden = msgs.length === 0;
+        dropNote.textContent = msgs.join(" ");
+      };
+      var syncNotes = function () { syncFrameWarn(); syncDropNote(); };
+      ra.addEventListener("change", syncNotes);
+      style.addEventListener("change", syncNotes);
+      aw.addEventListener("input", syncNotes);
+      pw.addEventListener("input", syncNotes);
+      for (var sc = 0; sc < sizeCopies.length; sc++) sizeCopies[sc].el.addEventListener("input", syncNotes);
+      [blankWrap, cheerWrap].forEach(function (w) {
+        var ins = w.querySelectorAll ? w.querySelectorAll("input") : [];
+        for (var i = 0; i < ins.length; i++) ins[i].addEventListener("input", syncNotes);
+      });
+
+      var pull = mkEl("input", { type: "range", min: "60", max: "400", step: "5" });
+      pull.value = block.pullPt || TAKEOVER_PULL_PT;
+      pull.addEventListener("input", function () { block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; saveBlocks(); update(); });
+      pull.addEventListener("input", syncNotes);   // wired here: `pull` doesn't exist yet above
+      card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
+      card.appendChild(mkEl("div", { "class": "hint" },
+        "How far up to paint. The bot’s header is taller or shorter depending on the "
+        + "streamer’s avatar, so this needs one calibration print: too little leaves a "
+        + "strip of the old header showing, too much eats into the paper above."));
+      applyStyle();
+      syncNotes();
+      return card;
+    }
     function imageCard(block) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block));
@@ -2085,7 +2626,10 @@
       var list = document.getElementById("blockList");
       if (!list) return;
       list.textContent = "";
-      blocks.forEach(function (b) { list.appendChild(b.type === "image" ? imageCard(b) : textCard(b)); });
+      blocks.forEach(function (b) {
+        list.appendChild(b.type === "takeover" ? takeoverCard(b)
+          : b.type === "image" ? imageCard(b) : textCard(b));
+      });
     }
     function composeParts() {
       if (!blocks.some(blockHasContent)) {
@@ -2342,6 +2886,7 @@
       renderComposer();
       document.getElementById("addTextBtn").addEventListener("click", function () { addBlock("text"); });
       document.getElementById("addImageBtn").addEventListener("click", function () { addBlock("image"); });
+      document.getElementById("addTakeoverBtn").addEventListener("click", function () { addBlock("takeover"); });
 
       setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel(); refreshes preview
     }
@@ -2362,6 +2907,9 @@
       escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
+      buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
+      buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
+      CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
     };
   }
 </script>

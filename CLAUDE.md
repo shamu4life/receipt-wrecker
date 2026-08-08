@@ -188,8 +188,20 @@ All functions live inside the one IIFE in `public/index.html`.
     rule are inherited instead of re-implemented — keep it that way. The layout numbers
     reproduce the hand-built payload this was reverse-engineered from, which printed
     correctly on the real rig: an 80 px picture at the top, baselines 24/900, 19/700,
-    13/italic. The bits figure is **free text, not a number** — `-100000` and `∞` are
+    13/italic — except that the picture is reserved **square** (a profile picture is
+    square, and the carriers state only a width, so a 1.4 reservation left a slab of
+    white under it) and at least `CHEER_MIN_PIC_PX` tall (see the render threshold
+    above). The bits figure is **free text, not a number** — `-100000` and `∞` are
     both jokes people want, and coercing it to a number kills them.
+    **Layout order is load-bearing:** reserve the TEXT's room first, then give the
+    picture what is left. Sizing the picture first and clamping the text into the
+    remainder drags the stack up into the picture's rectangle — and the picture is
+    painted last, so it erases the line. Measured: the default pull with the width
+    slider at max rendered the bits line with zero ink while every test passed, because
+    the tests only asserted each piece was inside the box. They now assert the two are
+    disjoint. The lift is also capped (`CHEER_MAX_LIFT_PX`) so an over-pulled block
+    follows the message down instead of sailing off the top of the roll — at pullPt 380+
+    it used to print a blank white slab.
     **Measured cost:** three lines alone are ~357 chars with the cheer wrapper; *with*
     a picture on a minted link it is **495 of 500 — one cheer**. Getting there took two
     things and the margin is thin enough to lose by accident, so both are tested:
@@ -296,6 +308,18 @@ Things already settled this way, so you don't have to re-derive them:
   too wide. Real-image carriers now carry `max-width:100%` so they clamp to whatever
   the body really is; `PAPER_PX` itself is left alone because the text modes are
   field-verified at it. Prefer a clamp over another hardcoded number here.
+- **A picture drawn under ~120 CSS px TALL does not render inside a lifted takeover.**
+  No image XObject in the PDF at all — the tape prints blank where the picture should
+  be. It is the drawn HEIGHT, not width or area: a 60x240 draw renders, a 200x67 draw
+  does not, at near-identical areas; the threshold sits between 110 and 120. All three
+  live carriers behave identically, so it is not a carrier quirk, and it only happens
+  under the negative top margin (the same markup unlifted renders at 80). This decides
+  the fake cheer's default: a profile picture is square, so its drawn height IS its
+  width, and the old 80px default printed nothing. `CHEER_MIN_PIC_PX` = 120 is the
+  floor, both picture-width sliders start there, and a picture that cannot clear it is
+  dropped rather than sent as ~90 characters buying blank paper. **This is easy to
+  "disprove" by accident:** test with a portrait source and it draws tall enough to
+  clear the threshold no matter how narrow you set it. Test with a SQUARE source.
 - **The uploaded-image URL is payload, and its length is a product constraint.**
   `/upload` mints `https://<host>/<12 hex>.png` (45 chars on `receipt.uwutoowo.com`),
   down from `/i/<32 hex>.png` (67). 12 hex = 48 bits against a 15-minute TTL, which is

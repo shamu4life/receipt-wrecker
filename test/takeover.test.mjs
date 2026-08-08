@@ -152,7 +152,18 @@ test("a fake cheer reproduces the reference layout it was measured from", () => 
   const html = C.buildFakeCheer(CHEER);
   const ys = [...html.matchAll(/<text x="(\d+)" y="(\d+)"/g)].map(m => Number(m[2]));
   assert.equal(ys.length, 3);
-  assert.deepEqual(ys, [150, 182, 208], "drifted off the reference baselines: " + ys);
+  // 142/174/200, not the reference's own 150/182/208: the reference drew its picture
+  // through SVG's <image height=113>, which STRETCHES an 80px-wide source to 1.4. The
+  // carrier tags state only a width, so the drawn height is the source's own aspect —
+  // and a profile picture is square. Reserving 1.4 left a measured 32px slab of white
+  // between a square avatar and the text, so the reservation is square and everything
+  // below it moves up by that 8px. Same arrangement, no gap.
+  // 182/214/240. The reference's own 150/182/208 came from an 80px-wide picture drawn
+  // through SVG's <image height=113>, which STRETCHES the source. Two measured facts
+  // moved it: the carriers state only a width so a square avatar draws square (no 1.4
+  // stretch, and no slab of white under it), and a picture drawn under ~120px tall does
+  // not render AT ALL under the negative margin — so 120 is the floor, not 80.
+  assert.deepEqual(ys, [182, 214, 240], "drifted off the reference baselines: " + ys);
   assert.ok(/font-size="24" font-weight="900"/.test(html), "bits line lost its weight");
   assert.ok(/font-size="19" font-weight="700"/.test(html), "name line lost its weight");
   assert.ok(/font-size="13" font-style="italic"/.test(html), "note line lost its italic");
@@ -264,22 +275,124 @@ test("the width clamp survives everywhere except inside a fixed frame", () => {
   assert.ok(!/max-width:100%/.test(tk), "the takeover's framed picture should not clamp");
 });
 
-test("an oversized picture or a short pull can't push anything outside the cover", () => {
-  // Everything this block draws has to land on the white rect. Anything hanging past
-  // it prints on top of the header the block exists to paint over — which looks like
-  // the feature simply not working.
+// Parse a built overlay back into geometry, so the assertions below are about what
+// actually lands on paper rather than about the shape of the string.
+function geom(html) {
+  const t = [...html.matchAll(/<text x="\d+" y="(\d+)" font-size="(\d+)"/g)]
+    .map((m) => ({ y: Number(m[1]), size: Number(m[2]) }));
+  const f = html.match(/<foreignObject x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/);
+  return { lines: t, pic: f ? { x: +f[1], y: +f[2], w: +f[3], h: +f[4] } : null };
+}
+
+test("the picture and the text never overlap — the picture paints last and would erase it", () => {
+  // THIS IS THE ONE THE SUITE WAS MISSING. The old tests asserted only that each piece
+  // was inside the box, which was TRUE in every failing case: the picture was in the
+  // box, the text was in the box, and the picture was drawn on top of the text. Measured
+  // on the real engine at the default pull with the width slider at its maximum,
+  // "-100000 BITS" rendered with ZERO visible ink while all 85 tests passed.
+  //
+  // The cause was ordering: buildFakeCheer sized the picture first and let
+  // buildTakeover's clamp drag the text up into it. The room for the text is now
+  // reserved first. These are the exact cells that failed, plus a sweep.
+  for (const pullPt of [60, 65, 90, 95, 100, 120, 130, 220, 250, 300, 340, 400]) {
+    for (const avatarW of [40, 80, 160, 175, 200]) {
+      const g = geom(C.buildFakeCheer({ ...CHEER, pullPt, avatarW }));
+      const where = "pull " + pullPt + " / picture " + avatarW;
+      if (!g.pic || !g.lines.length) continue;          // a dropped picture can't overlap
+      const picBottom = g.pic.y + g.pic.h;
+      const firstTop = g.lines[0].y - g.lines[0].size;  // cap height above the baseline
+      assert.ok(firstTop >= picBottom,
+        where + ": the picture (to y" + picBottom + ") covers the first line (top y" + firstTop + ")");
+    }
+  }
+});
+
+test("nothing is ever drawn outside the painted cover", () => {
+  // Anything hanging past the white rect prints on top of the header this block exists
+  // to cover — which reads as the feature not working. Text past the bottom is worse
+  // than useless: the SVG viewport clips it, so it never prints AND is still paid for
+  // in characters. Those lines are dropped instead.
   for (const pullPt of [60, 90, 220, 400]) {
     for (const avatarW of [40, 80, 200]) {
-      const h = C.buildFakeCheer({ ...CHEER, pullPt, avatarW });
-      const box = C.takeoverBox(pullPt);
-      const fo = h.match(/<foreignObject x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/);
-      const where = "pull " + pullPt + " / picture " + avatarW;
-      assert.ok(Number(fo[2]) + Number(fo[4]) <= box.h, where + ": picture overruns the cover");
-      assert.ok(Number(fo[1]) + Number(fo[3]) <= 263, where + ": picture overruns the paper");
-      for (const m of h.matchAll(/<text x="\d+" y="(\d+)"/g)) {
-        assert.ok(Number(m[1]) <= box.h, where + ": baseline " + m[1] + " past the cover " + box.h);
+      for (const sizes of [undefined, { bits: 48, name: 48, note: 48 }, { bits: 48, name: 8, note: 48 }]) {
+        const g = geom(C.buildFakeCheer({ ...CHEER, pullPt, avatarW, sizes }));
+        const box = C.takeoverBox(pullPt);
+        const where = "pull " + pullPt + " / picture " + avatarW + " / sizes " + JSON.stringify(sizes);
+        if (g.pic) {
+          assert.ok(g.pic.y + g.pic.h <= box.h, where + ": picture overruns the cover");
+          assert.ok(g.pic.x + g.pic.w <= 263, where + ": picture overruns the paper");
+          assert.ok(g.pic.x >= 0 && g.pic.y >= 0, where + ": picture starts outside the cover");
+        }
+        for (const l of g.lines) {
+          assert.ok(l.y + Math.round(l.size * 0.3) <= box.h,
+            where + ": baseline " + l.y + " past the cover " + box.h);
+          assert.ok(l.y - l.size >= 0, where + ": baseline " + l.y + " starts above the cover");
+        }
       }
     }
+  }
+});
+
+test("the block can't ride off the top of the paper at a big pull", () => {
+  // The blank takeover anchors to the BOTTOM of the cover, so over-pulling only adds
+  // white. The fake cheer anchors to the top, which climbed 1:1 with the slider until
+  // the tape printed a blank white slab — measured: at pullPt 300 the picture was gone,
+  // at 380+ nothing printed at all. The lift is now capped, so past the default
+  // calibration the block follows the message down instead of sailing off the roll.
+  const lift = (pullPt) => {
+    const g = geom(C.buildFakeCheer({ ...CHEER, pullPt }));
+    const top = g.pic ? g.pic.y : g.lines[0].y - g.lines[0].size;
+    return C.takeoverBox(pullPt).pullPx - top;      // px between the block top and the message
+  };
+  // The invariant is a hard ceiling on the lift, not a comparison against the default:
+  // at the default the block starts 6px down, so it lifts 287 and the ceiling is 293.
+  const CEILING = 293;                       // CHEER_MAX_LIFT_PX = takeoverBox(220).pullPx
+  assert.equal(lift(220), CEILING - 6, "the default calibration should be untouched by the cap");
+  for (const pullPt of [220, 250, 300, 340, 380, 400]) {
+    assert.ok(lift(pullPt) <= CEILING,
+      "pull " + pullPt + " lifts the block " + lift(pullPt) + "px, past the " + CEILING + "px ceiling");
+  }
+  // Without the cap this grows without bound — confirm it really is being applied and
+  // the numbers aren't just coincidentally small.
+  assert.ok(lift(400) === CEILING, "the cap should be binding at pull 400, got " + lift(400));
+  // And the default itself is untouched by the cap — the reference layout still stands.
+  assert.equal(geom(C.buildFakeCheer({ ...CHEER, pullPt: 220 })).pic.y, 6);
+});
+
+test("a picture too small to print is dropped rather than shipped as blank paper", () => {
+  // MEASURED on the engine: inside the lifted foreignObject, a picture drawn under
+  // ~120px tall produces no image XObject at all — the tape prints blank where it
+  // should be. So below that floor the markup is ~90 characters of a 500-char budget
+  // buying literally nothing, and it is better not to send it.
+  const tiny = C.buildFakeCheer({ ...CHEER, pullPt: 60, avatarW: 200 });
+  assert.ok(!/foreignObject/.test(tiny), "expected the picture to be dropped at pull 60: " + tiny);
+  assert.ok(/-100000 BITS/.test(tiny), "the text must survive when the picture is dropped");
+
+  // Anything that IS emitted must clear the floor, at every reachable setting.
+  for (const pullPt of [60, 90, 120, 220, 300, 400]) {
+    for (const avatarW of [40, 120, 160, 200]) {
+      const g = geom(C.buildFakeCheer({ ...CHEER, pullPt, avatarW }));
+      if (!g.pic) continue;
+      assert.ok(g.pic.h >= 120,
+        "pull " + pullPt + " / " + avatarW + ": emitted a " + g.pic.h + "px picture that cannot print");
+    }
+  }
+  // A block saved before the floor existed is raised to a printable size, not dropped.
+  assert.ok(/foreignObject/.test(C.buildFakeCheer({ ...CHEER, pullPt: 220, avatarW: 40 })),
+    "a small saved size should clamp up to the floor while there's room for it");
+});
+
+test("a carrier that breaks inside the frame is flagged in the table", () => {
+  // Measured: an <iframe> inside the takeover's <foreignObject> swallows the content
+  // following the whole SVG, so everything stacked BELOW a takeover vanishes from the
+  // print. The table records that so the UI can warn; the pick is still honoured,
+  // because silently overriding an explicit choice is its own bug.
+  const iframe = C.EMBEDS.filter((e) => e.id === "iframe")[0];
+  assert.equal(iframe.framedOk, false, "iframe must be marked unsafe inside a frame");
+  // Everything else is either fine framed or explicitly flagged — no silent unknowns.
+  for (const e of C.EMBEDS) {
+    assert.ok(e.framedOk === undefined || e.framedOk === false,
+      e.id + ": framedOk should be absent (fine) or false (flagged), got " + e.framedOk);
   }
 });
 

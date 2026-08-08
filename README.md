@@ -140,12 +140,20 @@ picture on top, then the bits figure, then the name, then an italic message. Typ
 figure only; ` BITS` is appended for you. It's free text rather than a number, because
 `-100000` and `∞` are the jokes people actually want.
 
-- The layout reproduces the hand-built payload this was reverse-engineered from, the
-  one that printed correctly on a real rig: an 80 px picture up top, then 24/900,
-  19/700, 13/italic.
-- Text and picture are both **clamped into the painted panel**, so a short *Reach up*
-  or an oversized picture can't spill onto the header underneath — it shrinks to fit
-  instead of quietly printing over the thing it's meant to cover.
+- The layout follows the hand-built payload this was reverse-engineered from — picture
+  up top, then 24/900, 19/700, 13/italic — with two corrections the print engine forced.
+  The picture is reserved **square** (a profile picture is square, and the carrier tags
+  state only a width, so reserving 1.4× left a slab of white under it), and it is at
+  least **120 px**: measured, a picture drawn shorter than that renders *nothing at all*
+  inside the lifted overlay. The old 80 px default printed blank paper where the picture
+  should be. A picture that can't clear the floor is dropped rather than sent as ~90
+  characters buying nothing.
+- Text and picture are both **clamped into the painted panel**, and are laid out so they
+  can never overlap. That ordering matters: the picture has to be emitted last (see the
+  `foreignObject` note in the changelog), so it paints *over* the lines — and sizing it
+  first once left `-100000 BITS` rendering with zero ink at ordinary slider positions.
+- Over-pulling is safe. Reach past your rig's real header and the block follows the
+  message down the tape instead of sailing off the top of the roll.
 - **Budget, measured:** the three lines alone come to ~357 chars with the cheer wrapper.
   *With* a picture on an uploaded link it's **~495 of 500 — one cheer, 100 bits** — but
   the margin is thin, and it only holds for a short link. A pasted Discord/imgur URL is

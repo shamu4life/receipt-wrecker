@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [0.3.3] — 2026-08-08
+
+### Added
+- **Upload a picture directly on a Takeover block**, in both styles. Previously the only uploader lived on an Image block, so putting a picture on a takeover meant creating a block you didn't want, uploading there, copying the link, pasting it across, and deleting the block. The card's own hint said as much, which is a fair sign it was a papercut.
+  - It matters most exactly where it was missing: the picture is the headline of a **Fake cheer**, and that payload sits at ~491 of Twitch's 500. A pasted Discord/imgur URL is routinely long enough on its own to push it over — and over the cap Twitch rejects the message outright rather than splitting it. Uploading mints a 39-character link, which is the only shape that reliably fits.
+  - The shrink-and-POST core is now shared (`uploadPngForUrl`) rather than welded to the Image block's `block.url`, so both callers mint links the same way. The Image block's own upload path is unchanged in behaviour.
+  - After an upload the URL field repaints with the minted link, so the control shows what's actually being used instead of sitting blank while the preview changes.
+
+---
+
 ## [0.3.2] — 2026-08-07
 
 ### Added

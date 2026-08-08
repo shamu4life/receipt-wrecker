@@ -146,11 +146,12 @@ figure only; ` BITS` is appended for you. It's free text rather than a number, b
 - Text and picture are both **clamped into the painted panel**, so a short *Reach up*
   or an oversized picture can't spill onto the header underneath — it shrinks to fit
   instead of quietly printing over the thing it's meant to cover.
-- **Budget, measured:** the three lines alone come to ~357 chars with the cheer wrapper
-  and fit one message. *With* a picture it's ~520 against Twitch's 500 — even on the
-  shortest link the uploader can mint — so it goes out as **two cheers, 200 bits**.
-  Nothing is truncated; the part count under the preview shows both, and the card says
-  so before you send. Drop the picture and you're back to one.
+- **Budget, measured:** the three lines alone come to ~357 chars with the cheer wrapper.
+  *With* a picture on an uploaded link it's **~495 of 500 — one cheer, 100 bits** — but
+  the margin is thin, and it only holds for a short link. A pasted Discord/imgur URL is
+  usually long enough on its own to push it into a second cheer; use **Upload for a
+  15-min link** to mint a short one, and watch the part count. Nothing is ever
+  truncated — it splits.
 
 The tape isn't a record of anything — Twitch's bits ledger is server-side, and the
 cheer that triggers the print carries your real name in chat where the whole room sees
@@ -242,6 +243,34 @@ It's lower fidelity than the real photo, and it always prints.
 
 Everything above happens synchronously in the page; there is no server round-trip
 at any step.
+
+---
+
+## Short image links (why the URL shape is a product decision)
+
+Every character of an uploaded picture's URL is **payload**. It gets pasted into a
+Twitch message with a hard 500-character cap, next to markup that's already most of
+the budget — so the link's length decides whether a payload costs 100 bits or 200.
+
+`POST /upload` mints `https://<host>/<12 hex>.png` — **45 characters** on
+`receipt.uwutoowo.com`. It used to be `/i/<32 hex>.png`, which was 67, and those 22
+characters were the whole difference between a fake cheer fitting one cheer and
+needing two.
+
+| what changed | why it's safe |
+|---|---|
+| key `32 hex` → `12 hex` | 48 bits against a **15-minute** TTL. Guessing one needs ~3×10¹¹ requests/second to expect a single hit — 128 bits was margin that was never load-bearing. |
+| path `/i/<key>` → `/<key>` | Matched by shape (`^[0-9a-f]{8,64}` + optional image extension), so it can't shadow `/robots.txt`, `/llms.txt`, `/sitemap.xml` or the app itself. Tested. |
+| `.png` suffix kept | Load-bearing twice: `embed`/`object` pick their renderer from the extension, and wkhtmltopdf escalates a failed subresource with an *unknown* extension to a **fatal** error — exit 1, whole print job dead. Since these links expire in 15 minutes, cheering a stale one is the ordinary case. |
+
+Links minted in either older shape still resolve, so nothing breaks mid-cheer.
+
+**A shorter image host buys 6 more characters.** Point a hostname at this Worker
+(`i.uwutoowo.com/*`) and set the `RW_IMG_HOST` var; `/upload` then mints 39-character
+links. It's unset by default and falls back to whatever origin served the request, so
+preview deployments and `wrangler dev` keep working — **only set it once that host
+actually routes here**, since a link to a host that doesn't resolve prints a blank
+space where the picture should be.
 
 ---
 

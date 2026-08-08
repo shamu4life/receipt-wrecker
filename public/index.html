@@ -483,6 +483,24 @@
   // For a value going into a double-quoted HTML attribute (the image URL): also
   // neutralize the quote so a crafted URL can't break out of the attribute/tag.
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+  // ── THE WIDTH CLAMP, AND THE ONE PLACE IT MAY BE DROPPED ──────────────────
+  // A top-level picture is laid out against the receipt BODY, whose real width we do
+  // not know: printer-bot renders at paperWidth-8 mm with `body { margin: 1em }`,
+  // which measured ~240px on an 80mm roll against PAPER_PX's 263. Field-confirmed by
+  // a print that came out too wide. So the carriers clamp and adapt to whatever the
+  // body really is, rather than betting on another hardcoded number. That is
+  // load-bearing — do not remove it from the ordinary path.
+  //
+  // Inside a fixed-size <foreignObject> there is nothing to adapt TO: the containing
+  // block IS the frame, and the tag already carries width="<the frame's width>", so
+  // the declaration can only ever resolve to the width it already has. It is a
+  // provable no-op there, costing up to 23 of a 500-character Twitch budget — which
+  // is exactly the margin between a fake cheer going out as one cheer or two.
+  //
+  // `framed` drops it THERE AND ONLY THERE. buildTakeover is the sole caller that
+  // sets it, and a test asserts every carrier still clamps when unframed.
+  function clampAttr(o) { return o.framed ? "" : ' style="max-width:100%"'; }
+  function clampCss(o) { return o.framed ? "" : "max-width:100%;"; }
   // ── REAL-IMAGE EMBED SURFACES ─────────────────────────────────────────────
   // A real picture rides as markup pointing at a URL — printer-bot drops the chat
   // message straight into its page, so a tag renders. WHICH tag is a moving target:
@@ -540,7 +558,7 @@
     { id: "embed", label: "embed tag — default, prints clean (needs a .png/.jpg URL)", token: "<embed",
       needsExt: true, field: "prints",
       build: function (o) {
-        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
+        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
     // Field-confirmed to SEND — the hard half — and its selling point is that it
     // needs NO file extension, so it's the one to reach for when a link has no .png
@@ -563,7 +581,7 @@
         // border/padding zeroed on the hypothesis that native form-control chrome is
         // what made this print wide on Windows — unverified, see the note above.
         return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
-          + '" style="max-width:100%;border:0;padding:0">';
+          + '" style="' + clampCss(o) + 'border:0;padding:0">';
       } },
     // FIELD-CONFIRMED to print — but keep the caveat: a subframe gets no
     // shrink-to-fit (WebKit does that for the main frame only), so the picture draws
@@ -573,14 +591,14 @@
     { id: "iframe", label: "iframe — prints, but crops a big picture", token: "<iframe", field: "prints",
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
-          + '" frameborder="0" scrolling="no" style="max-width:100%"></iframe>';
+          + '" frameborder="0" scrolling="no"' + clampAttr(o) + '></iframe>';
       } },
     // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
     // the SVG form. It renders fine on the engine (shortest payload of the lot, no
     // extension needed); it just never reaches chat. Kept for a re-probe.
     { id: "img", label: "img tag — blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
       build: function (o) {
-        return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '" style="max-width:100%">';
+        return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
     // Blocked Aug 2026: the list took "<image". MEASURED: it still renders correctly
     // on the engine — this is purely a blocked-terms casualty, not a broken form — so
@@ -600,7 +618,7 @@
       needsExt: true, field: "blocked",
       build: function (o) {
         return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm
-          + 'mm;max-width:100%;display:block"></object>';
+          + 'mm;' + clampCss(o) + 'display:block"></object>';
       } },
   ];
   // ── TAKEOVER (paint over the receipt's own header) ────────────────────────
@@ -701,7 +719,10 @@
       var ph = Math.round(o.pictureH) > 0 ? Math.round(o.pictureH) : 120;
       out += '<foreignObject x="' + Math.round(cx - pw / 2) + '" y="6" width="' + pw
         + '" height="' + ph + '">'
-        + buildImageEmbed(o.carrier, { url: o.picture, w: pw, h: ph, mm: Math.round(pw / 3.75) })
+        // framed: the foreignObject above is a fixed box the tag already fills, so the
+        // body-width clamp is a no-op here and is 23 chars we need. See clampAttr.
+        + buildImageEmbed(o.carrier, { url: o.picture, w: pw, h: ph, mm: Math.round(pw / 3.75),
+                                       framed: true })
         + '</foreignObject>';
     }
     return '<svg width="' + W + '" height="' + b.h + '" style="margin-top:-' + b.pullPt + 'pt">'
@@ -790,6 +811,7 @@
     return getEmbed(id).build({
       url: o.url == null ? "" : String(o.url),
       w: n(o.w, 263), h: n(o.h, 263), mm: n(o.mm, 70),
+      framed: !!o.framed,        // see clampAttr — only buildTakeover sets this
     });
   }
   // One labelled message per surface, for finding out which tags still get through.
@@ -2203,14 +2225,15 @@
       mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19);
       mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13);
       mkText(cheerWrap, "Picture URL (optional)", "avatar", { type: "url", placeholder: "https://…/pic.png" });
-      // Measured: the three lines alone are ~357 chars with the cheer wrapper, but the
-      // picture markup adds ~163 and puts it past Twitch's 500 — even on the shortest
-      // link we can mint. Nothing is truncated (it splits into a second part), but the
-      // second part is a second cheer, so say what it costs before they send it.
+      // Measured: three lines are ~357 chars with the cheer wrapper and a picture on an
+      // uploaded link brings it to ~495 of 500 — one cheer, but only just. A pasted CDN
+      // link is far longer than anything we mint and does NOT fit. Say which is which,
+      // because the difference is 100 bits.
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "A picture pushes this past one message, so it sends as two cheers — 200 bits "
-        + "instead of 100. Check the part count under the preview. Without a picture it "
-        + "fits in one comfortably."));
+        "With a picture this fills almost the whole message (~495 of 500), so it still "
+        + "goes out as one cheer — but only on a short link. A pasted Discord/imgur URL "
+        + "is usually long enough to push it into a second cheer: use “Upload for a "
+        + "15-min link” on an Image block to mint a short one, and watch the part count."));
       var aw = mkEl("input", { type: "range", min: "40", max: "200", step: "5" });
       aw.value = block.avatarW || CHEER_AVATAR_W;
       aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });

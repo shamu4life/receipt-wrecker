@@ -205,24 +205,63 @@ test("a fake cheer inherits the takeover's rules — escaping, carriers, picture
   assert.ok(!/[\r\n]/.test(html), "payload stays newline-free");
 });
 
-test("the picture is what pushes a fake cheer past one cheer — measured, not assumed", () => {
-  // Without a picture there is comfortable room.
+test("a fake cheer with an uploaded picture fits ONE cheer — 100 bits, not 200", () => {
+  // This is the whole point of the link-shortening work, so it is a test and not a
+  // note. The history, because the margin is thin enough to lose by accident:
+  //   /i/<32 hex>.png on receipt.uwutoowo.com  (67-char link)  -> 540, two cheers
+  //   /<12 hex>.png   on receipt.uwutoowo.com  (45-char link)  -> 495, ONE cheer
+  //   /<12 hex>.png   on i.uwutoowo.com        (39-char link)  -> 489, ONE cheer
+  // The other 23 chars came from dropping the body-width clamp inside the fixed
+  // foreignObject, where it is a no-op — see the clamp guard test below, which is what
+  // stops that from being "optimised" onto the path where it IS load-bearing.
   const bare = C.buildFakeCheer({ ...CHEER, avatar: "" });
-  const bareChars = C.payloadLength(bare) + 12;   // + "Cheer100 nn "
-  assert.ok(bareChars <= C.MAX_CHARS, "a bare fake cheer must fit one cheer, got " + bareChars);
+  assert.ok(C.payloadLength(bare) + 12 <= C.MAX_CHARS, "a bare fake cheer must fit one cheer");
 
-  // With one it does NOT, even on the shortest link the tool can mint (/i/<hex>.png,
-  // 47 chars) — measured at 520 against the 500 cap. Nothing is truncated: the packer
-  // splits it across two parts, which is two cheers, which is 200 bits instead of 100,
-  // and both parts show in the UI. Locked in both directions — so the markup can't
-  // quietly get fatter, and so that if anyone ever shrinks it enough to fit, this test
-  // is what tells them to update the docs and the card's warning.
-  const withPic = C.buildFakeCheer({ ...CHEER,
-    avatar: "https://receipt.uwutoowo.com/i/a1b2c3d4e5f6.png" });
-  const picChars = C.payloadLength(withPic) + 12;
-  assert.ok(picChars > C.MAX_CHARS, "a picture now fits one cheer at " + picChars
-    + " — good news: update the README, the changelog and the card hint");
-  assert.ok(picChars < 560, "fake-cheer markup has grown to " + picChars + " chars; it should shrink, not grow");
+  const uploaded = "https://receipt.uwutoowo.com/" + "a1b2c3d4e5f6" + ".png";   // what /upload mints
+  assert.equal(uploaded.length, 45, "the minted link shape changed — re-measure this test");
+  const chars = C.payloadLength(C.buildFakeCheer({ ...CHEER, avatar: uploaded })) + 12;
+  assert.ok(chars <= C.MAX_CHARS,
+    "a fake cheer + an uploaded picture no longer fits one cheer (" + chars + ") — that doubles the bits");
+
+  // A SHORT image host would buy 6 more. Asserted so the saving is a known quantity
+  // rather than something to re-derive later.
+  const short = "https://i.uwutoowo.com/" + "a1b2c3d4e5f6" + ".png";
+  const shortChars = C.payloadLength(C.buildFakeCheer({ ...CHEER, avatar: short })) + 12;
+  assert.equal(chars - shortChars, 6, "expected a short image host to save exactly 6 chars");
+
+  // Honest about the limit: a pasted CDN link is far longer than anything we mint, and
+  // it does NOT fit. The UI has to keep reporting that rather than implying it always
+  // fits now. (Measured longest link that still fits: 50 chars.)
+  const cdn = "https://cdn.discordapp.com/attachments/123456789012345678/123456789012345678/image.png";
+  assert.ok(C.payloadLength(C.buildFakeCheer({ ...CHEER, avatar: cdn })) + 12 > C.MAX_CHARS,
+    "a long pasted link unexpectedly fits — the card hint about pasted links needs revisiting");
+});
+
+test("the width clamp survives everywhere except inside a fixed frame", () => {
+  // The clamp is field-verified: without it, real pictures printed off the right edge
+  // of the paper, because the receipt body is ~240px on an 80mm roll and not PAPER_PX's
+  // 263. It may only be dropped inside a foreignObject, where the containing block IS
+  // the frame and the tag already states that width — a provable no-op. This guard is
+  // what keeps the 23-char saving from migrating onto the path where it costs a bug.
+  for (const e of C.EMBEDS) {
+    const unframed = C.buildImageEmbed(e.id, { url: "https://x.test/p.png", w: 263, h: 197, mm: 70 });
+    // The SVG carrier has never clamped (no viewBox — max-width would crop, not scale).
+    if (e.id !== "svg") {
+      assert.ok(/max-width:100%/.test(unframed), e.id + " lost its width clamp on the ordinary path");
+    }
+    const framed = C.buildImageEmbed(e.id, { url: "https://x.test/p.png", w: 80, h: 112, mm: 21, framed: true });
+    assert.ok(!/max-width:100%/.test(framed), e.id + " still clamps inside a frame — the saving is gone");
+    // Dropping the clamp must not damage the markup around it.
+    assert.ok(framed.indexOf('style=""') < 0, e.id + " left an empty style attribute: " + framed);
+    assert.ok(framed.indexOf(";;") < 0 && framed.indexOf('=";') < 0, e.id + " left a stray semicolon: " + framed);
+    // Still emits its own token — the whole carrier table rests on each one being
+    // distinct. (Not necessarily at index 0: the svg carrier's token is the <image
+    // element nested inside it, not the wrapper.)
+    assert.ok(framed.indexOf(e.token) >= 0, e.id + " lost its own token: " + framed);
+  }
+  // And the takeover's picture is the one that asks for it.
+  const tk = C.buildTakeover({ lines: [], picture: "https://x.test/p.png", carrier: "embed" });
+  assert.ok(!/max-width:100%/.test(tk), "the takeover's framed picture should not clamp");
 });
 
 test("an oversized picture or a short pull can't push anything outside the cover", () => {

@@ -190,12 +190,13 @@ All functions live inside the one IIFE in `public/index.html`.
     correctly on the real rig: an 80 px picture at the top, baselines 24/900, 19/700,
     13/italic. The bits figure is **free text, not a number** — `-100000` and `∞` are
     both jokes people want, and coercing it to a number kills them.
-    **Measured cost:** three lines alone are ~357 chars with the cheer wrapper and fit
-    one message; *with* a picture it is ~520 against the 500 cap, even on the shortest
-    `/i/<hex>.png` link — so it splits into two parts, i.e. two cheers, i.e. 200 bits.
-    That is reported (a card hint plus the live part count), never truncated. A test
-    locks it in **both** directions, so if the markup ever shrinks enough to fit, the
-    suite tells you to update the docs.
+    **Measured cost:** three lines alone are ~357 chars with the cheer wrapper; *with*
+    a picture on a minted link it is **495 of 500 — one cheer**. Getting there took two
+    things and the margin is thin enough to lose by accident, so both are tested:
+    the link went 67 chars -> 45 (see "Short links" below), and the body-width clamp is
+    dropped inside the fixed `foreignObject` where it is a provable no-op (`framed`, see
+    `clampAttr`). A *pasted* CDN link is longer than anything we mint and still does not
+    fit — the card says so, and the packer splits rather than truncating.
     On scope: the tape is not a record of anything. Twitch's bits ledger is server-side
     and authoritative, nobody reconciles it against thermal paper, and the printer is a
     gag the streamer runs for laughs — the cheer that triggers a print carries the real
@@ -295,6 +296,23 @@ Things already settled this way, so you don't have to re-derive them:
   too wide. Real-image carriers now carry `max-width:100%` so they clamp to whatever
   the body really is; `PAPER_PX` itself is left alone because the text modes are
   field-verified at it. Prefer a clamp over another hardcoded number here.
+- **The uploaded-image URL is payload, and its length is a product constraint.**
+  `/upload` mints `https://<host>/<12 hex>.png` (45 chars on `receipt.uwutoowo.com`),
+  down from `/i/<32 hex>.png` (67). 12 hex = 48 bits against a 15-minute TTL, which is
+  ample; 128 bits was 20 characters of margin that never did anything. The root path is
+  matched by SHAPE (`imageKeyFor`), so it cannot shadow a static asset — that is what
+  `test/imgpath.test.mjs` guards. Both older shapes still resolve. Setting the
+  `RW_IMG_HOST` var to a short image host saves 6 more, but **only set it once that
+  host really routes to the Worker** — it defaults to the request origin so previews
+  and `wrangler dev` keep working. Do NOT drop the `.png` suffix to save 4 more: an
+  unknown extension on a failed subresource is a fatal, whole-job error (above).
+- **The width clamp may be dropped inside a fixed `<foreignObject>`, and nowhere else.**
+  `max-width:100%` on a top-level carrier is field-verified — without it real pictures
+  printed off the right edge, because the body is ~240px and not `PAPER_PX`'s 263.
+  Inside a `foreignObject` the containing block IS the frame and the tag already states
+  that width, so it is a no-op worth 23 chars. `buildImageEmbed({framed:true})` is the
+  only way to drop it, `buildTakeover` is the only caller, and a test asserts every
+  carrier still clamps unframed. Don't "simplify" that flag away.
 - **Field record of the blocked-terms list** (each block killed every picture until
   the carrier moved): `<object` → `<image` (SVG form) → `<img`. Still live as of
   Aug 2026: `<embed` (default, printed perfectly), `<input` (needs no file

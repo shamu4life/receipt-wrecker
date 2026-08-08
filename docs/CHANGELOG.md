@@ -3,9 +3,24 @@
 All notable changes to Receipt Wrecker are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+**Entries describe the state at that release, not today.** The 0.1.0 notes below say
+the app makes no network calls and emits only plain Unicode glyphs — both were true
+then and neither is true now. For current behaviour see the
+[README](../README.md) and [`public/llms.txt`](../public/llms.txt).
+
 ---
 
-## [0.3.2] — 2026-08-07
+## [0.3.3] — 2026-08-08
+
+### Added
+- **Upload a picture directly on a Takeover block**, in both styles. Previously the only uploader lived on an Image block, so putting a picture on a takeover meant creating a block you didn't want, uploading there, copying the link, pasting it across, and deleting the block. The card's own hint said as much, which is a fair sign it was a papercut.
+  - It matters most exactly where it was missing: the picture is the headline of a **Fake cheer**, and that payload sits at ~491 of Twitch's 500. A pasted Discord/imgur URL is routinely long enough on its own to push it over — and over the cap Twitch rejects the message outright rather than splitting it. Uploading mints a 39-character link, which is the only shape that reliably fits.
+  - The shrink-and-POST core is now shared (`uploadPngForUrl`) rather than welded to the Image block's `block.url`, so both callers mint links the same way. The Image block's own upload path is unchanged in behaviour.
+  - After an upload the URL field repaints with the minted link, so the control shows what's actually being used instead of sitting blank while the preview changes.
+
+---
+
+## [0.3.2] — 2026-08-08
 
 ### Added
 - **Takeover blocks.** A third block type that paints over printer-bot's own header — the avatar, the bits line and the name it draws — so the tape comes out as your artwork rather than a receipt with a message stapled underneath. It's an opaque SVG lifted over the header with a negative top margin; anything below it in the stack still prints as normal. Three optional lines with independent sizes, an optional picture, and one **Reach up (pt)** calibration slider, since the bot's header height depends on the streamer's avatar and can't be a constant.
@@ -16,7 +31,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Fake cheer**, a second style on the same block. Arranges the overlay the way printer-bot arranges a real cheer — picture on top, then the bits figure, then the name, then an italic message — reproducing the hand-built payload this feature was reverse-engineered from, the one that printed correctly on a real rig (80 px picture, baselines 24/900, 19/700, 13/italic). Type the figure only; ` BITS` is appended. It stays **free text rather than a number**, because `-100000` and `∞` are the jokes people actually want and coercion kills them.
   - It **composes `buildTakeover`** instead of emitting its own markup, so the escaping, the carrier table and the `foreignObject`-last rule are inherited rather than re-implemented — one place to get them right.
   - The two styles keep **separate text fields**, so flipping the selector to compare them and flipping back doesn't eat what you typed. The three size sliders are shared, being the same three visual slots either way.
-  - **Fits one cheer with a picture — 100 bits, not 200.** It didn't at first: on the old 67-char link shape a three-line fake cheer plus a picture measured **540** against Twitch's 500. Two changes brought it to **497**: the uploaded-link shape (below) and dropping the body-width clamp inside the fixed `foreignObject`, where it's a provable no-op. The margin is real but thin — `IRS` gives 497, `shamu4life` gives 504 and is over — so the card names the number and the counter turns red before you send.
+  - **Fits one cheer with a picture — 100 bits, not 200.** It didn't at first: on the old 67-char link shape a three-line fake cheer plus a picture measured **540** against Twitch's 500. Two changes in this release brought it to 497 — the uploaded-link shape (below) and dropping the body-width clamp inside the fixed `foreignObject`, where it's a provable no-op — and the short image host took it to **491** once that landed. The margin is real but thin: at 491, `IRS` fits and so does `shamu4life` (498), but a very long name still doesn't. The card names the number and the counter turns red before you send.
   - *(Two corrections to earlier drafts of this entry, both recorded rather than scrubbed. It first claimed **520**, measured against a 12-character key placeholder while the uploader actually minted 32 — the real figure was 540, worse than stated. It then said an over-length fake cheer "splits into a second cheer, 200 bits". It does not: `packStackBodies` treats the first body of a part as fitting whatever its length, and a takeover is a single SVG that cannot be split regardless — so going over means Twitch **rejects the message and nothing prints**. That is a materially different consequence, and the hint said the wrong one.)*
   - Text and picture are both **clamped into the painted panel**. A short *Reach up* or an oversized picture used to be able to push a baseline past the white box, which prints *on top of* the header the block exists to cover — i.e. looks exactly like the feature not working. Caught by a test written for the edges, not by the happy path.
 
@@ -31,9 +46,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Images now serve from the **root** as well as `/i/`, matched by shape rather than by host — `^[0-9a-f]{8,64}` plus an optional image extension. `test/imgpath.test.mjs` asserts it can't shadow `/robots.txt`, `/llms.txt`, `/sitemap.xml`, `/upload`, `/px` or the app itself, which is the risk that sharing a namespace with the static site buys.
   - **Links minted in either older shape still resolve**, so nothing 404s mid-cheer.
   - The `.png` suffix stays. It's load-bearing twice over: `embed`/`object` pick their renderer from the extension, and wkhtmltopdf escalates a failed subresource with an *unknown* extension to a fatal, whole-job error. These links expire in 15 minutes, so cheering a stale one is the ordinary case, not the edge case.
-  - New `RW_IMG_HOST` var points minted links at a short image host (`i.uwutoowo.com` → 39 chars, 6 fewer). **Unset by default**, falling back to whatever origin served the request, so previews and `wrangler dev` are unaffected — set it only once that host actually routes to the Worker, since a link to a host that doesn't resolve prints a blank space.
+  - New `RW_IMG_HOST` var points minted links at a short image host. It shipped **unset** in this release and was switched on in 0.3.2's follow-up once the domain was verified live — see the Deploy config note below. It falls back to the request origin when unset, so previews and `wrangler dev` are unaffected either way.
 
 - **The width clamp may now be dropped inside a fixed frame — and only there.** `max-width:100%` on a top-level carrier is field-verified (without it, pictures printed off the right edge of the paper, because the receipt body is ~240px and not `PAPER_PX`'s 263). Inside a `<foreignObject>` the containing block *is* the frame and the tag already states that width, so the declaration can only resolve to the width it already has — a no-op worth up to 23 characters. `buildImageEmbed({framed:true})` is the only way to drop it, `buildTakeover` is the only caller, and a test asserts every carrier still clamps when unframed.
+
+### Internal
+
+- **CI can be re-run by hand** (`workflow_dispatch` on `ci.yml`). A pull request opened by a GitHub App token doesn't trigger Actions, so a PR whose branch was pushed *before* it was opened never got a `Validate` run and there was no way to ask for one.
 
 ### Deploy config
 
@@ -50,7 +69,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [0.3.1] — 2026-08-07
+## [0.3.1] — 2026-08-06
 
 First field results from a real probe round, cheered at the live channel and printed on the real machine. Two of the six carriers came back clean, one came back too wide, and the default came back **not at all**.
 

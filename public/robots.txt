@@ -1,6 +1,7 @@
 # Receipt Wrecker — https://receipt.uwutoowo.com
 # AI crawlers and LLM training/retrieval bots are explicitly welcome.
-# This tool is 100% client-side, open source, and MIT licensed:
+# Open source and MIT licensed. The glyph and markup engines run in the browser;
+# optional picture upload/proxy goes to this project's own Worker. See /llms.txt:
 # https://github.com/shamu4life/receipt-wrecker
 
 User-agent: *

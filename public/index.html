@@ -2258,7 +2258,13 @@
       block._proc = setTimeout(function () { block._proc = null; processImage(block, setStatus); }, 400);
     }
     // Re-encode a local file to a print-sized PNG and upload → block.url; then rotate if set.
-    function uploadFileForBlock(block, file, setStatus) {
+    // Shrink a picked file to a print-sized PNG, POST it to /upload, hand back the
+    // minted URL and the source aspect. Extracted from uploadFileForBlock because the
+    // Takeover card needs exactly the same thing: its picture rides on a link, and a
+    // pasted Discord/imgur URL is long enough on its own to push a fake cheer past
+    // Twitch's 500. Making people round-trip through an Image block to mint a short one
+    // was the reason to pull this apart.
+    function uploadPngForUrl(file, setStatus, done) {
       setStatus("Uploading…");
       var img = new Image();
       img.onload = function () {
@@ -2275,15 +2281,20 @@
             .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
             .then(function (res) {
               if (!res.ok) { setStatus("Upload failed: " + ((res.d && res.d.error) || "server")); return; }
-              block.url = res.d.url; block.outUrl = null; block.aspect = aspect; setImgAspect(res.d.url, aspect);
-              if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded — adjusting…"); processImage(block, setStatus); }
-              else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
+              done(res.d.url, aspect);
             })
             .catch(function () { setStatus("Upload failed (network)."); });
         }, "image/png");
       };
       img.onerror = function () { setStatus("Couldn't read that image."); URL.revokeObjectURL(img.src); };
       img.src = URL.createObjectURL(file);
+    }
+    function uploadFileForBlock(block, file, setStatus) {
+      uploadPngForUrl(file, setStatus, function (url, aspect) {
+        block.url = url; block.outUrl = null; block.aspect = aspect; setImgAspect(url, aspect);
+        if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded — adjusting…"); processImage(block, setStatus); }
+        else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
+      });
     }
     // Takeover: paints over printer-bot's own header so the tape reads as your
     // artwork instead of a receipt. Three optional lines + an optional picture, and
@@ -2339,8 +2350,34 @@
       mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24);
       mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19);
       mkText(blankWrap, "Line 3 (italic)", "l3"); mkSize(blankWrap, "s3", 13);
-      mkText(blankWrap, "Picture URL (optional)", "picture", { type: "url", placeholder: "https://…/pic.png" })
-        .addEventListener("input", function () { syncFrameWarn(); });
+      // Picture row = URL field + "or upload a file". The upload is here and not only on
+      // the Image block because the takeover's picture is the whole point of the fake
+      // cheer, and a pasted CDN link is usually long enough by itself to push the
+      // payload past Twitch's 500. Sending people to a different block to mint a short
+      // link was a papercut in the one place the budget is tightest.
+      var mkPictureRow = function (parent, key) {
+        mkText(parent, "Picture URL (optional)", key, { type: "url", placeholder: "https://…/pic.png" })
+          .addEventListener("input", function () { syncNotes(); });
+        parent.appendChild(mkEl("label", null, "… or upload a file"));
+        var file = mkEl("input", { type: "file", accept: "image/*" });
+        parent.appendChild(file);
+        var st = mkEl("div", { "class": "hint" });
+        parent.appendChild(st);
+        file.addEventListener("change", function (e) {
+          var f = e.target.files && e.target.files[0];
+          if (!f) return;
+          uploadPngForUrl(f, function (t) { st.textContent = t; }, function (url) {
+            block[key] = url;
+            // Repaint the URL field in this row so the control shows what's actually
+            // being used, rather than staying blank while the preview changes.
+            var box = parent.querySelector('input[type="url"]');
+            if (box) box.value = url;
+            st.textContent = "Uploaded ✓ (link expires ~15 min)";
+            saveBlocks(); update(); syncNotes();
+          });
+        });
+      };
+      mkPictureRow(blankWrap, "picture");
       // min 120: below that the picture does not render at all on the print engine
       // (see CHEER_MIN_PIC_PX) — offering 40 would just be a slider that prints nothing.
       var pw = mkEl("input", { type: "range", min: "120", max: "240", step: "5" });
@@ -2358,21 +2395,20 @@
       mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24);
       mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19);
       mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13);
-      mkText(cheerWrap, "Picture URL (optional)", "avatar", { type: "url", placeholder: "https://…/pic.png" })
-        .addEventListener("input", function () { syncFrameWarn(); });
+      mkPictureRow(cheerWrap, "avatar");
       // An earlier version of this hint said an over-length fake cheer "splits into a
       // second cheer". It does NOT: packStackBodies treats the first body of a part as
       // fitting whatever its length ("cur.length === 0 ||"), and a takeover is a single
       // SVG that cannot be split anyway — so going over doesn't cost 200 bits, it means
       // Twitch rejects the message and nothing prints. Measured margins with an uploaded
-      // link: name "IRS" 497/500, "shamu4life" 504 — over. The
+      // link: name "IRS" 491/500, "shamu4life" 498 — both fit; a very long name does not. The
       // name eats the budget just as fast as the URL does, so say so.
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "With a picture this nearly fills the message — about 497 of 500 with a short "
+        "With a picture this nearly fills the message — about 491 of 500 with a short "
         + "name — so watch the counter. Going over doesn’t cost a second cheer: Twitch "
         + "rejects an over-length message outright and nothing prints. A long name or a "
-        + "pasted Discord/imgur link will do it; “Upload for a 15-min link” on an Image "
-        + "block mints the shortest link there is."));
+        + "pasted Discord/imgur link will do it — upload the file here instead and you "
+        + "get the shortest link there is."));
       var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
       aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
       aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });

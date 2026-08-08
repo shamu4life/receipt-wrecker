@@ -26,15 +26,27 @@ a hobby project — but credit is gladly given in the advisory if you'd like it.
 
 ## What is in scope
 
-- **XSS / HTML injection** via how the generated glyph payload or any control
-  value is rendered into the page (the preview `<pre>`, the character counter,
-  etc.). Output should always be set as text, never parsed as markup. Note the
-  glyph engine's own tier tables never include `<`, `>`, or `&` by design — a way
-  to smuggle one of those characters into rendered output would be a bug.
-- **Any code path that makes a network request.** The app is meant to be 100%
-  client-side — no `fetch`/XHR, no analytics, no servers, no CDN or external
-  resources. Images are read locally via `FileReader` and never uploaded. If you
-  find anything that calls out to the network, that's a bug — please report it.
+- **Escaping failures in generated markup.** The app deliberately emits HTML/SVG
+  (big type, real pictures, Takeovers) because the destination renders a chat
+  message as HTML. Every user-supplied value that lands in that markup — line text,
+  a name, a picture URL — must go through `escapeHtml` / `escapeAttr` in the pure
+  core. A way to break out of an attribute or inject a tag is a bug.
+- **SSRF against the `/px` image proxy.** This is the highest-value target in the
+  project. `/px?u=<url>` fetches a remote image on the server's behalf and is
+  guarded by `isPublicHttpUrl()` in `src/worker.js`: public http(s) only, no other
+  scheme, no loopback / private / link-local / cloud-metadata hosts, IPv6 literals
+  and v4-mapped forms checked, and every redirect hop re-validated. **Any bypass of
+  that guard is a real vulnerability — please report it.** `test/proxy.test.mjs`
+  covers the known cases.
+- **Abuse of `POST /upload`.** It accepts `image/*` only, caps bodies at 5 MB, and
+  stores objects in Cloudflare KV under a random key with a native 15-minute TTL.
+  Ways to store non-images, exceed the cap, bypass the TTL, or enumerate other
+  people's keys are in scope.
+- **The image-serving routes.** Keys are matched by shape (`imageKeyFor`), which
+  shares a namespace with the static site. A path that makes an image route shadow
+  or replace a real asset — or that escapes the key pattern — is in scope.
+- **XSS in the app's own page** via how a payload or control value is rendered into
+  the preview.
 - **Canvas/image-handling issues** that could hang or crash the tab on a
   maliciously crafted image file (e.g. pathological dimensions causing excessive
   memory use before downscaling).
@@ -44,10 +56,16 @@ a hobby project — but credit is gladly given in the advisory if you'd like it.
 These are documented properties of a client-only static tool, not bugs — please
 don't report them:
 
-- **No server, no accounts, no stored data.** It's a single static page; there is
-  nothing to authenticate against and no backend to attack.
-- **The only storage is two `localStorage` keys** — `rw_controls_v1` (your
-  control-panel settings) and `rw_nonce_seq` (a send counter used only to advance
+- **No accounts or sessions.** There is no login, no user record and no
+  authentication to bypass — but note there *is* a backend (`src/worker.js`), and
+  it is in scope above.
+- **Uploaded images are readable by anyone with the link.** That is the design: an
+  unguessable 48-bit key, alive for 15 minutes, so a payload can point a printer at
+  it. Guessing one is impractical; being able to read one you were *given* is not a
+  bug.
+- **The only storage is three `localStorage` keys** — `rw_controls_v1` (your
+  control-panel settings), `rw_blocks_v1` (your block stack) and `rw_nonce_seq` (a
+  send counter used only to advance
   the visible cheer nonce) — both wrapped in `try/catch`. Nothing you type or
   upload is ever persisted or sent anywhere.
 - **No HTML/markup injection.** This was deliberately evaluated and cut for the

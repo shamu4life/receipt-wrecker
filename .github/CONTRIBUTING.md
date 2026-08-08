@@ -58,15 +58,15 @@ it's not required for a PR.
 
 ## Self-Hosting (running your own instance)
 
-Receipt Wrecker is just static files, so hosting it is trivial. There are three ways:
+Receipt Wrecker is a static page plus a small Worker. The page alone works anywhere; the Worker adds the optional picture upload and proxy. There are three ways:
 
-1. **Cloudflare Workers static assets.** The repo is wired for this. `wrangler.jsonc` serves the `public/` directory as [static assets](https://developers.cloudflare.com/workers/static-assets/) — there is no Worker script, just files. Deploy with:
+1. **Cloudflare Workers.** The repo is wired for this. `src/worker.js` serves the `public/` directory as [static assets](https://developers.cloudflare.com/workers/static-assets/) **and** handles `POST /upload`, the image-serving routes and the `/px` proxy. Deploy with:
 
    ```bash
    npx wrangler deploy
    ```
 
-   Cloudflare credentials are managed via `wrangler login`. There are no secrets, no KV namespaces, and no environment variables to configure.
+   Cloudflare credentials are managed via `wrangler login`. `wrangler.jsonc` declares two custom domains in `routes` (both must stay listed), a `RW_IMG_HOST` var, and the `RW_IMG` KV namespace that holds uploaded images — so a fork needs its own KV namespace id and its own domains, or none at all.
 
 2. **Any static host.** Drop `public/index.html` on GitHub Pages, Netlify, an S3 bucket, your own web server — anywhere that serves a file over HTTP.
 
@@ -90,11 +90,11 @@ Receipt Wrecker is just static files, so hosting it is trivial. There are three 
 These are the non-negotiables. They are what make Receipt Wrecker what it is. A PR that breaks one of them won't be merged without a very good reason:
 
 - **Stay single-file.** All CSS and JS stay **inline** in `public/index.html`. No separate `.css` / `.js` assets, no bundler, no framework, no runtime dependencies, no CDN, no web fonts, no external images. System font stacks only.
-- **No network calls.** `fetch` / `XHR` are not used and must not be added. Images come from a local file picker (`FileReader`), never uploaded. The app does everything in the page.
-- **No storage beyond control settings + the nonce counter.** The only persisted state is the control-panel settings (`rw_controls_v1`) and the nonce sequence (`rw_nonce_seq`), each in a single `localStorage` key, wrapped in `try/catch` so sandboxed previews that block storage still render and run. Don't add other `localStorage` / `sessionStorage` use.
+- **Network calls only to our own Worker, and no new ones.** The app makes exactly six `fetch` calls, all same-origin: `POST /upload` (three call sites) and `GET /px` (three). They back the picture uploaders, glyph-art decoding of a pasted URL, the image-adjust bake, and Thermal preview. Don't add a seventh, don't call a third party, and don't remove the SSRF guard on `/px`.
+- **Three `localStorage` keys, no more.** Control-panel settings (`rw_controls_v1`), the nonce sequence (`rw_nonce_seq`), and the block composer's stack (`rw_blocks_v1`) — each wrapped in `try/catch` so sandboxed previews that block storage still render and run. Don't add a fourth, and don't reach for `sessionStorage`.
 - **Vanilla, ES5-ish IIFE.** The script is one `"use strict"` IIFE in the ES5-ish idiom (`var`, function expressions). Match the surrounding code when editing — don't reach for build-time syntax that would imply a transpile step.
-- **No HTML/markup injection.** This was evaluated for the glyph payload and deliberately rejected (see `CLAUDE.md` and the design spec) — it depends on sanitization behavior in the destination client that can't be relied on. The tool only ever emits plain Unicode glyphs. Don't reintroduce it.
-- **Privacy is the product.** Everything runs client-side; **your text and any picked image never leave the device.** No analytics, no servers, no accounts. Preserve this.
+- **Markup is the main path now — escape everything user-supplied.** The v1 spec rejected markup; field evidence overtook it (printer-bot renders the chat message as raw HTML), so big type, sideways type, real pictures and Takeovers all emit HTML/SVG. Every user-supplied value that lands in markup goes through `escapeHtml` / `escapeAttr` in the pure core, and the tag carrying a picture comes from the `EMBEDS` table rather than being hardcoded. Keep both properties. Glyph-art remains the markup-free fallback — don't delete it.
+- **Privacy: be accurate about it.** Big Text and a locally-picked glyph-art picture never leave the device, and there are no analytics, accounts or third parties. But uploading a file, pasting an image URL, or dragging an adjustment slider *does* send data to this project's Worker. Preserve the no-third-parties property, and don't let docs drift back to claiming nothing is ever sent.
 
 ---
 

@@ -17,18 +17,31 @@
   // custom_domain:true means Cloudflare manages the hostname end to end (DNS record
   // + certificate) rather than matching a pattern on an existing route.
   //
-  // i.uwutoowo.com exists as a short host for uploaded-image links: every character
-  // of that URL is Twitch payload, and it saves 6 over receipt.uwutoowo.com. It is
-  // NOT switched on yet: there is deliberately no RW_IMG_HOST var in this file, so
-  // /upload keeps minting links on whatever origin served the request. Add it only
-  // once this domain actually answers — a link to a host that doesn't resolve prints
-  // a blank space where the picture should be. Measured before this change: the DNS
-  // record existed but was bound to nothing and returned 522 after ~20s, so the two
-  // steps must not be collapsed into one commit.
+  // i.uwutoowo.com is a short host for uploaded-image links: every character of that
+  // URL is Twitch payload, and it saves 6 over receipt.uwutoowo.com. It was added as
+  // a route one deploy BEFORE the RW_IMG_HOST var below, on purpose — the hostname
+  // had a DNS record bound to nothing and returned 522, so pointing links at it first
+  // would have printed blank paper where every picture should be. The first
+  // production deploy created the Custom Domain and it now serves the Worker.
   "routes": [
     { "pattern": "receipt.uwutoowo.com", "custom_domain": true },
     { "pattern": "i.uwutoowo.com", "custom_domain": true }
   ],
+
+  // Minted image links point here instead of the request origin, which saves 6
+  // characters on every real-picture payload — and 6 characters matters when a fake
+  // cheer with a picture sits at 497 of Twitch's 500.
+  //
+  //   https://receipt.uwutoowo.com/<12 hex>.png   45 chars
+  //   https://i.uwutoowo.com/<12 hex>.png         39 chars
+  //
+  // Only safe to set because the host is now VERIFIED LIVE: the Custom Domain above
+  // was created by the first production deploy, and /upload -> fetch round-trips
+  // through it returning 200 image/png. Before that it 522'd, and setting this then
+  // would have pointed every picture at a dead host and printed blank paper. If the
+  // domain ever stops answering, REMOVE THIS LINE FIRST — the fallback is the request
+  // origin, which always works.
+  "vars": { "RW_IMG_HOST": "i.uwutoowo.com" },
 
   "assets": { "directory": "./public", "binding": "ASSETS" },
   "kv_namespaces": [

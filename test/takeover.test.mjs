@@ -414,3 +414,49 @@ test("a takeover's picture rides the same carrier table, so it must migrate too"
   const html = C.buildFakeCheer({ ...CHEER, carrier: C.EMBED_DEFAULT });
   assert.ok(html.indexOf("<image") < 0 && html.indexOf("<img") < 0, "default carrier leaked a blocked tag");
 });
+
+test("a lone space in a line costs nothing — it isn't a line", () => {
+  // Whitespace used to survive the per-line filter and buy a real <text> element: 63
+  // characters of a 500-char budget that runs at ~494, plus a layout slot that pushed
+  // the picture's reserved room down. Only the bits figure was trimmed.
+  const spaced = C.buildFakeCheer({ ...CHEER, name: "   ", note: "\t" });
+  assert.equal((spaced.match(/<text/g) || []).length, 1, "only the bits line should survive: " + spaced);
+  // And a newline can never reach the payload — the whole thing is one line by contract.
+  const nl = C.buildFakeCheer({ ...CHEER, name: "a\nb", note: "c\r\nd" });
+  assert.ok(!/[\r\n]/.test(nl), "a newline reached the payload: " + JSON.stringify(nl));
+  assert.ok(nl.indexOf(">a b<") >= 0, "a newline should collapse to a space: " + nl);
+});
+
+test("the two builders share one leading rule, so they can't drift apart", () => {
+  // buildFakeCheer reserves the picture's room from the stack height buildTakeover will
+  // consume. When that sum was duplicated inline, changing one copy would silently
+  // reintroduce the measured picture-over-text bug with every test still green. They
+  // now share takeoverOffsets; this asserts the property that guards.
+  for (const sizes of [undefined, { bits: 48, name: 8, note: 40 }, { bits: 12, name: 40, note: 24 }]) {
+    const g = geom(C.buildFakeCheer({ ...CHEER, sizes, pullPt: 400 }));
+    if (!g.pic || g.lines.length < 2) continue;
+    // Every gap between consecutive baselines must equal max(pair) * 1.35 — the rule.
+    for (let i = 0; i + 1 < g.lines.length; i++) {
+      const want = Math.round(Math.max(g.lines[i].size, g.lines[i + 1].size) * 1.35);
+      assert.equal(g.lines[i + 1].y - g.lines[i].y, want,
+        "leading drifted at " + JSON.stringify(sizes) + ": " + JSON.stringify(g.lines));
+    }
+    // And the reservation still holds: the picture never reaches the first line.
+    assert.ok(g.lines[0].y - g.lines[0].size >= g.pic.y + g.pic.h,
+      "picture overlaps the text at " + JSON.stringify(sizes));
+  }
+});
+
+test("an absurd pull can't emit Infinity into the markup", () => {
+  // Pure-core robustness: isFinite(1e308) is true and 1e308*4/3 overflows, which reached
+  // the markup as height="Infinity". Not reachable through the UI, but the pure core is
+  // the contract the tests and the constraints doc rest on.
+  for (const pullPt of [1e308, Number.MAX_VALUE, 1e6]) {
+    const h = C.buildFakeCheer({ ...CHEER, pullPt });
+    assert.ok(!/Infinity|NaN/.test(h), "pull " + pullPt + " emitted a junk dimension: " + h.slice(0, 120));
+  }
+  for (const w of [Infinity, 1e308]) {
+    const h = C.buildTakeover({ lines: LINES, w });
+    assert.ok(!/Infinity|NaN/.test(h), "width " + w + " emitted a junk dimension: " + h.slice(0, 120));
+  }
+});

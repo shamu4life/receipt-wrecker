@@ -652,7 +652,10 @@
   var TAKEOVER_PULL_PT = 220;
   var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
   function takeoverBox(pullPt) {
-    var pt = isFinite(pullPt) && pullPt > 0 ? Math.round(pullPt) : TAKEOVER_PULL_PT;
+    // Upper bound as well as lower: isFinite(1e308) is true, and 1e308*4/3 overflows to
+    // Infinity, which reaches the markup as height="Infinity". The UI can't produce it,
+    // but the pure core is the contract the tests and the constraints doc rest on.
+    var pt = isFinite(pullPt) && pullPt > 0 ? Math.min(Math.round(pullPt), 4000) : TAKEOVER_PULL_PT;
     var px = Math.round(pt * 4 / 3);
     return { pullPt: pt, pullPx: px, h: px + TAKEOVER_TAIL_PX };
   }
@@ -664,14 +667,30 @@
   // the larger of the two. SHARED on purpose: buildFakeCheer has to reserve exactly the
   // room buildTakeover is going to consume, and these two getting out of step is what
   // let a picture land on top of the text (measured: the bits line erased to 0 ink).
-  function takeoverStackRun(lines) {
-    var run = 0;
+  // Baseline offsets from the first line, and therefore the total run (the last one).
+  // BOTH callers use this: buildFakeCheer to reserve exactly the room buildTakeover
+  // will consume, and buildTakeover to place the lines. It only protects against the
+  // two drifting apart if they genuinely share it — an earlier version left the same
+  // sum inlined in buildTakeover with a comment claiming it was shared, which would
+  // have let a leading-rule change silently reintroduce the picture-over-text bug.
+  function takeoverOffsets(lines) {
+    var offs = [0], run = 0;
     for (var i = 0; i + 1 < lines.length; i++) {
       run += Math.round(Math.max(takeoverSize(lines[i].size),
                                  takeoverSize(lines[i + 1].size)) * 1.35);
+      offs.push(run);
     }
-    return run;
+    return offs;
   }
+  function takeoverStackRun(lines) {
+    var o = takeoverOffsets(lines);
+    return o[o.length - 1] || 0;
+  }
+  // The payload is one newline-free line, and that is a pure-core constraint — but
+  // escapeHtml only handles & < >, so a CR/LF in a saved block (hand-edited storage, a
+  // future textarea) would sail straight through into the emitted SVG. Collapse here,
+  // where the guarantee is claimed, instead of relying on <input> stripping newlines.
+  function takeoverLineText(t) { return String(t == null ? "" : t).replace(/[\r\n\t]+/g, " ").trim(); }
   function takeoverText(cx, y, size, l) {
     return '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
       + (l.weight ? ' font-weight="' + (Math.round(l.weight) || 700) + '"' : "")
@@ -683,12 +702,26 @@
   // through the ordinary carrier table, so it inherits the blocked-tag data instead of
   // hardcoding SVG's own <image (which the list ate in Aug 2026) — measured working
   // with both the embed and input carriers.
+  // A positive, finite, bounded pixel dimension, or the default. Math.round(Infinity) is
+  // Infinity and sails through a bare `> 0`, which reached the markup as width="Infinity".
+  function takeoverDim(v, def) {
+    var n = Math.round(v);
+    return isFinite(n) && n > 0 ? Math.min(n, 4000) : def;
+  }
   function buildTakeover(o) {
     o = o || {};
-    var W = Math.round(o.w) > 0 ? Math.round(o.w) : 263;
+    var W = takeoverDim(o.w, 263);
     var b = takeoverBox(o.pullPt), cx = Math.round(W / 2);
     var out = '<rect width="' + W + '" height="' + b.h + '" fill="#fff"/>';
-    var lines = (o.lines || []).filter(function (l) { return l && String(l.text || "") !== ""; });
+    var lines = [];
+    for (var li = 0; li < (o.lines || []).length; li++) {
+      var src = o.lines[li];
+      if (!src) continue;
+      var txt = takeoverLineText(src.text);
+      // Trimmed, so a lone space no longer buys a real <text> element (63 chars of a
+      // 500-char budget) plus a layout slot that pushes the picture's room down.
+      if (txt !== "") lines.push({ text: txt, size: src.size, weight: src.weight, italic: src.italic });
+    }
     if (lines.length) {
       var kids = "", startY = Math.round(o.startY);
       if (startY > 0) {
@@ -701,12 +734,7 @@
         // unit. That clamp is the point: a baseline outside the white box doesn't just
         // look wrong, it prints on top of the header this block exists to paint over.
         // A short pull (or an oversized picture) is exactly when that happens.
-        var offs = [0], acc = 0, i;
-        for (i = 0; i + 1 < lines.length; i++) {
-          acc += Math.round(Math.max(takeoverSize(lines[i].size),
-                                     takeoverSize(lines[i + 1].size)) * 1.35);
-          offs.push(acc);
-        }
+        var offs = takeoverOffsets(lines), acc = offs[offs.length - 1], i;
         var lastSize = takeoverSize(lines[lines.length - 1].size);
         var maxStart = b.h - 6 - acc - Math.round(lastSize * 0.3);   // keep the descender in
         var minStart = takeoverSize(lines[0].size);                  // keep the cap-height in
@@ -746,9 +774,9 @@
     // it. Losing the text to overlap at least shows up in the preview; losing it to a
     // parser quirk does not.
     if (o.picture) {
-      var pw = Math.round(o.pictureW) > 0 ? Math.round(o.pictureW) : 120;
-      var ph = Math.round(o.pictureH) > 0 ? Math.round(o.pictureH) : 120;
-      var py = Math.round(o.pictureY) > 0 ? Math.round(o.pictureY) : 6;
+      var pw = takeoverDim(o.pictureW, 120);
+      var ph = takeoverDim(o.pictureH, 120);
+      var py = takeoverDim(o.pictureY, 6);
       out += '<foreignObject x="' + Math.round(cx - pw / 2) + '" y="' + py + '" width="' + pw
         + '" height="' + ph + '">'
         // framed: the foreignObject above is a fixed box the tag already fills, so the
@@ -832,7 +860,7 @@
     // between a square avatar and the text (measured 32px at the default, 80px at the
     // max). A portrait source is top-cropped by the foreignObject, which for an avatar
     // is what you want anyway.
-    var aw = Math.round(o.avatarW) > 0 ? Math.round(o.avatarW) : CHEER_AVATAR_W;
+    var aw = takeoverDim(o.avatarW, CHEER_AVATAR_W);
     if (aw < CHEER_MIN_PIC_PX) aw = CHEER_MIN_PIC_PX;   // a saved pre-floor value still prints
     var room = box.h - top - textNeed;
     if (aw > room) aw = room;
@@ -840,9 +868,15 @@
     // the text, rather than shipping both badly.
     var hasPic = !!o.avatar && aw >= CHEER_MIN_PIC_PX;
 
+    // With no picture there is nothing to hang from, and anchoring the bare lines at the
+    // top left them jammed against the edge with ~240px of blank tape between them and
+    // the message. Sit them mid-cover instead, which is close to where the reference
+    // put them and reads as a header rather than a stray caption.
+    var startY = hasPic ? top + aw + CHEER_GAP_PX + first
+                        : Math.max(top + first, Math.round(box.pullPx * 0.5));
     return buildTakeover({
       lines: lines,
-      startY: top + (hasPic ? aw + CHEER_GAP_PX : 0) + first,
+      startY: startY,
       picture: hasPic ? o.avatar : "", pictureW: aw, pictureH: aw, pictureY: top,
       carrier: o.carrier, pullPt: o.pullPt, w: o.w
     });
@@ -2259,11 +2293,25 @@
 
       // Size sliders are shared by both styles (same three visual slots), so they're
       // built once here and the two field groups only own their text inputs.
+      // s1/s2/s3 are ONE value per block but get a slider in each style's field group.
+      // Without re-syncing, setting the size in one style left the other showing a stale
+      // number while the preview rendered the new one — and nudging the stale control
+      // silently jumped the size back. Every copy is registered and refreshed on switch.
+      var sizeCopies = [];
+      var syncSizes = function () {
+        for (var i = 0; i < sizeCopies.length; i++) {
+          var c = sizeCopies[i], v = block[c.key] || c.def;
+          if (c.el.value !== String(v)) { c.el.value = v; if (c.el.oninput) c.el.oninput(); }
+          if (c.out) c.out.textContent = v;
+        }
+      };
       var mkSize = function (parent, sizeKey, def) {
         var sz = mkEl("input", { type: "range", min: "8", max: "48", step: "1" });
         sz.value = block[sizeKey] || def;
         sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; saveBlocks(); update(); });
-        parent.appendChild(sliderRow("Size", sz, def, ""));
+        var row = sliderRow("Size", sz, def, "");
+        parent.appendChild(row);
+        sizeCopies.push({ el: sz, key: sizeKey, def: def, out: row.querySelector && row.querySelector("output, .slider-val") });
       };
       var mkText = function (parent, labelText, key, attrs) {
         parent.appendChild(mkEl("label", null, labelText));
@@ -2300,15 +2348,19 @@
       mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13);
       mkText(cheerWrap, "Picture URL (optional)", "avatar", { type: "url", placeholder: "https://…/pic.png" })
         .addEventListener("input", function () { syncFrameWarn(); });
-      // Measured: three lines are ~357 chars with the cheer wrapper and a picture on an
-      // uploaded link brings it to ~495 of 500 — one cheer, but only just. A pasted CDN
-      // link is far longer than anything we mint and does NOT fit. Say which is which,
-      // because the difference is 100 bits.
+      // An earlier version of this hint said an over-length fake cheer "splits into a
+      // second cheer". It does NOT: packStackBodies treats the first body of a part as
+      // fitting whatever its length ("cur.length === 0 ||"), and a takeover is a single
+      // SVG that cannot be split anyway — so going over doesn't cost 200 bits, it means
+      // Twitch rejects the message and nothing prints. Measured margins with an uploaded
+      // link: name "IRS" 497/500, "shamu4life" 504 — over. The
+      // name eats the budget just as fast as the URL does, so say so.
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "With a picture this fills almost the whole message (~495 of 500), so it still "
-        + "goes out as one cheer — but only on a short link. A pasted Discord/imgur URL "
-        + "is usually long enough to push it into a second cheer: use “Upload for a "
-        + "15-min link” on an Image block to mint a short one, and watch the part count."));
+        "With a picture this nearly fills the message — about 497 of 500 with a short "
+        + "name — so watch the counter. Going over doesn’t cost a second cheer: Twitch "
+        + "rejects an over-length message outright and nothing prints. A long name or a "
+        + "pasted Discord/imgur link will do it; “Upload for a 15-min link” on an Image "
+        + "block mints the shortest link there is."));
       var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
       aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
       aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });
@@ -2319,6 +2371,7 @@
         var cheer = block.tkStyle === "cheer";
         blankWrap.style.display = cheer ? "none" : "";
         cheerWrap.style.display = cheer ? "" : "none";
+        syncSizes();          // the hidden copy is stale until it's shown again
       };
       style.addEventListener("change", function () {
         block.tkStyle = style.value; applyStyle(); saveBlocks(); update();
@@ -2339,13 +2392,27 @@
       card.appendChild(frameWarn);
       var syncFrameWarn = function () {
         var e = getEmbed(block.renderAs);
-        var bad = e.framedOk === false && !!(block.tkStyle === "cheer" ? block.avatar : block.picture);
-        frameWarn.hidden = !bad;
-        if (bad) {
+        var url = block.tkStyle === "cheer" ? block.avatar : block.picture;
+        // Two independent ways the picture prints blank, both silent on the tape.
+        if (e.framedOk === false && url) {
+          frameWarn.hidden = false;
           frameWarn.textContent = "“" + e.label + "” breaks inside a Takeover: everything "
             + "you stack BELOW this block disappears from the print. Pick another carrier "
             + "for the picture here (it's fine on an ordinary Image block).";
+          return;
         }
+        // Same trap the Image block already warns about, and the takeover's default
+        // carrier is the one that has it: embed picks its renderer from the file
+        // extension and draws NOTHING without one, with no error anywhere.
+        if (e.needsExt && url && !urlHasImageExt(url)) {
+          frameWarn.hidden = false;
+          frameWarn.textContent = "That link doesn’t end in .png/.jpg — the “" + e.label
+            + "” carrier picks its renderer from the extension, so the picture will print "
+            + "blank. Use “input type=image” instead, or upload the file on an Image block "
+            + "to get a .png link.";
+          return;
+        }
+        frameWarn.hidden = true;
       };
       ra.addEventListener("change", syncFrameWarn);
       style.addEventListener("change", syncFrameWarn);

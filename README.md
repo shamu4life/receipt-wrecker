@@ -154,12 +154,13 @@ figure only; ` BITS` is appended for you. It's free text rather than a number, b
   first once left `-100000 BITS` rendering with zero ink at ordinary slider positions.
 - Over-pulling is safe. Reach past your rig's real header and the block follows the
   message down the tape instead of sailing off the top of the roll.
-- **Budget, measured:** the three lines alone come to ~357 chars with the cheer wrapper.
-  *With* a picture on an uploaded link it's **~495 of 500 — one cheer, 100 bits** — but
-  the margin is thin, and it only holds for a short link. A pasted Discord/imgur URL is
-  usually long enough on its own to push it into a second cheer; use **Upload for a
-  15-min link** to mint a short one, and watch the part count. Nothing is ever
-  truncated — it splits.
+- **Budget, measured — and the margin is genuinely thin.** The three lines alone come to
+  ~357 chars with the cheer wrapper. *With* a picture on an uploaded link it's **497 of
+  500**. That fits one 100-bit cheer, but a longer name eats the rest: `IRS` gives 497,
+  `shamu4life` gives 504 and is over. **Going over does not cost a second cheer** — a
+  takeover is one SVG and can't be split, so Twitch rejects the message and nothing
+  prints at all. Watch the counter; it turns red before you send. **Upload for a 15-min
+  link** on an Image block mints the shortest link there is.
 
 The tape isn't a record of anything — Twitch's bits ledger is server-side, and the
 cheer that triggers the print carries your real name in chat where the whole room sees

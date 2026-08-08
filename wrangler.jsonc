@@ -5,6 +5,31 @@
   "observability": { "enabled": true },
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/worker.js",
+
+  // BOTH domains are listed, and that is not optional.
+  //
+  // Until now this file declared NO routes at all and receipt.uwutoowo.com was
+  // configured only in the dashboard. The moment routes appear here, this file
+  // becomes the source of truth for them — so declaring just the new host would
+  // invite a deploy to reconcile the route set and drop the domain production
+  // actually serves on. Anything you want reachable has to be in this list.
+  //
+  // custom_domain:true means Cloudflare manages the hostname end to end (DNS record
+  // + certificate) rather than matching a pattern on an existing route.
+  //
+  // i.uwutoowo.com exists as a short host for uploaded-image links: every character
+  // of that URL is Twitch payload, and it saves 6 over receipt.uwutoowo.com. It is
+  // NOT switched on yet: there is deliberately no RW_IMG_HOST var in this file, so
+  // /upload keeps minting links on whatever origin served the request. Add it only
+  // once this domain actually answers — a link to a host that doesn't resolve prints
+  // a blank space where the picture should be. Measured before this change: the DNS
+  // record existed but was bound to nothing and returned 522 after ~20s, so the two
+  // steps must not be collapsed into one commit.
+  "routes": [
+    { "pattern": "receipt.uwutoowo.com", "custom_domain": true },
+    { "pattern": "i.uwutoowo.com", "custom_domain": true }
+  ],
+
   "assets": { "directory": "./public", "binding": "ASSETS" },
   "kv_namespaces": [
     { "binding": "RW_IMG", "id": "d3753f3a45b44992b0aa815ae5a5c6e1" }

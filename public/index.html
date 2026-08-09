@@ -1362,12 +1362,13 @@
     // too long to fit a strip (e.g. "MINECRAFT" at full size). Splitting it across
     // strips at letter boundaries beats letting it overrun a page and gouge a band
     // out of the middle. Returns [tok] when it already fits.
-    function breakToken(tok, fontPx, maxLen) {
-      if (runLength(tok, fontPx) <= maxLen) return [tok];
+    function breakToken(tok, fontPx, maxLen, cssFont) {
+      cssFont = cssFont || BIG_FONT;
+      if (runLength(tok, fontPx, cssFont) <= maxLen) return [tok];
       var out = [], chunk = "";
       for (var i = 0; i < tok.length; i++) {
         var t = chunk + tok.charAt(i);
-        if (chunk && runLength(t, fontPx) > maxLen) { out.push(chunk); chunk = tok.charAt(i); }
+        if (chunk && runLength(t, fontPx, cssFont) > maxLen) { out.push(chunk); chunk = tok.charAt(i); }
         else { chunk = t; }
       }
       if (chunk) out.push(chunk);
@@ -1377,13 +1378,14 @@
     // maxLen, so no segment crosses a print page break (which slices a gouge through
     // a word). Over-long words are first split by letter; those fragments never get
     // a space joined to a neighbor, so taping the strips rebuilds the word cleanly.
-    function segmentLine(line, fontPx, maxLen) {
+    function segmentLine(line, fontPx, maxLen, cssFont) {
+      cssFont = cssFont || BIG_FONT;
       var words = String(line).split(" ").filter(Boolean), segs = [], cur = "";
       words.forEach(function (w) {
-        breakToken(w, fontPx, maxLen).forEach(function (p, idx) {
+        breakToken(w, fontPx, maxLen, cssFont).forEach(function (p, idx) {
           if (idx > 0) { if (cur) segs.push(cur); cur = p; return; }   // word fragment: own segment
           var trial = cur ? cur + " " + p : p;
-          if (cur && runLength(trial, fontPx) > maxLen) { segs.push(cur); cur = p; }
+          if (cur && runLength(trial, fontPx, cssFont) > maxLen) { segs.push(cur); cur = p; }
           else { cur = trial; }
         });
       });
@@ -1408,7 +1410,7 @@
       factor = factor || getSizeFactor();
       var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
       var T = len || getRotateLen();
-      var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
+      var perLine = lines.map(function (l) { return segmentLine(l, S, T, cssFont); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
       var bodies = [];
       for (var k = 0; k < maxSegs; k++) {

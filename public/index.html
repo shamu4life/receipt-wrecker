@@ -2372,6 +2372,7 @@
       orient.addEventListener("change", function () {
         block.orient = parseInt(orient.value, 10) || 0;
         if (lenWrap) lenWrap.style.display = isSideways(block.orient) ? "" : "none";
+        syncFontNote();
         saveBlocks(); update();
       });
       typeWrap.appendChild(orient);
@@ -2391,10 +2392,73 @@
       var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
       size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
       card.appendChild(sliderRow("Size", size, 90, "%"));
+      // Formatting row — hidden for Hanzi (see applyRender below). One fmt per block (a
+      // text block is one run of type, unlike a takeover's three slots). Weight is a
+      // select for the same reason as on the takeover card: Bold and Black are both
+      // wanted and a boolean can only carry one of them.
+      //
+      // CONTRACT: bigWeightFor(fmt) treats an absent weight as the 800 baseline that
+      // sideways Big Text has always rendered at — absent is not 400. So block.fmt is
+      // created lazily (curFmt) and a property is written onto it ONLY from a control's
+      // own change/click handler, never materialised with defaults up front. An untouched
+      // block must keep block.fmt undefined (or, once touched, must never gain a
+      // weight:400 key it wasn't given).
+      var fmtWrap = mkEl("div");
+      var curFmt = function () { return block.fmt || (block.fmt = {}); };
+      var fmtRow = mkEl("div", { "class": "fmt-row" });
+      var font = mkEl("select");
+      for (var fi = 0; fi < FONTS.length; fi++) {
+        font.appendChild(opt(FONTS[fi].id, FONTS[fi].label, (block.fmt || {}).font === FONTS[fi].id));
+      }
+      font.addEventListener("change", function () { curFmt().font = font.value; saveBlocks(); update(); syncFontNote(); });
+      fmtRow.appendChild(font);
+      var wsel = mkEl("select");
+      var wNow = (block.fmt || {}).weight || 400;
+      wsel.appendChild(opt("400", "Normal", wNow === 400));
+      wsel.appendChild(opt("700", "Bold", wNow === 700));
+      wsel.appendChild(opt("900", "Black", wNow === 900));
+      wsel.addEventListener("change", function () { curFmt().weight = parseInt(wsel.value, 10); saveBlocks(); update(); });
+      fmtRow.appendChild(wsel);
+      [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
+        var on = !!(block.fmt || {})[t[0]];
+        var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
+        b.addEventListener("click", function () {
+          var v = !curFmt()[t[0]];
+          curFmt()[t[0]] = v;
+          b.className = "fmt-tog" + (v ? " on" : "");
+          saveBlocks(); update();
+        });
+        fmtRow.appendChild(b);
+      });
+      fmtWrap.appendChild(fmtRow);
+      // The preview cannot prove what the printer will do with a font: it renders with
+      // YOUR fonts, the print with the STREAMER'S. Sharper on sideways, where a wrong
+      // font doesn't just look different — the strip is measured in your browser's font,
+      // so a fallback on the streamer's PC shears the last letters off.
+      var fontNote = mkEl("div", { "class": "hint" });
+      var syncFontNote = function () {
+        var f = (block.fmt || {}).font || "";
+        var sideways = block.orient === 90 || block.orient === 270;
+        if (!f) { fontNote.hidden = true; return; }
+        fontNote.hidden = false;
+        fontNote.textContent = sideways
+          ? "Sideways strips are sized by measuring this font in your browser. If the "
+            + "streamer's PC doesn't have it, it draws something else, the strip is the "
+            + "wrong length, and the last letters shear off. Default (Arial) is the safe "
+            + "pick for sideways."
+          : "The preview uses your fonts; the printer uses the streamer's. Serif, "
+            + "Monospace, Script and Fantasy always resolve to something; the named "
+            + "fonts are standard on Windows. If it isn't there it falls back — one test "
+            + "print settles it.";
+      };
+      fmtWrap.appendChild(fontNote);
+      syncFontNote();
+      card.appendChild(fmtWrap);
       var applyRender = function () {
         var hanzi = block.render === "hanzi";
         typeWrap.style.display = hanzi ? "none" : "";
         hanziWrap.style.display = hanzi ? "" : "none";
+        fmtWrap.style.display = hanzi ? "none" : "";
       };
       render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
       applyRender();

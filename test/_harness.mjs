@@ -10,6 +10,15 @@ export function loadCore() {
   const html = readFileSync(join(here, "../public/index.html"), "utf8");
   const m = html.match(/<script>([\s\S]*?)<\/script>/);
   if (!m) throw new Error("could not find the inline <script> in index.html");
+  // Every `.font =` assignment any nullNode receives, in call order, for the lifetime
+  // of this sandbox. The only thing in the app that ever sets `.font` on a DOM-ish
+  // object is a canvas 2D context (see measureRun) — recording it here, without
+  // changing what any *other* property/method on the proxy returns, is the one way to
+  // observe what the app actually asked the (otherwise inert) canvas to measure with.
+  // The context is memoized (measureRun._c), so this accumulates across every test
+  // sharing this loadCore() instance — read from the end, or snapshot .length before
+  // the call under test and slice from there.
+  const fontLog = [];
   function nullNode() {
     const fn = function () { return proxy; };
     const proxy = new Proxy(fn, {
@@ -19,7 +28,11 @@ export function loadCore() {
         if (k === Symbol.toPrimitive) return () => "";
         return proxy;
       },
-      set() { return true; }, apply() { return proxy; },
+      set(_t, k, v) {
+        if (k === "font") fontLog.push(v);
+        return true;
+      },
+      apply() { return proxy; },
     });
     return proxy;
   }
@@ -34,7 +47,9 @@ export function loadCore() {
   };
   vm.createContext(sandbox);
   vm.runInContext(m[1], sandbox, { filename: "index.html#inline" });
-  return sandbox.module.exports;
+  const C = sandbox.module.exports;
+  C.__fontLog = fontLog;
+  return C;
 }
 
 // Structural (prototype-agnostic) compare across the vm realm boundary.

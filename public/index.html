@@ -1260,11 +1260,25 @@
       // see bigFontFor's note. Measuring in one font while rendering in another is the
       // exact drift that shears the last letters off a print.
       var cssFont = bigFontFor(fmt);
+      // Measure in the SAME weight/italic the <g> below will render — not the raw
+      // fmt.weight, but clamped to a floor of BIG_WEIGHT (800). The SVG path ALSO
+      // fake-bolds via stroke-width regardless of the nominal weight (see the <g>
+      // below), so the rendered ink is always at least as wide as an 800-weight
+      // measurement predicts; measuring an explicit low weight (e.g. 400) at its true
+      // value would lose that safety margin. runLength's own principle applies here
+      // too: erring long adds invisible padding, erring short clips the widest line
+      // against SVG's overflow:hidden — off both ends, since text-anchor is "middle".
+      // A weight of 900+ measures at its true value (already >= the floor). Italic has
+      // no such asymmetry — a real italic face has different advances — so it is
+      // always measured exactly as requested.
+      var wideWeight = Math.max(BIG_WEIGHT, bigWeightFor(fmt)), wideItalic = bigItalicFor(fmt);
       // SVG clips overflow (unlike a wrapping <span>), so size relative to the width
       // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
       // font drift on the printer); `factor` (the Size %) then scales below that, so
       // the slider always has an effect and text never runs off the edge.
-      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100, cssFont).width); }, 1);
+      var wide100 = lines.reduce(function (m, l) {
+        return Math.max(m, measureRun(l || " ", 100, cssFont, wideWeight, wideItalic).width);
+      }, 1);
       var fit = 250 * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
@@ -1289,6 +1303,12 @@
     // (Arial) — mismatched fonts make per-glyph widths drift, the drift accumulates
     // across a word, the box comes out short, and the last letter(s) get sheared.
     var BIG_FONT = "Arial,sans-serif";
+    // ONE numeric owner for "how heavy is unformatted Big Text" — measureRun's
+    // fallback, rotatedSpan's fallback, and bigWeightFor's fallback all read this
+    // instead of repeating the literal 800 three times, where one drifting from the
+    // others would reopen the exact measured-vs-rendered bug this task exists to close.
+    // See bigWeightFor's note for why 800, not fmtAttrs' 400.
+    var BIG_WEIGHT = 800;
     // ONE owner of "which font is this text in". measureRun and every renderer read it,
     // so they cannot disagree — and disagreeing is what shears letters off a sideways
     // strip. Falls back to BIG_FONT (Arial) for the default entry and for junk, because
@@ -1302,14 +1322,21 @@
       var css = getFont(fmt && fmt.font).css;
       return css || BIG_FONT;
     };
-    // Companions to bigFontFor, same "one owner" reasoning: measureRun and the rotated
-    // span's rendered CSS must read the same weight/italic or per-glyph widths drift on
-    // that axis exactly the way an unmeasured font-family drifts — the box comes out
-    // short and the last letters shear off. Weight defaults to 800 (not fmtAttrs' 400)
-    // because that's Big Text's own historical baseline, reproduced exactly for an
-    // unformatted block. `var`-assigned for the same export reason as bigFontFor.
+    // Companions to bigFontFor, same "one owner" reasoning: measureRun and the rendered
+    // markup (the SVG <g>'s fmtAttrs, or the rotated span's CSS font shorthand) must
+    // read the same weight/italic or per-glyph widths drift on that axis exactly the
+    // way an unmeasured font-family drifts — the box comes out short and the last
+    // letters shear off. `Math.round(...) || BIG_WEIGHT`, not the raw value: a junk
+    // weight would build an invalid canvas font string, which `c.font =` silently
+    // ignores, leaving the *previous* block's font memoized on the shared context.
+    // CONTRACT: absent is not 400. An untouched block's fmt must OMIT `weight` entirely
+    // for this to fall back to BIG_WEIGHT (800) — Task 3's lineFmt always materializes
+    // a stored weight, and a future Big-Text formatting UI that reused that pattern to
+    // always write 400 would silently drop every existing sideways block from 800 to
+    // 400 (lighter print, different metrics) with no test failing.
     var bigWeightFor = function (fmt) {
-      return (fmt && fmt.weight) || 800;
+      var w = fmt && Math.round(fmt.weight);
+      return w || BIG_WEIGHT;
     };
     var bigItalicFor = function (fmt) {
       return !!(fmt && fmt.italic);
@@ -1338,7 +1365,7 @@
     // pre-Task-5 call site (still passing 3 args) measures byte-identically to before.
     function measureRun(text, fontPx, cssFont, weight, italic) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
-      var w = weight || 800;
+      var w = weight || BIG_WEIGHT;
       // MEASURE IN THE FONT WE WILL RENDER IN — family, weight AND style. Measuring
       // Arial 800 while the printer draws Impact 900 italic makes every per-glyph width
       // wrong on whichever axis disagrees, the error accumulates across a word, and the
@@ -1375,7 +1402,7 @@
     function rotatedSpan(cols, colW, S, angle, cssFont, weight, italic, dec) {
       angle = angle || 90;
       cssFont = cssFont || BIG_FONT;
-      weight = weight || 800;
+      weight = weight || BIG_WEIGHT;
       // Both 90 and 270 keep the input line order: at 270 (read by turning the tape the
       // opposite way from 90) the rotation already lands line 1 in the column that ends
       // up on top, so NO reversal — reversing was the "wrong orientation" bug on
@@ -3194,6 +3221,7 @@
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
       bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,
       bigWeightFor: bigWeightFor, bigItalicFor: bigItalicFor, rotateBodies: rotateBodies,
+      BIG_WEIGHT: BIG_WEIGHT,
     };
   }
 </script>

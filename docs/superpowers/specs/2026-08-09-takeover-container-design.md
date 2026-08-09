@@ -16,6 +16,11 @@ Four complaints, all real:
    controls, and neither can do bold / italic / underline / strikethrough / font.
 4. **Blocks placed after a takeover appear broken.** Measured cause below — it is real,
    and it is not the block model.
+5. **A setup cannot be saved.** Anything you build by hand is gone next stream, which
+   makes customisation cost more than it returns.
+6. **You can't tell whether a choice will look right on the printer.** This is the one
+   that governs the rest: every option added here is only worth having if the tape can be
+   seen before the bits are spent.
 
 ## Constraints, measured before designing
 
@@ -181,6 +186,46 @@ seed inserts a full string instead. This is what makes the block usable off Twit
 The `Cheer100` token stays exactly as it is — it is the real chat trigger, already
 Twitch-only and already switched off by the existing Cheer checkbox.
 
+### 8. Presets — save and reuse a setup
+
+Customisation is worthless if it has to be rebuilt every stream. A **Presets** control
+saves the **whole block stack** (not just the takeover) under a name, lists what you have
+saved, and loads / renames / deletes them. Stored in `localStorage` alongside the existing
+block state.
+
+Also **export / import as JSON text**, because `localStorage` is per-browser and per-device
+and a preset you can't move is one bad cache clear from gone.
+
+**The one honest caveat, designed for rather than ignored:** uploaded picture links expire
+after 15 minutes, so a preset saved with an uploaded picture will load with a **dead URL**.
+That must not print blank paper silently. On load, any picture whose link no longer
+resolves is flagged in the card — "this picture's link has expired, re-upload it" — and the
+block is marked until it's fixed. Pasted third-party URLs are left alone; they may well
+still work. This follows the project's rule that a loss the user can't see is worse than
+one they can.
+
+### 9. The preview is the proof
+
+The stated requirement, not an implementation detail: **no option may be a gamble.**
+Anything the app lets you choose has to be visible, before you spend bits, in a preview
+that matches the tape.
+
+Concretely, the existing thermal preview (`thermalize()`, 560 dots = the RP332's real head
+width, Atkinson-dithered) must:
+
+- **cover takeover blocks**, including the lifted overlay and its items;
+- **honour every formatting option** — the serialized `foreignObject` has to carry the font
+  family, weight, style and decoration, or the preview quietly renders defaults;
+- keep clipping at the paper edge, so an over-pull looks like what it is (already shipped
+  in PR #15).
+
+**What the preview cannot prove, and must not pretend to:** whether the *streamer's*
+machine has a named font. The preview renders with your fonts; the print renders with
+theirs. The four generic families (`serif`, `monospace`, `cursive`, `fantasy`) always
+resolve somewhere, and the named ones are core Windows fonts, so this is a small risk — but
+it is a real one, and the font control should say so rather than implying certainty. One
+test print settles it per rig.
+
 ## Non-goals
 
 Free x/y canvas; inline markup (`*bold*`); per-item colour; drag-to-reorder (↑/↓ stays);
@@ -200,11 +245,15 @@ probe, clamped to the floor as today.
 
 Three independently shippable steps, each leaving the app working:
 
-1. **Formatting** — the shared `fmt` struct, the font list, and B/I/U/S on today's
-   takeover lines and top-level text blocks. No model change, immediately useful.
+1. **Formatting + preview fidelity** — the shared `fmt` struct, the font list, B/I/U/S on
+   today's takeover lines and top-level text blocks, **and** the thermal preview carrying
+   those attributes and covering takeovers. These ship together on purpose: a formatting
+   control you can't verify against the tape is exactly the thing that shouldn't exist.
 2. **Container** — items, seed, anchor, align, nudge, migration. The big one.
 3. **Continuation covers** — the `packStackBodies` change and the stack-level toggle.
    This is the fix for "blocks after a takeover are broken" and is separable from 1 and 2.
+4. **Presets** — save/load/rename/delete, export/import, expired-link detection.
+   Independent of all of the above; can land whenever.
 
 ## Testing
 
@@ -217,4 +266,10 @@ insertion and its effect on packing; budget accounting.
 pictures, every formatting option), and a deliberate multi-part split confirming every
 receipt's header is covered.
 
-**Browser:** the card UI — add, reorder, remove, seed — and zero console errors.
+Plus: preset round-trip (save → load → identical stack), export/import round-trip, and
+expired-link detection flagging rather than silently printing blank.
+
+**Browser:** the card UI — add, reorder, remove, seed, presets — and zero console errors.
+Also a thermal-preview pass asserting the raster actually differs between two fonts and
+between plain and underlined text; if it doesn't, the preview is lying and the formatting
+controls are unverifiable, which is the failure this whole section exists to prevent.

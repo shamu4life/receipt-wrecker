@@ -401,21 +401,43 @@ existing comment above `BIG_FONT` documents exactly this failure.
 
 Append to `test/render.test.mjs`:
 
+The null-DOM harness has no canvas, so the metrics themselves are not observable. Rather
+than assert arity — which proves nothing about behaviour — extract the font resolution into
+a pure function and test that, then have `measureRun` use it.
+
 ```js
-test("measurement is font-aware, or a scaled line is sized for the wrong glyphs", () => {
-  // The null-DOM harness has no canvas, so assert the plumbing rather than the metrics:
-  // every measuring entry point must ACCEPT a font and pass it down.
-  assert.equal(C.measureRun.length >= 3, true, "measureRun must take a css font argument");
-  assert.equal(C.runLength.length >= 3, true, "runLength must take a css font argument");
+test("bigFontFor resolves the css font that measurement and rendering must share", () => {
+  // Measuring in one font and drawing in another is what shears the last letters off a
+  // sideways strip, so one function owns the answer and both callers use it.
+  assert.equal(C.bigFontFor(), C.BIG_FONT, "no fmt means the default");
+  assert.equal(C.bigFontFor({}), C.BIG_FONT);
+  assert.equal(C.bigFontFor({ font: "" }), C.BIG_FONT, "the default entry falls back, never ''");
+  assert.equal(C.bigFontFor({ font: "impact" }), "Impact");
+  assert.equal(C.bigFontFor({ font: "mono" }), "monospace");
+  assert.equal(C.bigFontFor({ font: "papyrus" }), C.BIG_FONT, "unknown ids fall back");
 });
 ```
 
 - [ ] **Step 2: Run it and watch it fail**
 
-Run: `npm test -- --test-name-pattern="font-aware"`
-Expected: FAIL — arity is 2.
+Run: `npm test -- --test-name-pattern="bigFontFor"`
+Expected: FAIL — `C.bigFontFor is not a function`.
 
 - [ ] **Step 3: Implement**
+
+Add next to `BIG_FONT` (`public/index.html:1215`):
+
+```js
+    // ONE owner of "which font is this text in". measureRun and every renderer read it,
+    // so they cannot disagree — and disagreeing is what shears letters off a sideways
+    // strip. Falls back to BIG_FONT (Arial) for the default entry and for junk, because
+    // "" would make the canvas font string invalid.
+    function bigFontFor(fmt) {
+      return bigFontFor(fmt);
+    }
+```
+
+Add `bigFontFor: bigFontFor, BIG_FONT: BIG_FONT,` to `module.exports`, then:
 
 ```js
     function measureRun(text, fontPx, cssFont) {
@@ -500,7 +522,7 @@ once at the top, use it for measurement, and put the attributes on the existing 
 `<g>`:
 
 ```js
-      var cssFont = getFont(fmt && fmt.font).css || BIG_FONT;
+      var cssFont = bigFontFor(fmt);
       var wide100 = lines.reduce(function (m, l) {
         return Math.max(m, measureRun(l || " ", 100, cssFont).width); }, 1);
 ```
@@ -512,7 +534,7 @@ once at the top, use it for measurement, and put the attributes on the existing 
 
 Give `bigTypeBodies(text, factor, orient, fmt)` and `rotateBodies(text, factor, len, angle, fmt)`
 a trailing `fmt` parameter. `bigTypeBodies` forwards it to `buildBigTextSvg`; `rotateBodies`
-resolves `var cssFont = getFont(fmt && fmt.font).css || BIG_FONT;`, passes that to
+resolves `var cssFont = bigFontFor(fmt);`, passes that to
 `runLength` and to `rotatedSpan`, and puts `fmtAttrs(fmt)` on the span's text element.
 
 In `renderBlockBodies`'s text branch (`public/index.html:1489-1492`):
@@ -672,6 +694,23 @@ In the browser with the thermal preview on, capture the canvas for a takeover li
 default font and again in Impact, and compare the raster. **They must differ.** Repeat for
 plain vs underlined. If either pair is identical, the serialized `foreignObject` is dropping
 the attributes and the preview is lying — fix that before shipping the controls.
+
+Run in the page console (or via Playwright `browser_evaluate`) after setting the line's
+font, once per variant, and compare the two returned strings:
+
+```js
+() => {
+  const c = document.querySelector(".rcpt-thermal");
+  if (!c) return "NO THERMAL CANVAS — the takeover frame did not thermalize";
+  const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+  let ink = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i] < 128) ink++;
+  return c.width + "x" + c.height + " ink=" + ink;
+}
+```
+
+Differing `ink` counts prove the attribute reached the raster. Identical counts across a
+font change mean it did not.
 
 - [ ] **Step 4: Confirm a takeover thermalizes at all**
 

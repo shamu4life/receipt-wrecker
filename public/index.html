@@ -1243,13 +1243,20 @@
     // box is measured (padded) so nothing clips against SVG's default overflow:hidden.
     // Caveat: if the text itself contains a ":", the font-size attr + that colon can
     // re-trip the filter — rare, and Hanzi is the colon-proof fallback.
-    function buildBigTextSvg(text, factor) {
+    // `var`-assigned, not a `function` declaration: same reason as bigFontFor below —
+    // this lives inside the DOM-glue guard and needs to reach module.exports at the
+    // bottom of the file, which a block-scoped strict-mode function declaration can't.
+    var buildBigTextSvg = function (text, factor, fmt) {
       var lines = String(text).replace(/\r/g, "").split("\n");
+      // Resolve the font ONCE and use it for both measurement and the emitted markup —
+      // see bigFontFor's note. Measuring in one font while rendering in another is the
+      // exact drift that shears the last letters off a print.
+      var cssFont = bigFontFor(fmt);
       // SVG clips overflow (unlike a wrapping <span>), so size relative to the width
       // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
       // font drift on the printer); `factor` (the Size %) then scales below that, so
       // the slider always has an effect and text never runs off the edge.
-      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100, BIG_FONT).width); }, 1);
+      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100, cssFont).width); }, 1);
       var fit = 250 * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
@@ -1263,9 +1270,11 @@
       // Shared text attributes ride on a <g> (inherited by every line) instead of being
       // repeated per <text> — a big payload saving on multi-line captions, so an image +
       // caption fits in ONE cheer instead of being split. (verified on the real engine)
-      var body = '<g font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + kids + '</g>';
+      // fmtAttrs(fmt) rides here too, once, for the same reason.
+      var body = '<g font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '"'
+        + fmtAttrs(fmt) + '>' + kids + '</g>';
       return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + body + '</svg>';
-    }
+    };
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
     // render with the SAME font, and one present on both this browser and the printer
@@ -1334,7 +1343,7 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S, angle, cssFont) {
+    function rotatedSpan(cols, colW, S, angle, cssFont, fmt) {
       angle = angle || 90;
       cssFont = cssFont || BIG_FONT;
       // Both 90 and 270 keep the input line order: at 270 (read by turning the tape the
@@ -1354,7 +1363,7 @@
       var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
         + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
         + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + cssFont + ';'
-        + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)">'
+        + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)"' + fmtAttrs(fmt) + '>'
         + inner + '</span></div>';
       return { html: html, maxL: maxL };
     }
@@ -1400,8 +1409,11 @@
     // strip's run length (its physical length down the tape) so the packer respects
     // the page. `factor`/`len` override the live controls when a composer block carries
     // its own size/length; they default to the current sliders.
-    function rotateBodies(text, factor, len, angle, cssFont) {
-      cssFont = cssFont || BIG_FONT;
+    function rotateBodies(text, factor, len, angle, fmt) {
+      // ONE resolve, same as buildBigTextSvg — see bigFontFor's note. Every measurement
+      // call below (segmentLine -> breakToken -> runLength) and the rendered span read
+      // this same value, so they cannot disagree.
+      var cssFont = bigFontFor(fmt);
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
@@ -1415,7 +1427,7 @@
       var bodies = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S, angle, cssFont);
+        var span = rotatedSpan(cols, colW, S, angle, cssFont, fmt);
         bodies.push({ html: span.html, heightPx: span.maxL, chars: payloadLength(span.html),
                       preview: { kind: "html", html: span.html } });
       }
@@ -1430,8 +1442,8 @@
     }
     // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
     // proven on the real engine). Default transform-origin (centre) so it flips in place.
-    function bigTypeBodies(text, factor, orient) {
-      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor());
+    function bigTypeBodies(text, factor, orient, fmt) {
+      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor(), fmt);
       var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
       var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
       return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
@@ -1570,8 +1582,8 @@
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
       if (block.render === "hanzi") return hanziBodies(text, block.cols, factor);
       var orient = block.orient || 0;
-      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient);
-      return bigTypeBodies(text, factor, orient);   // 0 or 180
+      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient, block.fmt);
+      return bigTypeBodies(text, factor, orient, block.fmt);   // 0 or 180
     }
     // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
     // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
@@ -3140,7 +3152,7 @@
       lineFmt: lineFmt,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
-      bigFontFor: bigFontFor, BIG_FONT: BIG_FONT,
+      bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,
     };
   }
 </script>

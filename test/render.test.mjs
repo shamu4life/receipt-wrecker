@@ -33,3 +33,17 @@ test("bigFontFor resolves the css font that measurement and rendering must share
   assert.equal(C.bigFontFor({ font: "mono" }), "monospace");
   assert.equal(C.bigFontFor({ font: "papyrus" }), C.BIG_FONT, "unknown ids fall back");
 });
+
+test("Big Text carries its block's formatting onto the shared <g>", () => {
+  const html = C.buildBigTextSvg("HELLO", 1, { font: "georgia", underline: true });
+  assert.match(html, /<g [^>]*font-family="Georgia"/);
+  assert.match(html, /<g [^>]*text-decoration="underline"/);
+  // one <g>, not per-line attributes — that sharing is what keeps multi-line affordable
+  assert.equal((html.match(/<g /g) || []).length, 1);
+});
+
+test("an unformatted Big Text block emits exactly what it emits today", () => {
+  const before = C.buildBigTextSvg("HELLO", 1);
+  assert.ok(!/font-family=/.test(before), "no font-family when the default is chosen");
+  assert.ok(!/text-decoration=/.test(before));
+});

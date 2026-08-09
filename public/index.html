@@ -1249,7 +1249,7 @@
       // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
       // font drift on the printer); `factor` (the Size %) then scales below that, so
       // the slider always has an effect and text never runs off the edge.
-      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100).width); }, 1);
+      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100, BIG_FONT).width); }, 1);
       var fit = 250 * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
@@ -1272,6 +1272,19 @@
     // (Arial) — mismatched fonts make per-glyph widths drift, the drift accumulates
     // across a word, the box comes out short, and the last letter(s) get sheared.
     var BIG_FONT = "Arial,sans-serif";
+    // ONE owner of "which font is this text in". measureRun and every renderer read it,
+    // so they cannot disagree — and disagreeing is what shears letters off a sideways
+    // strip. Falls back to BIG_FONT (Arial) for the default entry and for junk, because
+    // "" would make the canvas font string invalid.
+    // A `var`-assigned function expression (not a `function` declaration): this lives
+    // inside the `if (typeof document...)` DOM-glue guard below, and in strict mode a
+    // block-level function declaration doesn't hoist past that block's braces — it
+    // would be invisible to module.exports at the bottom of the file. `var` hoists
+    // through the block regardless, which is exactly why it's needed here.
+    var bigFontFor = function (fmt) {
+      var css = getFont(fmt && fmt.font).css;
+      return css || BIG_FONT;
+    };
     // A leading "<" gets some messages blocked before they send; any non-"<" first
     // character defuses it. A non-breaking space is invisible on the print and, unlike
     // a normal leading space, isn't trimmed away before the filter sees it.
@@ -1292,14 +1305,18 @@
     var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.78; rounded
     var PAPER_MM = 70;                                     // printable width
     var PAPER_PX = Math.round(PAPER_MM * PX_PER_MM);       // 263
-    function measureRun(text, fontPx) {
+    function measureRun(text, fontPx, cssFont) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
-      c.font = "800 " + fontPx + "px " + BIG_FONT;
+      // MEASURE IN THE FONT WE WILL RENDER IN. Measuring Arial while the printer draws
+      // Impact makes every per-glyph width wrong, the error accumulates across a word,
+      // and the box comes out short — which shears the last letters off a sideways
+      // strip. See BIG_FONT's note.
+      c.font = "800 " + fontPx + "px " + (cssFont || BIG_FONT);
       c.textBaseline = "alphabetic";
       return c.measureText(text);
     }
-    function runLength(text, fontPx) {
-      var m = measureRun(text, fontPx);
+    function runLength(text, fontPx, cssFont) {
+      var m = measureRun(text, fontPx, cssFont);
       var right = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
       var left = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
       // Pad long: a proportional margin (per-glyph metric drift accumulates over a
@@ -1317,13 +1334,14 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S, angle) {
+    function rotatedSpan(cols, colW, S, angle, cssFont) {
       angle = angle || 90;
+      cssFont = cssFont || BIG_FONT;
       // Both 90 and 270 keep the input line order: at 270 (read by turning the tape the
       // opposite way from 90) the rotation already lands line 1 in the column that ends
       // up on top, so NO reversal — reversing was the "wrong orientation" bug on
       // multi-line text (it swapped the lines).
-      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
+      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S, cssFont)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
       var blockH = cols.length * colW;    // N stacked columns, pre-rotation height
       // Center with the standard translate(-50%,-50%) idiom inside a paper-wide,
@@ -1335,7 +1353,7 @@
       // pin the pre-rotation box so the translate math is exact.
       var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
         + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
-        + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
+        + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + cssFont + ';'
         + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)">'
         + inner + '</span></div>';
       return { html: html, maxL: maxL };
@@ -1380,7 +1398,8 @@
     // strip's run length (its physical length down the tape) so the packer respects
     // the page. `factor`/`len` override the live controls when a composer block carries
     // its own size/length; they default to the current sliders.
-    function rotateBodies(text, factor, len, angle) {
+    function rotateBodies(text, factor, len, angle, cssFont) {
+      cssFont = cssFont || BIG_FONT;
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
@@ -1394,7 +1413,7 @@
       var bodies = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S, angle);
+        var span = rotatedSpan(cols, colW, S, angle, cssFont);
         bodies.push({ html: span.html, heightPx: span.maxL, chars: payloadLength(span.html),
                       preview: { kind: "html", html: span.html } });
       }
@@ -3119,6 +3138,7 @@
       lineFmt: lineFmt,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
+      bigFontFor: bigFontFor, BIG_FONT: BIG_FONT,
     };
   }
 </script>

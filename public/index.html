@@ -1314,7 +1314,7 @@
     // strip. Falls back to BIG_FONT (Arial) for the default entry and for junk, because
     // "" would make the canvas font string invalid.
     // A `var`-assigned function expression (not a `function` declaration): this lives
-    // inside the `if (typeof document...)` DOM-glue guard below, and in strict mode a
+    // inside the `if (typeof document...)` DOM-glue guard above, and in strict mode a
     // block-level function declaration doesn't hoist past that block's braces — it
     // would be invisible to module.exports at the bottom of the file. `var` hoists
     // through the block regardless, which is exactly why it's needed here.
@@ -2660,8 +2660,9 @@
         var cur = function () { return block[key] || (block[key] = {}); };
         var row = mkEl("div", { "class": "fmt-row" });
         var font = mkEl("select");
+        var fNow = lineFmt(block[key], defWeight, defItalic).font;
         for (var i = 0; i < FONTS.length; i++) {
-          font.appendChild(opt(FONTS[i].id, FONTS[i].label, (block[key] || {}).font === FONTS[i].id));
+          font.appendChild(opt(FONTS[i].id, FONTS[i].label, fNow === FONTS[i].id));
         }
         font.addEventListener("change", function () { cur().font = font.value; saveBlocks(); update(); });
         row.appendChild(font);

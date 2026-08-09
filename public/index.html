@@ -1283,10 +1283,11 @@
       // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
       // font drift on the printer); `factor` (the Size %) then scales below that, so
       // the slider always has an effect and text never runs off the edge.
-      // bigFitBasis, not `.width`: the advance is a lie for a synthesised oblique, and
-      // the SVG viewport clips whatever the lie costs. See its note.
+      // bigFitBasis, not `.width`: the advance does not bound the ink — not for a
+      // synthesised oblique, and not for an upright swash or descender either — and the
+      // SVG viewport clips whatever the difference costs. See its note.
       var wide100 = lines.reduce(function (m, l) {
-        return Math.max(m, bigFitBasis(measureRun(l || " ", 100, cssFont, wideWeight, wideItalic), wideItalic));
+        return Math.max(m, bigFitBasis(measureRun(l || " ", 100, cssFont, wideWeight, wideItalic)));
       }, 1);
       var fit = BIG_FIT_PX * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
@@ -1376,7 +1377,14 @@
     // so S/64 a side) already spends part of it before glyph ink is considered. ONE
     // owner so the fit and any test of the fit cannot disagree about the target.
     var BIG_FIT_PX = 250;
-    // Margin applied to a SYNTHESISED-oblique ink measurement only — see bigFitBasis.
+    // Margin applied whenever bigFitBasis has to fall back to ink bounds — see its note.
+    // KNOWN LIMIT: 1.08 was derived from ONE case (the 3.9% engine-vs-browser drift on
+    // Impact's synthesised oblique, plus the fake-bold stroke). It is not universally
+    // derived, and it has almost no headroom at the other end of the font list: apply
+    // that same 3.9% drift across the 9 fonts x 10 strings measured in shear.test.mjs
+    // and the two tightest italic cases land at 263.4 (Arial italic "gyp") and 264.2
+    // (Georgia italic "Wj") against a 263px box — about 1px over, invisible on a 1-bit
+    // thermal head, but zero margin. Raise this before assuming there is slack in it.
     var BIG_INK_PAD = 1.08;
     // weight/italic default to 800/false — Big Text's historical baseline — so every
     // pre-Task-5 call site (still passing 3 args) measures byte-identically to before.
@@ -1396,13 +1404,25 @@
     // not what they advance. runLength already works this way for the rotated path;
     // this is the same principle for the upright SVG one, with the geometry the SVG
     // path actually has.
-    // WHY: a synthesised oblique — a family with no real italic face, i.e. Impact and
-    // Arial Black here — skews the outlines and leaves the advance UNTOUCHED. Measured:
-    // "HI" in Impact reports the same 84.33px advance upright and italic, while the
-    // ink's right edge moves from 80.18 to 99.94. Fit on the advance and the extra ink
-    // lands outside the SVG, which clips at its viewport (no overflow, unlike a span).
-    // On the real engine at 203dpi, "HI"/Impact/italic at the advance-fit size (S=296)
-    // inked out to user x 314.2 in a 263-wide box: 51px of the "I" simply not printed.
+    // WHY: the advance is not a bound on the ink. The loudest case is a SYNTHESISED
+    // oblique — a family with no real italic face, i.e. Impact and Arial Black here —
+    // which skews the outlines and leaves the advance UNTOUCHED. Measured: "HI" in
+    // Impact reports the same 84.33px advance upright and italic, while the ink's right
+    // edge moves from 80.18 to 99.94. Fit on the advance and the extra ink lands outside
+    // the SVG, which clips at its viewport (no overflow, unlike a span). On the real
+    // engine at 203dpi, "HI"/Impact/italic at the advance-fit size (S=296) inked out to
+    // user x 314.2 in a 263-wide box: 51px of the "I" simply not printed.
+    // IT IS NOT ONLY ITALIC — an earlier version of this gated on that and was wrong.
+    // Swept all 9 fonts x 10 strings with real Chrome canvas metrics at the measuring
+    // weight (800): fitting on the advance puts ink outside the viewport in 64 of 180
+    // cases, and six of those are UPRIGHT — Script "L" (ink right edge 271.9), Script
+    // "Wj" (273.2), Script "gyp" (left -11.4), Fantasy "L" (274.4), Fantasy "gyp"
+    // (-3.3), Comic Sans "L" (264.2). Confirmed on the engine: upright "L"/Script emits
+    // font-size 391 and inked to user x 318.3 against the same glyph in a deliberately
+    // oversized viewport — 55px of the letter never printed. A swash or a descender
+    // overhanging its own advance box shears exactly like a synthesised skew does, so
+    // the fit consults ink for EVERY measurement, italic or not; ungated, the same
+    // sweep clips in 0 of 180.
     // WHY NOT just the ink span: text-anchor is "middle", which centres the ADVANCE
     // box, and the sheared ink is NOT centred inside its own advance box. What has to
     // fit is twice the LARGER of the two ink half-extents measured from that centre.
@@ -1416,29 +1436,42 @@
     // it, because that pad answers a different question (per-glyph drift accumulating
     // across a word in a font the printer may substitute) and the two should be free to
     // move apart.
-    // Never SHORTER than the advance, and only consulted when italic: every upright
-    // block keeps exactly the size it has today, and so does every real italic face,
-    // whose advances are honest. The change can only ever shrink a line, never grow
-    // one, which is runLength's rule too: erring long adds invisible paper, erring
-    // short shears a letter.
+    // WHAT THE PAD COSTS, since it lands wider than the case that justified it: the
+    // `ink <= adv` test below is the only gate, and it does NOT exempt a font with a
+    // real italic face. Georgia ships one, and its ink still exceeds its advance on 6 of
+    // the 10 strings swept ("HI" advances 136.38 against 149.07 of ink), so Georgia
+    // italic "HELLO" now fits 8% smaller and "HI" 15% smaller than before — neither was
+    // clipping. Accepted on runLength's rule: erring long adds invisible blank tape,
+    // erring short shears a letter off the print, so a conservative over-measure is the
+    // direction to be wrong in. A real italic face is NOT evidence that the advance
+    // bounds the ink; only the measurement is.
+    // Never SHORTER than the advance, so the change can only ever shrink a line, never
+    // grow one — runLength's rule again. Ink inside the advance box returns the advance
+    // verbatim, which is every upright measurement that doesn't overflow, so unformatted
+    // Big Text is byte-identical. Pinned twice, because the two pins cover different
+    // things: render.test.mjs pins the whole emitted string, but under the null-DOM
+    // canvas — that one proves the markup shape, not this arithmetic — while
+    // shear.test.mjs drives the real builder against captured Chrome metrics and pins
+    // the emitted font-size for an upright block against the advance-fit size.
     // A missing/non-finite bounding box (the null-DOM test harness has no canvas, and
     // older engines don't report these) falls back to the advance, exactly as runLength
     // does — measurement degrades to today's behaviour rather than to NaN.
     // `var`-assigned, like bigFontFor/bigWeightFor and for the same reason: this sits
     // inside the DOM-glue guard block, and a strict-mode block-level `function`
     // declaration can't reach module.exports at the bottom of the file.
-    var bigFitBasis = function (m, italic) {
+    var bigFitBasis = function (m) {
       var adv = m.width;
-      if (!italic || !isFinite(adv)) return adv;
+      if (!isFinite(adv)) return adv;
       var right = m.actualBoundingBoxRight, left = m.actualBoundingBoxLeft;
       if (!isFinite(right) || !isFinite(left)) return adv;
       // left is positive when ink spills LEFT of the origin, so the centre-to-left-edge
       // distance is half + left, and the centre-to-right-edge distance is right - half.
       var half = adv / 2, ink = 2 * Math.max(right - half, half + left);
-      // Ink inside the advance box = the advance is honest (a REAL italic face; Georgia
-      // italic measures 573.24 advance vs 285.50 half-extent, i.e. 570.99 of ink). Take
-      // the advance and change nothing: no synthesis happened, so there is nothing to
-      // correct and no drift to pad against.
+      // Ink inside the advance box = the advance already bounds the ink, so it is a safe
+      // divisor and the size does not move. This is what keeps every non-overflowing
+      // upright block byte-identical — it is the measurement, not the style, that
+      // decides. (Georgia italic "WRECKED": 573.24 advance vs 285.50 half-extent, i.e.
+      // 571.00 of ink — fits, unchanged. Georgia italic "HI" does not: see the note.)
       if (ink <= adv) return adv;
       return ink * BIG_INK_PAD;
     };
@@ -2825,21 +2858,36 @@
       //
       // FORMATTING IS PAYLOAD TOO, and the hint has to say so: every control on a line
       // emits an SVG attribute. Measured against this branch's buildFakeCheer at the
-      // flagship case (39-char minted link, name "IRS", w=263 = PAPER_PX), base 491/500:
+      // flagship case (39-char minted link, ALL THREE lines, name "IRS", w=263 =
+      // PAPER_PX), base 491/500:
       //   italic +20  Serif +20  Impact +21  Georgia/Script/Fantasy +22  Monospace +24
       //   Arial Black +26  underline +28  Comic Sans MS +28  strikethrough +31
       //   underline + strikethrough together +41
-      // So ONE touch of ONE control is enough to go over, and the packer cannot rescue
-      // it — a takeover is a single unsplittable body.
+      // THE "ANY ONE OF THEM GOES OVER" LINE IS ONLY TRUE AT THAT 491 BASE, which needs
+      // all three lines filled. Drop a line and the headroom is real: two lines + the
+      // picture measure 419 (so +41 lands at 460, fits), and one short line + the
+      // picture measures 345-354 depending which slot it is (+41 -> 386-395, fits). An
+      // earlier version of this hint said any control tips a picture cheer over full
+      // stop, which overstated it by a whole line's worth of budget.
+      // TWO COUNTER-INTUITIVE ONES, worth stating because nobody would guess them from
+      // the table above: italic on the NOTE line costs +0 — that slot's default is
+      // already italic (lineFmt(fm.note, 400, true)), so choosing it changes nothing on
+      // the wire. And the weight select can be FREE OR NEGATIVE: fmtAttrs omits weight
+      // at 400, so picking Normal on line 1 or line 2 DELETES the font-weight="900" /
+      // "700" they were emitting and gives back 18 characters each (Normal on the note
+      // line is +0, it is already 400; Black on the note line is +18).
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "With a picture this nearly fills the message — about 491 of 500 with a short "
-        + "name — so watch the counter. Formatting is payload: a font, italic, underline "
-        + "or strikethrough costs 20–31 characters on the line you set it on (41 for "
-        + "underline and strikethrough together), so any one of them puts a picture cheer "
-        + "over. Going over doesn’t cost a second cheer: Twitch rejects an over-length "
-        + "message outright and nothing prints. A long name or a pasted Discord/imgur "
-        + "link will do it too — upload the file here instead and you get the shortest "
-        + "link there is."));
+        "With a picture and all three lines this nearly fills the message — about 491 of "
+        + "500 with a short name — so watch the counter. Formatting is payload: a font, "
+        + "italic, underline or strikethrough costs 20–31 characters on the line you set "
+        + "it on (41 for underline and strikethrough together), so at 491 any one of them "
+        + "tips it over. Leave a line empty and there is room: two lines with a picture "
+        + "start near 419, one line near 350, which absorbs even the 41. Two that surprise "
+        + "people: italic on the note line is free (it is already italic), and picking "
+        + "Normal weight on the first two lines gives you 18 characters back each. Going "
+        + "over doesn’t cost a second cheer: Twitch rejects an over-length message "
+        + "outright and nothing prints. A long name or a pasted Discord/imgur link will do "
+        + "it too — upload the file here instead and you get the shortest link there is."));
       var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
       aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
       aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });

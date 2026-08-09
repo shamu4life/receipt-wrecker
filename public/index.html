@@ -718,6 +718,47 @@
   // future textarea) would sail straight through into the emitted SVG. Collapse here,
   // where the guarantee is claimed, instead of relying on <input> stripping newlines.
   function takeoverLineText(t) { return String(t == null ? "" : t).replace(/[\r\n\t]+/g, " ").trim(); }
+  // The ONLY font families offered, and every one was rendered through printer-bot's
+  // own binary (wkhtmltopdf 0.12.6 patched-qt) at both 24px and 58px before being
+  // listed — at 203dpi 1-bit they are visibly distinct shapes, not mush. The four
+  // generics always resolve somewhere; the named ones are core Windows fonts, which is
+  // what the streamer's box runs. An unverified family is a silent fallback that looks
+  // like the control not working, so nothing else goes in this table.
+  // `css` is what reaches the markup; "" means emit no font-family at all (Arial is
+  // the receipt's own default and costs zero characters).
+  var FONTS = [
+    { id: "",        label: "Default (Arial)", css: "" },
+    { id: "black",   label: "Arial Black",     css: "Arial Black" },
+    { id: "impact",  label: "Impact",          css: "Impact" },
+    { id: "comic",   label: "Comic Sans MS",   css: "Comic Sans MS" },
+    { id: "georgia", label: "Georgia",         css: "Georgia" },
+    { id: "serif",   label: "Serif",           css: "serif" },
+    { id: "mono",    label: "Monospace",       css: "monospace" },
+    { id: "script",  label: "Script",          css: "cursive" },
+    { id: "fantasy", label: "Fantasy",         css: "fantasy" }
+  ];
+  function getFont(id) {
+    for (var i = 0; i < FONTS.length; i++) if (FONTS[i].id === id) return FONTS[i];
+    return FONTS[0];
+  }
+  // fmt -> SVG <text> attributes. EVERY DEFAULT IS OMITTED: this string is payload, and
+  // the fake cheer already sits within single digits of Twitch's 500-character limit, so
+  // an always-emitted attribute would cost a cheer. Attribute ORDER is pinned by test so
+  // payload lengths stay predictable.
+  function fmtAttrs(fmt) {
+    fmt = fmt || {};
+    var out = "", f = getFont(fmt.font), w = Math.round(fmt.weight) || 0;
+    if (f.css) out += ' font-family="' + escapeAttr(f.css) + '"';
+    if (w && w !== 400) out += ' font-weight="' + w + '"';
+    if (fmt.italic) out += ' font-style="italic"';
+    // Both decorations in one attribute; verified on the engine in Task 7. If the
+    // combined form ever stops rendering, emit underline alone rather than neither.
+    var dec = [];
+    if (fmt.underline) dec.push("underline");
+    if (fmt.strike) dec.push("line-through");
+    if (dec.length) out += ' text-decoration="' + dec.join(" ") + '"';
+    return out;
+  }
   function takeoverText(cx, y, size, l) {
     return '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
       + (l.weight ? ' font-weight="' + (Math.round(l.weight) || 700) + '"' : "")
@@ -2998,6 +3039,7 @@
       packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
       escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
+      FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,

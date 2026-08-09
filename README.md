@@ -144,8 +144,12 @@ render is tiled glyphs, not type, and there is nothing to format.
   block. **Straight-on is not immune** — it is only quieter. Big Text is sized from a
   browser measurement there too, and it is drawn into a fixed-width box that clips
   instead of wrapping, so a substituted wider face amputates glyphs at the paper edge
-  rather than merely looking different. Measured on the printer's own engine: an
-  upright "L" in Script inked 55px past the edge, and the box printed the stump.
+  rather than merely looking different. Measured on the printer's own engine: even
+  after the ink-bound fit landed, an upright "L" in Script still inked 19.3px past
+  the edge (see the changelog) — the fit measures ink correctly, the residue is that
+  the browser measuring the line and the engine printing it resolve a generic family
+  like `cursive` or `fantasy` to two different typefaces, so no measurement taken on
+  one can size the other.
 - More generally the preview can't settle this for you: it renders with **your** fonts
   and the tape comes out of **theirs**. Serif, Monospace, Script and Fantasy always
   resolve to *something* — and that is the trap, because "something" is chosen

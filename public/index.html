@@ -1385,6 +1385,17 @@
     // and the two tightest italic cases land at 263.4 (Arial italic "gyp") and 264.2
     // (Georgia italic "Wj") against a 263px box — about 1px over, invisible on a 1-bit
     // thermal head, but zero margin. Raise this before assuming there is slack in it.
+    // KNOWN LIMIT #2: bigFitBasis applies this as a STEP, not a ramp — `ink <= adv`
+    // returns adv verbatim, one hair past it returns `ink * 1.08`. A face whose ink
+    // clears its advance by next to nothing pays nearly the whole 8% for an overhang
+    // no printer would show. Worked example, upright, real engine: Arial Black "WOW"
+    // measures advance 279.88 against 279.98 of ink — 0.10px, 0.036% — and the emitted
+    // font-size drops 89 -> 83, a 6.7% shrink for an overhang thinner than a hair.
+    // Not a bug to fix here: making the correction proportional to the overhang would
+    // mean inventing a curve with no measurement behind it, and the flat pad is what
+    // keeps unformatted output byte-identical (see the `ink <= adv` branch above).
+    // Erring long over erring short is this file's rule (see runLength); a slightly
+    // smaller headline is the accepted cost of that rule at this boundary.
     var BIG_INK_PAD = 1.08;
     // weight/italic default to 800/false — Big Text's historical baseline — so every
     // pre-Task-5 call site (still passing 3 args) measures byte-identically to before.

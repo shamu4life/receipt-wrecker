@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import { loadCore } from "./_harness.mjs";
 const C = loadCore();
 
-const LINES = [{ text: "TAX LIEN", size: 24, weight: 900 },
-               { text: "ASSESSED", size: 19, weight: 700 },
-               { text: "please remit", size: 13, italic: true }];
+// Through lineFmt at the three slot defaults (900 / 700 / italic) — the shape every
+// real caller now produces. Left as the old bare weight/italic literals, these silently
+// built lines with NO formatting attributes at all once buildTakeover started reading
+// fmt, which defanged the payload-budget test below without failing it.
+const LINES = [{ text: "TAX LIEN", size: 24, fmt: C.lineFmt(null, 900, false) },
+               { text: "ASSESSED", size: 19, fmt: C.lineFmt(null, 700, false) },
+               { text: "please remit", size: 13, fmt: C.lineFmt(null, 400, true) }];
 
 test("takeoverBox derives everything from the one calibration number", () => {
   // pt -> px at 96dpi (the engine runs --disable-smart-shrinking, so 1px = 1/96in).

@@ -2193,7 +2193,7 @@
         if (item.chars > MAX_CHARS) {
           var warn = document.createElement("div");
           warn.className = "over-note";
-          warn.textContent = "Too long for Twitch (~500 chars) — trim it: fewer columns, shorter text, or a smaller size.";
+          warn.textContent = "Too long for Twitch (~500 chars) — trim it: clear the formatting, fewer columns, shorter text, or a smaller size.";
           card.appendChild(warn);
         }
         if (item.bodies) {
@@ -2822,12 +2822,24 @@
       // Twitch rejects the message and nothing prints. Measured margins with an uploaded
       // link: name "IRS" 491/500, "shamu4life" 498 — both fit; a very long name does not. The
       // name eats the budget just as fast as the URL does, so say so.
+      //
+      // FORMATTING IS PAYLOAD TOO, and the hint has to say so: every control on a line
+      // emits an SVG attribute. Measured against this branch's buildFakeCheer at the
+      // flagship case (39-char minted link, name "IRS", w=263 = PAPER_PX), base 491/500:
+      //   italic +20  Serif +20  Impact +21  Georgia/Script/Fantasy +22  Monospace +24
+      //   Arial Black +26  underline +28  Comic Sans MS +28  strikethrough +31
+      //   underline + strikethrough together +41
+      // So ONE touch of ONE control is enough to go over, and the packer cannot rescue
+      // it — a takeover is a single unsplittable body.
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
         "With a picture this nearly fills the message — about 491 of 500 with a short "
-        + "name — so watch the counter. Going over doesn’t cost a second cheer: Twitch "
-        + "rejects an over-length message outright and nothing prints. A long name or a "
-        + "pasted Discord/imgur link will do it — upload the file here instead and you "
-        + "get the shortest link there is."));
+        + "name — so watch the counter. Formatting is payload: a font, italic, underline "
+        + "or strikethrough costs 20–31 characters on the line you set it on (41 for "
+        + "underline and strikethrough together), so any one of them puts a picture cheer "
+        + "over. Going over doesn’t cost a second cheer: Twitch rejects an over-length "
+        + "message outright and nothing prints. A long name or a pasted Discord/imgur "
+        + "link will do it too — upload the file here instead and you get the shortest "
+        + "link there is."));
       var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
       aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
       aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });

@@ -748,6 +748,8 @@
   function fmtAttrs(fmt) {
     fmt = fmt || {};
     var out = "", f = getFont(fmt.font), w = Math.round(fmt.weight) || 0;
+    // escapeAttr is defensive: css values are fixed table constants today, but the call guards
+    // against a future table entry or code path introducing user data into the attribute.
     if (f.css) out += ' font-family="' + escapeAttr(f.css) + '"';
     if (w && w !== 400) out += ' font-weight="' + w + '"';
     if (fmt.italic) out += ' font-style="italic"';

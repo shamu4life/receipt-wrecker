@@ -761,13 +761,24 @@
     if (dec.length) out += ' text-decoration="' + dec.join(" ") + '"';
     return out;
   }
+  // Formatting comes in as ONE fmt object rather than loose weight/italic flags, so
+  // every text surface in the app emits attributes through the same function and they
+  // cannot drift. Slot defaults (900 / 700 / italic) are applied by lineFmt at the call
+  // site, which is what keeps saved takeovers byte-identical.
   function takeoverText(cx, y, size, l) {
     return '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
-      + (l.weight ? ' font-weight="' + (Math.round(l.weight) || 700) + '"' : "")
-      + (l.italic ? ' font-style="italic"' : "")
-      + '>' + escapeHtml(l.text) + '</text>';
+      + fmtAttrs(l.fmt) + '>' + escapeHtml(l.text) + '</text>';
   }
-  // o = {lines:[{text,size,weight,italic}], startY, picture, carrier, pullPt, w}. Any
+  // A stored per-line fmt merged over this slot's defaults. `null`/absent means "never
+  // touched", which must reproduce the old hardcoded look exactly.
+  function lineFmt(stored, defWeight, defItalic) {
+    var f = stored || {};
+    return { font: f.font || "",
+             weight: f.weight != null ? f.weight : defWeight,
+             italic: f.italic != null ? f.italic : !!defItalic,
+             underline: !!f.underline, strike: !!f.strike };
+  }
+  // o = {lines:[{text,size,fmt}], startY, picture, carrier, pullPt, w}. Any
   // line may be blank and is simply not drawn. `picture` rides in a <foreignObject>
   // through the ordinary carrier table, so it inherits the blocked-tag data instead of
   // hardcoding SVG's own <image (which the list ate in Aug 2026) — measured working
@@ -790,7 +801,7 @@
       var txt = takeoverLineText(src.text);
       // Trimmed, so a lone space no longer buys a real <text> element (63 chars of a
       // 500-char budget) plus a layout slot that pushes the picture's room down.
-      if (txt !== "") lines.push({ text: txt, size: src.size, weight: src.weight, italic: src.italic });
+      if (txt !== "") lines.push({ text: txt, size: src.size, fmt: src.fmt });
     }
     if (lines.length) {
       var kids = "", startY = Math.round(o.startY);
@@ -922,9 +933,10 @@
     // will want, and it gets escaped downstream like every other line.
     var bits = String(o.bits == null ? "" : o.bits).trim();
     var box = takeoverBox(o.pullPt);
-    var lines = [{ text: bits ? bits + CHEER_SUFFIX : "", size: sz.bits || 24, weight: 900 },
-                 { text: o.name || "", size: sz.name || 19, weight: 700 },
-                 { text: o.note || "", size: sz.note || 13, italic: true }]
+    var fm = o.fmts || {};
+    var lines = [{ text: bits ? bits + CHEER_SUFFIX : "", size: sz.bits || 24, fmt: lineFmt(fm.bits, 900, false) },
+                 { text: o.name || "", size: sz.name || 19, fmt: lineFmt(fm.name, 700, false) },
+                 { text: o.note || "", size: sz.note || 13, fmt: lineFmt(fm.note, 400, true) }]
       .filter(function (l) { return String(l.text || "") !== ""; });
 
     var top = Math.max(CHEER_TOP_PX, box.pullPx - CHEER_MAX_LIFT_PX);   // see CHEER_MAX_LIFT_PX
@@ -1510,11 +1522,12 @@
               bits: block.cBits, name: block.cName, note: block.cNote,
               avatar: block.avatar, avatarW: block.avatarW,
               sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+              fmts: { bits: block.f1, name: block.f2, note: block.f3 },
               carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX })
           : buildTakeover({
-              lines: [{ text: block.l1, size: block.s1, weight: 900 },
-                      { text: block.l2, size: block.s2, weight: 700 },
-                      { text: block.l3, size: block.s3, italic: true }],
+              lines: [{ text: block.l1, size: block.s1, fmt: lineFmt(block.f1, 900, false) },
+                      { text: block.l2, size: block.s2, fmt: lineFmt(block.f2, 700, false) },
+                      { text: block.l3, size: block.s3, fmt: lineFmt(block.f3, 400, true) }],
               picture: block.picture, pictureW: block.pictureW,
               pictureH: Math.round((block.pictureW || 120) * 1.4),
               carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
@@ -3044,6 +3057,7 @@
       FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
+      lineFmt: lineFmt,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
     };

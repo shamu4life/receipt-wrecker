@@ -514,3 +514,31 @@ test("takeoverReport reads what was drawn off the markup, not off a second copy 
   const squeezed = C.buildFakeCheer({ ...CHEER, pullPt: 60, sizes: { bits: 48, name: 48, note: 48 } });
   assert.ok(C.takeoverReport(squeezed, 3, true).linesDrawn < 3, "expected lines to be dropped at pull 60/48s");
 });
+
+test("a line's formatting reaches the markup", () => {
+  const html = C.buildTakeover({ pullPt: 240, w: 263, lines: [
+    { text: "NOTICE", size: 24, fmt: { font: "impact", weight: 900, underline: true } }] });
+  assert.match(html, /<text[^>]*font-family="Impact"/);
+  assert.match(html, /<text[^>]*font-weight="900"/);
+  assert.match(html, /<text[^>]*text-decoration="underline"/);
+});
+
+test("an unformatted line is byte-identical to before — no new attributes", () => {
+  // The three slot defaults are 900 / 700 / italic. They must still emit exactly what
+  // they emitted before fmt existed, or every saved takeover changes appearance.
+  const html = C.buildTakeover({ pullPt: 240, w: 263, lines: [
+    { text: "A", size: 24, fmt: C.lineFmt(null, 900, false) },
+    { text: "B", size: 19, fmt: C.lineFmt(null, 700, false) },
+    { text: "C", size: 13, fmt: C.lineFmt(null, 400, true) }] });
+  assert.match(html, /<text x="132" y="\d+" font-size="24" font-weight="900">A<\/text>/);
+  assert.match(html, /<text x="132" y="\d+" font-size="19" font-weight="700">B<\/text>/);
+  assert.match(html, /<text x="132" y="\d+" font-size="13" font-style="italic">C<\/text>/);
+});
+
+test("lineFmt takes the slot default and lets a stored value win", () => {
+  assert.equal(C.lineFmt(null, 900, false).weight, 900);
+  assert.equal(C.lineFmt({ weight: 400 }, 900, false).weight, 400);
+  assert.equal(C.lineFmt(null, 400, true).italic, true);
+  assert.equal(C.lineFmt({ italic: false }, 400, true).italic, false);
+  assert.equal(C.lineFmt({ font: "serif" }, 900, false).font, "serif");
+});

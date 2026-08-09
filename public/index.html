@@ -2463,6 +2463,23 @@
       // 900 / 700 / normal, so collapsing weight to a boolean would change the look of
       // every takeover that already exists. Normal/Bold/Black covers "bold" and keeps
       // 700 reachable.
+      // f1/f2/f3 are ONE value per block but get a control row in each style's field
+      // group, same as s1/s2/s3 above — same failure mode if they aren't kept in sync:
+      // edit the font/toggles in one style and the other style's (hidden) row would
+      // keep showing the old state while the preview had already moved on. Every copy
+      // is registered and refreshed on switch, exactly like sizeCopies/syncSizes.
+      var fmtCopies = [];
+      var syncFmts = function () {
+        for (var i = 0; i < fmtCopies.length; i++) {
+          var c = fmtCopies[i], f = lineFmt(block[c.key], c.defWeight, c.defItalic);
+          c.font.value = f.font;
+          c.weight.value = String(f.weight);
+          for (var j = 0; j < c.togs.length; j++) {
+            var t = c.togs[j];
+            t.el.className = "fmt-tog" + (f[t.prop] ? " on" : "");
+          }
+        }
+      };
       var mkFmt = function (parent, key, defWeight, defItalic) {
         var cur = function () { return block[key] || (block[key] = {}); };
         var row = mkEl("div", { "class": "fmt-row" });
@@ -2479,6 +2496,7 @@
         wsel.appendChild(opt("900", "Black", wNow === 900));
         wsel.addEventListener("change", function () { cur().weight = parseInt(wsel.value, 10); saveBlocks(); update(); });
         row.appendChild(wsel);
+        var togs = [];
         [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
           var on = lineFmt(block[key], defWeight, defItalic)[t[0]];
           var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
@@ -2489,8 +2507,10 @@
             saveBlocks(); update();
           });
           row.appendChild(b);
+          togs.push({ prop: t[0], el: b });
         });
         parent.appendChild(row);
+        fmtCopies.push({ key: key, defWeight: defWeight, defItalic: defItalic, font: font, weight: wsel, togs: togs });
       };
 
       // --- Blank takeover: three free lines + a picture ---
@@ -2568,6 +2588,7 @@
         blankWrap.style.display = cheer ? "none" : "";
         cheerWrap.style.display = cheer ? "" : "none";
         syncSizes();          // the hidden copy is stale until it's shown again
+        syncFmts();           // same staleness risk for the font/weight/I-U-S row
       };
       style.addEventListener("change", function () {
         block.tkStyle = style.value; applyStyle(); saveBlocks(); update();

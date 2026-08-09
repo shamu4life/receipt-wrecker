@@ -2412,12 +2412,24 @@
       }
       font.addEventListener("change", function () { curFmt().font = font.value; saveBlocks(); update(); syncFontNote(); });
       fmtRow.appendChild(font);
+      // Weight defaults to "Default" (absent), not "Normal" (400) — bigWeightFor
+      // resolves an absent weight to 800 for sideways rendering, not 400, so a select
+      // that could only say 400/700/900 had no way to represent the actual current
+      // state of an untouched sideways block truthfully. "Default" is what the font
+      // select already does for its "" entry; this mirrors it. Selecting Default
+      // deletes the key (genuinely absent again), never writes 400 or 800 — writing
+      // either would be a different lie, and 800 isn't offered as a value at all.
       var wsel = mkEl("select");
-      var wNow = (block.fmt || {}).weight || 400;
+      var wNow = (block.fmt || {}).weight;
+      wsel.appendChild(opt("", "Default", wNow === undefined));
       wsel.appendChild(opt("400", "Normal", wNow === 400));
       wsel.appendChild(opt("700", "Bold", wNow === 700));
       wsel.appendChild(opt("900", "Black", wNow === 900));
-      wsel.addEventListener("change", function () { curFmt().weight = parseInt(wsel.value, 10); saveBlocks(); update(); });
+      wsel.addEventListener("change", function () {
+        if (wsel.value === "") { delete curFmt().weight; }
+        else { curFmt().weight = parseInt(wsel.value, 10); }
+        saveBlocks(); update();
+      });
       fmtRow.appendChild(wsel);
       [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
         var on = !!(block.fmt || {})[t[0]];
@@ -2439,8 +2451,8 @@
       var syncFontNote = function () {
         var f = (block.fmt || {}).font || "";
         var sideways = block.orient === 90 || block.orient === 270;
-        if (!f) { fontNote.hidden = true; return; }
-        fontNote.hidden = false;
+        if (!f) { fontNote.style.display = "none"; return; }
+        fontNote.style.display = "";
         fontNote.textContent = sideways
           ? "Sideways strips are sized by measuring this font in your browser. If the "
             + "streamer's PC doesn't have it, it draws something else, the strip is the "

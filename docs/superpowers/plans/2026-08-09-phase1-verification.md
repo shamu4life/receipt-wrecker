@@ -119,6 +119,75 @@ serif options back-to-back on tiny thermal type won't get three dramatically dif
 looks the way `impact`/`comic`/`mono`/`script` each do. This was true before this task and
 is not a regression — noting it because "looks fine" isn't the standard this task set.
 
+## Weight and italic isolation, and the 58px underline/strike gap (fix round 1)
+
+The first pass of this task exercised weight (Bold/Black) and italic only combined with
+other attributes — inside `q5_all_together.svg` (font=Impact, italic, underline, strike,
+all on one 24px line) and inside the browser's live-DOM checks, which run on **Chromium**,
+not the WebKit 534.34 the printer actually runs. Underline/strike had a real-engine pass at
+24px (`buildTakeover`'s `<text>` path) and at an auto-fit ~75px (`buildBigTextSvg`'s `<g>`
+path), but never at a controlled, fixed 58px matching the font table's headline size.
+Neither gap was acceptable for a task whose whole point is not inferring WebKit's behavior
+from Chromium's. Re-ran, isolating one attribute per line against a same-size/same-text
+baseline (identical method to the font table): `fmtAttrs({weight:…})` / `fmtAttrs({italic:
+true})` / `fmtAttrs({underline:…, strike:…})` each built their own `<svg><text>`, real
+wkhtmltopdf render, 203dpi, 1-bit threshold, ink counted and diffed against the same-size
+`fmtAttrs({})` baseline so the delta attributes to exactly one attribute.
+
+| variant | 24px ink (Δ vs none) | 58px ink (Δ vs none) |
+|---|---|---|
+| none | 207256 | 219045 |
+| weight 400 (explicit) | 207256 (+0) | 219045 (+0) |
+| weight 700 (Bold) | 209094 (+1838) | 225234 (+6189) |
+| weight 900 (Black) | 209094 (**+1838, identical to 700**) | 225234 (**+6189, identical to 700**) |
+| italic | 207208 (−48) | 218871 (−174) |
+
+**Finding — Bold and Black render pixel-identically on the Default (Arial) font, on this
+engine.** `r_w58_700_1bit.png` and `r_w58_900_1bit.png` (and their 24px counterparts) are
+not just close in ink count, they are **byte-for-byte identical rasters**
+(`PIL.ImageChops.difference(...).getbbox()` returns `None` at both sizes — zero differing
+pixels). Visually, both are clearly bolder than the "none" baseline (thicker strokes), but
+weight 700 and weight 900 are the same bold, not two steps of one. This is very likely
+because the system's Arial substitute has one real/synthetic bold face available to
+wkhtmltopdf's font stack on this render host, and both 700 and 900 clamp to it — CSS
+font-weight matching commonly rounds to the nearest available face rather than failing.
+**This is a real, reportable finding, not a pass**: on this render engine, selecting
+"Black" instead of "Bold" on the **Default** font produces no visible difference at all.
+The app already has a real escape hatch for a genuinely heavier look — the separate `black`
+font-family entry (Arial Black, a distinct typeface, not a synthesized weight) — but the
+Weight dropdown's Bold/Black distinction, used alone on the default font, is not proven to
+do anything on the real engine. No code change made: the dropdown still writes the
+attribute correctly (`fmtAttrs` and the browser DOM checks both confirm `font-weight="700"`
+vs `"900"` reach the markup byte-for-byte differently), and weight 900 might render visibly
+heavier than 700 on a font that ships more weight steps (not tested here, out of the
+reviewer's ask) — this is a rendering-engine/font-availability limitation on the *Default*
+font specifically, not a markup bug, so there is nothing in `fmtAttrs` to fix.
+
+`weight: 400` is pixel-identical to `none` at both sizes, as expected — `fmtAttrs` omits
+`font-weight` entirely at 400 (its documented default-omission rule), so the markup itself
+is identical, not just the render.
+
+Italic renders correctly at both sizes (visually confirmed: `r_w24_italic_1bit.png`,
+`r_w58_italic_1bit.png` show a clearly slanted "Handgloves 123"), with a small **negative**
+ink delta (−48 / −174) rather than positive — italic changes glyph shapes and advance
+widths rather than adding stroke weight, so less ink is a normal outcome, not a rendering
+failure.
+
+**58px underline/strike** (closing the coverage gap — 24px and ~75px auto-fit were already
+covered):
+
+| variant | 58px ink | Δ vs none |
+|---|---|---|
+| none | 219891 | — |
+| underline | 223173 | +3282 |
+| strike | 222361 | +2470 |
+| both | 225643 | +5752 |
+
+Both draws more ink than either alone, consistent with the 24px/`<g>`-path findings above.
+Visually confirmed (`r_u58_both_1bit.png`): "UNDERSTRIKE" at 58px shows both a full
+underline and a full strikethrough. Underline/strike decoration is now confirmed on the
+real engine at 24px, ~75px, **and** 58px — full size coverage, matching the font table.
+
 ## Bonus: everything at once
 
 `buildTakeover` with `fmt: {font:"impact", weight:900, italic:true, underline:true,
@@ -164,7 +233,26 @@ Console: **0 errors, 0 warnings** at every checkpoint across the whole session
 
 **Bold, Black, I and S all reach the rendered SVG** — the four toggles the brief flagged as
 never having been driven end-to-end before (only Font and U had prior coverage). Read
-`document.querySelector(".rcpt-body text").outerHTML` after each click, on Line 1:
+`document.querySelector(".rcpt-body text").outerHTML` after each click, on Line 1. **Scope
+note:** this confirms the click reaches the correct DOM attribute in the live Chromium
+preview — it does not by itself confirm WebKit 534.34 (the printer's engine) draws the
+attribute the same way; that is what the engine-side isolation pass above is for.
+
+Given the engine-side finding that Bold and Black render pixel-identically on wkhtmltopdf/
+WebKit 534.34 for the Default font (see "Weight and italic isolation"), it mattered whether
+the *preview* at least shows a difference the real print doesn't — that would be a
+preview-fidelity bug, not just a font limitation. Tested directly: built the same
+`fmtAttrs({weight:700})` / `fmtAttrs({weight:900})` SVGs, decoded them through a real
+`<img>`/`<canvas>` in this Chromium session (58px, same "Handgloves 123" text, ink
+thresholded the same way as the engine passes) — **Chromium renders them pixel-identically
+too**: `none=3350, weight700=4637, weight900=4637` (`w700 === w900`). So this is not a
+preview/print mismatch — the preview and the real engine **agree**: Bold and Black look
+the same on the Default font in both places, because Arial (the family both resolve "" to)
+has no true 900-weight design on essentially any platform, only a single synthesized/real
+bold. The Weight control's Bold/Black distinction is validated as reaching the markup
+correctly; it just has no visible effect on the Default font specifically, consistently, in
+both renderers. `Arial Black` (a separate font-family entry, not a weight) remains the way
+to get a genuinely heavier look.
 
 1. Baseline (Default weight = Black/900 by slot default, U already on from a prior step):
    `<text x="132" y="296" font-size="24" font-weight="900" text-decoration="underline">TAKEOVER</text>`
@@ -186,7 +274,13 @@ the numeric ink/DOM evidence above is the actual verification artifact.
 
 ---
 
-## What was NOT tested
+## What was NOT tested (as of fix round 1)
+
+Weight and italic are now isolated on the real engine at both sizes (see "Weight and
+italic isolation" above), closing the gap the fix-round-1 review found — they were
+previously confirmed only combined with other attributes on the engine, or alone but only
+in Chromium. Underline/strike now have real-engine coverage at 24px, ~75px and 58px.
+Remaining known gaps:
 
 - **Real hardware.** Everything above is wkhtmltopdf (printer-bot's exact renderer) or
   Chromium (the browser preview's renderer). Neither is the RP332 itself; this task had no
@@ -244,8 +338,20 @@ anyway).
 All four open questions this task owned came back **positive** — inheritance from `<g>`
 works, the combined decoration value renders on every surface that uses it, the rotated
 `<span>`'s CSS decoration renders, and all nine fonts are legible and distinct at both
-sizes. The thermal preview's ink counts move exactly the way the underlying formatting
-changes predict, and all five toggles (Font, Weight/Bold/Black, I, U, S) demonstrably reach
-the rendered SVG with zero console errors. Nothing in Phase 1's formatting work needed to
-be walked back; the two fixes made here are pre-existing code-quality issues named in the
-brief, not defects this task's verification uncovered.
+sizes. Weight and italic are now isolated on the real engine at both 24px and 58px, and
+underline/strike now have real-engine coverage at 58px too, closing the fix-round-1 gap.
+The thermal preview's ink counts move exactly the way the underlying formatting changes
+predict, and all five toggles (Font, Weight/Bold/Black, I, U, S) demonstrably reach the
+rendered SVG with zero console errors.
+
+**One finding worth carrying forward, not a defect to fix:** Bold (700) and Black (900)
+render pixel-identically on the Default (Arial) font, on the real engine **and** in
+Chromium — confirmed byte-for-byte identical rasters both places, at both 24px and 58px.
+This is a font-availability limit (Arial has no true 900-weight design), not a
+preview/print mismatch and not a markup bug — `fmtAttrs` emits the correct, different
+`font-weight` value each time, and both renderers clamp it to the same visual result. No
+code change follows from it; it's recorded here so a future debugger chasing "why doesn't
+Black look heavier than Bold" doesn't re-derive this from scratch. Nothing else in Phase
+1's formatting work needed to be walked back; the two fixes made in `public/index.html` are
+pre-existing code-quality issues named in the brief, not defects this task's verification
+uncovered.

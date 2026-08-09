@@ -118,6 +118,10 @@
   .add-row button { flex: 1; padding: .45rem; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
+  .fmt-row { display: flex; gap: .3rem; align-items: center; margin: 0 0 .5rem; flex-wrap: wrap; }
+  .fmt-row select { flex: 1 1 7rem; min-width: 6rem; }
+  .fmt-tog { width: 2rem; padding: .25rem 0; font-weight: 700; cursor: pointer; }
+  .fmt-tog.on { background: #772ce8; color: #fff; border-color: #772ce8; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .9rem; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
@@ -2454,12 +2458,46 @@
         parent.appendChild(ta);
         return ta;
       };
+      // Font + weight + the three toggles for one line, on a single row. WEIGHT IS A
+      // SELECT, NOT A BOLD TOGGLE, and that is deliberate: the three slots already use
+      // 900 / 700 / normal, so collapsing weight to a boolean would change the look of
+      // every takeover that already exists. Normal/Bold/Black covers "bold" and keeps
+      // 700 reachable.
+      var mkFmt = function (parent, key, defWeight, defItalic) {
+        var cur = function () { return block[key] || (block[key] = {}); };
+        var row = mkEl("div", { "class": "fmt-row" });
+        var font = mkEl("select");
+        for (var i = 0; i < FONTS.length; i++) {
+          font.appendChild(opt(FONTS[i].id, FONTS[i].label, (block[key] || {}).font === FONTS[i].id));
+        }
+        font.addEventListener("change", function () { cur().font = font.value; saveBlocks(); update(); });
+        row.appendChild(font);
+        var wsel = mkEl("select");
+        var wNow = lineFmt(block[key], defWeight, defItalic).weight;
+        wsel.appendChild(opt("400", "Normal", wNow === 400));
+        wsel.appendChild(opt("700", "Bold", wNow === 700));
+        wsel.appendChild(opt("900", "Black", wNow === 900));
+        wsel.addEventListener("change", function () { cur().weight = parseInt(wsel.value, 10); saveBlocks(); update(); });
+        row.appendChild(wsel);
+        [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
+          var on = lineFmt(block[key], defWeight, defItalic)[t[0]];
+          var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
+          b.addEventListener("click", function () {
+            var v = !lineFmt(block[key], defWeight, defItalic)[t[0]];
+            cur()[t[0]] = v;
+            b.className = "fmt-tog" + (v ? " on" : "");
+            saveBlocks(); update();
+          });
+          row.appendChild(b);
+        });
+        parent.appendChild(row);
+      };
 
       // --- Blank takeover: three free lines + a picture ---
       var blankWrap = mkEl("div");
-      mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24);
-      mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19);
-      mkText(blankWrap, "Line 3 (italic)", "l3"); mkSize(blankWrap, "s3", 13);
+      mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24); mkFmt(blankWrap, "f1", 900, false);
+      mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19); mkFmt(blankWrap, "f2", 700, false);
+      mkText(blankWrap, "Line 3 (italic)", "l3"); mkSize(blankWrap, "s3", 13); mkFmt(blankWrap, "f3", 400, true);
       // Picture row = URL field + "or upload a file". The upload is here and not only on
       // the Image block because the takeover's picture is the whole point of the fake
       // cheer, and a pasted CDN link is usually long enough by itself to push the
@@ -2502,9 +2540,9 @@
         "Lays your lines out the way printer-bot lays out a real cheer — picture on "
         + "top, then the bits figure, then the name. “ BITS” is added for you, so put "
         + "just the number (or whatever you want in its place)."));
-      mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24);
-      mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19);
-      mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13);
+      mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24); mkFmt(cheerWrap, "f1", 900, false);
+      mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19); mkFmt(cheerWrap, "f2", 700, false);
+      mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13); mkFmt(cheerWrap, "f3", 400, true);
       mkPictureRow(cheerWrap, "avatar");
       // An earlier version of this hint said an over-length fake cheer "splits into a
       // second cheer". It does NOT: packStackBodies treats the first body of a part as

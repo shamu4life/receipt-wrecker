@@ -783,6 +783,13 @@
   }
   // A stored per-line fmt merged over this slot's defaults. `null`/absent means "never
   // touched", which must reproduce the old hardcoded look exactly.
+  // Deliberately MATERIALISES the default weight/italic into a concrete value — that is
+  // the takeover convention. Do NOT hand this helper's output to the Big Text path: Big
+  // Text needs absent-to-mean-800 to reach bigWeightFor's sideways baseline, and a
+  // materialised 400 here would silently drop every untouched sideways block from 800 to
+  // 400. The two conventions coexist safely only because the block shapes differ (f1/f2/f3
+  // here vs a single `fmt` there) — anyone adding a new text surface should pick the
+  // convention that matches which shape they're building, not just reach for this helper.
   function lineFmt(stored, defWeight, defItalic) {
     var f = stored || {};
     return { font: f.font || "",
@@ -1423,6 +1430,13 @@
       var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
         + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
         + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + fontDecl + ';'
+        // Unlike FONT_PROP, this ships as the literal string "text-decoration" — nothing
+        // escapes it (the property doesn't need the \66ont: trick; only the "font"
+        // substring itself has ever tripped the filter). Per the blocked-terms field
+        // record above (<object> -> <image> -> <img>, then <embed>/<input>/<iframe>
+        // still live as of Aug 2026), a literal new token in the payload is exactly the
+        // shape of thing that arms race has come for before. If underline/strike ever
+        // stop rendering, check here first for a new block on "text-decoration".
         + (dec ? 'text-decoration:' + dec + ';' : '')
         + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)">'
         + inner + '</span></div>';
@@ -2408,7 +2422,7 @@
       var fmtRow = mkEl("div", { "class": "fmt-row" });
       var font = mkEl("select");
       for (var fi = 0; fi < FONTS.length; fi++) {
-        font.appendChild(opt(FONTS[fi].id, FONTS[fi].label, (block.fmt || {}).font === FONTS[fi].id));
+        font.appendChild(opt(FONTS[fi].id, FONTS[fi].label, ((block.fmt || {}).font || "") === FONTS[fi].id));
       }
       font.addEventListener("change", function () { curFmt().font = font.value; saveBlocks(); update(); syncFontNote(); });
       fmtRow.appendChild(font);
@@ -2694,7 +2708,7 @@
       var blankWrap = mkEl("div");
       mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24); mkFmt(blankWrap, "f1", 900, false);
       mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19); mkFmt(blankWrap, "f2", 700, false);
-      mkText(blankWrap, "Line 3 (italic)", "l3"); mkSize(blankWrap, "s3", 13); mkFmt(blankWrap, "f3", 400, true);
+      mkText(blankWrap, "Line 3 (note)", "l3"); mkSize(blankWrap, "s3", 13); mkFmt(blankWrap, "f3", 400, true);
       // Picture row = URL field + "or upload a file". The upload is here and not only on
       // the Image block because the takeover's picture is the whole point of the fake
       // cheer, and a pasted CDN link is usually long enough by itself to push the
@@ -2739,7 +2753,7 @@
         + "just the number (or whatever you want in its place)."));
       mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24); mkFmt(cheerWrap, "f1", 900, false);
       mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19); mkFmt(cheerWrap, "f2", 700, false);
-      mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13); mkFmt(cheerWrap, "f3", 400, true);
+      mkText(cheerWrap, "Message (note)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13); mkFmt(cheerWrap, "f3", 400, true);
       mkPictureRow(cheerWrap, "avatar");
       // An earlier version of this hint said an over-length fake cheer "splits into a
       // second cheer". It does NOT: packStackBodies treats the first body of a part as
@@ -2826,14 +2840,15 @@
           html = buildFakeCheer({ bits: block.cBits, name: block.cName, note: block.cNote,
             avatar: block.avatar, avatarW: block.avatarW,
             sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+            fmts: { bits: block.f1, name: block.f2, note: block.f3 },
             carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
         } else {
           wantLines = [block.l1, block.l2, block.l3]
             .filter(function (t) { return String(t || "").trim() !== ""; }).length;
           html = buildTakeover({
-            lines: [{ text: block.l1, size: block.s1, weight: 900 },
-                    { text: block.l2, size: block.s2, weight: 700 },
-                    { text: block.l3, size: block.s3, italic: true }],
+            lines: [{ text: block.l1, size: block.s1, fmt: lineFmt(block.f1, 900, false) },
+                    { text: block.l2, size: block.s2, fmt: lineFmt(block.f2, 700, false) },
+                    { text: block.l3, size: block.s3, fmt: lineFmt(block.f3, 400, true) }],
             picture: block.picture, pictureW: block.pictureW,
             pictureH: Math.round((block.pictureW || 120) * 1.4),
             carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });

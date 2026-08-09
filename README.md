@@ -151,8 +151,15 @@ figure only; ` BITS` is appended for you. It's free text rather than a number, b
 `-100000` and `∞` are the jokes people actually want.
 
 - The layout follows the hand-built payload this was reverse-engineered from — picture
-  up top, then 24/900, 19/700, 13/italic — with two corrections the print engine forced.
-  The picture is reserved **square** (a profile picture is square, and the carrier tags
+  up top, then three lines sized 24/19/13. Each line has its own row of formatting
+  controls: a **font** select (nine choices — Default/Arial, Arial Black, Impact, Comic
+  Sans MS, Georgia, Serif, Monospace, Script, Fantasy), a **weight** select
+  (Default/Normal/Bold/Black), and **I / U / S** toggles for italic, underline and
+  strikethrough. Untouched, the three lines still default to the original hand-built
+  look — 900/700/400 weight, only the third line italic — so an existing saved block
+  renders exactly as before; the controls just let you override any of it per line.
+  Formatting doesn't touch the picture's own sizing, which the print engine forced two
+  corrections onto. The picture is reserved **square** (a profile picture is square, and the carrier tags
   state only a width, so reserving 1.4× left a slab of white under it), and it is at
   least **120 px**: measured, a picture drawn shorter than that renders *nothing at all*
   inside the lifted overlay. The old 80 px default printed blank paper where the picture

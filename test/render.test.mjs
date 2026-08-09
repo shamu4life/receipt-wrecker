@@ -163,3 +163,30 @@ test("a rotated Big Text block's weight/italic/decoration reach the CSS style, n
     "no SVG-style attributes on the HTML span");
   assert.ok(html.indexOf("font") < 0, "no literal 'font' substring anywhere in the payload");
 });
+
+test("the rotate path measures in EXACTLY the descriptor it renders — maxL, segmentLine and breakToken must all agree with rotatedSpan's font: shorthand", () => {
+  // buildBigTextSvg's own drift guard (above) only ever exercised the upright SVG path.
+  // The rotate path is a separate call graph — segmentLine/breakToken measure to decide
+  // where to break a line, rotatedSpan's `maxL` reduce measures again to size the
+  // physical strip, and only rotatedSpan's fontDecl actually renders — and it is THIS
+  // path, not buildBigTextSvg, where a measured/rendered mismatch bakes a wrong length
+  // into the markup and shears the last letters off a printed strip. __fontLog (see
+  // _harness.mjs) records every canvas `.font =` assignment made anywhere during the
+  // call, so this pins down every one of them at once rather than trusting the plumbing.
+  const before = C.__fontLog.length;
+  const bodies = C.rotateBodies("HELLO WORLD", 1, 1400, 90, { font: "impact", weight: 900, italic: true });
+  const measured = C.__fontLog.slice(before);
+  assert.ok(measured.length > 0, "the call must actually measure something, or this test proves nothing");
+  for (const m of measured) {
+    assert.equal(m, "italic 900 342px Impact",
+      "every measurement taken anywhere in the rotate path must match the rendered descriptor");
+  }
+  assert.equal(bodies.length, 1);
+  // Measurement and markup agreeing is the actual invariant: if maxL were sized off a
+  // different (e.g. Arial/800/upright) measurement than what's rendered, the strip's
+  // physical length would no longer match what Impact/900/italic actually draws at
+  // 342px, shearing the last letters off — even though this assertion on the `font:`
+  // declaration alone would still pass.
+  assert.ok(bodies[0].html.includes("\\66ont:italic 900 342px/263px Impact;"),
+    "the rendered CSS shorthand must agree with what was measured");
+});

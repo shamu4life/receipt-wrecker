@@ -380,6 +380,33 @@ Things already settled this way, so you don't have to re-derive them:
 - `<embed>` / `<object>` fail **silently** on an extensionless URL — the message
   sends and the tape prints with a blank where the picture should be. `needsExt` on
   those entries drives a UI warning; don't make one of them the default without it.
+- **`<g text-decoration>` inherits to child `<text>` on WebKit 534.34.** Measured —
+  a `text-decoration` set on the shared `<g>` that `buildBigTextSvg` wraps a
+  multi-line block in reaches every `<text>` inside it without repeating the
+  attribute per line. This is what lets underline/strike/font-family ride one
+  shared `<g>` instead of being duplicated onto each `<text>`; sharing it is a
+  deliberate payload-budget decision (see the "shared `<g>`" test in
+  `test/render.test.mjs`), not an incidental simplification.
+- **Combined `text-decoration="underline line-through"` renders**, on both the
+  `<text>` and `<g>` forms — no need to pick one or the other, or to emit two
+  separate decorated wrappers.
+- **`text-decoration:` renders on the rotated HTML `<span>`** (the sideways
+  giant-text path) — same property, plain CSS declaration there rather than an
+  SVG presentation attribute, riding next to the escaped `\66ont:` shorthand.
+  It is a **new literal `"text-decoration"` token in the payload** and, per the
+  arms-race history above (the blocked-terms list), the next plausible
+  automod-filter target — if it ever gets blocked, look here first.
+- **All nine offered fonts are legible and distinct at 24px and 58px, at the
+  printer's real 203dpi/1-bit dithering.** Checked on the real engine, not just
+  in-browser.
+- **Bold (700) and Black (900) are pixel-identical on Arial.** The markup differs
+  (`font-weight="700"` vs `"900"`) but the rasters are MD5-identical — both on the
+  real engine and in Chromium. Arial has no true 900 face, so the renderer
+  silently clamps 900 down to whatever its heaviest real weight is. `Arial Black`
+  is a **separate font family**, not a weight of Arial, and is the actual escape
+  hatch for a visibly heavier line. The app does not (and, without visibility into
+  the streamer's font stack, cannot honestly) warn about this in the UI — see the
+  weight-convention note below for what the code *does* encode.
 
 ## Global Constraints (payload & glyph rules — do not relax without an explicit request)
 
@@ -523,6 +550,15 @@ These are the project's defining properties (shared with the sibling tools).
   column widths; `CHAR_ASPECT = 0.5` is a fixed magic constant for glyph
   aspect ratio, not measured per-font.
 - Licensed under **MIT** (see `LICENSE`).
+- **Two incompatible weight/italic conventions coexist, by shape, not by name.**
+  `lineFmt(stored, defWeight, defItalic)` (takeover lines: `f1`/`f2`/`f3`) **materialises**
+  its defaults — an untouched slot resolves to a concrete 900/700/400. Big Text
+  (`block.fmt`) requires the opposite: an **absent** weight must stay absent, because
+  `bigWeightFor` reads absent as the 800 sideways baseline, not 400. They only stay
+  safely apart today because the two block shapes never mix (`f1/f2/f3` vs a single
+  `fmt`) — `lineFmt` is the obviously-named helper, so anyone wiring up a new text
+  surface will reach for it first. **Never hand `lineFmt`'s output to the Big Text
+  path** — it would silently drop every untouched sideways block from 800 to 400.
 
 ## Working in this repo (workflow for assistants)
 

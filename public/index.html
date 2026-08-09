@@ -1283,10 +1283,12 @@
       // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
       // font drift on the printer); `factor` (the Size %) then scales below that, so
       // the slider always has an effect and text never runs off the edge.
+      // bigFitBasis, not `.width`: the advance is a lie for a synthesised oblique, and
+      // the SVG viewport clips whatever the lie costs. See its note.
       var wide100 = lines.reduce(function (m, l) {
-        return Math.max(m, measureRun(l || " ", 100, cssFont, wideWeight, wideItalic).width);
+        return Math.max(m, bigFitBasis(measureRun(l || " ", 100, cssFont, wideWeight, wideItalic), wideItalic));
       }, 1);
-      var fit = 250 * 100 / wide100;
+      var fit = BIG_FIT_PX * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
       var pad = Math.max(2, Math.round(S * 0.08)), kids = "";
@@ -1368,6 +1370,14 @@
     var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.78; rounded
     var PAPER_MM = 70;                                     // printable width
     var PAPER_PX = Math.round(PAPER_MM * PX_PER_MM);       // 263
+    // How much of the paper the widest Big Text line is fitted to. The 13px it leaves
+    // against PAPER_PX is the whole clipping margin: SVG has no overflow, so anything
+    // past the viewport is simply not printed, and the fake-bold stroke (S/32, centred,
+    // so S/64 a side) already spends part of it before glyph ink is considered. ONE
+    // owner so the fit and any test of the fit cannot disagree about the target.
+    var BIG_FIT_PX = 250;
+    // Margin applied to a SYNTHESISED-oblique ink measurement only — see bigFitBasis.
+    var BIG_INK_PAD = 1.08;
     // weight/italic default to 800/false — Big Text's historical baseline — so every
     // pre-Task-5 call site (still passing 3 args) measures byte-identically to before.
     function measureRun(text, fontPx, cssFont, weight, italic) {
@@ -1382,6 +1392,56 @@
       c.textBaseline = "alphabetic";
       return c.measureText(text);
     }
+    // The width buildBigTextSvg's fit must divide into: what the glyphs actually INK,
+    // not what they advance. runLength already works this way for the rotated path;
+    // this is the same principle for the upright SVG one, with the geometry the SVG
+    // path actually has.
+    // WHY: a synthesised oblique — a family with no real italic face, i.e. Impact and
+    // Arial Black here — skews the outlines and leaves the advance UNTOUCHED. Measured:
+    // "HI" in Impact reports the same 84.33px advance upright and italic, while the
+    // ink's right edge moves from 80.18 to 99.94. Fit on the advance and the extra ink
+    // lands outside the SVG, which clips at its viewport (no overflow, unlike a span).
+    // On the real engine at 203dpi, "HI"/Impact/italic at the advance-fit size (S=296)
+    // inked out to user x 314.2 in a 263-wide box: 51px of the "I" simply not printed.
+    // WHY NOT just the ink span: text-anchor is "middle", which centres the ADVANCE
+    // box, and the sheared ink is NOT centred inside its own advance box. What has to
+    // fit is twice the LARGER of the two ink half-extents measured from that centre.
+    // WHY THE PAD: the shear is synthesised independently by the browser that MEASURES
+    // and the engine that PRINTS, and they disagree. Measured on the real engine: the
+    // ink's half-extent for Impact italic came out 3.9% wider than Chrome's canvas
+    // reported, at both sizes tried — and the fake-bold stroke (S/32, centred) spends
+    // another S/64 a side that the fit never sees. Ink-bounds alone therefore still left
+    // ~2 user px of the "I" outside the 263px viewport. Same shape of correction, and
+    // the same number, as runLength's 1.08 — deliberately NOT sharing a constant with
+    // it, because that pad answers a different question (per-glyph drift accumulating
+    // across a word in a font the printer may substitute) and the two should be free to
+    // move apart.
+    // Never SHORTER than the advance, and only consulted when italic: every upright
+    // block keeps exactly the size it has today, and so does every real italic face,
+    // whose advances are honest. The change can only ever shrink a line, never grow
+    // one, which is runLength's rule too: erring long adds invisible paper, erring
+    // short shears a letter.
+    // A missing/non-finite bounding box (the null-DOM test harness has no canvas, and
+    // older engines don't report these) falls back to the advance, exactly as runLength
+    // does — measurement degrades to today's behaviour rather than to NaN.
+    // `var`-assigned, like bigFontFor/bigWeightFor and for the same reason: this sits
+    // inside the DOM-glue guard block, and a strict-mode block-level `function`
+    // declaration can't reach module.exports at the bottom of the file.
+    var bigFitBasis = function (m, italic) {
+      var adv = m.width;
+      if (!italic || !isFinite(adv)) return adv;
+      var right = m.actualBoundingBoxRight, left = m.actualBoundingBoxLeft;
+      if (!isFinite(right) || !isFinite(left)) return adv;
+      // left is positive when ink spills LEFT of the origin, so the centre-to-left-edge
+      // distance is half + left, and the centre-to-right-edge distance is right - half.
+      var half = adv / 2, ink = 2 * Math.max(right - half, half + left);
+      // Ink inside the advance box = the advance is honest (a REAL italic face; Georgia
+      // italic measures 573.24 advance vs 285.50 half-extent, i.e. 570.99 of ink). Take
+      // the advance and change nothing: no synthesis happened, so there is nothing to
+      // correct and no drift to pad against.
+      if (ink <= adv) return adv;
+      return ink * BIG_INK_PAD;
+    };
     function runLength(text, fontPx, cssFont, weight, italic) {
       var m = measureRun(text, fontPx, cssFont, weight, italic);
       var right = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
@@ -3313,6 +3373,7 @@
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
       bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,
       bigWeightFor: bigWeightFor, bigItalicFor: bigItalicFor, rotateBodies: rotateBodies,
+      bigFitBasis: bigFitBasis, PAPER_PX: PAPER_PX, BIG_FIT_PX: BIG_FIT_PX,
       BIG_WEIGHT: BIG_WEIGHT,
     };
   }

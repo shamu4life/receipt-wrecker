@@ -56,6 +56,20 @@ then and neither is true now. For current behaviour see the
 
 - **The preview clips at the paper edge, like the printer does.** `.rcpt` had no `overflow`, so an over-pulled takeover kept showing content that lands above the top of the page — where wkhtmltopdf simply doesn't draw it. The picture is what disappears first, because it sits highest in the block. Measured at 400pt: the overlay overhangs the paper by 199px, all of which the preview used to show and the tape never printed.
 
+- **Italic Big Text had its last letter sheared off at the paper edge.** `buildBigTextSvg` sizes a line by dividing the paper width by what the line measures — but it measured `measureText().width`, the **advance**, and for a font with no italic face (Impact, Arial Black) the browser *synthesises* the oblique: it skews the outline and leaves the advance untouched. Measured in the same canvas the app uses, "HI" in Impact reports the identical 84.33px advance upright and italic while the ink's right edge moves 80.18 → 99.94. SVG has no overflow, so everything past the viewport is simply not drawn — and `text-anchor="middle"` centres the *advance* box, so the sheared ink is not even centred in the space it was given.
+
+  Rendered through the real engine (wkhtmltopdf 0.12.6, 203 dpi, 1-bit), the payload the app itself emits for a headline "HI"/Impact/italic, against the same glyphs drawn into a deliberately oversized viewport so nothing could clip:
+
+  | | ink right edge, SVG user px | verdict (viewport = 263) |
+  |---|---|---|
+  | upright — the control | 248.8 | fits |
+  | italic, before | 314.2 (clipped to 263.5) | **51px of the "I" never printed** |
+  | italic, after | 254.6 (unclipped: 255.0) | fits, 8px clear |
+
+  The fit now measures ink bounds (`actualBoundingBox*`, the same metrics the rotated path has always used) **for italic only**, takes twice the larger half-extent about the anchor rather than the raw span, and never returns less than the advance. So an upright block is byte-identical, and so is a font with a *real* italic face — Georgia italic advances 573.24 against 570.99 of ink, the advance is honest, nothing changes. A missing bounding box (older engine, or the null-DOM test harness) falls back to the advance rather than to `NaN`.
+
+  One more thing the raster showed: the engine synthesises its own oblique and shears **3.9% harder** than the measuring browser reported, at both sizes tried, and the fake-bold stroke spends another `S/64` a side. Ink bounds alone still left ~2px outside. An 8% pad on the synthesised case — the same shape of correction `runLength` already makes, deliberately not sharing its constant, since that one answers a different question — closes it.
+
 ### Known, not fixed
 
 - **A takeover's picture cannot print on a rig whose header is shorter than the block.** The picture is anchored to the top of the lifted panel, so if *Reach up* overstates the real header, the picture is lifted off the paper and clipped — and turning the pull *down* instead shrinks the panel until the picture is dropped from the markup for being under the 120px floor. Swept the full 60–400pt range against a short header: it never printed once, while still costing ~90 characters every time. There is no way to fix this in the app, because the rig's true header height is exactly what it cannot measure — it only knows what you tell it via the pull. What *is* fixed is that both the preview and the card now show and say so, instead of the loss being invisible until the tape came out. Calibrate with a blank takeover first; the picture follows.

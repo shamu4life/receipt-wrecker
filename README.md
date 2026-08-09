@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.3.3" src="https://img.shields.io/badge/version-0.3.3-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.4.0" src="https://img.shields.io/badge/version-0.4.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -122,6 +122,33 @@ before assuming the tool is broken.
 
 ---
 
+## Big Text formatting — and why the font matters more sideways
+
+A **Text** block rendered as Big Text (straight or sideways) carries the same
+formatting row as a takeover line: the nine-font select, a weight select, and
+**I / U / S**. One set per block, since a Text block is a single run of type rather
+than three slots. The row disappears when you switch the block to **Hanzi** — that
+render is tiled glyphs, not type, and there is nothing to format.
+
+- The weight select here has an extra **Default** entry the takeover card doesn't.
+  It isn't the same as Normal: an unset weight resolves to the heavier baseline
+  sideways Big Text has always rendered at, so "Default" is the only option that can
+  state an untouched block's real state without lying about it. Picking it removes the
+  weight rather than writing one.
+- **A missing font doesn't just look different sideways — it shears letters off.** The
+  app sizes a sideways strip by measuring the text *in your browser*, and the printer
+  draws it *on the streamer's machine*. If the font you picked isn't installed there,
+  their machine substitutes another, the strip is the wrong length for the type that
+  actually gets drawn, and the last letters run off the end. Default (Arial) is the
+  safe pick for sideways; the card says so when you choose anything else on a rotated
+  block. Straight-on, a substitution is only cosmetic.
+- More generally the preview can't settle this for you: it renders with **your** fonts
+  and the tape comes out of **theirs**. Serif, Monospace, Script and Fantasy always
+  resolve to something; the named families are standard on Windows. One test print is
+  the real answer.
+
+---
+
 ## Takeover — make the tape your artwork, not a receipt
 
 printer-bot draws its own header above your message: the avatar, a `<N> BITS` line,
@@ -137,6 +164,23 @@ header used to be. Anything below it in the stack still prints as normal underne
   paper edge, so anything that vanishes there won't print either.
 - The optional picture rides through the same **carrier tag** table as a normal
   image block, so it benefits from whatever tag currently survives chat.
+- **Every line has its own formatting row**, in both styles: a **font** select (nine
+  choices — Default/Arial, Arial Black, Impact, Comic Sans MS, Georgia, Serif,
+  Monospace, Script, Fantasy), a **weight** select (Normal / Bold / Black), and
+  **I / U / S** toggles for italic, underline and strikethrough. Untouched, the three
+  lines keep the original hand-built look — 900/700/400 weight, only the third line
+  italic — so an existing saved block sends byte-identical markup; the controls only
+  add what you actually change.
+  - **Formatting costs characters, and they come out of the same 500.** A font swap on
+    one line is +21, an underline +28, both decorations together +41. On a fake cheer
+    *with* a picture, which already sits at 491, that means one font swap is enough to
+    get the message rejected (512). Without the picture you start at 357 and have room.
+    The counter turns red before you send.
+  - On the **Default (Arial)** font, **Bold and Black print identically** — measured on
+    the real engine, byte-for-byte identical rasters at both 24px and 58px. Both are
+    clearly heavier than Normal, but they're one bold, not two. For a genuinely heavier
+    look pick the **Arial Black** *font*, which is a different typeface rather than a
+    synthesised weight.
 - Budget: a three-line takeover is ~350 chars, and a takeover **plus** a full picture
   payload still fits one 100-bit cheer (458 of 500).
 
@@ -151,13 +195,7 @@ figure only; ` BITS` is appended for you. It's free text rather than a number, b
 `-100000` and `∞` are the jokes people actually want.
 
 - The layout follows the hand-built payload this was reverse-engineered from — picture
-  up top, then three lines sized 24/19/13. Each line has its own row of formatting
-  controls: a **font** select (nine choices — Default/Arial, Arial Black, Impact, Comic
-  Sans MS, Georgia, Serif, Monospace, Script, Fantasy), a **weight** select
-  (Default/Normal/Bold/Black), and **I / U / S** toggles for italic, underline and
-  strikethrough. Untouched, the three lines still default to the original hand-built
-  look — 900/700/400 weight, only the third line italic — so an existing saved block
-  renders exactly as before; the controls just let you override any of it per line.
+  up top, then three lines sized 24/19/13, each with the formatting row described above.
   Formatting doesn't touch the picture's own sizing, which the print engine forced two
   corrections onto. The picture is reserved **square** (a profile picture is square, and the carrier tags
   state only a width, so reserving 1.4× left a slab of white under it), and it is at

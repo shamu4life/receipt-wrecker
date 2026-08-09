@@ -10,7 +10,30 @@ then and neither is true now. For current behaviour see the
 
 ---
 
-## [0.3.4] — 2026-08-09
+## [0.4.0] — 2026-08-09
+
+### Added
+
+- **Type formatting — font, weight, italic, underline, strikethrough — on every text surface the printer draws.** Both takeover styles (three lines each, independently), and the Text block in both straight and sideways Big Text. Nine fonts (Default/Arial, Arial Black, Impact, Comic Sans MS, Georgia, Serif, Monospace, Script, Fantasy), a weight select, and **I / U / S** toggles. One `fmt` object goes through one emitter (`fmtAttrs`) on all of them, so the surfaces cannot drift on what "both decorations" means or on which defaults are omitted.
+  - **Nothing you already saved changes.** `fmtAttrs` omits every default: no font attribute for Arial, no `font-weight` at 400, nothing for a decoration you didn't set — an untouched line is byte-identical to what 0.3.3 emitted, and a test asserts that rather than trusting it. The three takeover slots keep their original hand-built look (900 / 700 / 400-italic) as *slot defaults* applied at the call site, not as attributes on the wire.
+
+- **Verified on the real engine, not in the preview.** Every claim below was rendered through wkhtmltopdf 0.12.6 (patched Qt / WebKit 534.34 — the binary printer-bot ships), rasterised at 203 dpi and hard-thresholded to 1 bit, which is what the RP332 head actually lays down. Fragments were built by calling the app's own `buildTakeover` / `buildBigTextSvg` / `rotateBodies` / `fmtAttrs`, not by hand-writing markup. Full method and rasters in [`docs/superpowers/plans/2026-08-09-phase1-verification.md`](superpowers/plans/2026-08-09-phase1-verification.md).
+  - **The shared `<g>` inherits its decoration, which is why a multi-line caption is affordable.** `buildBigTextSvg` puts `fmtAttrs` **once** on the wrapping `<g>` rather than on each `<text>` — that was an unproven form (the takeover path attributes each `<text>`, which was already known to work), and it was chosen for the character budget: a `text-decoration="underline line-through"` is 41 characters, so repeating it on a four-line caption is 164 characters of a 500-character message spent saying the same thing four times. Measured: underline +6396 ink, strike +4793, both +11189 against the same-size baseline, and a two-line caption carried the decoration on **both** lines from one `<g>`. The optimisation is real and it holds. All nine fonts are legible and visibly distinct at 24px and 58px — with the honest caveat that Georgia, Serif and Fantasy read as one family of serifs next to each other on tiny 1-bit thermal type.
+  - **Bold and Black are pixel-identical on the Default font.** Not "close" — `PIL.ImageChops.difference(...).getbbox()` returns `None` at both 24px and 58px: zero differing pixels between weight 700 and weight 900. Both are clearly heavier than no weight at all (+1838 ink at 24px, +6189 at 58px, the same delta for each), so the control works; it's the *distinction* that doesn't exist here. The likely cause is ordinary CSS weight matching — this render host's Arial substitute offers one bold face and both values round to it. **No code change**, because there is no markup bug: the two weights reach the wire byte-for-byte differently, and a font that ships more steps may well separate them. The real escape hatch for a heavier look is the separate **Arial Black** *font* entry — a distinct typeface rather than a synthesised weight — and that one is visibly different.
+  - `text-decoration:` on the rotated HTML `<span>` (a CSS declaration, a different renderer path from the SVG attribute) also renders: +10852 ink, and the lines run the length of the strip perpendicular to the baseline, since the decoration rotates with the text. Italic renders with a small *negative* ink delta (−48 / −174) — it reshapes glyphs rather than thickening strokes, so less ink is the expected outcome, not a failure.
+
+- **Formatting is payload, and on a fake cheer there is no room for it.** These attributes are characters in the message, on top of a message that already sits at 491 of Twitch's 500 with a picture attached. Measured on the shipped builder, uploaded short link, default pull:
+
+  | change | cost | fake cheer + picture |
+  |---|---|---|
+  | untouched | — | **491** |
+  | one line → Impact | +21 | 512 — **rejected** |
+  | one line → underline | +28 | 519 — **rejected** |
+  | all three lines → Impact | +63 | 554 — **rejected** |
+
+  A fake cheer *without* a picture starts at 357 and has room: all three lines in Impact is 420, all three underlined is 441, both together is 504 and over again. So the honest summary is that on a fake cheer, formatting and a picture are alternatives rather than both — and even without the picture, "everything on every line" does not fit. Twitch **rejects** an over-length message rather than truncating or splitting it, and a takeover is one SVG that cannot be split regardless — so going over prints nothing at all. The counter turns red before you send; watch it, because the attribute that pushed you over is invisible on the tape.
+
+- **Sideways Big Text warns about the font, because there it isn't cosmetic.** A sideways strip is sized by measuring the text in your browser, and the printer draws it on the streamer's machine. Measuring one font while another gets drawn makes the box the wrong length and **shears the last letters off** — so `bigFontFor` is now the single owner of "which font is this text in", read by `measureRun` and by every renderer, and the card says so out loud when you pick a non-default font on a rotated block. Big Text's weight select also offers a **Default** entry the takeover card does not: absent weight resolves to the 800 baseline sideways text has always rendered at, so a select that could only say 400/700/900 had no way to state an untouched block's real state without lying about it. Choosing Default deletes the key rather than writing a number.
 
 ### Fixed
 

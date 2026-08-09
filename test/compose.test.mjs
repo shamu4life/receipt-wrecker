@@ -55,3 +55,30 @@ test("no-cheer payload keeps the nbsp lead guard (may start with '<')", () => {
   const parts = C.packStackBodies([body(300,50)], { cheer: false });
   assert.equal(parts[0].payload.charCodeAt(0), 0x00A0);
 });
+
+// The bug this pins: the lead is CONTENT. It occupies a line in the bot's
+// #receipt-content, above the first body, which shifts a lifted takeover DOWN by that
+// line's height and leaves the top of the header uncovered. The preview used to render
+// the bodies without it, so it showed a covered header the tape never produced — the
+// shortfall only appeared on paper, after the bits were spent. Exposing `lead` is what
+// lets the preview render exactly what the message carries; asserting that the payload
+// is literally lead + bodies is what stops the two being built separately again.
+test("each part exposes the lead it carries, and the payload is literally lead + bodies", () => {
+  for (const cheer of [true, false]) {
+    const parts = C.packStackBodies([body(120, 50, "<a>"), body(120, 50, "<b>")], { bits: 100, cheer });
+    for (const p of parts) {
+      assert.equal(typeof p.lead, "string", "every part must publish its lead");
+      assert.ok(p.lead.length > 0, "the lead is never empty — it is a cheer token or the nbsp guard");
+      const html = p.bodies.map((b) => b.html).join("");
+      assert.equal(p.payload, p.lead + html,
+        "payload must be exactly lead + bodies, or the preview can honestly render something else");
+    }
+  }
+});
+
+test("the lead is the cheer token when cheering and the nbsp guard when not", () => {
+  const cheered = C.packStackBodies([body(120, 50, "<a>")], { bits: 500, cheer: true })[0];
+  assert.match(cheered.lead, /^Cheer500 \d\d $/, cheered.lead);
+  const bare = C.packStackBodies([body(120, 50, "<a>")], { cheer: false })[0];
+  assert.equal(bare.lead.charCodeAt(0), 0x00A0);
+});

@@ -130,9 +130,11 @@ up with a negative margin, with your own lines (and optionally a picture) where 
 header used to be. Anything below it in the stack still prints as normal underneath.
 
 - **Reach up (pt)** is the one thing that needs calibrating. The header is taller or
-  shorter depending on the streamer's avatar, so 220pt is a starting point, not a
-  constant: too little leaves a strip of the old header showing, too much eats into
-  the paper above. One print settles it.
+  shorter depending on the streamer's avatar, so 240pt is a starting point, not a
+  constant: too little leaves a strip of the old header showing; too much lifts the
+  block past the top of the paper, where the printer draws nothing — and the picture
+  goes first, because it sits highest. One print settles it. The preview clips at the
+  paper edge, so anything that vanishes there won't print either.
 - The optional picture rides through the same **carrier tag** table as a normal
   image block, so it benefits from whatever tag currently survives chat.
 - Budget: a three-line takeover is ~350 chars, and a takeover **plus** a full picture

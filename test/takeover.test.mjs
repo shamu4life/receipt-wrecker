@@ -345,10 +345,18 @@ test("the block can't ride off the top of the paper at a big pull", () => {
     return C.takeoverBox(pullPt).pullPx - top;      // px between the block top and the message
   };
   // The invariant is a hard ceiling on the lift, not a comparison against the default:
-  // at the default the block starts 6px down, so it lifts 287 and the ceiling is 293.
-  const CEILING = 293;                       // CHEER_MAX_LIFT_PX = takeoverBox(220).pullPx
-  assert.equal(lift(220), CEILING - 6, "the default calibration should be untouched by the cap");
-  for (const pullPt of [220, 250, 300, 340, 380, 400]) {
+  // at the default the block starts 6px down, so it lifts (ceiling - 6).
+  //
+  // DERIVED from the default, deliberately. This was a literal 293 — the same literal
+  // CHEER_MAX_LIFT_PX carried — so the two agreed only by coincidence, and moving the
+  // default to 240 broke the test rather than catching a real regression. Pinning both
+  // to TAKEOVER_PULL_PT means the ceiling follows the default by construction and this
+  // test keeps asserting the behaviour instead of a number.
+  const DEF = C.TAKEOVER_PULL_PT;
+  const CEILING = C.takeoverBox(DEF).pullPx;   // = CHEER_MAX_LIFT_PX
+  assert.equal(lift(DEF), CEILING - 6, "the default calibration should be untouched by the cap");
+  for (const pullPt of [DEF, DEF + 10, DEF + 60, DEF + 100, DEF + 140, 400]) {
+    if (pullPt > 400) continue;                // 400pt is the slider's top stop
     assert.ok(lift(pullPt) <= CEILING,
       "pull " + pullPt + " lifts the block " + lift(pullPt) + "px, past the " + CEILING + "px ceiling");
   }
@@ -356,7 +364,26 @@ test("the block can't ride off the top of the paper at a big pull", () => {
   // the numbers aren't just coincidentally small.
   assert.ok(lift(400) === CEILING, "the cap should be binding at pull 400, got " + lift(400));
   // And the default itself is untouched by the cap — the reference layout still stands.
-  assert.equal(geom(C.buildFakeCheer({ ...CHEER, pullPt: 220 })).pic.y, 6);
+  assert.equal(geom(C.buildFakeCheer({ ...CHEER, pullPt: DEF })).pic.y, 6);
+});
+
+// MEASURED on the real engine (wkhtmltopdf 0.12.6 patched-qt, printer-bot's flags and
+// stylesheet, a full-size avatar), rendering the payload the app actually sends —
+// cheer lead included, which is what the old calibration left out:
+//
+//     bare SVG (what the old preview showed)      1.9px of header survived
+//     "Cheer100 00 " + SVG (what is sent)        17.9px  -> a black crescent of avatar
+//     cheermote image + nonce + SVG (Twitch)     21.8px
+//     235pt cleared the text form, 240pt cleared both
+//
+// The engine can't run in CI, so this pins the conclusion: the default must clear the
+// lead line, or every takeover ships one line short by construction.
+test("the default pull clears the lead line, not just the bare-SVG case", () => {
+  const MEASURED_MIN_PT = 235;   // least pull that covered the header WITH the lead present
+  assert.ok(C.TAKEOVER_PULL_PT >= MEASURED_MIN_PT,
+    "default pull " + C.TAKEOVER_PULL_PT + "pt is below the measured " + MEASURED_MIN_PT
+    + "pt floor — it will print a strip of the streamer's avatar above the artwork");
+  assert.ok(C.TAKEOVER_PULL_PT <= 400, "the slider only reaches 400pt");
 });
 
 test("a picture too small to print is dropped rather than shipped as blank paper", () => {

@@ -199,6 +199,23 @@ All functions live inside the one IIFE in `public/index.html`.
     which is what the fake cheer does. Either way the stack is **clamped into the
     painted box** — a baseline outside it prints *on top of* the header this block
     exists to paint over, which reads as the feature simply not working.
+    **THE LEAD IS PART OF THE GEOMETRY.** A lifted overlay is positioned from where the
+    SVG lands in `#receipt-content`, and it does not land at the top: every message
+    carries a lead (`Cheer100 <nonce> `, or the nbsp guard) *before* the first body,
+    and that lead takes a line — measured 16px, which left a crescent of the streamer's
+    avatar printing above the artwork. `TAKEOVER_PULL_PT` is 240 **because** of that
+    line; the original 220 was calibrated against a preview that rendered the bodies
+    with no lead at all. Two rules follow, and breaking either re-creates the bug:
+    `packStackBodies` publishes `lead` and its payload is exactly `lead + bodies` (one
+    string, so preview and print cannot diverge), and the preview renders that lead into
+    the receipt slot. `CHEER_MAX_LIFT_PX` is **derived** from `TAKEOVER_PULL_PT` — never
+    re-inline it as a literal, which is how it and the default silently drifted apart.
+    **Known limit, do not "fix" by guessing:** a picture is anchored to the top of the
+    panel, so on a rig whose real header is shorter than the pull it is lifted clean off
+    the paper and clipped, and turning the pull down instead drops it under the 120px
+    floor — swept 60–400pt against a short header and it never printed. The app cannot
+    know the rig's header height; that is what the pull *is*. The preview clips at the
+    paper edge (`.rcpt { overflow: hidden }`) so the loss is visible instead of silent.
 12. `buildFakeCheer(o)` / `CHEER_AVATAR_W` / `CHEER_SUFFIX` — the **Fake cheer**: the
     same takeover arranged like the bot's own header (picture on top, then `<N> BITS`,
     then a name, then an italic note). It **composes `buildTakeover`** rather than

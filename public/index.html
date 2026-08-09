@@ -67,6 +67,12 @@
     border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 16px; pointer-events: none;
+    /* Paper has an edge, and the printer honours it: a takeover lifted further than the
+       rig's real header puts its picture ABOVE the top of the page, where wkhtmltopdf
+       simply doesn't draw it. Without this the preview kept showing that picture — the
+       loss only turned up on the tape, after the bits were spent. Clipping here makes
+       an over-pull look like what it is. */
+    overflow: hidden;
   }
   .rcpt-av { width: 15em; max-width: 90%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; object-fit: cover; margin: 0 auto; }
   .rcpt-title { font-weight: 900; font-size: 1.5em; text-transform: uppercase; }
@@ -441,8 +447,20 @@
       // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
       // so the separate LEAD_GUARD isn't needed when cheering. (<object> is what the
       // automod was blocking; images now render as SVG — see imageBodies.)
-      var payload = opts.cheer ? (token + (nonce ? " " + nonce : "") + " " + html) : (LEAD_GUARD + html);
-      parts.push({ payload: payload, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      //
+      // THAT LEAD IS NOT FREE, and it is why `lead` is exposed rather than inlined.
+      // It is content in the bot's #receipt-content, so it occupies a line ABOVE the
+      // first body — which shifts a lifted takeover DOWN by that line's height and
+      // leaves the top of the header uncovered. Measured on the real engine (big
+      // avatar): 1.9px of header survived a bare SVG, 17.9px survived "Cheer100 00 ",
+      // 21.8px once Twitch renders the token as a cheermote image. That printed as a
+      // black crescent of the streamer's avatar sitting on top of the artwork.
+      // The preview used to render the bodies WITHOUT this lead, so it showed the
+      // covered case and the shortfall was invisible until the tape came out. Both
+      // sides now build from this one string, so they cannot drift again.
+      var lead = opts.cheer ? (token + (nonce ? " " + nonce : "") + " ") : LEAD_GUARD;
+      var payload = lead + html;
+      parts.push({ payload: payload, lead: lead, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
       cur = []; curChars = 0; curH = 0;
     }
     for (var i = 0; i < bodies.length; i++) {
@@ -649,7 +667,16 @@
   // (--disable-smart-shrinking), hence the 4/3. Everything derives from that one
   // number, so it stays a single calibration knob — the bot's header height varies
   // with the streamer's avatar, so the right value is per-rig.
-  var TAKEOVER_PULL_PT = 220;
+  // 240, not 220. The original was calibrated against the app's own preview, which
+  // rendered the takeover alone in the content slot — but the real message always
+  // carries a lead ("Cheer100 <nonce> ", or the nbsp guard) ahead of it, and that lead
+  // takes a line. So every calibration made against the old preview came out one line
+  // short and printed a crescent of the streamer's avatar above the artwork. Re-measured
+  // on the real engine WITH the lead present: 220pt left 17.9px of header showing (21.8px
+  // once Twitch renders the token as a cheermote), 235pt cleared the text form, and 240pt
+  // clears both with margin. The preview now renders the lead too, so the next person to
+  // calibrate by eye gets a number that matches the paper.
+  var TAKEOVER_PULL_PT = 240;
   var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
   function takeoverBox(pullPt) {
     // Upper bound as well as lower: isFinite(1e308) is true, and 1e308*4/3 overflows to
@@ -827,7 +854,11 @@
   // lift at the default calibration's worth means nothing moves at or below the default
   // (the reference layout is preserved exactly) and beyond it the block follows the
   // message down the tape instead of sailing off the top of it.
-  var CHEER_MAX_LIFT_PX = 293;  // = takeoverBox(220).pullPx, the default calibration
+  // DERIVED from the default, never a literal: these two drifting apart is what the cap
+  // is supposed to prevent. (It was written as a bare 293 = takeoverBox(220).pullPx, so
+  // moving the default to 240 would silently have started capping BELOW it — the
+  // reference layout would have shifted for everyone at the default pull.)
+  var CHEER_MAX_LIFT_PX = takeoverBox(TAKEOVER_PULL_PT).pullPx;
   // o = {bits, name, note, avatar, avatarW, sizes:{bits,name,note}, carrier, pullPt, w}
   // What a built overlay actually drew, read back off the markup. Deliberately parses
   // the output instead of re-deriving the layout: a second copy of the geometry is the
@@ -1740,7 +1771,9 @@
     // receipt styling must ride along as an embedded <style>. Kept in sync with
     // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
     var RCPT_CSS =
-      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;}' +
+      // overflow:hidden mirrors the page rule — the thermal raster must clip at the
+      // paper edge too, or it shows ink the printer will never lay down.
+      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;overflow:hidden;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;}' +
       '.rcpt-av{width:15em;height:15em;max-width:90%;border-radius:50%;background:#dcdcdc;object-fit:cover;margin:0 auto;}' +
       '.rcpt-title{font-weight:900;font-size:1.5em;text-transform:uppercase;}' +
       '.rcpt-sub{font-weight:700;font-size:1.2em;}' +
@@ -1932,6 +1965,13 @@
         if (item.bodies) {
           // Composed stack: render each block's preview, in order, inside one receipt.
           var stackBody = document.createElement("div");
+          // The message carries this text before the first body, and it takes up a line
+          // in the printed receipt — which pushes a lifted takeover down by that line.
+          // Rendering it here is what makes the preview agree with the tape; leaving it
+          // out is what made the takeover's default calibration a line short. (Twitch
+          // turns the cheer token into a ~1em cheermote image rather than this text, so
+          // the real line is a few px taller still — see packStackBodies.)
+          if (item.lead) stackBody.appendChild(document.createTextNode(item.lead));
           item.bodies.forEach(function (b) {
             var pv = b.preview || {};
             if (pv.kind === "img") {
@@ -2036,6 +2076,20 @@
       b.embedV = EMBED_V;
       return b;
     }
+    // A saved takeover carries the pull it was created with, so bumping the default
+    // alone would never reach a block that already exists — it would keep printing the
+    // avatar's crown forever. Blocks still sitting on the OLD default were calibrated
+    // against the same preview that was missing the lead line, so they carry the same
+    // error and are moved forward once. A pull the user actually dragged is LEFT ALONE:
+    // that one was calibrated against paper, which already told the truth.
+    var TAKEOVER_PULL_V = 1;
+    var TAKEOVER_PULL_PT_V0 = 220;
+    function migrateTakeoverPull(b) {
+      if (b.type !== "takeover" || b.pullV === TAKEOVER_PULL_V) return b;
+      if ((b.pullPt || TAKEOVER_PULL_PT_V0) === TAKEOVER_PULL_PT_V0) b.pullPt = TAKEOVER_PULL_PT;
+      b.pullV = TAKEOVER_PULL_V;
+      return b;
+    }
     function newBlock(type) {
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
@@ -2048,7 +2102,7 @@
         l1: "", s1: 24, l2: "", s2: 19, l3: "", s3: 13,
         cBits: "", cName: "", cNote: "", avatar: "", avatarW: CHEER_AVATAR_W,
         picture: "", pictureW: CHEER_AVATAR_W, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
-        pullPt: TAKEOVER_PULL_PT };
+        pullPt: TAKEOVER_PULL_PT, pullV: TAKEOVER_PULL_V };
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
@@ -2074,7 +2128,7 @@
     function seedBlocks() {
       var saved = loadBlocks();
       if (saved && saved.length) {
-        blocks = saved.map(migrateEmbed);
+        blocks = saved.map(migrateEmbed).map(migrateTakeoverPull);
         blockIdSeq = blocks.reduce(function (m, b) { return Math.max(m, b.id || 0); }, 0) + 1;
         saveBlocks();   // persist the migration so it runs once, not every load
         return;
@@ -2526,7 +2580,9 @@
       card.appendChild(mkEl("div", { "class": "hint" },
         "How far up to paint. The bot’s header is taller or shorter depending on the "
         + "streamer’s avatar, so this needs one calibration print: too little leaves a "
-        + "strip of the old header showing, too much eats into the paper above."));
+        + "strip of the old header showing; too much lifts the block past the top of the "
+        + "paper, and the picture is what goes first — it sits highest. The preview clips "
+        + "at the paper edge, so if it disappears there it won’t print either."));
       applyStyle();
       syncNotes();
       return card;
@@ -2673,7 +2729,7 @@
       }
       var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart });
       return parts.map(function (p) {
-        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies };
+        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead };
       });
     }
     // "Find what still sends": one cheer per carrier tag, labelled A, B, C…, each

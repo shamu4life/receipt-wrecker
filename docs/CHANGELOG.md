@@ -10,6 +10,35 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.3.4] — 2026-08-09
+
+### Fixed
+
+- **The takeover printed a crescent of the streamer's avatar above the artwork**, which is the feature visibly not working — you paint over the bot's header and the top of it survives anyway. The cause was not the overlay's geometry, which is correct. It was that **the calibration was measured against a preview that rendered something the app never sends.**
+
+  Every real message carries a lead — `Cheer100 <nonce> `, or the nbsp guard when not cheering — *before* the first body. That lead is content: it takes a line in the bot's `#receipt-content`, which pushes a lifted takeover **down by that line's height**, so a fixed lift no longer reaches the top of the header. The preview dropped the block bodies into the receipt slot with no lead at all, so it showed the covered case, and the shortfall only ever appeared on paper — after the bits were spent.
+
+  Measured on the real engine (wkhtmltopdf 0.12.6 patched-qt, printer-bot's exact flags and stylesheet, full-size avatar), rendering the payload the app actually sends:
+
+  | what was rendered | header left showing |
+  |---|---|
+  | bare SVG — *what the old preview showed* | 1.9px |
+  | `Cheer100 00 ` + SVG — *what is sent* | **17.9px** |
+  | cheermote image + nonce + SVG — *what Twitch delivers* | **21.8px** |
+
+  Three changes, because fixing only the number would leave the next calibration just as wrong:
+  - **The preview renders the lead.** `packStackBodies` now publishes the `lead` it built, and the payload is literally `lead + bodies` — one string, so the two cannot be assembled differently again. A test pins that identity.
+  - **The default pull is 240pt, not 220.** Re-measured with the lead present: 235pt clears the text form, 240pt clears both with margin. Blocks saved on the old default are migrated forward once (`pullV`); a pull you actually dragged is **left alone**, because that one was calibrated against paper, which was always telling the truth.
+  - **`CHEER_MAX_LIFT_PX` is derived from the default** instead of being a literal `293`. Those two agreed only by coincidence, and moving the default would silently have started capping *below* it — shifting the reference layout for everyone. Its test was pinned to the same literal and is now derived too, so it asserts the behaviour rather than a number.
+
+- **The preview clips at the paper edge, like the printer does.** `.rcpt` had no `overflow`, so an over-pulled takeover kept showing content that lands above the top of the page — where wkhtmltopdf simply doesn't draw it. The picture is what disappears first, because it sits highest in the block. Measured at 400pt: the overlay overhangs the paper by 199px, all of which the preview used to show and the tape never printed.
+
+### Known, not fixed
+
+- **A takeover's picture cannot print on a rig whose header is shorter than the block.** The picture is anchored to the top of the lifted panel, so if *Reach up* overstates the real header, the picture is lifted off the paper and clipped — and turning the pull *down* instead shrinks the panel until the picture is dropped from the markup for being under the 120px floor. Swept the full 60–400pt range against a short header: it never printed once, while still costing ~90 characters every time. There is no way to fix this in the app, because the rig's true header height is exactly what it cannot measure — it only knows what you tell it via the pull. What *is* fixed is that both the preview and the card now show and say so, instead of the loss being invisible until the tape came out. Calibrate with a blank takeover first; the picture follows.
+
+---
+
 ## [0.3.3] — 2026-08-08
 
 ### Added

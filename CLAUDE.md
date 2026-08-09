@@ -400,8 +400,11 @@ Things already settled this way, so you don't have to re-derive them:
   printer's real 203dpi/1-bit dithering.** Checked on the real engine, not just
   in-browser.
 - **Bold (700) and Black (900) are pixel-identical on Arial.** The markup differs
-  (`font-weight="700"` vs `"900"`) but the rasters are MD5-identical — both on the
-  real engine and in Chromium. Arial has no true 900 face, so the renderer
+  (`font-weight="700"` vs `"900"`) but the rasters are **MD5-identical on the real
+  engine**, at both 24px and 58px. Chromium agrees, but that half was checked by
+  ink count (`4637 === 4637`), not by hashing the pixels — stated precisely because
+  overclaiming the evidence here is how this file went wrong before. Arial has no
+  true 900 face, so the renderer
   silently clamps 900 down to whatever its heaviest real weight is. `Arial Black`
   is a **separate font family**, not a weight of Arial, and is the actual escape
   hatch for a visibly heavier line. The app does not (and, without visibility into

@@ -371,23 +371,47 @@ test("the block can't ride off the top of the paper at a big pull", () => {
   assert.equal(geom(C.buildFakeCheer({ ...CHEER, pullPt: DEF })).pic.y, 6);
 });
 
-// MEASURED on the real engine (wkhtmltopdf 0.12.6 patched-qt, printer-bot's flags and
-// stylesheet, a full-size avatar), rendering the payload the app actually sends —
-// cheer lead included, which is what the old calibration left out:
+// THE DEFAULT ANSWERS TO PAPER, NOT TO THE BENCH. This test used to assert a floor of 235pt,
+// derived on the engine with a full-size avatar: a bare SVG left 1.9px of header showing, the
+// real payload with its "Cheer100 00 " lead left 17.9px, and 240pt cleared both.
 //
-//     bare SVG (what the old preview showed)      1.9px of header survived
-//     "Cheer100 00 " + SVG (what is sent)        17.9px  -> a black crescent of avatar
-//     cheermote image + nonce + SVG (Twitch)     21.8px
-//     235pt cleared the text form, 240pt cleared both
+// Every one of those measurements was correct and the conclusion was still wrong, because the
+// harness's avatar was bigger than the real rig's. A hand-built reference payload at 220pt,
+// sent as a real cheer, printed flawlessly with its picture — which puts that rig's header near
+// 290px, roughly 20px under what the bench assumed. At 240pt the fake cheer's picture, anchored
+// to the panel top, loses ~24px off the top of the roll.
 //
-// The engine can't run in CI, so this pins the conclusion: the default must clear the
-// lead line, or every takeover ships one line short by construction.
-test("the default pull clears the lead line, not just the bare-SVG case", () => {
-  const MEASURED_MIN_PT = 235;   // least pull that covered the header WITH the lead present
-  assert.ok(C.TAKEOVER_PULL_PT >= MEASURED_MIN_PT,
-    "default pull " + C.TAKEOVER_PULL_PT + "pt is below the measured " + MEASURED_MIN_PT
-    + "pt floor — it will print a strip of the streamer's avatar above the artwork");
+// So the floor is a CEILING now: the default must not over-pull past what the field confirmed.
+// Raising it again needs a print, not a render.
+test("the default pull is the field-confirmed value, not a bench-derived one", () => {
+  assert.equal(C.TAKEOVER_PULL_PT, 220,
+    "220pt is field-proven on the real rig; a bench render is not sufficient to change it");
   assert.ok(C.TAKEOVER_PULL_PT <= 400, "the slider only reaches 400pt");
+});
+
+// THE DEFAULT IS LOAD-BEARING TWICE, and the second way is what actually bit.
+// CHEER_MAX_LIFT_PX is DERIVED from TAKEOVER_PULL_PT, and it is the cap that stops an over-pulled
+// fake cheer climbing off the roll. So raising the default silently raises the ceiling on how far
+// the picture may lift — which is how 240pt came to amputate ~24px of it on a rig whose header is
+// ~290px. The pull the user picks is not the danger; the DEFAULT is, because the cap follows it.
+test("the picture stays on the paper at the default, and the cap holds it there above", () => {
+  const rigHeader = 290;                       // derived from the reference print working at 220
+  const pageTopOf = (pullPt) => {
+    const g = C.buildFakeCheer({ ...CHEER, pullPt });
+    const y = Number((g.match(/<foreignObject[^>]*\by="(\d+)"/) || [])[1]);
+    return rigHeader - C.takeoverBox(pullPt).pullPx + y;   // page y of the picture's top edge
+  };
+
+  assert.ok(pageTopOf(C.TAKEOVER_PULL_PT) >= 0,
+    "at the field-confirmed default the picture must land on the paper, got "
+    + pageTopOf(C.TAKEOVER_PULL_PT));
+
+  // Above the default the cap pins it: every larger pull puts the picture in the SAME place,
+  // rather than lifting it further off the top with each step.
+  const pinned = [260, 320, 400].map(pageTopOf);
+  assert.equal(new Set(pinned).size, 1,
+    "the lift cap should pin the picture above the default, got " + pinned.join(" / "));
+  assert.ok(pinned[0] > -12, "even capped, the picture must not be meaningfully clipped");
 });
 
 test("a picture too small to print is dropped rather than shipped as blank paper", () => {

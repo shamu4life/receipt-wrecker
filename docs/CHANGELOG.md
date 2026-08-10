@@ -10,6 +10,24 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.4.1] — 2026-08-10
+
+### Fixed
+
+- **The takeover's default pull is back to 220pt**, reverting the 240 that shipped hours earlier in 0.4.0. The bench evidence behind 240 was real and the conclusion was still wrong, which is worth recording rather than quietly undoing.
+
+  What the bench measured, correctly: every message carries a lead (`Cheer100 <nonce> `) that occupies a line and pushes a lifted takeover down, so 220 left ~18px of the streamer's avatar showing on a render. What the bench got wrong was the **avatar**. The harness used a 300px source, which the bot's `max-height:15em` renders at 240px — the largest header that can exist. The real rig's is about 20px shorter.
+
+  The evidence that settles it is field, not bench: a hand-built reference payload at `margin-top:-220pt`, sent as a real cheer with its picture at `y=5`, printed **flawlessly on the actual machine**, picture included. For that picture's top edge to land on paper the rig's header must be between 288 and 293 CSS px.
+
+  And over-pulling is not free on the cheer path, which is the part that made this a regression rather than a harmless margin. `CHEER_MAX_LIFT_PX` is **derived from the default**, and it is the ceiling that stops an over-pulled fake cheer climbing off the roll — so raising the default silently raised that ceiling too. At 240 the fake cheer's picture, which is anchored to the top of the panel, lost roughly 24px off the top of the paper on a rig where 220 places it 3px on.
+
+  A `pullV` 2 migration reverses what the 240 migration wrote. It cannot tell a block auto-moved to 240 from one deliberately set to 240 during those few hours and moves both, which is the right trade when 240 is known to amputate the picture here. Any other value is left alone.
+
+  The test that pinned a 235pt floor is now a ceiling: the default must not exceed what the field confirmed, and raising it again needs a print rather than a render.
+
+---
+
 ## [0.4.0] — 2026-08-09
 
 ### Added

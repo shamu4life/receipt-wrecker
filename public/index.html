@@ -67,6 +67,12 @@
     border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     font-size: 16px; pointer-events: none;
+    /* Paper has an edge, and the printer honours it: a takeover lifted further than the
+       rig's real header puts its picture ABOVE the top of the page, where wkhtmltopdf
+       simply doesn't draw it. Without this the preview kept showing that picture — the
+       loss only turned up on the tape, after the bits were spent. Clipping here makes
+       an over-pull look like what it is. */
+    overflow: hidden;
   }
   .rcpt-av { width: 15em; max-width: 90%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; object-fit: cover; margin: 0 auto; }
   .rcpt-title { font-weight: 900; font-size: 1.5em; text-transform: uppercase; }
@@ -112,6 +118,10 @@
   .add-row button { flex: 1; padding: .45rem; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
+  .fmt-row { display: flex; gap: .3rem; align-items: center; margin: 0 0 .5rem; flex-wrap: wrap; }
+  .fmt-row select { flex: 1 1 7rem; min-width: 6rem; }
+  .fmt-tog { width: 2rem; padding: .25rem 0; font-weight: 700; cursor: pointer; }
+  .fmt-tog.on { background: #772ce8; color: #fff; border-color: #772ce8; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .9rem; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
@@ -441,8 +451,20 @@
       // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
       // so the separate LEAD_GUARD isn't needed when cheering. (<object> is what the
       // automod was blocking; images now render as SVG — see imageBodies.)
-      var payload = opts.cheer ? (token + (nonce ? " " + nonce : "") + " " + html) : (LEAD_GUARD + html);
-      parts.push({ payload: payload, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      //
+      // THAT LEAD IS NOT FREE, and it is why `lead` is exposed rather than inlined.
+      // It is content in the bot's #receipt-content, so it occupies a line ABOVE the
+      // first body — which shifts a lifted takeover DOWN by that line's height and
+      // leaves the top of the header uncovered. Measured on the real engine (big
+      // avatar): 1.9px of header survived a bare SVG, 17.9px survived "Cheer100 00 ",
+      // 21.8px once Twitch renders the token as a cheermote image. That printed as a
+      // black crescent of the streamer's avatar sitting on top of the artwork.
+      // The preview used to render the bodies WITHOUT this lead, so it showed the
+      // covered case and the shortfall was invisible until the tape came out. Both
+      // sides now build from this one string, so they cannot drift again.
+      var lead = opts.cheer ? (token + (nonce ? " " + nonce : "") + " ") : LEAD_GUARD;
+      var payload = lead + html;
+      parts.push({ payload: payload, lead: lead, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
       cur = []; curChars = 0; curH = 0;
     }
     for (var i = 0; i < bodies.length; i++) {
@@ -649,7 +671,16 @@
   // (--disable-smart-shrinking), hence the 4/3. Everything derives from that one
   // number, so it stays a single calibration knob — the bot's header height varies
   // with the streamer's avatar, so the right value is per-rig.
-  var TAKEOVER_PULL_PT = 220;
+  // 240, not 220. The original was calibrated against the app's own preview, which
+  // rendered the takeover alone in the content slot — but the real message always
+  // carries a lead ("Cheer100 <nonce> ", or the nbsp guard) ahead of it, and that lead
+  // takes a line. So every calibration made against the old preview came out one line
+  // short and printed a crescent of the streamer's avatar above the artwork. Re-measured
+  // on the real engine WITH the lead present: 220pt left 17.9px of header showing (21.8px
+  // once Twitch renders the token as a cheermote), 235pt cleared the text form, and 240pt
+  // clears both with margin. The preview now renders the lead too, so the next person to
+  // calibrate by eye gets a number that matches the paper.
+  var TAKEOVER_PULL_PT = 240;
   var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
   function takeoverBox(pullPt) {
     // Upper bound as well as lower: isFinite(1e308) is true, and 1e308*4/3 overflows to
@@ -691,13 +722,82 @@
   // future textarea) would sail straight through into the emitted SVG. Collapse here,
   // where the guarantee is claimed, instead of relying on <input> stripping newlines.
   function takeoverLineText(t) { return String(t == null ? "" : t).replace(/[\r\n\t]+/g, " ").trim(); }
+  // The ONLY font families offered, and every one was rendered through printer-bot's
+  // own binary (wkhtmltopdf 0.12.6 patched-qt) at both 24px and 58px before being
+  // listed — at 203dpi 1-bit they are visibly distinct shapes, not mush. The four
+  // generics always resolve somewhere; the named ones are core Windows fonts, which is
+  // what the streamer's box runs. An unverified family is a silent fallback that looks
+  // like the control not working, so nothing else goes in this table.
+  // `css` is what reaches the markup; "" means emit no font-family at all (Arial is
+  // the receipt's own default and costs zero characters).
+  var FONTS = [
+    { id: "",        label: "Default (Arial)", css: "" },
+    { id: "black",   label: "Arial Black",     css: "Arial Black" },
+    { id: "impact",  label: "Impact",          css: "Impact" },
+    { id: "comic",   label: "Comic Sans MS",   css: "Comic Sans MS" },
+    { id: "georgia", label: "Georgia",         css: "Georgia" },
+    { id: "serif",   label: "Serif",           css: "serif" },
+    { id: "mono",    label: "Monospace",       css: "monospace" },
+    { id: "script",  label: "Script",          css: "cursive" },
+    { id: "fantasy", label: "Fantasy",         css: "fantasy" }
+  ];
+  function getFont(id) {
+    for (var i = 0; i < FONTS.length; i++) if (FONTS[i].id === id) return FONTS[i];
+    return FONTS[0];
+  }
+  // The underline/strike -> CSS value mapping, shared by fmtAttrs (SVG attribute form,
+  // below) and the rotated-span renderer (CSS `text-decoration:` declaration form) so
+  // the two surfaces can't drift on what "both" renders as. Returns "" for neither.
+  function fmtDecoration(fmt) {
+    fmt = fmt || {};
+    var dec = [];
+    if (fmt.underline) dec.push("underline");
+    if (fmt.strike) dec.push("line-through");
+    return dec.join(" ");
+  }
+  // fmt -> SVG <text> attributes. EVERY DEFAULT IS OMITTED: this string is payload, and
+  // the fake cheer already sits within single digits of Twitch's 500-character limit, so
+  // an always-emitted attribute would cost a cheer. Attribute ORDER is pinned by test so
+  // payload lengths stay predictable.
+  function fmtAttrs(fmt) {
+    fmt = fmt || {};
+    var out = "", f = getFont(fmt.font), w = Math.round(fmt.weight) || 0;
+    // escapeAttr is defensive: css values are fixed table constants today, but the call guards
+    // against a future table entry or code path introducing user data into the attribute.
+    if (f.css) out += ' font-family="' + escapeAttr(f.css) + '"';
+    if (w && w !== 400) out += ' font-weight="' + w + '"';
+    if (fmt.italic) out += ' font-style="italic"';
+    // Both decorations in one attribute; verified on the engine in Task 7. If the
+    // combined form ever stops rendering, emit underline alone rather than neither.
+    var dec = fmtDecoration(fmt);
+    if (dec) out += ' text-decoration="' + dec + '"';
+    return out;
+  }
+  // Formatting comes in as ONE fmt object rather than loose weight/italic flags, so
+  // every text surface in the app emits attributes through the same function and they
+  // cannot drift. Slot defaults (900 / 700 / italic) are applied by lineFmt at the call
+  // site, which is what keeps saved takeovers byte-identical.
   function takeoverText(cx, y, size, l) {
     return '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
-      + (l.weight ? ' font-weight="' + (Math.round(l.weight) || 700) + '"' : "")
-      + (l.italic ? ' font-style="italic"' : "")
-      + '>' + escapeHtml(l.text) + '</text>';
+      + fmtAttrs(l.fmt) + '>' + escapeHtml(l.text) + '</text>';
   }
-  // o = {lines:[{text,size,weight,italic}], startY, picture, carrier, pullPt, w}. Any
+  // A stored per-line fmt merged over this slot's defaults. `null`/absent means "never
+  // touched", which must reproduce the old hardcoded look exactly.
+  // Deliberately MATERIALISES the default weight/italic into a concrete value — that is
+  // the takeover convention. Do NOT hand this helper's output to the Big Text path: Big
+  // Text needs absent-to-mean-800 to reach bigWeightFor's sideways baseline, and a
+  // materialised 400 here would silently drop every untouched sideways block from 800 to
+  // 400. The two conventions coexist safely only because the block shapes differ (f1/f2/f3
+  // here vs a single `fmt` there) — anyone adding a new text surface should pick the
+  // convention that matches which shape they're building, not just reach for this helper.
+  function lineFmt(stored, defWeight, defItalic) {
+    var f = stored || {};
+    return { font: f.font || "",
+             weight: f.weight != null ? f.weight : defWeight,
+             italic: f.italic != null ? f.italic : !!defItalic,
+             underline: !!f.underline, strike: !!f.strike };
+  }
+  // o = {lines:[{text,size,fmt}], startY, picture, carrier, pullPt, w}. Any
   // line may be blank and is simply not drawn. `picture` rides in a <foreignObject>
   // through the ordinary carrier table, so it inherits the blocked-tag data instead of
   // hardcoding SVG's own <image (which the list ate in Aug 2026) — measured working
@@ -720,7 +820,7 @@
       var txt = takeoverLineText(src.text);
       // Trimmed, so a lone space no longer buys a real <text> element (63 chars of a
       // 500-char budget) plus a layout slot that pushes the picture's room down.
-      if (txt !== "") lines.push({ text: txt, size: src.size, weight: src.weight, italic: src.italic });
+      if (txt !== "") lines.push({ text: txt, size: src.size, fmt: src.fmt });
     }
     if (lines.length) {
       var kids = "", startY = Math.round(o.startY);
@@ -827,7 +927,11 @@
   // lift at the default calibration's worth means nothing moves at or below the default
   // (the reference layout is preserved exactly) and beyond it the block follows the
   // message down the tape instead of sailing off the top of it.
-  var CHEER_MAX_LIFT_PX = 293;  // = takeoverBox(220).pullPx, the default calibration
+  // DERIVED from the default, never a literal: these two drifting apart is what the cap
+  // is supposed to prevent. (It was written as a bare 293 = takeoverBox(220).pullPx, so
+  // moving the default to 240 would silently have started capping BELOW it — the
+  // reference layout would have shifted for everyone at the default pull.)
+  var CHEER_MAX_LIFT_PX = takeoverBox(TAKEOVER_PULL_PT).pullPx;
   // o = {bits, name, note, avatar, avatarW, sizes:{bits,name,note}, carrier, pullPt, w}
   // What a built overlay actually drew, read back off the markup. Deliberately parses
   // the output instead of re-deriving the layout: a second copy of the geometry is the
@@ -848,9 +952,10 @@
     // will want, and it gets escaped downstream like every other line.
     var bits = String(o.bits == null ? "" : o.bits).trim();
     var box = takeoverBox(o.pullPt);
-    var lines = [{ text: bits ? bits + CHEER_SUFFIX : "", size: sz.bits || 24, weight: 900 },
-                 { text: o.name || "", size: sz.name || 19, weight: 700 },
-                 { text: o.note || "", size: sz.note || 13, italic: true }]
+    var fm = o.fmts || {};
+    var lines = [{ text: bits ? bits + CHEER_SUFFIX : "", size: sz.bits || 24, fmt: lineFmt(fm.bits, 900, false) },
+                 { text: o.name || "", size: sz.name || 19, fmt: lineFmt(fm.name, 700, false) },
+                 { text: o.note || "", size: sz.note || 13, fmt: lineFmt(fm.note, 400, true) }]
       .filter(function (l) { return String(l.text || "") !== ""; });
 
     var top = Math.max(CHEER_TOP_PX, box.pullPx - CHEER_MAX_LIFT_PX);   // see CHEER_MAX_LIFT_PX
@@ -1153,14 +1258,38 @@
     // box is measured (padded) so nothing clips against SVG's default overflow:hidden.
     // Caveat: if the text itself contains a ":", the font-size attr + that colon can
     // re-trip the filter — rare, and Hanzi is the colon-proof fallback.
-    function buildBigTextSvg(text, factor) {
+    // `var`-assigned, not a `function` declaration: same reason as bigFontFor below —
+    // this lives inside the DOM-glue guard and needs to reach module.exports at the
+    // bottom of the file, which a block-scoped strict-mode function declaration can't.
+    var buildBigTextSvg = function (text, factor, fmt) {
       var lines = String(text).replace(/\r/g, "").split("\n");
+      // Resolve the font ONCE and use it for both measurement and the emitted markup —
+      // see bigFontFor's note. Measuring in one font while rendering in another is the
+      // exact drift that shears the last letters off a print.
+      var cssFont = bigFontFor(fmt);
+      // Measure in the SAME weight/italic the <g> below will render — not the raw
+      // fmt.weight, but clamped to a floor of BIG_WEIGHT (800). The SVG path ALSO
+      // fake-bolds via stroke-width regardless of the nominal weight (see the <g>
+      // below), so the rendered ink is always at least as wide as an 800-weight
+      // measurement predicts; measuring an explicit low weight (e.g. 400) at its true
+      // value would lose that safety margin. runLength's own principle applies here
+      // too: erring long adds invisible padding, erring short clips the widest line
+      // against SVG's overflow:hidden — off both ends, since text-anchor is "middle".
+      // A weight of 900+ measures at its true value (already >= the floor). Italic has
+      // no such asymmetry — a real italic face has different advances — so it is
+      // always measured exactly as requested.
+      var wideWeight = Math.max(BIG_WEIGHT, bigWeightFor(fmt)), wideItalic = bigItalicFor(fmt);
       // SVG clips overflow (unlike a wrapping <span>), so size relative to the width
       // it fits: fitSize makes the widest line fill ~250px (paper, with margin for
       // font drift on the printer); `factor` (the Size %) then scales below that, so
       // the slider always has an effect and text never runs off the edge.
-      var wide100 = lines.reduce(function (m, l) { return Math.max(m, measureRun(l || " ", 100).width); }, 1);
-      var fit = 250 * 100 / wide100;
+      // bigFitBasis, not `.width`: the advance does not bound the ink — not for a
+      // synthesised oblique, and not for an upright swash or descender either — and the
+      // SVG viewport clips whatever the difference costs. See its note.
+      var wide100 = lines.reduce(function (m, l) {
+        return Math.max(m, bigFitBasis(measureRun(l || " ", 100, cssFont, wideWeight, wideItalic)));
+      }, 1);
+      var fit = BIG_FIT_PX * 100 / wide100;
       var S = Math.max(8, Math.round(fit * factor));
       var lh = Math.round(S * 1.18), sw = Math.max(1, Math.round(S / 32));
       var pad = Math.max(2, Math.round(S * 0.08)), kids = "";
@@ -1173,15 +1302,55 @@
       // Shared text attributes ride on a <g> (inherited by every line) instead of being
       // repeated per <text> — a big payload saving on multi-line captions, so an image +
       // caption fits in ONE cheer instead of being split. (verified on the real engine)
-      var body = '<g font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '">' + kids + '</g>';
+      // fmtAttrs(fmt) rides here too, once, for the same reason.
+      var body = '<g font-size="' + S + '" text-anchor="middle" fill="#000" stroke="#000" stroke-width="' + sw + '"'
+        + fmtAttrs(fmt) + '>' + kids + '</g>';
       return '<svg width="' + W + '" height="' + (lines.length * lh + pad * 2) + '">' + body + '</svg>';
-    }
+    };
     // Rotate 90°: real type runs DOWN the tape (each letter as tall as the paper is
     // WIDE), split across receipts so no strip crosses a page break. Measure AND
     // render with the SAME font, and one present on both this browser and the printer
     // (Arial) — mismatched fonts make per-glyph widths drift, the drift accumulates
     // across a word, the box comes out short, and the last letter(s) get sheared.
     var BIG_FONT = "Arial,sans-serif";
+    // ONE numeric owner for "how heavy is unformatted Big Text" — measureRun's
+    // fallback, rotatedSpan's fallback, and bigWeightFor's fallback all read this
+    // instead of repeating the literal 800 three times, where one drifting from the
+    // others would reopen the exact measured-vs-rendered bug this task exists to close.
+    // See bigWeightFor's note for why 800, not fmtAttrs' 400.
+    var BIG_WEIGHT = 800;
+    // ONE owner of "which font is this text in". measureRun and every renderer read it,
+    // so they cannot disagree — and disagreeing is what shears letters off a sideways
+    // strip. Falls back to BIG_FONT (Arial) for the default entry and for junk, because
+    // "" would make the canvas font string invalid.
+    // A `var`-assigned function expression (not a `function` declaration): this lives
+    // inside the `if (typeof document...)` DOM-glue guard above, and in strict mode a
+    // block-level function declaration doesn't hoist past that block's braces — it
+    // would be invisible to module.exports at the bottom of the file. `var` hoists
+    // through the block regardless, which is exactly why it's needed here.
+    var bigFontFor = function (fmt) {
+      var css = getFont(fmt && fmt.font).css;
+      return css || BIG_FONT;
+    };
+    // Companions to bigFontFor, same "one owner" reasoning: measureRun and the rendered
+    // markup (the SVG <g>'s fmtAttrs, or the rotated span's CSS font shorthand) must
+    // read the same weight/italic or per-glyph widths drift on that axis exactly the
+    // way an unmeasured font-family drifts — the box comes out short and the last
+    // letters shear off. `Math.round(...) || BIG_WEIGHT`, not the raw value: a junk
+    // weight would build an invalid canvas font string, which `c.font =` silently
+    // ignores, leaving the *previous* block's font memoized on the shared context.
+    // CONTRACT: absent is not 400. An untouched block's fmt must OMIT `weight` entirely
+    // for this to fall back to BIG_WEIGHT (800) — Task 3's lineFmt always materializes
+    // a stored weight, and a future Big-Text formatting UI that reused that pattern to
+    // always write 400 would silently drop every existing sideways block from 800 to
+    // 400 (lighter print, different metrics) with no test failing.
+    var bigWeightFor = function (fmt) {
+      var w = fmt && Math.round(fmt.weight);
+      return w || BIG_WEIGHT;
+    };
+    var bigItalicFor = function (fmt) {
+      return !!(fmt && fmt.italic);
+    };
     // A leading "<" gets some messages blocked before they send; any non-"<" first
     // character defuses it. A non-breaking space is invisible on the print and, unlike
     // a normal leading space, isn't trimmed away before the filter sees it.
@@ -1202,14 +1371,123 @@
     var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.78; rounded
     var PAPER_MM = 70;                                     // printable width
     var PAPER_PX = Math.round(PAPER_MM * PX_PER_MM);       // 263
-    function measureRun(text, fontPx) {
+    // How much of the paper the widest Big Text line is fitted to. The 13px it leaves
+    // against PAPER_PX is the whole clipping margin: SVG has no overflow, so anything
+    // past the viewport is simply not printed, and the fake-bold stroke (S/32, centred,
+    // so S/64 a side) already spends part of it before glyph ink is considered. ONE
+    // owner so the fit and any test of the fit cannot disagree about the target.
+    var BIG_FIT_PX = 250;
+    // Margin applied whenever bigFitBasis has to fall back to ink bounds — see its note.
+    // KNOWN LIMIT: 1.08 was derived from ONE case (the 3.9% engine-vs-browser drift on
+    // Impact's synthesised oblique, plus the fake-bold stroke). It is not universally
+    // derived, and it has almost no headroom at the other end of the font list: apply
+    // that same 3.9% drift across the 9 fonts x 10 strings measured in shear.test.mjs
+    // and the two tightest italic cases land at 263.4 (Arial italic "gyp") and 264.2
+    // (Georgia italic "Wj") against a 263px box — about 1px over, invisible on a 1-bit
+    // thermal head, but zero margin. Raise this before assuming there is slack in it.
+    // KNOWN LIMIT #2: bigFitBasis applies this as a STEP, not a ramp — `ink <= adv`
+    // returns adv verbatim, one hair past it returns `ink * 1.08`. A face whose ink
+    // clears its advance by next to nothing pays nearly the whole 8% for an overhang
+    // no printer would show. Worked example, upright, real engine: Arial Black "WOW"
+    // measures advance 279.88 against 279.98 of ink — 0.10px, 0.036% — and the emitted
+    // font-size drops 89 -> 83, a 6.7% shrink for an overhang thinner than a hair.
+    // Not a bug to fix here: making the correction proportional to the overhang would
+    // mean inventing a curve with no measurement behind it, and the flat pad is what
+    // keeps unformatted output byte-identical (see the `ink <= adv` branch above).
+    // Erring long over erring short is this file's rule (see runLength); a slightly
+    // smaller headline is the accepted cost of that rule at this boundary.
+    var BIG_INK_PAD = 1.08;
+    // weight/italic default to 800/false — Big Text's historical baseline — so every
+    // pre-Task-5 call site (still passing 3 args) measures byte-identically to before.
+    function measureRun(text, fontPx, cssFont, weight, italic) {
       var c = measureRun._c || (measureRun._c = document.createElement("canvas").getContext("2d"));
-      c.font = "800 " + fontPx + "px " + BIG_FONT;
+      var w = weight || BIG_WEIGHT;
+      // MEASURE IN THE FONT WE WILL RENDER IN — family, weight AND style. Measuring
+      // Arial 800 while the printer draws Impact 900 italic makes every per-glyph width
+      // wrong on whichever axis disagrees, the error accumulates across a word, and the
+      // box comes out short — which shears the last letters off a sideways strip. See
+      // BIG_FONT's note. Canvas font order: [style] weight size family.
+      c.font = (italic ? "italic " : "") + w + " " + fontPx + "px " + (cssFont || BIG_FONT);
       c.textBaseline = "alphabetic";
       return c.measureText(text);
     }
-    function runLength(text, fontPx) {
-      var m = measureRun(text, fontPx);
+    // The width buildBigTextSvg's fit must divide into: what the glyphs actually INK,
+    // not what they advance. runLength already works this way for the rotated path;
+    // this is the same principle for the upright SVG one, with the geometry the SVG
+    // path actually has.
+    // WHY: the advance is not a bound on the ink. The loudest case is a SYNTHESISED
+    // oblique — a family with no real italic face, i.e. Impact and Arial Black here —
+    // which skews the outlines and leaves the advance UNTOUCHED. Measured: "HI" in
+    // Impact reports the same 84.33px advance upright and italic, while the ink's right
+    // edge moves from 80.18 to 99.94. Fit on the advance and the extra ink lands outside
+    // the SVG, which clips at its viewport (no overflow, unlike a span). On the real
+    // engine at 203dpi, "HI"/Impact/italic at the advance-fit size (S=296) inked out to
+    // user x 314.2 in a 263-wide box: 51px of the "I" simply not printed.
+    // IT IS NOT ONLY ITALIC — an earlier version of this gated on that and was wrong.
+    // Swept all 9 fonts x 10 strings with real Chrome canvas metrics at the measuring
+    // weight (800): fitting on the advance puts ink outside the viewport in 64 of 180
+    // cases, and six of those are UPRIGHT — Script "L" (ink right edge 271.9), Script
+    // "Wj" (273.2), Script "gyp" (left -11.4), Fantasy "L" (274.4), Fantasy "gyp"
+    // (-3.3), Comic Sans "L" (264.2). Confirmed on the engine: upright "L"/Script emits
+    // font-size 391 and inked to user x 318.3 against the same glyph in a deliberately
+    // oversized viewport — 55px of the letter never printed. A swash or a descender
+    // overhanging its own advance box shears exactly like a synthesised skew does, so
+    // the fit consults ink for EVERY measurement, italic or not; ungated, the same
+    // sweep clips in 0 of 180.
+    // WHY NOT just the ink span: text-anchor is "middle", which centres the ADVANCE
+    // box, and the sheared ink is NOT centred inside its own advance box. What has to
+    // fit is twice the LARGER of the two ink half-extents measured from that centre.
+    // WHY THE PAD: the shear is synthesised independently by the browser that MEASURES
+    // and the engine that PRINTS, and they disagree. Measured on the real engine: the
+    // ink's half-extent for Impact italic came out 3.9% wider than Chrome's canvas
+    // reported, at both sizes tried — and the fake-bold stroke (S/32, centred) spends
+    // another S/64 a side that the fit never sees. Ink-bounds alone therefore still left
+    // ~2 user px of the "I" outside the 263px viewport. Same shape of correction, and
+    // the same number, as runLength's 1.08 — deliberately NOT sharing a constant with
+    // it, because that pad answers a different question (per-glyph drift accumulating
+    // across a word in a font the printer may substitute) and the two should be free to
+    // move apart.
+    // WHAT THE PAD COSTS, since it lands wider than the case that justified it: the
+    // `ink <= adv` test below is the only gate, and it does NOT exempt a font with a
+    // real italic face. Georgia ships one, and its ink still exceeds its advance on 6 of
+    // the 10 strings swept ("HI" advances 136.38 against 149.07 of ink), so Georgia
+    // italic "HELLO" now fits 8% smaller and "HI" 15% smaller than before — neither was
+    // clipping. Accepted on runLength's rule: erring long adds invisible blank tape,
+    // erring short shears a letter off the print, so a conservative over-measure is the
+    // direction to be wrong in. A real italic face is NOT evidence that the advance
+    // bounds the ink; only the measurement is.
+    // Never SHORTER than the advance, so the change can only ever shrink a line, never
+    // grow one — runLength's rule again. Ink inside the advance box returns the advance
+    // verbatim, which is every upright measurement that doesn't overflow, so unformatted
+    // Big Text is byte-identical. Pinned twice, because the two pins cover different
+    // things: render.test.mjs pins the whole emitted string, but under the null-DOM
+    // canvas — that one proves the markup shape, not this arithmetic — while
+    // shear.test.mjs drives the real builder against captured Chrome metrics and pins
+    // the emitted font-size for an upright block against the advance-fit size.
+    // A missing/non-finite bounding box (the null-DOM test harness has no canvas, and
+    // older engines don't report these) falls back to the advance, exactly as runLength
+    // does — measurement degrades to today's behaviour rather than to NaN.
+    // `var`-assigned, like bigFontFor/bigWeightFor and for the same reason: this sits
+    // inside the DOM-glue guard block, and a strict-mode block-level `function`
+    // declaration can't reach module.exports at the bottom of the file.
+    var bigFitBasis = function (m) {
+      var adv = m.width;
+      if (!isFinite(adv)) return adv;
+      var right = m.actualBoundingBoxRight, left = m.actualBoundingBoxLeft;
+      if (!isFinite(right) || !isFinite(left)) return adv;
+      // left is positive when ink spills LEFT of the origin, so the centre-to-left-edge
+      // distance is half + left, and the centre-to-right-edge distance is right - half.
+      var half = adv / 2, ink = 2 * Math.max(right - half, half + left);
+      // Ink inside the advance box = the advance already bounds the ink, so it is a safe
+      // divisor and the size does not move. This is what keeps every non-overflowing
+      // upright block byte-identical — it is the measurement, not the style, that
+      // decides. (Georgia italic "WRECKED": 573.24 advance vs 285.50 half-extent, i.e.
+      // 571.00 of ink — fits, unchanged. Georgia italic "HI" does not: see the note.)
+      if (ink <= adv) return adv;
+      return ink * BIG_INK_PAD;
+    };
+    function runLength(text, fontPx, cssFont, weight, italic) {
+      var m = measureRun(text, fontPx, cssFont, weight, italic);
       var right = isFinite(m.actualBoundingBoxRight) ? m.actualBoundingBoxRight : m.width;
       var left = isFinite(m.actualBoundingBoxLeft) ? m.actualBoundingBoxLeft : 0;
       // Pad long: a proportional margin (per-glyph metric drift accumulates over a
@@ -1227,13 +1505,20 @@
     // tape. width/height clamp the layout box to the paper so the page stays
     // paper-wide × text-long. `cols` are the column strings (first = rightmost; ""
     // = a blank column on this strip).
-    function rotatedSpan(cols, colW, S, angle) {
+    // cssFont/weight/italic are the SAME descriptor rotateBodies measured every segment
+    // with (see its note) — SVG's fmtAttrs doesn't apply here, this is a plain HTML
+    // <span>, so weight/italic/family all have to ride the CSS `font:` shorthand instead
+    // (`dec`, if any, rides a plain `text-decoration:` declaration next to it — that
+    // property doesn't affect glyph metrics, so it never touches measurement).
+    function rotatedSpan(cols, colW, S, angle, cssFont, weight, italic, dec) {
       angle = angle || 90;
+      cssFont = cssFont || BIG_FONT;
+      weight = weight || BIG_WEIGHT;
       // Both 90 and 270 keep the input line order: at 270 (read by turning the tape the
       // opposite way from 90) the rotation already lands line 1 in the column that ends
       // up on top, so NO reversal — reversing was the "wrong orientation" bug on
       // multi-line text (it swapped the lines).
-      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S)) : mx; }, 1);
+      var maxL = cols.reduce(function (mx, l) { return l ? Math.max(mx, runLength(l, S, cssFont, weight, italic)) : mx; }, 1);
       var inner = cols.map(escapeHtml).join("<br>");
       var blockH = cols.length * colW;    // N stacked columns, pre-rotation height
       // Center with the standard translate(-50%,-50%) idiom inside a paper-wide,
@@ -1243,9 +1528,20 @@
       // translateX; that centred in-browser but printed off to one side, because
       // the printer's old WebKit didn't honour the non-default origin. maxL/blockH
       // pin the pre-rotation box so the translate math is exact.
+      // CSS `font` shorthand order is style, then weight, then size/line-height, then
+      // family — any other order and the whole declaration is silently discarded.
+      var fontDecl = (italic ? "italic " : "") + weight + " " + S + "px/" + colW + "px " + cssFont;
       var html = '<div style="position:relative;width:' + PAPER_PX + 'px;height:' + maxL + 'px;margin:0 auto">'
         + '<span style="position:absolute;top:50%;left:50%;width:' + maxL + 'px;height:' + blockH
-        + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + '800 ' + S + 'px/' + colW + 'px ' + BIG_FONT + ';'
+        + 'px;white-space:nowrap;text-align:center;' + FONT_PROP + fontDecl + ';'
+        // Unlike FONT_PROP, this ships as the literal string "text-decoration" — nothing
+        // escapes it (the property doesn't need the \66ont: trick; only the "font"
+        // substring itself has ever tripped the filter). Per the blocked-terms field
+        // record above (<object> -> <image> -> <img>, then <embed>/<input>/<iframe>
+        // still live as of Aug 2026), a literal new token in the payload is exactly the
+        // shape of thing that arms race has come for before. If underline/strike ever
+        // stop rendering, check here first for a new block on "text-decoration".
+        + (dec ? 'text-decoration:' + dec + ';' : '')
         + '-webkit-transform:translate(-50%,-50%) rotate(' + angle + 'deg)">'
         + inner + '</span></div>';
       return { html: html, maxL: maxL };
@@ -1254,12 +1550,13 @@
     // too long to fit a strip (e.g. "MINECRAFT" at full size). Splitting it across
     // strips at letter boundaries beats letting it overrun a page and gouge a band
     // out of the middle. Returns [tok] when it already fits.
-    function breakToken(tok, fontPx, maxLen) {
-      if (runLength(tok, fontPx) <= maxLen) return [tok];
+    function breakToken(tok, fontPx, maxLen, cssFont, weight, italic) {
+      cssFont = cssFont || BIG_FONT;
+      if (runLength(tok, fontPx, cssFont, weight, italic) <= maxLen) return [tok];
       var out = [], chunk = "";
       for (var i = 0; i < tok.length; i++) {
         var t = chunk + tok.charAt(i);
-        if (chunk && runLength(t, fontPx) > maxLen) { out.push(chunk); chunk = tok.charAt(i); }
+        if (chunk && runLength(t, fontPx, cssFont, weight, italic) > maxLen) { out.push(chunk); chunk = tok.charAt(i); }
         else { chunk = t; }
       }
       if (chunk) out.push(chunk);
@@ -1269,13 +1566,14 @@
     // maxLen, so no segment crosses a print page break (which slices a gouge through
     // a word). Over-long words are first split by letter; those fragments never get
     // a space joined to a neighbor, so taping the strips rebuilds the word cleanly.
-    function segmentLine(line, fontPx, maxLen) {
+    function segmentLine(line, fontPx, maxLen, cssFont, weight, italic) {
+      cssFont = cssFont || BIG_FONT;
       var words = String(line).split(" ").filter(Boolean), segs = [], cur = "";
       words.forEach(function (w) {
-        breakToken(w, fontPx, maxLen).forEach(function (p, idx) {
+        breakToken(w, fontPx, maxLen, cssFont, weight, italic).forEach(function (p, idx) {
           if (idx > 0) { if (cur) segs.push(cur); cur = p; return; }   // word fragment: own segment
           var trial = cur ? cur + " " + p : p;
-          if (cur && runLength(trial, fontPx) > maxLen) { segs.push(cur); cur = p; }
+          if (cur && runLength(trial, fontPx, cssFont, weight, italic) > maxLen) { segs.push(cur); cur = p; }
           else { cur = trial; }
         });
       });
@@ -1290,7 +1588,17 @@
     // strip's run length (its physical length down the tape) so the packer respects
     // the page. `factor`/`len` override the live controls when a composer block carries
     // its own size/length; they default to the current sliders.
-    function rotateBodies(text, factor, len, angle) {
+    // `var`-assigned, not a `function` declaration — same export reason as bigFontFor
+    // and buildBigTextSvg: it needs to reach module.exports past the DOM-glue guard.
+    var rotateBodies = function (text, factor, len, angle, fmt) {
+      // ONE resolve, same as buildBigTextSvg — see bigFontFor's/bigWeightFor's notes.
+      // Every measurement call below (segmentLine -> breakToken -> runLength) and the
+      // rendered span read these same four values, so they cannot disagree. `dec` never
+      // touches measurement — underline/strike don't change glyph metrics.
+      var cssFont = bigFontFor(fmt);
+      var weight = bigWeightFor(fmt);
+      var italic = bigItalicFor(fmt);
+      var dec = fmtDecoration(fmt);
       var lines = String(text).replace(/\r/g, "").split("\n")
         .map(function (l) { return l.replace(/\s+/g, " ").trim(); })
         .filter(function (l) { return l.length; });
@@ -1299,17 +1607,17 @@
       factor = factor || getSizeFactor();
       var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
       var T = len || getRotateLen();
-      var perLine = lines.map(function (l) { return segmentLine(l, S, T); });
+      var perLine = lines.map(function (l) { return segmentLine(l, S, T, cssFont, weight, italic); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
       var bodies = [];
       for (var k = 0; k < maxSegs; k++) {
         var cols = perLine.map(function (segs) { return k < segs.length ? segs[k] : ""; });
-        var span = rotatedSpan(cols, colW, S, angle);
+        var span = rotatedSpan(cols, colW, S, angle, cssFont, weight, italic, dec);
         bodies.push({ html: span.html, heightPx: span.maxL, chars: payloadLength(span.html),
                       preview: { kind: "html", html: span.html } });
       }
       return bodies;
-    }
+    };
     function buildRotatedParts(text) {
       return rotateBodies(text).map(function (b, k) {
         var payload = packageCheer(LEAD_GUARD + b.html, cheerOptsFor(k));
@@ -1319,8 +1627,8 @@
     }
     // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
     // proven on the real engine). Default transform-origin (centre) so it flips in place.
-    function bigTypeBodies(text, factor, orient) {
-      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor());
+    function bigTypeBodies(text, factor, orient, fmt) {
+      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor(), fmt);
       var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
       var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
       return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
@@ -1436,11 +1744,12 @@
               bits: block.cBits, name: block.cName, note: block.cNote,
               avatar: block.avatar, avatarW: block.avatarW,
               sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+              fmts: { bits: block.f1, name: block.f2, note: block.f3 },
               carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX })
           : buildTakeover({
-              lines: [{ text: block.l1, size: block.s1, weight: 900 },
-                      { text: block.l2, size: block.s2, weight: 700 },
-                      { text: block.l3, size: block.s3, italic: true }],
+              lines: [{ text: block.l1, size: block.s1, fmt: lineFmt(block.f1, 900, false) },
+                      { text: block.l2, size: block.s2, fmt: lineFmt(block.f2, 700, false) },
+                      { text: block.l3, size: block.s3, fmt: lineFmt(block.f3, 400, true) }],
               picture: block.picture, pictureW: block.pictureW,
               pictureH: Math.round((block.pictureW || 120) * 1.4),
               carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
@@ -1458,8 +1767,8 @@
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
       if (block.render === "hanzi") return hanziBodies(text, block.cols, factor);
       var orient = block.orient || 0;
-      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient);
-      return bigTypeBodies(text, factor, orient);   // 0 or 180
+      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient, block.fmt);
+      return bigTypeBodies(text, factor, orient, block.fmt);   // 0 or 180
     }
     // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
     // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
@@ -1740,7 +2049,9 @@
     // receipt styling must ride along as an embedded <style>. Kept in sync with
     // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
     var RCPT_CSS =
-      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;}' +
+      // overflow:hidden mirrors the page rule — the thermal raster must clip at the
+      // paper edge too, or it shows ink the printer will never lay down.
+      '.rcpt{width:80mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;overflow:hidden;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;}' +
       '.rcpt-av{width:15em;height:15em;max-width:90%;border-radius:50%;background:#dcdcdc;object-fit:cover;margin:0 auto;}' +
       '.rcpt-title{font-weight:900;font-size:1.5em;text-transform:uppercase;}' +
       '.rcpt-sub{font-weight:700;font-size:1.2em;}' +
@@ -1926,12 +2237,19 @@
         if (item.chars > MAX_CHARS) {
           var warn = document.createElement("div");
           warn.className = "over-note";
-          warn.textContent = "Too long for Twitch (~500 chars) — trim it: fewer columns, shorter text, or a smaller size.";
+          warn.textContent = "Too long for Twitch (~500 chars) — trim it: clear the formatting, fewer columns, shorter text, or a smaller size.";
           card.appendChild(warn);
         }
         if (item.bodies) {
           // Composed stack: render each block's preview, in order, inside one receipt.
           var stackBody = document.createElement("div");
+          // The message carries this text before the first body, and it takes up a line
+          // in the printed receipt — which pushes a lifted takeover down by that line.
+          // Rendering it here is what makes the preview agree with the tape; leaving it
+          // out is what made the takeover's default calibration a line short. (Twitch
+          // turns the cheer token into a ~1em cheermote image rather than this text, so
+          // the real line is a few px taller still — see packStackBodies.)
+          if (item.lead) stackBody.appendChild(document.createTextNode(item.lead));
           item.bodies.forEach(function (b) {
             var pv = b.preview || {};
             if (pv.kind === "img") {
@@ -2036,6 +2354,20 @@
       b.embedV = EMBED_V;
       return b;
     }
+    // A saved takeover carries the pull it was created with, so bumping the default
+    // alone would never reach a block that already exists — it would keep printing the
+    // avatar's crown forever. Blocks still sitting on the OLD default were calibrated
+    // against the same preview that was missing the lead line, so they carry the same
+    // error and are moved forward once. A pull the user actually dragged is LEFT ALONE:
+    // that one was calibrated against paper, which already told the truth.
+    var TAKEOVER_PULL_V = 1;
+    var TAKEOVER_PULL_PT_V0 = 220;
+    function migrateTakeoverPull(b) {
+      if (b.type !== "takeover" || b.pullV === TAKEOVER_PULL_V) return b;
+      if ((b.pullPt || TAKEOVER_PULL_PT_V0) === TAKEOVER_PULL_PT_V0) b.pullPt = TAKEOVER_PULL_PT;
+      b.pullV = TAKEOVER_PULL_V;
+      return b;
+    }
     function newBlock(type) {
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
@@ -2048,7 +2380,7 @@
         l1: "", s1: 24, l2: "", s2: 19, l3: "", s3: 13,
         cBits: "", cName: "", cNote: "", avatar: "", avatarW: CHEER_AVATAR_W,
         picture: "", pictureW: CHEER_AVATAR_W, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
-        pullPt: TAKEOVER_PULL_PT };
+        pullPt: TAKEOVER_PULL_PT, pullV: TAKEOVER_PULL_V };
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
@@ -2074,7 +2406,7 @@
     function seedBlocks() {
       var saved = loadBlocks();
       if (saved && saved.length) {
-        blocks = saved.map(migrateEmbed);
+        blocks = saved.map(migrateEmbed).map(migrateTakeoverPull);
         blockIdSeq = blocks.reduce(function (m, b) { return Math.max(m, b.id || 0); }, 0) + 1;
         saveBlocks();   // persist the migration so it runs once, not every load
         return;
@@ -2158,6 +2490,7 @@
       orient.addEventListener("change", function () {
         block.orient = parseInt(orient.value, 10) || 0;
         if (lenWrap) lenWrap.style.display = isSideways(block.orient) ? "" : "none";
+        syncFontNote();
         saveBlocks(); update();
       });
       typeWrap.appendChild(orient);
@@ -2177,10 +2510,85 @@
       var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
       size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
       card.appendChild(sliderRow("Size", size, 90, "%"));
+      // Formatting row — hidden for Hanzi (see applyRender below). One fmt per block (a
+      // text block is one run of type, unlike a takeover's three slots). Weight is a
+      // select for the same reason as on the takeover card: Bold and Black are both
+      // wanted and a boolean can only carry one of them.
+      //
+      // CONTRACT: bigWeightFor(fmt) treats an absent weight as the 800 baseline that
+      // sideways Big Text has always rendered at — absent is not 400. So block.fmt is
+      // created lazily (curFmt) and a property is written onto it ONLY from a control's
+      // own change/click handler, never materialised with defaults up front. An untouched
+      // block must keep block.fmt undefined (or, once touched, must never gain a
+      // weight:400 key it wasn't given).
+      var fmtWrap = mkEl("div");
+      var curFmt = function () { return block.fmt || (block.fmt = {}); };
+      var fmtRow = mkEl("div", { "class": "fmt-row" });
+      var font = mkEl("select");
+      for (var fi = 0; fi < FONTS.length; fi++) {
+        font.appendChild(opt(FONTS[fi].id, FONTS[fi].label, ((block.fmt || {}).font || "") === FONTS[fi].id));
+      }
+      font.addEventListener("change", function () { curFmt().font = font.value; saveBlocks(); update(); syncFontNote(); });
+      fmtRow.appendChild(font);
+      // Weight defaults to "Default" (absent), not "Normal" (400) — bigWeightFor
+      // resolves an absent weight to 800 for sideways rendering, not 400, so a select
+      // that could only say 400/700/900 had no way to represent the actual current
+      // state of an untouched sideways block truthfully. "Default" is what the font
+      // select already does for its "" entry; this mirrors it. Selecting Default
+      // deletes the key (genuinely absent again), never writes 400 or 800 — writing
+      // either would be a different lie, and 800 isn't offered as a value at all.
+      var wsel = mkEl("select");
+      var wNow = (block.fmt || {}).weight;
+      wsel.appendChild(opt("", "Default", wNow === undefined));
+      wsel.appendChild(opt("400", "Normal", wNow === 400));
+      wsel.appendChild(opt("700", "Bold", wNow === 700));
+      wsel.appendChild(opt("900", "Black", wNow === 900));
+      wsel.addEventListener("change", function () {
+        if (wsel.value === "") { delete curFmt().weight; }
+        else { curFmt().weight = parseInt(wsel.value, 10); }
+        saveBlocks(); update();
+      });
+      fmtRow.appendChild(wsel);
+      [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
+        var on = !!(block.fmt || {})[t[0]];
+        var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
+        b.addEventListener("click", function () {
+          var v = !curFmt()[t[0]];
+          curFmt()[t[0]] = v;
+          b.className = "fmt-tog" + (v ? " on" : "");
+          saveBlocks(); update();
+        });
+        fmtRow.appendChild(b);
+      });
+      fmtWrap.appendChild(fmtRow);
+      // The preview cannot prove what the printer will do with a font: it renders with
+      // YOUR fonts, the print with the STREAMER'S. Sharper on sideways, where a wrong
+      // font doesn't just look different — the strip is measured in your browser's font,
+      // so a fallback on the streamer's PC shears the last letters off.
+      var fontNote = mkEl("div", { "class": "hint" });
+      var syncFontNote = function () {
+        var f = (block.fmt || {}).font || "";
+        var sideways = block.orient === 90 || block.orient === 270;
+        if (!f) { fontNote.style.display = "none"; return; }
+        fontNote.style.display = "";
+        fontNote.textContent = sideways
+          ? "Sideways strips are sized by measuring this font in your browser. If the "
+            + "streamer's PC doesn't have it, it draws something else, the strip is the "
+            + "wrong length, and the last letters shear off. Default (Arial) is the safe "
+            + "pick for sideways."
+          : "The preview uses your fonts; the printer uses the streamer's. Serif, "
+            + "Monospace, Script and Fantasy always resolve to something; the named "
+            + "fonts are standard on Windows. If it isn't there it falls back — one test "
+            + "print settles it.";
+      };
+      fmtWrap.appendChild(fontNote);
+      syncFontNote();
+      card.appendChild(fmtWrap);
       var applyRender = function () {
         var hanzi = block.render === "hanzi";
         typeWrap.style.display = hanzi ? "none" : "";
         hanziWrap.style.display = hanzi ? "" : "none";
+        fmtWrap.style.display = hanzi ? "none" : "";
       };
       render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
       applyRender();
@@ -2344,12 +2752,67 @@
         parent.appendChild(ta);
         return ta;
       };
+      // Font + weight + the three toggles for one line, on a single row. WEIGHT IS A
+      // SELECT, NOT A BOLD TOGGLE, and that is deliberate: the three slots already use
+      // 900 / 700 / normal, so collapsing weight to a boolean would change the look of
+      // every takeover that already exists. Normal/Bold/Black covers "bold" and keeps
+      // 700 reachable.
+      // f1/f2/f3 are ONE value per block but get a control row in each style's field
+      // group, same as s1/s2/s3 above — same failure mode if they aren't kept in sync:
+      // edit the font/toggles in one style and the other style's (hidden) row would
+      // keep showing the old state while the preview had already moved on. Every copy
+      // is registered and refreshed on switch, exactly like sizeCopies/syncSizes.
+      var fmtCopies = [];
+      var syncFmts = function () {
+        for (var i = 0; i < fmtCopies.length; i++) {
+          var c = fmtCopies[i], f = lineFmt(block[c.key], c.defWeight, c.defItalic);
+          c.font.value = f.font;
+          c.weight.value = String(f.weight);
+          for (var j = 0; j < c.togs.length; j++) {
+            var t = c.togs[j];
+            t.el.className = "fmt-tog" + (f[t.prop] ? " on" : "");
+          }
+        }
+      };
+      var mkFmt = function (parent, key, defWeight, defItalic) {
+        var cur = function () { return block[key] || (block[key] = {}); };
+        var row = mkEl("div", { "class": "fmt-row" });
+        var font = mkEl("select");
+        var fNow = lineFmt(block[key], defWeight, defItalic).font;
+        for (var i = 0; i < FONTS.length; i++) {
+          font.appendChild(opt(FONTS[i].id, FONTS[i].label, fNow === FONTS[i].id));
+        }
+        font.addEventListener("change", function () { cur().font = font.value; saveBlocks(); update(); });
+        row.appendChild(font);
+        var wsel = mkEl("select");
+        var wNow = lineFmt(block[key], defWeight, defItalic).weight;
+        wsel.appendChild(opt("400", "Normal", wNow === 400));
+        wsel.appendChild(opt("700", "Bold", wNow === 700));
+        wsel.appendChild(opt("900", "Black", wNow === 900));
+        wsel.addEventListener("change", function () { cur().weight = parseInt(wsel.value, 10); saveBlocks(); update(); });
+        row.appendChild(wsel);
+        var togs = [];
+        [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
+          var on = lineFmt(block[key], defWeight, defItalic)[t[0]];
+          var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
+          b.addEventListener("click", function () {
+            var v = !lineFmt(block[key], defWeight, defItalic)[t[0]];
+            cur()[t[0]] = v;
+            b.className = "fmt-tog" + (v ? " on" : "");
+            saveBlocks(); update();
+          });
+          row.appendChild(b);
+          togs.push({ prop: t[0], el: b });
+        });
+        parent.appendChild(row);
+        fmtCopies.push({ key: key, defWeight: defWeight, defItalic: defItalic, font: font, weight: wsel, togs: togs });
+      };
 
       // --- Blank takeover: three free lines + a picture ---
       var blankWrap = mkEl("div");
-      mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24);
-      mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19);
-      mkText(blankWrap, "Line 3 (italic)", "l3"); mkSize(blankWrap, "s3", 13);
+      mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24); mkFmt(blankWrap, "f1", 900, false);
+      mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19); mkFmt(blankWrap, "f2", 700, false);
+      mkText(blankWrap, "Line 3 (note)", "l3"); mkSize(blankWrap, "s3", 13); mkFmt(blankWrap, "f3", 400, true);
       // Picture row = URL field + "or upload a file". The upload is here and not only on
       // the Image block because the takeover's picture is the whole point of the fake
       // cheer, and a pasted CDN link is usually long enough by itself to push the
@@ -2392,9 +2855,9 @@
         "Lays your lines out the way printer-bot lays out a real cheer — picture on "
         + "top, then the bits figure, then the name. “ BITS” is added for you, so put "
         + "just the number (or whatever you want in its place)."));
-      mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24);
-      mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19);
-      mkText(cheerWrap, "Message (italic)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13);
+      mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24); mkFmt(cheerWrap, "f1", 900, false);
+      mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19); mkFmt(cheerWrap, "f2", 700, false);
+      mkText(cheerWrap, "Message (note)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13); mkFmt(cheerWrap, "f3", 400, true);
       mkPictureRow(cheerWrap, "avatar");
       // An earlier version of this hint said an over-length fake cheer "splits into a
       // second cheer". It does NOT: packStackBodies treats the first body of a part as
@@ -2403,12 +2866,39 @@
       // Twitch rejects the message and nothing prints. Measured margins with an uploaded
       // link: name "IRS" 491/500, "shamu4life" 498 — both fit; a very long name does not. The
       // name eats the budget just as fast as the URL does, so say so.
+      //
+      // FORMATTING IS PAYLOAD TOO, and the hint has to say so: every control on a line
+      // emits an SVG attribute. Measured against this branch's buildFakeCheer at the
+      // flagship case (39-char minted link, ALL THREE lines, name "IRS", w=263 =
+      // PAPER_PX), base 491/500:
+      //   italic +20  Serif +20  Impact +21  Georgia/Script/Fantasy +22  Monospace +24
+      //   Arial Black +26  underline +28  Comic Sans MS +28  strikethrough +31
+      //   underline + strikethrough together +41
+      // THE "ANY ONE OF THEM GOES OVER" LINE IS ONLY TRUE AT THAT 491 BASE, which needs
+      // all three lines filled. Drop a line and the headroom is real: two lines + the
+      // picture measure 419 (so +41 lands at 460, fits), and one short line + the
+      // picture measures 345-354 depending which slot it is (+41 -> 386-395, fits). An
+      // earlier version of this hint said any control tips a picture cheer over full
+      // stop, which overstated it by a whole line's worth of budget.
+      // TWO COUNTER-INTUITIVE ONES, worth stating because nobody would guess them from
+      // the table above: italic on the NOTE line costs +0 — that slot's default is
+      // already italic (lineFmt(fm.note, 400, true)), so choosing it changes nothing on
+      // the wire. And the weight select can be FREE OR NEGATIVE: fmtAttrs omits weight
+      // at 400, so picking Normal on line 1 or line 2 DELETES the font-weight="900" /
+      // "700" they were emitting and gives back 18 characters each (Normal on the note
+      // line is +0, it is already 400; Black on the note line is +18).
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "With a picture this nearly fills the message — about 491 of 500 with a short "
-        + "name — so watch the counter. Going over doesn’t cost a second cheer: Twitch "
-        + "rejects an over-length message outright and nothing prints. A long name or a "
-        + "pasted Discord/imgur link will do it — upload the file here instead and you "
-        + "get the shortest link there is."));
+        "With a picture and all three lines this nearly fills the message — about 491 of "
+        + "500 with a short name — so watch the counter. Formatting is payload: a font, "
+        + "italic, underline or strikethrough costs 20–31 characters on the line you set "
+        + "it on (41 for underline and strikethrough together), so at 491 any one of them "
+        + "tips it over. Leave a line empty and there is room: two lines with a picture "
+        + "start near 419, one line near 350, which absorbs even the 41. Two that surprise "
+        + "people: italic on the note line is free (it is already italic), and picking "
+        + "Normal weight on the first two lines gives you 18 characters back each. Going "
+        + "over doesn’t cost a second cheer: Twitch rejects an over-length message "
+        + "outright and nothing prints. A long name or a pasted Discord/imgur link will do "
+        + "it too — upload the file here instead and you get the shortest link there is."));
       var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
       aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
       aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });
@@ -2420,6 +2910,7 @@
         blankWrap.style.display = cheer ? "none" : "";
         cheerWrap.style.display = cheer ? "" : "none";
         syncSizes();          // the hidden copy is stale until it's shown again
+        syncFmts();           // same staleness risk for the font/weight/I-U-S row
       };
       style.addEventListener("change", function () {
         block.tkStyle = style.value; applyStyle(); saveBlocks(); update();
@@ -2480,14 +2971,15 @@
           html = buildFakeCheer({ bits: block.cBits, name: block.cName, note: block.cNote,
             avatar: block.avatar, avatarW: block.avatarW,
             sizes: { bits: block.s1, name: block.s2, note: block.s3 },
+            fmts: { bits: block.f1, name: block.f2, note: block.f3 },
             carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
         } else {
           wantLines = [block.l1, block.l2, block.l3]
             .filter(function (t) { return String(t || "").trim() !== ""; }).length;
           html = buildTakeover({
-            lines: [{ text: block.l1, size: block.s1, weight: 900 },
-                    { text: block.l2, size: block.s2, weight: 700 },
-                    { text: block.l3, size: block.s3, italic: true }],
+            lines: [{ text: block.l1, size: block.s1, fmt: lineFmt(block.f1, 900, false) },
+                    { text: block.l2, size: block.s2, fmt: lineFmt(block.f2, 700, false) },
+                    { text: block.l3, size: block.s3, fmt: lineFmt(block.f3, 400, true) }],
             picture: block.picture, pictureW: block.pictureW,
             pictureH: Math.round((block.pictureW || 120) * 1.4),
             carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
@@ -2526,7 +3018,9 @@
       card.appendChild(mkEl("div", { "class": "hint" },
         "How far up to paint. The bot’s header is taller or shorter depending on the "
         + "streamer’s avatar, so this needs one calibration print: too little leaves a "
-        + "strip of the old header showing, too much eats into the paper above."));
+        + "strip of the old header showing; too much lifts the block past the top of the "
+        + "paper, and the picture is what goes first — it sits highest. The preview clips "
+        + "at the paper edge, so if it disappears there it won’t print either."));
       applyStyle();
       syncNotes();
       return card;
@@ -2673,7 +3167,7 @@
       }
       var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart });
       return parts.map(function (p) {
-        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies };
+        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead };
       });
     }
     // "Find what still sends": one cheer per carrier tag, labelled A, B, C…, each
@@ -2942,10 +3436,16 @@
       packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
       escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
+      FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
+      lineFmt: lineFmt,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
+      bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,
+      bigWeightFor: bigWeightFor, bigItalicFor: bigItalicFor, rotateBodies: rotateBodies,
+      bigFitBasis: bigFitBasis, PAPER_PX: PAPER_PX, BIG_FIT_PX: BIG_FIT_PX,
+      BIG_WEIGHT: BIG_WEIGHT,
     };
   }
 </script>

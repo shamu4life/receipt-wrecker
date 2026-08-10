@@ -672,35 +672,31 @@
   // (--disable-smart-shrinking), hence the 4/3. Everything derives from that one
   // number, so it stays a single calibration knob — the bot's header height varies
   // with the streamer's avatar, so the right value is per-rig.
-  // 240, not 220. The original was calibrated against the app's own preview, which
-  // rendered the takeover alone in the content slot — but the real message always
-  // carries a lead ("Cheer100 <nonce> ", or the nbsp guard) ahead of it, and that lead
-  // takes a line. So every calibration made against the old preview came out one line
-  // short and printed a crescent of the streamer's avatar above the artwork. Re-measured
-  // on the real engine WITH the lead present: 220pt left 17.9px of header showing (21.8px
-  // once Twitch renders the token as a cheermote), 235pt cleared the text form, and 240pt
-  // clears both with margin. The preview now renders the lead too, so the next person to
-  // calibrate by eye gets a number that matches the paper.
-  // 220, and it is FIELD-PROVEN — which beats the bench, and did.
+  // 240, SET BY TUNING ON THE ACTUAL RIG. This number has been argued three ways; here is the
+  // whole history in one place so nobody re-derives it a fourth time.
   //
-  // This was briefly 240. The reasoning was sound and the measurement was real: every message
-  // carries a lead ("Cheer100 <nonce> ") that takes a line and pushes a lifted takeover down, and
-  // on the bench 220 left ~18px of the streamer's avatar showing. What was wrong was the bench's
-  // AVATAR. The harness used a 300px source, which the bot's `max-height:15em` renders at 240px —
-  // the largest header that can exist. The real rig's is smaller.
+  //   Originally 220, calibrated against the app's own preview.
+  //   Raised to 240 on bench evidence: the real message always carries a lead
+  //     ("Cheer100 <nonce> ", or the nbsp guard) that takes a line and pushes a lifted takeover
+  //     down, and on the engine WITH that lead present 220 left ~18px of the streamer's avatar
+  //     showing (21.8px once Twitch renders the token as a cheermote). 235 cleared the text form,
+  //     240 cleared both.
+  //   Reverted to 220 because a hand-built reference payload at -220pt had printed flawlessly on
+  //     the real machine, and a bench harness using a 300px avatar (rendered at the 15em maximum
+  //     of 240px) is not evidence about a rig whose avatar may be smaller.
+  //   Back to 240, because the owner then looked at real prints and tuned it there.
   //
-  // The evidence that settles it: robp's hand-built reference payload, sent as a real cheer, used
-  // `margin-top:-220pt` with its picture at y=5 and printed FLAWLESSLY, picture included. For that
-  // picture's top to land on paper the rig's header must be <= 293px and >= 288px, so it is ~290 —
-  // about 20px shorter than the harness's. At 220 the panel top sits 3px off the paper (white, so
-  // harmless) and the picture lands 3px on. At 240 the panel lifts 320px instead, and because the
-  // fake cheer anchors its picture to the panel top, **24px of that picture is clipped off the top
-  // of the roll**. Over-pulling is not free on the cheer path.
+  // Tuning on the rig outranks every render in that list, including the reference payload, which
+  // was one print under conditions nobody recorded. The lead-line measurement was always real and
+  // is still why the preview must render the lead — it just never got to pick this number.
   //
-  // So: do not raise this on bench evidence again. The lead-line effect is real and documented, and
-  // it is why the preview must render the lead — but the number itself answers to paper. A rig with
-  // a genuinely larger avatar needs a larger pull, and that is what the slider is for.
-  var TAKEOVER_PULL_PT = 220;
+  // The one thing to know before touching it: CHEER_MAX_LIFT_PX is DERIVED from this constant, and
+  // it caps how far a fake cheer may lift. Raising this therefore also raises how high the fake
+  // cheer's picture can sit, and the picture is anchored to the panel top — so if a fake cheer ever
+  // prints with its picture cut off at the top of the roll, this is the cause and a lower pull on
+  // that block is the cure. Blank takeovers are unaffected: their text is bottom-anchored, so extra
+  // pull only paints more white above.
+  var TAKEOVER_PULL_PT = 240;
   var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
   function takeoverBox(pullPt) {
     // Upper bound as well as lower: isFinite(1e308) is true, and 1e308*4/3 overflows to
@@ -2381,29 +2377,25 @@
       return b;
     }
     // A saved takeover carries the pull it was created with, so a change to the default never
-    // reaches a block that already exists unless it is migrated.
+    // reaches an existing block unless it is migrated. The default has moved three times in a day
+    // (220 -> 240 -> 220 -> 240; see TAKEOVER_PULL_PT for why), so rather than chain another
+    // undo-of-an-undo, v3 states one rule and applies it to every earlier stamp at once.
     //
-    // v1 raised 220 -> 240 on bench evidence. v2 puts it back, because the bench was wrong about
-    // the rig (see TAKEOVER_PULL_PT): 240 clips ~24px off the top of a fake cheer's picture on the
-    // real machine, where 220 prints it flawlessly. v1 shipped for a matter of hours.
+    // THE RULE: a block still sitting on ANY default this app has ever shipped is following the
+    // default, so move it to the current one. A block on any other value was dragged deliberately
+    // and is left alone — that one was tuned against paper, which is the only authority here.
     //
-    // v2 only reverses what v1 wrote — a block stamped v1 sitting on 240. It cannot distinguish
-    // that from someone deliberately choosing 240 in that window, and it moves both. That is the
-    // right trade here: 240 is now known to amputate the picture on this rig, so leaving it is the
-    // worse failure, and the window was hours. Anything on any other value is left alone, because
-    // a pull the user actually dragged was calibrated against paper.
-    var TAKEOVER_PULL_V = 2;
-    var TAKEOVER_PULL_PT_V0 = 220;   // the pre-v1 default, and now the default again
-    var TAKEOVER_PULL_PT_V1 = 240;   // what v1 wrote, and what v2 undoes
+    // This does move a block someone deliberately set to 220 or 240 by hand, because a hand-set
+    // value that happens to equal a former default is indistinguishable from a followed one. With
+    // the whole history spanning about a day and the current value being the tuned one, landing on
+    // the tuned value is the better failure.
+    var TAKEOVER_PULL_V = 3;
+    var TAKEOVER_PULL_DEFAULTS = [220, 240];   // every default this app has shipped
     function migrateTakeoverPull(b) {
       if (b.type !== "takeover" || b.pullV === TAKEOVER_PULL_V) return b;
-      var pull = b.pullPt || TAKEOVER_PULL_PT_V0;
-      if (b.pullV === 1) {
-        // written by v1: undo it
-        if (pull === TAKEOVER_PULL_PT_V1) b.pullPt = TAKEOVER_PULL_PT;
-      } else if (pull === TAKEOVER_PULL_PT_V0) {
-        // never migrated, already on the value we now want — just stamp it
-        b.pullPt = TAKEOVER_PULL_PT;
+      var pull = b.pullPt || TAKEOVER_PULL_DEFAULTS[0];
+      for (var i = 0; i < TAKEOVER_PULL_DEFAULTS.length; i++) {
+        if (pull === TAKEOVER_PULL_DEFAULTS[i]) { b.pullPt = TAKEOVER_PULL_PT; break; }
       }
       b.pullV = TAKEOVER_PULL_V;
       return b;

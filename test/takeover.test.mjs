@@ -371,47 +371,50 @@ test("the block can't ride off the top of the paper at a big pull", () => {
   assert.equal(geom(C.buildFakeCheer({ ...CHEER, pullPt: DEF })).pic.y, 6);
 });
 
-// THE DEFAULT ANSWERS TO PAPER, NOT TO THE BENCH. This test used to assert a floor of 235pt,
-// derived on the engine with a full-size avatar: a bare SVG left 1.9px of header showing, the
-// real payload with its "Cheer100 00 " lead left 17.9px, and 240pt cleared both.
+// THE DEFAULT ANSWERS TO PRINTS, AND NOTHING HERE CAN CHECK IT. It has been 220, then 240 on
+// bench evidence, then 220 again because a hand-built payload had printed flawlessly at that
+// value, and is now 240 because the owner looked at real tape and tuned it. Every earlier version
+// of this test pinned a specific number or a specific rig header, and every one of them had to be
+// rewritten within a day — because they were asserting a fact about someone's printer, which the
+// suite cannot see.
 //
-// Every one of those measurements was correct and the conclusion was still wrong, because the
-// harness's avatar was bigger than the real rig's. A hand-built reference payload at 220pt,
-// sent as a real cheer, printed flawlessly with its picture — which puts that rig's header near
-// 290px, roughly 20px under what the bench assumed. At 240pt the fake cheer's picture, anchored
-// to the panel top, loses ~24px off the top of the roll.
-//
-// So the floor is a CEILING now: the default must not over-pull past what the field confirmed.
-// Raising it again needs a print, not a render.
-test("the default pull is the field-confirmed value, not a bench-derived one", () => {
-  assert.equal(C.TAKEOVER_PULL_PT, 220,
-    "220pt is field-proven on the real rig; a bench render is not sufficient to change it");
-  assert.ok(C.TAKEOVER_PULL_PT <= 400, "the slider only reaches 400pt");
+// So these tests pin the INVARIANTS the code owes regardless of the number, and leave the number
+// to paper. If you are changing the default: change it, and expect these to still pass.
+test("the default pull is reachable and the lift cap is derived from it", () => {
+  assert.ok(C.TAKEOVER_PULL_PT >= 60 && C.TAKEOVER_PULL_PT <= 400,
+    "the Reach up slider spans 60-400; a default outside it cannot be returned to once moved");
+  assert.equal(C.TAKEOVER_PULL_PT % 5, 0,
+    "the slider steps in 5s, so a default it cannot land on exactly is a one-way door");
+
+  // CHEER_MAX_LIFT_PX is derived from the default, which is what makes the offset below exactly
+  // the minimum at the default pull. If someone re-inlines that constant, this breaks.
+  const yAtDefault = pictureY(C.TAKEOVER_PULL_PT);
+  assert.equal(yAtDefault, 6,
+    "at the default the block should sit at the top of its own panel (offset 6), got " + yAtDefault);
 });
 
-// THE DEFAULT IS LOAD-BEARING TWICE, and the second way is what actually bit.
-// CHEER_MAX_LIFT_PX is DERIVED from TAKEOVER_PULL_PT, and it is the cap that stops an over-pulled
-// fake cheer climbing off the roll. So raising the default silently raises the ceiling on how far
-// the picture may lift — which is how 240pt came to amputate ~24px of it on a rig whose header is
-// ~290px. The pull the user picks is not the danger; the DEFAULT is, because the cap follows it.
-test("the picture stays on the paper at the default, and the cap holds it there above", () => {
-  const rigHeader = 290;                       // derived from the reference print working at 220
-  const pageTopOf = (pullPt) => {
-    const g = C.buildFakeCheer({ ...CHEER, pullPt });
-    const y = Number((g.match(/<foreignObject[^>]*\by="(\d+)"/) || [])[1]);
-    return rigHeader - C.takeoverBox(pullPt).pullPx + y;   // page y of the picture's top edge
-  };
+// The failure this guards: the picture is anchored to the panel top, so if the panel may lift
+// further than the rig's real header, the picture goes off the roll. The cap is what stops that
+// growing without bound — above the default the panel lifts more but the CONTENT does not, so the
+// block stays a fixed distance above the message instead of climbing with the slider.
+function pictureY(pullPt) {
+  const html = C.buildFakeCheer({ ...CHEER, pullPt });
+  return Number((html.match(/<foreignObject[^>]*\by="(\d+)"/) || [])[1]);
+}
+test("above the default, the cap pins how far the block sits above the message", () => {
+  // distance from the block's top edge to where the message begins
+  const aboveMessage = (pullPt) => C.takeoverBox(pullPt).pullPx - pictureY(pullPt);
 
-  assert.ok(pageTopOf(C.TAKEOVER_PULL_PT) >= 0,
-    "at the field-confirmed default the picture must land on the paper, got "
-    + pageTopOf(C.TAKEOVER_PULL_PT));
-
-  // Above the default the cap pins it: every larger pull puts the picture in the SAME place,
-  // rather than lifting it further off the top with each step.
-  const pinned = [260, 320, 400].map(pageTopOf);
+  const overPulls = [C.TAKEOVER_PULL_PT + 20, C.TAKEOVER_PULL_PT + 80, 400]
+    .filter((p) => p > C.TAKEOVER_PULL_PT && p <= 400);
+  const pinned = overPulls.map(aboveMessage);
   assert.equal(new Set(pinned).size, 1,
-    "the lift cap should pin the picture above the default, got " + pinned.join(" / "));
-  assert.ok(pinned[0] > -12, "even capped, the picture must not be meaningfully clipped");
+    "every over-pull should place the block identically; got " + pinned.join(" / ")
+    + " for pulls " + overPulls.join(" / "));
+
+  // and it must not exceed the cap itself, or the pinning is nominal
+  assert.ok(pinned[0] <= C.takeoverBox(C.TAKEOVER_PULL_PT).pullPx,
+    "the pinned distance must not exceed the default's own lift");
 });
 
 test("a picture too small to print is dropped rather than shipped as blank paper", () => {

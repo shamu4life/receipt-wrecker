@@ -10,6 +10,22 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.4.2] — 2026-08-10
+
+### Changed
+
+- **The takeover's default pull is 240pt, set by tuning on the actual rig.** 0.4.1 had reverted it to 220 on the strength of a hand-built payload that printed flawlessly at that value; the owner has since looked at real prints and settled on 240. Tuning on the machine outranks a single earlier print under conditions nobody recorded, and it certainly outranks a render.
+
+  For anyone reading this later and wondering why the number keeps moving: it was 220, then 240 on bench evidence (the message's `Cheer100 <nonce> ` lead takes a line and pushes a lifted takeover down, so 220 left ~18px of avatar showing on the engine), then 220 again because a bench harness using a 300px avatar — rendered at the 15em maximum — proves nothing about a rig whose avatar may be smaller, and now 240 from tuning. Each step used better evidence than the last. The lead-line measurement was always real and remains why the preview renders the lead; it just never got to pick the number.
+
+  **The migration is now one rule instead of a chain of undos.** A block still sitting on *any* default this app has shipped is following the default, so it moves to the current one; a block on any other value was dragged deliberately and is left alone. That does move a block someone hand-set to 220 or 240, because a hand-set value equal to a former default is indistinguishable from a followed one — with the whole history spanning about a day, landing on the tuned value is the better failure.
+
+  **One thing worth knowing before touching this again:** `CHEER_MAX_LIFT_PX` is derived from the default and caps how far a fake cheer may lift. Raising the default raises that ceiling, and the fake cheer's picture is anchored to the panel top — so if a picture ever prints cut off at the top of the roll, this is the cause and a lower pull on that block is the cure. Blank takeovers are unaffected, since their text is bottom-anchored and extra pull only paints more white.
+
+  The tests around this were rewritten rather than re-pinned. Three previous versions asserted a specific pull or a specific rig header, and all three had to be rewritten within a day, because they were asserting facts about someone's printer that the suite cannot see. They now pin the invariants the code owes regardless of the number: the default is reachable on the slider, and the lift cap stays derived from it.
+
+---
+
 ## [0.4.1] — 2026-08-10
 
 ### Fixed

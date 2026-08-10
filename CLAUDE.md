@@ -396,6 +396,20 @@ Things already settled this way, so you don't have to re-derive them:
   It is a **new literal `"text-decoration"` token in the payload** and, per the
   arms-race history above (the blocked-terms list), the next plausible
   automod-filter target — if it ever gets blocked, look here first.
+- **FIELD-CONFIRMED 2026-08-10: none of 0.4.0's new tokens trip the blocked-terms
+  list.** robp pasted four probe messages into the channel's chat with Cheer-ready
+  OFF — a non-cheer message never reaches the printer but still passes the filter,
+  so this costs nothing and is the cheapest test available. All four went through.
+  What that clears: `font-family="cursive"`, the combined
+  `text-decoration="underline line-through"` in SVG attribute position, and the
+  literal `text-decoration:` CSS declaration on the rotated span. Two of the four
+  were unformatted controls of the same shape, so a block would have been
+  attributable. Blocked terms apply whether or not the stream is live, which is why
+  an offline paste is a valid test.
+  **What it does NOT clear:** a filter printer-bot itself applies at render time,
+  which only a real cheer would exercise. And the list is a moving target — this is
+  a snapshot, not a guarantee. Re-probe with the same four messages after any
+  suspected block; it is free.
 - **All nine offered fonts are legible and distinct at 24px and 58px, at the
   printer's real 203dpi/1-bit dithering.** Checked on the real engine, not just
   in-browser.

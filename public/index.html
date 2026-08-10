@@ -680,7 +680,26 @@
   // once Twitch renders the token as a cheermote), 235pt cleared the text form, and 240pt
   // clears both with margin. The preview now renders the lead too, so the next person to
   // calibrate by eye gets a number that matches the paper.
-  var TAKEOVER_PULL_PT = 240;
+  // 220, and it is FIELD-PROVEN — which beats the bench, and did.
+  //
+  // This was briefly 240. The reasoning was sound and the measurement was real: every message
+  // carries a lead ("Cheer100 <nonce> ") that takes a line and pushes a lifted takeover down, and
+  // on the bench 220 left ~18px of the streamer's avatar showing. What was wrong was the bench's
+  // AVATAR. The harness used a 300px source, which the bot's `max-height:15em` renders at 240px —
+  // the largest header that can exist. The real rig's is smaller.
+  //
+  // The evidence that settles it: robp's hand-built reference payload, sent as a real cheer, used
+  // `margin-top:-220pt` with its picture at y=5 and printed FLAWLESSLY, picture included. For that
+  // picture's top to land on paper the rig's header must be <= 293px and >= 288px, so it is ~290 —
+  // about 20px shorter than the harness's. At 220 the panel top sits 3px off the paper (white, so
+  // harmless) and the picture lands 3px on. At 240 the panel lifts 320px instead, and because the
+  // fake cheer anchors its picture to the panel top, **24px of that picture is clipped off the top
+  // of the roll**. Over-pulling is not free on the cheer path.
+  //
+  // So: do not raise this on bench evidence again. The lead-line effect is real and documented, and
+  // it is why the preview must render the lead — but the number itself answers to paper. A rig with
+  // a genuinely larger avatar needs a larger pull, and that is what the slider is for.
+  var TAKEOVER_PULL_PT = 220;
   var TAKEOVER_TAIL_PX = 40;        // cover a little past the header, never short
   function takeoverBox(pullPt) {
     // Upper bound as well as lower: isFinite(1e308) is true, and 1e308*4/3 overflows to
@@ -2354,17 +2373,31 @@
       b.embedV = EMBED_V;
       return b;
     }
-    // A saved takeover carries the pull it was created with, so bumping the default
-    // alone would never reach a block that already exists — it would keep printing the
-    // avatar's crown forever. Blocks still sitting on the OLD default were calibrated
-    // against the same preview that was missing the lead line, so they carry the same
-    // error and are moved forward once. A pull the user actually dragged is LEFT ALONE:
-    // that one was calibrated against paper, which already told the truth.
-    var TAKEOVER_PULL_V = 1;
-    var TAKEOVER_PULL_PT_V0 = 220;
+    // A saved takeover carries the pull it was created with, so a change to the default never
+    // reaches a block that already exists unless it is migrated.
+    //
+    // v1 raised 220 -> 240 on bench evidence. v2 puts it back, because the bench was wrong about
+    // the rig (see TAKEOVER_PULL_PT): 240 clips ~24px off the top of a fake cheer's picture on the
+    // real machine, where 220 prints it flawlessly. v1 shipped for a matter of hours.
+    //
+    // v2 only reverses what v1 wrote — a block stamped v1 sitting on 240. It cannot distinguish
+    // that from someone deliberately choosing 240 in that window, and it moves both. That is the
+    // right trade here: 240 is now known to amputate the picture on this rig, so leaving it is the
+    // worse failure, and the window was hours. Anything on any other value is left alone, because
+    // a pull the user actually dragged was calibrated against paper.
+    var TAKEOVER_PULL_V = 2;
+    var TAKEOVER_PULL_PT_V0 = 220;   // the pre-v1 default, and now the default again
+    var TAKEOVER_PULL_PT_V1 = 240;   // what v1 wrote, and what v2 undoes
     function migrateTakeoverPull(b) {
       if (b.type !== "takeover" || b.pullV === TAKEOVER_PULL_V) return b;
-      if ((b.pullPt || TAKEOVER_PULL_PT_V0) === TAKEOVER_PULL_PT_V0) b.pullPt = TAKEOVER_PULL_PT;
+      var pull = b.pullPt || TAKEOVER_PULL_PT_V0;
+      if (b.pullV === 1) {
+        // written by v1: undo it
+        if (pull === TAKEOVER_PULL_PT_V1) b.pullPt = TAKEOVER_PULL_PT;
+      } else if (pull === TAKEOVER_PULL_PT_V0) {
+        // never migrated, already on the value we now want — just stamp it
+        b.pullPt = TAKEOVER_PULL_PT;
+      }
       b.pullV = TAKEOVER_PULL_V;
       return b;
     }

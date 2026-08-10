@@ -97,6 +97,7 @@
   label + .hint { margin-top: -.4rem; }
   .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
   .part { margin: 0 0 1rem; }
+  .part button.copied { background: #1f6f43; border-color: #1f6f43; color: #fff; }
   .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
   .part-count.over { color: #d33; font-weight: 700; }
   .over-note { font-size: .8rem; color: #d33; margin: .35rem 0 .4rem; }
@@ -2318,7 +2319,13 @@
         if (item.copyable) {
           var btn = document.createElement("button");
           btn.type = "button";
-          btn.textContent = "Copy";
+          // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
+          // refresh(), which rebuilds this whole container, so the button you clicked is detached
+          // by the time the copy resolves. Setting its text afterwards updated a node nobody can
+          // see, which is why clicking Copy used to give no signal at all.
+          var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
+          btn.textContent = justCopied ? "Copied" : "Copy";
+          if (justCopied) btn.className = "copied";
           btn.addEventListener("click", function () { copyPart(i); });
           card.appendChild(btn);
         }
@@ -2448,17 +2455,29 @@
       t.text = (els.textInput && els.textInput.value) || "HELLO";   // migrate old single-text state
       blocks = [t];
     }
-    function addBlock(type) { blocks.push(newBlock(type)); renderComposer(); update(); }
-    function removeBlock(id) { blocks = blocks.filter(function (b) { return b.id !== id; }); renderComposer(); update(); }
+    // STRUCTURE CHANGES MUST SAVE, exactly like value edits do. These three used to call only
+    // renderComposer() + update(), so the STACK ITSELF was never persisted — every field edit wrote
+    // storage, but adding, deleting or reordering a block did not. Deleting a block and reloading
+    // brought it back, and because the app seeds a Text block ABOVE the takeover, and a takeover is
+    // only correct as the FIRST body, deleting that seed is a step nearly everyone takes: you would
+    // come back to a stack whose takeover paints over the block above it and no longer reaches the
+    // header — still charged 100 bits for a print with its artwork missing. It only bit when a
+    // structural change was your LAST action, which includes the very ordinary
+    // delete-then-copy-then-close, so it looked intermittent.
+    function addBlock(type) { blocks.push(newBlock(type)); saveBlocks(); renderComposer(); update(); }
+    function removeBlock(id) {
+      blocks = blocks.filter(function (b) { return b.id !== id; });
+      saveBlocks(); renderComposer(); update();
+    }
     function moveBlock(id, dir) {
       var i = -1, k; for (k = 0; k < blocks.length; k++) if (blocks[k].id === id) i = k;
       var j = i + dir;
       if (i < 0 || j < 0 || j >= blocks.length) return;
       var t = blocks[i]; blocks[i] = blocks[j]; blocks[j] = t;
-      renderComposer(); update();
+      saveBlocks(); renderComposer(); update();
     }
     // Card builders. Value inputs mutate the block in place + save + update() but do NOT
-    // re-render the composer (that would drop focus mid-type); add/remove/move re-render.
+    // re-render the composer (that would drop focus mid-type); add/remove/move save AND re-render.
     function mkEl(tag, attrs, text) {
       var e = document.createElement(tag);
       if (attrs) for (var k in attrs) e.setAttribute(k, attrs[k]);
@@ -2775,7 +2794,13 @@
         sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; saveBlocks(); update(); });
         var row = sliderRow("Size", sz, def, "");
         parent.appendChild(row);
-        sizeCopies.push({ el: sz, key: sizeKey, def: def, out: row.querySelector && row.querySelector("output, .slider-val") });
+        // `.bc-val` is what sliderRow actually builds (see mkEl above). This looked for
+        // "output, .slider-val" — neither of which exists here — so `out` was always null and the
+        // printed number never refreshed on a style switch: the slider's VALUE synced correctly and
+        // the print was right, while the label beside it kept showing the old number. A control
+        // displaying one number and using another is the kind of quiet lie this preview exists to
+        // prevent, even when the output is correct.
+        sizeCopies.push({ el: sz, key: sizeKey, def: def, out: row.querySelector && row.querySelector(".bc-val") });
       };
       var mkText = function (parent, labelText, key, attrs) {
         parent.appendChild(mkEl("label", null, labelText));
@@ -3247,13 +3272,22 @@
     // Advance just this part's nonce (a text band or the single image payload —
     // the census has none to advance), then recompute and redisplay so the
     // clipboard content matches exactly what's now on screen.
+    // Which part was copied, and when — read by renderParts to label the button. A plain
+    // timestamp rather than a timer handle, so a second copy just supersedes the first.
+    var lastCopiedIdx = -1, lastCopiedAt = 0, COPY_FLASH_MS = 1800;
     function copyPart(index) {
       if (currentKind === "text" || currentKind === "image" || currentKind === "census" || currentKind === "probe") {
         partNonces[index] = nextNonce();
       }
       refresh();
       var item = lastParts[index];
-      if (item) copyToClipboard(item.payload || "");
+      if (!item) return;
+      copyToClipboard(item.payload || "");
+      lastCopiedIdx = index; lastCopiedAt = Date.now();
+      refresh();                                     // repaint with the button showing "Copied"
+      setTimeout(function () {
+        if (Date.now() - lastCopiedAt >= COPY_FLASH_MS) refresh();   // and back again
+      }, COPY_FLASH_MS + 60);
     }
     // The Size slider is a fill % for both styles that use it (Big type + Hanzi);
     // the value is already the percent, so just mirror it.

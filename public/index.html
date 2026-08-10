@@ -793,9 +793,26 @@
   // every text surface in the app emits attributes through the same function and they
   // cannot drift. Slot defaults (900 / 700 / italic) are applied by lineFmt at the call
   // site, which is what keeps saved takeovers byte-identical.
-  function takeoverText(cx, y, size, l) {
-    return '<text x="' + cx + '" y="' + y + '" font-size="' + size + '"'
+  // `anchor` is the per-item text-anchor and "" means "inherit the group's middle".
+  // Centred is the default and it stays free: the group wrapper states it once, so only
+  // a left/right item pays for an attribute. This string is payload — see fmtAttrs.
+  // It sits BEFORE fmtAttrs so the attribute order fmtAttrs' test pins is untouched.
+  function takeoverText(x, y, size, l, anchor) {
+    return '<text x="' + x + '" y="' + y + '" font-size="' + size + '"'
+      + (anchor ? ' text-anchor="' + anchor + '"' : "")
       + fmtAttrs(l.fmt) + '>' + escapeHtml(l.text) + '</text>';
+  }
+  // The ONE place a takeover's picture becomes markup, shared by the legacy lines path
+  // and the item path so the framed-carrier rules (and the 23-char clamp saving) cannot
+  // exist in two versions. p = {x, y, w, h, url, carrier}.
+  function takeoverPicture(p) {
+    return '<foreignObject x="' + p.x + '" y="' + p.y + '" width="' + p.w
+      + '" height="' + p.h + '">'
+      // framed: the foreignObject above is a fixed box the tag already fills, so the
+      // body-width clamp is a no-op here and is 23 chars we need. See clampAttr.
+      + buildImageEmbed(p.carrier, { url: p.url, w: p.w, h: p.h,
+                                     mm: Math.round(p.w / 3.75), framed: true })
+      + '</foreignObject>';
   }
   // A stored per-line fmt merged over this slot's defaults. `null`/absent means "never
   // touched", which must reproduce the old hardcoded look exactly.
@@ -829,6 +846,20 @@
     var W = takeoverDim(o.w, 263);
     var b = takeoverBox(o.pullPt), cx = Math.round(W / 2);
     var out = '<rect width="' + W + '" height="' + b.h + '" fill="#fff"/>';
+    // ── THE ITEM PATH ───────────────────────────────────────────────────────
+    // An ordered list of text and picture items, in any order and any number. Layout
+    // (takeoverPlace) and emission (takeoverEmit) are deliberately separate steps — see
+    // the note above takeoverItems for why they have to be. Both are declared further
+    // down, next to the CHEER_* constants they read; function declarations hoist, which
+    // is the same reason this function can already call buildImageEmbed.
+    if (o.items) {
+      out += takeoverEmit(takeoverPlace(takeoverItems(o.items, o.carrier), b, o.anchor, W));
+      return '<svg width="' + W + '" height="' + b.h + '" style="margin-top:-' + b.pullPt + 'pt">'
+        + out + '</svg>';
+    }
+    // ── THE LEGACY THREE-LINES-PLUS-A-PICTURE PATH ──────────────────────────
+    // Byte-pinned by tests and by every saved block. buildFakeCheer and the composer
+    // still call it; both move to items next, and this branch goes with them.
     var lines = [];
     for (var li = 0; li < (o.lines || []).length; li++) {
       var src = o.lines[li];
@@ -867,7 +898,7 @@
         for (i = 0; i < lines.length; i++) {
           var size3 = takeoverSize(lines[i].size), yy = y0 + offs[i];
           if (yy + Math.round(size3 * 0.3) > b.h) break;   // past the cover; would be clipped
-          kids += takeoverText(cx, yy, size3, lines[i]);
+          kids += takeoverText(cx, yy, size3, lines[i], "");
         }
       } else {
         // Default: stack from the bottom of the covered area upward, so the block always
@@ -875,7 +906,7 @@
         var y2 = b.pullPx - 24;
         for (var j = lines.length - 1; j >= 0; j--) {
           var size2 = takeoverSize(lines[j].size);
-          kids = takeoverText(cx, y2, size2, lines[j]) + kids;
+          kids = takeoverText(cx, y2, size2, lines[j], "") + kids;
           y2 -= Math.round(size2 * 1.35);
         }
       }
@@ -891,15 +922,9 @@
     // parser quirk does not.
     if (o.picture) {
       var pw = takeoverDim(o.pictureW, 120);
-      var ph = takeoverDim(o.pictureH, 120);
-      var py = takeoverDim(o.pictureY, 6);
-      out += '<foreignObject x="' + Math.round(cx - pw / 2) + '" y="' + py + '" width="' + pw
-        + '" height="' + ph + '">'
-        // framed: the foreignObject above is a fixed box the tag already fills, so the
-        // body-width clamp is a no-op here and is 23 chars we need. See clampAttr.
-        + buildImageEmbed(o.carrier, { url: o.picture, w: pw, h: ph, mm: Math.round(pw / 3.75),
-                                       framed: true })
-        + '</foreignObject>';
+      out += takeoverPicture({ x: Math.round(cx - pw / 2), y: takeoverDim(o.pictureY, 6),
+                               w: pw, h: takeoverDim(o.pictureH, 120),
+                               url: o.picture, carrier: o.carrier });
     }
     return '<svg width="' + W + '" height="' + b.h + '" style="margin-top:-' + b.pullPt + 'pt">'
       + out + '</svg>';
@@ -948,17 +973,210 @@
   // moving the default to 240 would silently have started capping BELOW it — the
   // reference layout would have shifted for everyone at the default pull.)
   var CHEER_MAX_LIFT_PX = takeoverBox(TAKEOVER_PULL_PT).pullPx;
+  // How far above the message a BOTTOM-anchored stack stops. Chosen, not invented: the
+  // legacy blank takeover put its last baseline at pullPx - 24, and a 13px line's
+  // descender is round(13 * 0.3) = 4, so a bottom edge at pullPx - 20 puts that same
+  // line on that same baseline. Anything larger would drift the reference layout.
+  var TAKEOVER_BOTTOM_PX = 20;
+
+  // ── THE TAKEOVER AS AN ORDERED LIST OF ITEMS ──────────────────────────────
+  // A takeover holds items — text or picture, any number, in any order — stacked top to
+  // bottom inside the covered area. Three lines plus one picture is just one arrangement
+  // of that, and it is what the legacy branch of buildTakeover still builds.
+  //
+  // LAYOUT AND EMISSION ARE SEPARATE STEPS, and that is not tidiness. <foreignObject> is
+  // an HTML integration point: the parser switches to HTML inside it and — measured on
+  // the real engine (WebKit 534.34) — never cleanly returns, so every SVG sibling that
+  // FOLLOWS one is silently never drawn. So ALL <text> is emitted before ALL pictures
+  // whatever order the items sit in. takeoverPlace answers "where does this land";
+  // takeoverEmit answers "in what order does it reach the string". Keeping them apart is
+  // the only way a picture can be third in the stack and last in the markup.
+  //
+  // The consequence, accepted rather than prevented (see the design doc): a picture
+  // nudged onto text paints over it, because SVG paints in document order. That is
+  // visible in the preview. Losing the text to the parser quirk is not.
+  function takeoverAlign(a) { return a === "left" || a === "right" ? a : "centre"; }
+  // A signed pixel offset, bounded. Not takeoverDim: a nudge is allowed to be negative
+  // and allowed to be zero, and Infinity must never reach the markup as a coordinate.
+  function takeoverNudge(v) {
+    var n = Math.round(v);
+    return isFinite(n) ? Math.max(-4000, Math.min(4000, n)) : 0;
+  }
+  // Items in, normalized items out. Anything that would draw nothing is dropped HERE
+  // rather than emitted: a blank line still costs a real <text> element (63 chars of a
+  // 500-char budget) plus a layout slot, and an empty picture costs a ~90-char frame.
+  // `defCarrier` is the block-level pick an item may override.
+  function takeoverItems(list, defCarrier) {
+    var out = [], i, it, url, w, txt;
+    for (i = 0; i < (list || []).length; i++) {
+      it = list[i];
+      if (!it) continue;
+      if (it.kind === "pic") {
+        url = it.url == null ? "" : String(it.url);
+        if (url === "") continue;
+        w = takeoverDim(it.width, CHEER_AVATAR_W);
+        // The carriers state only a width, so the drawn height is the source's own
+        // aspect ratio. Square is the honest default (a profile picture is square, and
+        // reserving 1.4 left a measured slab of white under one); a caller that has
+        // probed the real aspect passes `height` and wins.
+        out.push({ kind: "pic", url: url, w: w, h: takeoverDim(it.height, w),
+                   carrier: it.carrier || defCarrier,
+                   align: takeoverAlign(it.align), nudge: takeoverNudge(it.nudge) });
+      } else {
+        txt = takeoverLineText(it.text);
+        if (txt === "") continue;
+        out.push({ kind: "text", text: txt, size: takeoverSize(it.size), fmt: it.fmt,
+                   align: takeoverAlign(it.align), nudge: takeoverNudge(it.nudge) });
+      }
+    }
+    return out;
+  }
+  // Stack normalized items and answer where each one sits relative to the top of the
+  // stack, plus the stack's own height.
+  //
+  // Leading between two text items is the SHARED takeoverOffsets rule — max(prev, next)
+  // * 1.35 — which is why a text run is gathered and handed to it whole instead of
+  // stepping line by line here. A second copy of that sum is what once let a leading
+  // change put the picture on top of the text. Anything meeting anything that is not
+  // more text in the same run is separated by CHEER_GAP_PX, the existing
+  // picture-to-baseline gap.
+  //
+  // That combination is not arbitrary: a picture item followed by three text items
+  // reproduces the fake cheer's measured 182/214/240 baselines exactly.
+  function takeoverStack(items) {
+    var placed = [], cursor = 0, i = 0, j, k, run, offs, first, last;
+    while (i < items.length) {
+      if (i > 0) cursor += CHEER_GAP_PX;      // each pass eats one picture or one whole run
+      if (items[i].kind === "pic") {
+        placed.push({ item: items[i], top: cursor, h: items[i].h });
+        cursor += items[i].h;
+        i++;
+      } else {
+        run = [];
+        for (j = i; j < items.length && items[j].kind === "text"; j++) run.push(items[j]);
+        offs = takeoverOffsets(run);
+        first = run[0].size;                  // the first baseline sits a cap-height down
+        last = run[run.length - 1].size;
+        for (k = 0; k < run.length; k++) {
+          placed.push({ item: run[k], base: cursor + first + offs[k],
+                        top: cursor + first + offs[k] - run[k].size,
+                        h: run[k].size + Math.round(run[k].size * 0.3) });
+        }
+        cursor += first + offs[offs.length - 1] + Math.round(last * 0.3);
+        i = j;
+      }
+    }
+    return { placed: placed, height: cursor };
+  }
+  // Where the top of the stack goes inside the covered area, block-level.
+  function takeoverAnchorY(anchor, b, height) {
+    var top;
+    if (anchor === "top") {
+      // TODAY'S LIFT CAP, and it is load-bearing. The paper above the message is only
+      // ever as tall as the rig's real header, so a top-anchored block climbs 1:1 with
+      // the pull slider until it is off the roll — measured: at pullPt 300 the picture
+      // had vanished, at 380+ the tape printed a blank slab. At or below the default
+      // this is 6 and the reference layout is untouched. See CHEER_MAX_LIFT_PX.
+      top = Math.max(CHEER_TOP_PX, b.pullPx - CHEER_MAX_LIFT_PX);
+    } else if (anchor === "centre") {
+      top = Math.round((b.pullPx - height) / 2);
+    } else {
+      top = b.pullPx - TAKEOVER_BOTTOM_PX - height;   // the default, as it is today
+    }
+    // Placed AND CLAMPED as a unit: a stack hanging outside the white box does not just
+    // look wrong, it prints on top of the header this block exists to paint over. When
+    // the stack is simply taller than the box there is no position that satisfies both
+    // ends, so take the floor and let the overflow rule below drop what genuinely misses
+    // — rather than emitting text the viewport clips and still charging for it.
+    //
+    // THE FLOOR IS THE ANCHOR'S OWN START, NOT ZERO, and for `top` that matters: sliding
+    // an over-tall stack UP to make it fit the box would lift it past CHEER_MAX_LIFT_PX
+    // and off the top of the roll, which is the exact failure the cap exists to prevent.
+    // A top-anchored stack starts where the cap says and drops its tail instead.
+    var floor = anchor === "top" ? top : 0;
+    var room = b.h - height;
+    return room >= floor ? Math.max(floor, Math.min(top, room)) : floor;
+  }
+  // Text x by align. 4px in from each edge, the centre on the true centre.
+  function takeoverTextX(align, W) {
+    return align === "left" ? 4 : align === "right" ? W - 4 : Math.round(W / 2);
+  }
+  function takeoverPicX(align, W, w) {
+    return align === "left" ? 4 : align === "right" ? W - w - 4 : Math.round((W - w) / 2);
+  }
+  // Normalized items -> drawn placements, in STACK order. Emission reorders; this does
+  // not. `anchor` is block-level; each item's nudge moves only itself.
+  function takeoverPlace(items, b, anchor, W) {
+    var s = takeoverStack(items), y0 = takeoverAnchorY(anchor, b, s.height);
+    var out = [], i, p, it, top;
+    for (i = 0; i < s.placed.length; i++) {
+      p = s.placed[i];
+      it = p.item;
+      // NUDGE MOVES ONE THING. Items after it are deliberately NOT re-flowed — that is
+      // the whole point of having it, and re-flowing would make it a second layout rule.
+      top = y0 + p.top + it.nudge;
+      // OUTSIDE THE PAINTED BOX IS WORSE THAN ABSENT. Past the bottom the SVG viewport
+      // clips it, so it never prints AND is still paid for in characters; above the top
+      // it prints on the header the block exists to cover. Dropped, not emitted.
+      if (top < 0 || top + p.h > b.h) continue;
+      if (it.kind === "pic") {
+        out.push({ kind: "pic", x: takeoverPicX(it.align, W, it.w), y: top,
+                   w: it.w, h: it.h, url: it.url, carrier: it.carrier });
+      } else {
+        out.push({ kind: "text", x: takeoverTextX(it.align, W), y: top + it.size,
+                   size: it.size, text: it.text, fmt: it.fmt,
+                   anchor: it.align === "left" ? "start" : it.align === "right" ? "end" : "" });
+      }
+    }
+    return out;
+  }
+  // Placements -> markup. EVERY <text> BEFORE EVERY <foreignObject>, whatever the stack
+  // order was — see the foreignObject note above takeoverItems. The one <g> states the
+  // centre so the common case pays for it once; no text means no empty group.
+  function takeoverEmit(placed) {
+    var text = "", pics = "", i, p, mid = 0;
+    for (i = 0; i < placed.length; i++) if (placed[i].kind === "text" && !placed[i].anchor) mid++;
+    // The group states `middle` once, for 31 characters. That only pays for itself from
+    // the SECOND centred item on — with one, spelling the anchor out on it costs 21, and
+    // with none the group is 31 characters of pure waste. A takeover runs within single
+    // digits of Twitch's 500, so this is a cheer's worth of difference, not tidiness.
+    var group = mid >= 2;
+    for (i = 0; i < placed.length; i++) {
+      p = placed[i];
+      if (p.kind !== "text") { pics += takeoverPicture(p); continue; }
+      text += takeoverText(p.x, p.y, p.size, p, p.anchor || (group ? "" : "middle"));
+    }
+    if (text && group) text = '<g text-anchor="middle">' + text + '</g>';
+    return text + pics;
+  }
+  // What the caller ASKED to draw, counted off the item list — the other half of
+  // takeoverReport's comparison, so the UI can say "2 of 3". Counting inputs is not a
+  // second copy of the geometry: it says nothing about where anything landed.
+  function takeoverWants(items) {
+    var n = takeoverItems(items), lines = 0, pictures = 0, i;
+    for (i = 0; i < n.length; i++) { if (n[i].kind === "pic") pictures++; else lines++; }
+    return { lines: lines, pictures: pictures };
+  }
   // o = {bits, name, note, avatar, avatarW, sizes:{bits,name,note}, carrier, pullPt, w}
   // What a built overlay actually drew, read back off the markup. Deliberately parses
   // the output instead of re-deriving the layout: a second copy of the geometry is the
   // drift that put the picture on top of the text in the first place. Used by the UI to
   // explain a drop, which is otherwise silent — the payload just quietly gets smaller.
+  // `wantPicture` is a COUNT now (a takeover can hold several), and a boolean still
+  // works — true/false are 1/0 for the purposes of "did we get what was asked for".
+  // The boolean pictureDrawn/pictureWanted pair is kept because the existing card
+  // reads it, and because "is there a picture at all" is still the useful question
+  // when there is only ever one.
   function takeoverReport(html, wantLines, wantPicture) {
+    var pics = (String(html).match(/<foreignObject/g) || []).length;
+    var want = typeof wantPicture === "number" ? wantPicture : (wantPicture ? 1 : 0);
     return {
       linesDrawn: (String(html).match(/<text/g) || []).length,
       linesWanted: wantLines,
-      pictureDrawn: /<foreignObject/.test(String(html)),
-      pictureWanted: !!wantPicture,
+      picturesDrawn: pics,
+      picturesWanted: want,
+      pictureDrawn: pics > 0,
+      pictureWanted: want > 0,
     };
   }
   function buildFakeCheer(o) {
@@ -3499,6 +3717,9 @@
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
       lineFmt: lineFmt,
+      takeoverItems: takeoverItems, takeoverPlace: takeoverPlace, takeoverWants: takeoverWants,
+      TAKEOVER_BOTTOM_PX: TAKEOVER_BOTTOM_PX, CHEER_GAP_PX: CHEER_GAP_PX,
+      CHEER_TOP_PX: CHEER_TOP_PX, CHEER_MAX_LIFT_PX: CHEER_MAX_LIFT_PX,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
       bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,

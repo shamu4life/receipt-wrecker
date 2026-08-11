@@ -212,6 +212,9 @@
       <label>Bits per receipt: <input type="number" id="bitsAmount" min="100" step="100" value="100" style="width:6em"></label>
       <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts &mdash; shown under the preview.</div>
 
+      <label><input type="checkbox" id="stackCovers" checked> Cover every receipt</label>
+      <div class="hint">When a takeover splits across several cheers, repaints the header on every part after the first, so the run reads as one piece instead of artwork followed by ordinary receipts. Costs 106 characters per extra part &mdash; turn it off to spend them on content.</div>
+
       <div id="textControls">
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
@@ -452,6 +455,19 @@
     var token = "Cheer" + (opts.bits && opts.bits >= 100 ? opts.bits : 100);
     var overhead = opts.cheer ? token.length + 4 : LEAD_GUARD.length;  // "<token> nn " ; else nbsp
     var maxBody = MAX_CHARS - overhead;
+    // CONTINUATION COVERS. A takeover paints over printer-bot's header on the receipt it
+    // rides on, and only that one. When a stack splits across cheers, part 1 comes off the
+    // tape covered and parts 2..N come off with the bot's header intact — the run reads as
+    // one piece of artwork followed by a stack of ordinary receipts. That is the "blocks
+    // after a takeover are broken" complaint. So every part after the first gets the same
+    // cover prepended: the identical white rect at the identical pull, no items, 106 chars.
+    //
+    // This is why per-part overhead VARIES, and why it belongs in the packer rather than in
+    // a wrapper around it. Prepending the cover at emission time would push every part
+    // after the first past 500 characters, and Twitch REJECTS an over-length message rather
+    // than truncating it — so the tail of the run would silently never send at all.
+    var covers = opts.covers !== false;   // on by default; a stack-level toggle turns it off
+    var cover = "", coverChars = 0;
     var parts = [], cur = [], curChars = 0, curH = 0;
     function flush() {
       if (!cur.length) return;
@@ -473,15 +489,28 @@
       // covered case and the shortfall was invisible until the tape came out. Both
       // sides now build from this one string, so they cannot drift again.
       var lead = opts.cheer ? (token + (nonce ? " " + nonce : "") + " ") : LEAD_GUARD;
-      var payload = lead + html;
-      parts.push({ payload: payload, lead: lead, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      // The cover sits between the lead and the bodies. It is a lifted overlay, so it has
+      // to be the first thing inside #receipt-content that we control; the lead is not.
+      var pre = (parts.length && cover) ? cover : "";
+      var payload = lead + pre + html;
+      parts.push({ payload: payload, lead: lead, cover: pre, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      // Only the FIRST part's takeover continues, which is what the spec asks for and also
+      // the only thing that makes sense: a takeover landing in part 3 covers part 3 itself,
+      // and parts 1-2 never had a painted header to carry on from.
+      if (covers && parts.length === 1 && !cover) {
+        for (var ci = 0; ci < cur.length; ci++) {
+          if (cur[ci].cover) { cover = cur[ci].cover; coverChars = payloadLength(cover); break; }
+        }
+      }
       cur = []; curChars = 0; curH = 0;
     }
     for (var i = 0; i < bodies.length; i++) {
       var b = bodies[i];
       var bChars = b.chars != null ? b.chars : payloadLength(b.html);
       var bH = b.heightPx || 0;
-      var fits = cur.length === 0 || ((curChars + bChars <= maxBody) && (curH + bH <= HEIGHT_BUDGET));
+      // A part after the first pays for its cover before any body goes into it.
+      var room = maxBody - ((parts.length && cover) ? coverChars : 0);
+      var fits = cur.length === 0 || ((curChars + bChars <= room) && (curH + bH <= HEIGHT_BUDGET));
       if (!fits) flush();
       cur.push(b); curChars += bChars; curH += bH;
     }
@@ -1374,6 +1403,16 @@
       pictureDrawn: pics > 0,
       pictureWanted: want > 0,
     };
+  }
+  // The plain continuation cover: the same box, at the same pull, with nothing in it —
+  // what parts 2..N of a split run prepend so every receipt in the run has its header
+  // painted. Deliberately built BY buildTakeover rather than as a hardcoded string: the
+  // cover and the takeover it continues have to be the identical rect at the identical
+  // lift, and sharing one code path is the only thing that keeps them that way when the
+  // geometry changes. 106 characters at the default pull.
+  function buildStackCover(o) {
+    o = o || {};
+    return buildTakeover({ items: [], pullPt: o.pullPt, w: o.w });
   }
   function buildFakeCheer(o) {
     o = o || {};
@@ -2426,7 +2465,12 @@
         // heightPx 0 on purpose: a takeover sits on top of the header the bot already
         // drew, so it consumes no extra tape. Charging the height packer for it would
         // split receipts apart over space that isn't actually being used.
+        // `cover` is what parts 2..N of a split run prepend so the whole run prints
+        // covered — see the continuation-cover note in packStackBodies. It rides on the
+        // body rather than being passed alongside because only the packer knows which
+        // part a block lands in, and only the first part's takeover continues.
         return [{ html: tHtml, chars: payloadLength(tHtml), heightPx: 0,
+                  cover: buildStackCover({ pullPt: block.pullPt, w: PAPER_PX }),
                   preview: { kind: "html", html: tHtml } }];
       }
       if (block.type === "image") {
@@ -2631,6 +2675,7 @@
           dither: els.quantDither.checked,
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, bits: els.bitsAmount.value, text: els.textInput.value,
+          covers: els.stackCovers.checked,
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
           rotateLen: els.rotateLen.value,
           imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
@@ -2661,6 +2706,9 @@
       els.invert.checked = !!saved.invert;
       els.cheer.checked = saved.cheer !== false;
       if (saved.bits && parseInt(saved.bits, 10) >= 100) els.bitsAmount.value = saved.bits;
+      // Default ON for anyone whose settings predate the toggle: an uncovered tail is the
+      // bug this fixes, so absent must mean covered.
+      els.stackCovers.checked = saved.covers !== false;
       if (saved.text != null) els.textInput.value = saved.text;
       // textSize is now a px font-size (>=12); ignore any old fractional value.
       if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
@@ -2920,6 +2968,11 @@
           // turns the cheer token into a ~1em cheermote image rather than this text, so
           // the real line is a few px taller still — see packStackBodies.)
           if (item.lead) stackBody.appendChild(document.createTextNode(item.lead));
+          // The continuation cover is real payload on parts 2..N, so the preview has to
+          // draw it. Leaving it out is the same class of bug as the missing lead: the
+          // preview would show the uncovered receipt the payload no longer produces, and
+          // the only way to find out would be the tape.
+          if (item.cover) stackBody.insertAdjacentHTML("beforeend", item.cover);
           item.bodies.forEach(function (b) {
             var pv = b.preview || {};
             if (pv.kind === "img") {
@@ -3922,9 +3975,10 @@
       if (!blocks.some(blockHasContent)) {
         return [{ payload: "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
-      var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart });
+      var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart,
+                                      covers: !els.stackCovers || els.stackCovers.checked });
       return parts.map(function (p) {
-        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead };
+        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead, cover: p.cover };
       });
     }
     // "Find what still sends": one cheer per carrier tag, labelled A, B, C…, each
@@ -4050,6 +4104,7 @@
         invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
         bitsAmount: document.getElementById("bitsAmount"),
+        stackCovers: document.getElementById("stackCovers"),
         textInput: document.getElementById("textInput"),
         bigStyle: document.getElementById("bigStyle"),
         sizeControl: document.getElementById("sizeControl"),
@@ -4079,7 +4134,7 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.bitsAmount, els.textInput, els.textSize, els.rotateLen,
+       els.invert, els.cheer, els.bitsAmount, els.stackCovers, els.textInput, els.textSize, els.rotateLen,
        els.imgUrl, els.imgWidth].forEach(function (el) {
         el.addEventListener("input", function () {
           els.contrastVal.textContent = els.contrast.value;
@@ -4205,6 +4260,7 @@
       FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
+      buildStackCover: buildStackCover,
       lineFmt: lineFmt,
       takeoverItems: takeoverItems, takeoverPlace: takeoverPlace, takeoverWants: takeoverWants,
       takeoverSeed: takeoverSeed,

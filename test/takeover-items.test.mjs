@@ -503,6 +503,43 @@ test("an item stack still fits one cheer", () => {
       avatar: uploaded, carrier: "embed", pullPt: 220, w: W })));
 });
 
+// ── THE SEED ────────────────────────────────────────────────────────────────
+
+test("the seeded fake donation draws exactly what 0.4.2's fake cheer drew", () => {
+  // `Seed fake donation` is what replaced the Blank / Fake-cheer selector, so the thing it
+  // has to be is the fake cheer — not approximately, in bytes. It carries NO nudges, which
+  // is only correct because the fake cheer's arrangement IS the item engine's leading rule;
+  // the day that stops being true this fails here rather than on the owner's roll.
+  //
+  // Swept across the pulls the default has ever been plus one above it, because the top
+  // anchor's lift cap only engages above the default and that is where a layout claim is
+  // easiest to get wrong.
+  const seed = C.takeoverSeed();
+  assert.equal(seed.anchor, "top", "the bot's own header sits at the top, and so must this");
+  for (const pullPt of [220, 240, 300]) {
+    const items = seed.items.map((it) => (it.kind === "pic" ? { ...it, url: PIC } : it));
+    assert.ok(items.every((it) => it.nudge === undefined), "a seeded item must not need a nudge");
+    assert.equal(
+      C.buildTakeover({ items, anchor: seed.anchor, carrier: "embed", pullPt, w: W }),
+      C.buildFakeCheer({ bits: "-100000 BITS", name: "IRS", note: "tax lien",
+        avatar: PIC, avatarW: 120, sizes: { bits: 24, name: 19, note: 13 },
+        carrier: "embed", pullPt, w: W }),
+      "the seed stopped being byte-identical to the fake cheer at pullPt " + pullPt);
+  }
+});
+
+test("a seeded picture with no url costs nothing until it is filled in", () => {
+  // The picture row is seeded EMPTY on purpose — it shows where the avatar goes. An empty
+  // one must be dropped rather than emitted as a ~90-character frame around nothing, and it
+  // must not be counted as a picture the layout failed to fit (which is what the card's
+  // drop note reads).
+  const seed = C.takeoverSeed();
+  const html = C.buildTakeover({ items: seed.items, anchor: seed.anchor,
+                                 carrier: "embed", pullPt: 240, w: W });
+  assert.equal(html.indexOf("foreignObject"), -1, "an empty picture must not reach the markup");
+  eq(C.takeoverWants(seed.items), { lines: 3, pictures: 0 });
+});
+
 // ── takeoverPlace, DIRECTLY ─────────────────────────────────────────────────
 
 test("takeoverPlace answers geometry only, in stack order", () => {

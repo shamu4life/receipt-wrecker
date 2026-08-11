@@ -123,6 +123,15 @@
   .fmt-row select { flex: 1 1 7rem; min-width: 6rem; }
   .fmt-tog { width: 2rem; padding: .25rem 0; font-weight: 700; cursor: pointer; }
   .fmt-tog.on { background: #772ce8; color: #fff; border-color: #772ce8; }
+  /* One takeover item — a rule per row so the list reads as a list, not a wall of controls. */
+  .tk-item { border-left: 3px solid #d5d5d5; padding: 0 0 .15rem .55rem; margin: 0 0 .6rem; }
+  .tk-item .tk-head { display: flex; align-items: center; gap: .4rem; margin: .1rem 0 .3rem; }
+  .tk-item .tk-head .spacer { margin-left: auto; }
+  .tk-item .tk-head button { padding: .1rem .45rem; font-size: .9rem; line-height: 1.2; }
+  .tk-item .tk-kind { font-weight: 700; font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; opacity: .75; }
+  .tk-item input[type=text] { width: 100%; box-sizing: border-box; }
+  .tk-lab { font-size: .8rem; opacity: .7; }
+  .tk-nudge { width: 4.5rem; flex: 0 0 auto; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .9rem; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
@@ -1162,6 +1171,33 @@
     var n = takeoverItems(items), lines = 0, pictures = 0, i;
     for (i = 0; i < n.length; i++) { if (n[i].kind === "pic") pictures++; else lines++; }
     return { lines: lines, pictures: pictures };
+  }
+  // What the card's `Seed fake donation` button appends: today's fake cheer as four
+  // ORDINARY items — picture, amount, name, italic note — at the sizes and weights the
+  // bot's own header uses, anchored top because that is where the bot's header sits (and
+  // where the lift cap holds it). It lives HERE, not in the card, so the claim it rests on
+  // is testable rather than asserted: with no nudges at all it draws byte-identically to
+  // 0.4.2's buildFakeCheer, because that arrangement IS the item engine's leading rule —
+  // which is the same fact that makes the migration's nudges for a drawn fake cheer all
+  // compute to zero. Pinned in test/takeover-items.test.mjs.
+  //
+  // PLATFORM-NEUTRAL ON PURPOSE, and that is why the amount is seeded TEXT rather than a
+  // field: the same printer-bot runs on YouTube and Kick and their headers say neither
+  // "bits" nor anything like it, so you overwrite the string. Nothing is appended at
+  // render time by anybody (see buildFakeCheer on the removed CHEER_SUFFIX).
+  //
+  // The picture arrives with NO url — it draws nothing and costs nothing until you fill it
+  // in (takeoverItems drops it), and it is the row that shows where the avatar goes.
+  // Everything it returns is an ordinary item afterwards: editable, deletable, reorderable,
+  // and you can add more around it. That is what makes "a fake cheer plus my own lines"
+  // work, which is the whole point of the container.
+  function takeoverSeed() {
+    return { anchor: "top", items: [
+      { kind: "pic", url: "", width: CHEER_AVATAR_W },
+      { kind: "text", text: "-100000 BITS", size: 24, fmt: { weight: 900 } },
+      { kind: "text", text: "IRS", size: 19, fmt: { weight: 700 } },
+      { kind: "text", text: "tax lien", size: 13, fmt: { italic: true } }
+    ] };
   }
   // o = {bits, name, note, avatar, avatarW, sizes:{bits,name,note}, carrier, pullPt, w}
   // What a built overlay actually drew, read back off the markup. Deliberately parses
@@ -2844,17 +2880,15 @@
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
         tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
-      // `items` is what renders. The two styles' fields are still here because the card
-      // still edits them and re-derives the items from them (see takeoverCard's `save`);
-      // they go when the item card lands. They keep SEPARATE text fields on purpose —
-      // flipping the selector to compare them and flipping back must not eat what you
-      // typed. The three size sliders are shared: same three visual slots either way.
+      // `items` IS the block now — the Blank/Fake-cheer fields (tkStyle, l1..l3, cBits,
+      // avatar…) are gone from a new block entirely, because the card that edited them is
+      // gone. They still exist as an INPUT to migrateTakeoverItems, which is the only
+      // thing that reads them, and only on blocks saved before the conversion. A new
+      // block starts empty and stamped: an empty takeover is valid (it erases the header)
+      // and both stamps being current is what makes the migration a no-op on it.
       if (type === "takeover") return { id: blockIdSeq++, type: "takeover",
         items: [], anchor: "bottom", tkV: TAKEOVER_ITEMS_V,
-        tkStyle: "blank",
-        l1: "", s1: 24, l2: "", s2: 19, l3: "", s3: 13,
-        cBits: "", cName: "", cNote: "", avatar: "", avatarW: CHEER_AVATAR_W,
-        picture: "", pictureW: CHEER_AVATAR_W, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
+        renderAs: EMBED_DEFAULT, embedV: EMBED_V,
         pullPt: TAKEOVER_PULL_PT, pullV: TAKEOVER_PULL_V };
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
@@ -3199,246 +3233,271 @@
         else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
       });
     }
-    // Takeover: paints over printer-bot's own header so the tape reads as your
-    // artwork instead of a receipt. Three optional lines + an optional picture, and
-    // one calibration knob for how far up to reach (the bot's header height depends
-    // on the streamer's avatar, so it can't be a constant).
+    // Takeover: paints over printer-bot’s own header so the tape reads as your artwork
+    // instead of a receipt. The card IS the item list — text or picture, any number, in
+    // any order — over two block-level knobs: where the stack sits inside the covered
+    // area (Anchor) and how far up to paint (Reach up).
+    //
+    // WHAT LEFT WITH THE BLANK / FAKE-CHEER SELECTOR, and why it must not come back. The
+    // two styles were disjoint field sets writing the SAME three sizes and the SAME three
+    // fmt objects, so this card carried two sync mechanisms — sizeCopies/syncSizes and
+    // fmtCopies/syncFmts — whose only job was to stop the hidden copy of a control from
+    // showing a different value from the one the block actually held. Both had already
+    // shipped that bug. One list means one control per thing: the duplication and its bug
+    // class leave together. `Seed fake donation` is what replaces the selector, and it is
+    // strictly more capable — what it appends are ordinary items, so “a fake cheer plus my
+    // own lines” is just a longer list.
     function takeoverCard(block) {
       var card = mkEl("div", { "class": "block-card" });
-      // TEMPORARY BRIDGE, and the only reason this card still works. It edits the old
-      // Blank/Fake-cheer fields; the renderer reads `items`. So every control here saves
-      // through this instead of straight to storage, re-deriving the item list with the
-      // SAME function the migration uses — which means what this card produces is
-      // byte-identical to what a migrated block produces, and the conversion is exercised
-      // on every keystroke rather than once on somebody else's machine. The item card
-      // replaces both halves of this and the derived call goes with it.
-      var save = function () {
-        var m = takeoverItemsForBlock(block);
-        block.items = m.items;
-        block.anchor = m.anchor;
-        saveBlocks(); update();
-      };
+      if (!block.items) block.items = [];
+      if (!block.anchor) block.anchor = "bottom";
+      var items = block.items;
+      // A VALUE edit mutates, persists and repaints the preview — but does NOT rebuild the
+      // composer, which would drop focus mid-type.
+      var save = function () { saveBlocks(); update(); syncNotes(); };
+      // A STRUCTURAL change — add, remove, reorder, seed — SAVES TOO. This is the block
+      // stack’s own add/remove/move one level down, and on those the missing saveBlocks()
+      // shipped to production: the change held until you reloaded and then silently undid
+      // itself. Rebuilds the composer as well, because the rows themselves changed.
+      var restack = function () { saveBlocks(); renderComposer(); update(); };
+
       card.appendChild(cardHead(block));
       card.appendChild(mkEl("div", { "class": "hint" },
         "Paints over the receipt’s own header — the avatar, the bits line and the name "
         + "printer-bot drew — and puts yours there instead. Put it FIRST in the "
         + "stack; anything below it prints as normal underneath."));
 
-      card.appendChild(mkEl("label", null, "Style"));
-      var style = mkEl("select");
-      style.appendChild(opt("blank", "Blank — your own three lines", block.tkStyle !== "cheer"));
-      style.appendChild(opt("cheer", "Fake cheer — picture, bits, name", block.tkStyle === "cheer"));
-      card.appendChild(style);
+      // Anchor is block-level: the whole stack moves, the items keep their spacing.
+      card.appendChild(mkEl("label", null, "Anchor"));
+      var anchor = mkEl("select");
+      anchor.appendChild(opt("top", "Top — where the bot’s own header sits", block.anchor === "top"));
+      anchor.appendChild(opt("centre", "Centre of the covered area", block.anchor === "centre"));
+      anchor.appendChild(opt("bottom", "Bottom — just above your message",
+                             block.anchor !== "top" && block.anchor !== "centre"));
+      anchor.addEventListener("change", function () { block.anchor = anchor.value; save(); });
+      card.appendChild(anchor);
 
-      // Size sliders are shared by both styles (same three visual slots), so they're
-      // built once here and the two field groups only own their text inputs.
-      // s1/s2/s3 are ONE value per block but get a slider in each style's field group.
-      // Without re-syncing, setting the size in one style left the other showing a stale
-      // number while the preview rendered the new one — and nudging the stale control
-      // silently jumped the size back. Every copy is registered and refreshed on switch.
-      var sizeCopies = [];
-      var syncSizes = function () {
-        for (var i = 0; i < sizeCopies.length; i++) {
-          var c = sizeCopies[i], v = block[c.key] || c.def;
-          if (c.el.value !== String(v)) { c.el.value = v; if (c.el.oninput) c.el.oninput(); }
-          if (c.out) c.out.textContent = v;
-        }
+      var pull = mkEl("input", { type: "range", min: "60", max: "400", step: "5" });
+      pull.value = block.pullPt || TAKEOVER_PULL_PT;
+      pull.addEventListener("input", function () {
+        block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; save();
+      });
+      card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
+      card.appendChild(mkEl("div", { "class": "hint" },
+        "How far up to paint. The bot’s header is taller or shorter depending on the "
+        + "streamer’s avatar, so this needs one calibration print: too little leaves a "
+        + "strip of the old header showing; too much lifts the block past the top of the "
+        + "paper, and the picture is what goes first — it sits highest. The preview clips "
+        + "at the paper edge, so if it disappears there it won’t print either."));
+
+      // ── the item list ───────────────────────────────
+      var list = mkEl("div");
+      card.appendChild(list);
+
+      var moveItem = function (i, dir) {
+        var j = i + dir;
+        if (j < 0 || j >= items.length) return;
+        var t = items[i]; items[i] = items[j]; items[j] = t;
+        restack();
       };
-      var mkSize = function (parent, sizeKey, def) {
-        var sz = mkEl("input", { type: "range", min: "8", max: "48", step: "1" });
-        sz.value = block[sizeKey] || def;
-        sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; save(); });
-        var row = sliderRow("Size", sz, def, "");
+      var itemHead = function (i, label) {
+        var head = mkEl("div", { "class": "tk-head" });
+        head.appendChild(mkEl("span", { "class": "tk-kind" }, label));
+        head.appendChild(mkEl("span", { "class": "spacer" }));
+        var up = mkEl("button", { type: "button", title: "Move up" }, "↑");
+        var dn = mkEl("button", { type: "button", title: "Move down" }, "↓");
+        var rm = mkEl("button", { type: "button", title: "Remove" }, "✕");
+        up.disabled = i === 0;
+        dn.disabled = i === items.length - 1;
+        up.addEventListener("click", function () { moveItem(i, -1); });
+        dn.addEventListener("click", function () { moveItem(i, 1); });
+        rm.addEventListener("click", function () { items.splice(i, 1); restack(); });
+        head.appendChild(up); head.appendChild(dn); head.appendChild(rm);
+        return head;
+      };
+      // Align and nudge are what both kinds share. NUDGE MOVES ONE ITEM and deliberately
+      // does not re-flow the ones after it (see takeoverPlace) — which is also why a
+      // migrated block can arrive already carrying one: the migration pins each item onto
+      // the exact y the old renderer used for it, so the block comes across byte-identical.
+      // Those offsets are pinned to the OLD geometry: edit a size or the pull on such an
+      // item and the offset is still there, so if the spacing looks stuck, ↺ the nudge to 0
+      // and let the stack lay it out.
+      var alignNudgeRow = function (parent, item) {
+        var row = mkEl("div", { "class": "fmt-row" });
+        row.appendChild(mkEl("span", { "class": "tk-lab" }, "Align"));
+        var al = mkEl("select");
+        al.appendChild(opt("left", "Left", item.align === "left"));
+        al.appendChild(opt("centre", "Centre", item.align !== "left" && item.align !== "right"));
+        al.appendChild(opt("right", "Right", item.align === "right"));
+        // Centre is the default and it is also the FREE one — the group states it once for
+        // everybody (takeoverEmit), so storing it as an explicit value buys nothing.
+        al.addEventListener("change", function () {
+          if (al.value === "centre") delete item.align; else item.align = al.value;
+          save();
+        });
+        row.appendChild(al);
+        row.appendChild(mkEl("span", { "class": "tk-lab" }, "Nudge"));
+        var nu = mkEl("input", { type: "number", step: "1", "class": "tk-nudge" });
+        nu.value = String(item.nudge || 0);
+        nu.addEventListener("input", function () {
+          var n = parseInt(nu.value, 10) || 0;
+          // Zero is deleted rather than stored: a list full of `nudge: 0` reads like
+          // tuning that isn’t. Same rule the migration ends on.
+          if (n) item.nudge = n; else delete item.nudge;
+          save();
+        });
+        row.appendChild(nu);
         parent.appendChild(row);
-        // `.bc-val` is what sliderRow actually builds (see mkEl above). This looked for
-        // "output, .slider-val" — neither of which exists here — so `out` was always null and the
-        // printed number never refreshed on a style switch: the slider's VALUE synced correctly and
-        // the print was right, while the label beside it kept showing the old number. A control
-        // displaying one number and using another is the kind of quiet lie this preview exists to
-        // prevent, even when the output is correct.
-        sizeCopies.push({ el: sz, key: sizeKey, def: def, out: row.querySelector && row.querySelector(".bc-val") });
       };
-      var mkText = function (parent, labelText, key, attrs) {
-        parent.appendChild(mkEl("label", null, labelText));
-        var ta = mkEl("input", attrs || { type: "text" });
-        ta.value = block[key] || "";
-        ta.addEventListener("input", function () { block[key] = ta.value; save(); });
-        parent.appendChild(ta);
-        return ta;
-      };
-      // Font + weight + the three toggles for one line, on a single row. WEIGHT IS A
-      // SELECT, NOT A BOLD TOGGLE, and that is deliberate: the three slots already use
-      // 900 / 700 / normal, so collapsing weight to a boolean would change the look of
-      // every takeover that already exists. Normal/Bold/Black covers "bold" and keeps
-      // 700 reachable.
-      // f1/f2/f3 are ONE value per block but get a control row in each style's field
-      // group, same as s1/s2/s3 above — same failure mode if they aren't kept in sync:
-      // edit the font/toggles in one style and the other style's (hidden) row would
-      // keep showing the old state while the preview had already moved on. Every copy
-      // is registered and refreshed on switch, exactly like sizeCopies/syncSizes.
-      var fmtCopies = [];
-      var syncFmts = function () {
-        for (var i = 0; i < fmtCopies.length; i++) {
-          var c = fmtCopies[i], f = lineFmt(block[c.key], c.defWeight, c.defItalic);
-          c.font.value = f.font;
-          c.weight.value = String(f.weight);
-          for (var j = 0; j < c.togs.length; j++) {
-            var t = c.togs[j];
-            t.el.className = "fmt-tog" + (f[t.prop] ? " on" : "");
-          }
-        }
-      };
-      var mkFmt = function (parent, key, defWeight, defItalic) {
-        var cur = function () { return block[key] || (block[key] = {}); };
+      var textRow = function (item, i) {
+        var wrap = mkEl("div", { "class": "tk-item" });
+        wrap.appendChild(itemHead(i, "Text"));
+        var ta = mkEl("input", { type: "text", placeholder: "your line" });
+        ta.value = item.text || "";
+        ta.addEventListener("input", function () { item.text = ta.value; save(); });
+        wrap.appendChild(ta);
+        var sz = mkEl("input", { type: "range", min: "8", max: "48", step: "1" });
+        sz.value = takeoverSize(item.size);
+        sz.addEventListener("input", function () { item.size = parseInt(sz.value, 10) || 20; save(); });
+        wrap.appendChild(sliderRow("Size", sz, 20, ""));
+        // WEIGHT IS A SELECT, NOT A BOLD TOGGLE, deliberately: the seeded arrangement uses
+        // 900 / 700 / 400 and a boolean can only carry one of them, so collapsing it would
+        // change the look of every takeover that already exists.
+        //
+        // The defaults read here are 400 / upright, because an ITEM’S fmt IS CONCRETE:
+        // absent means plain Arial, which is also the cheapest payload there is. Do NOT
+        // reach for Big Text’s convention on the way past — there an absent weight means
+        // the 800 baseline (see bigWeightFor), and the two must not cross.
+        var f = lineFmt(item.fmt, 400, false);
+        var curFmt = function () { return item.fmt || (item.fmt = {}); };
         var row = mkEl("div", { "class": "fmt-row" });
         var font = mkEl("select");
-        var fNow = lineFmt(block[key], defWeight, defItalic).font;
-        for (var i = 0; i < FONTS.length; i++) {
-          font.appendChild(opt(FONTS[i].id, FONTS[i].label, fNow === FONTS[i].id));
+        for (var k = 0; k < FONTS.length; k++) {
+          font.appendChild(opt(FONTS[k].id, FONTS[k].label, f.font === FONTS[k].id));
         }
-        font.addEventListener("change", function () { cur().font = font.value; save(); });
+        font.addEventListener("change", function () { curFmt().font = font.value; save(); });
         row.appendChild(font);
         var wsel = mkEl("select");
-        var wNow = lineFmt(block[key], defWeight, defItalic).weight;
-        wsel.appendChild(opt("400", "Normal", wNow === 400));
-        wsel.appendChild(opt("700", "Bold", wNow === 700));
-        wsel.appendChild(opt("900", "Black", wNow === 900));
-        wsel.addEventListener("change", function () { cur().weight = parseInt(wsel.value, 10); save(); });
+        wsel.appendChild(opt("400", "Normal", f.weight === 400));
+        wsel.appendChild(opt("700", "Bold", f.weight === 700));
+        wsel.appendChild(opt("900", "Black", f.weight === 900));
+        wsel.addEventListener("change", function () { curFmt().weight = parseInt(wsel.value, 10); save(); });
         row.appendChild(wsel);
-        var togs = [];
         [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
-          var on = lineFmt(block[key], defWeight, defItalic)[t[0]];
-          var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
+          var b = mkEl("button", { type: "button", "class": "fmt-tog" + (f[t[0]] ? " on" : "") }, t[1]);
           b.addEventListener("click", function () {
-            var v = !lineFmt(block[key], defWeight, defItalic)[t[0]];
-            cur()[t[0]] = v;
+            var v = !lineFmt(item.fmt, 400, false)[t[0]];
+            curFmt()[t[0]] = v;
             b.className = "fmt-tog" + (v ? " on" : "");
             save();
           });
           row.appendChild(b);
-          togs.push({ prop: t[0], el: b });
         });
-        parent.appendChild(row);
-        fmtCopies.push({ key: key, defWeight: defWeight, defItalic: defItalic, font: font, weight: wsel, togs: togs });
+        wrap.appendChild(row);
+        alignNudgeRow(wrap, item);
+        return wrap;
       };
-
-      // --- Blank takeover: three free lines + a picture ---
-      var blankWrap = mkEl("div");
-      mkText(blankWrap, "Line 1 (big)", "l1"); mkSize(blankWrap, "s1", 24); mkFmt(blankWrap, "f1", 900, false);
-      mkText(blankWrap, "Line 2", "l2");       mkSize(blankWrap, "s2", 19); mkFmt(blankWrap, "f2", 700, false);
-      mkText(blankWrap, "Line 3 (note)", "l3"); mkSize(blankWrap, "s3", 13); mkFmt(blankWrap, "f3", 400, true);
-      // Picture row = URL field + "or upload a file". The upload is here and not only on
-      // the Image block because the takeover's picture is the whole point of the fake
-      // cheer, and a pasted CDN link is usually long enough by itself to push the
-      // payload past Twitch's 500. Sending people to a different block to mint a short
-      // link was a papercut in the one place the budget is tightest.
-      var mkPictureRow = function (parent, key) {
-        mkText(parent, "Picture URL (optional)", key, { type: "url", placeholder: "https://…/pic.png" })
-          .addEventListener("input", function () { syncNotes(); });
-        parent.appendChild(mkEl("label", null, "… or upload a file"));
+      var picRow = function (item, i) {
+        var wrap = mkEl("div", { "class": "tk-item" });
+        wrap.appendChild(itemHead(i, "Picture"));
+        // URL field + “or upload a file”. The upload is here and not only on the Image
+        // block because a pasted CDN link is usually long enough by itself to push the
+        // payload past Twitch’s 500, and sending people to another block to mint a short
+        // one was a papercut in the place the budget is tightest.
+        var url = mkEl("input", { type: "url", placeholder: "https://…/pic.png" });
+        url.value = item.url || "";
+        url.addEventListener("input", function () { item.url = url.value; save(); });
+        wrap.appendChild(url);
+        wrap.appendChild(mkEl("label", null, "… or upload a file"));
         var file = mkEl("input", { type: "file", accept: "image/*" });
-        parent.appendChild(file);
+        wrap.appendChild(file);
         var st = mkEl("div", { "class": "hint" });
-        parent.appendChild(st);
+        wrap.appendChild(st);
         file.addEventListener("change", function (e) {
-          var f = e.target.files && e.target.files[0];
-          if (!f) return;
-          uploadPngForUrl(f, function (t) { st.textContent = t; }, function (url) {
-            block[key] = url;
-            // Repaint the URL field in this row so the control shows what's actually
-            // being used, rather than staying blank while the preview changes.
-            var box = parent.querySelector('input[type="url"]');
-            if (box) box.value = url;
+          var fl = e.target.files && e.target.files[0];
+          if (!fl) return;
+          uploadPngForUrl(fl, function (t) { st.textContent = t; }, function (u) {
+            item.url = u;
+            url.value = u;   // the control shows what is actually being used
             st.textContent = "Uploaded ✓ (link expires ~15 min)";
-            save(); syncNotes();
+            save();
           });
         });
+        // min 120: below that the picture does not render at all on the print engine
+        // (see CHEER_MIN_PIC_PX) — offering 40 would be a slider that prints nothing.
+        var w = mkEl("input", { type: "range", min: "120", max: "240", step: "5" });
+        w.value = Math.max(CHEER_MIN_PIC_PX, takeoverDim(item.width, CHEER_AVATAR_W));
+        w.addEventListener("input", function () {
+          item.width = parseInt(w.value, 10) || CHEER_AVATAR_W;
+          // `height` is left alone on purpose. Absent, takeoverItems reserves a square,
+          // which is the honest default for a profile picture; present, it came off the
+          // old renderer at migration and rewriting it here would move a migrated block’s
+          // layout under the owner’s hand. Neither number is the drawn height anyway —
+          // the carriers state a width and the source’s own aspect does the rest.
+          save();
+        });
+        wrap.appendChild(sliderRow("Picture width (px)", w, CHEER_AVATAR_W, ""));
+        alignNudgeRow(wrap, item);
+        return wrap;
       };
-      mkPictureRow(blankWrap, "picture");
-      // min 120: below that the picture does not render at all on the print engine
-      // (see CHEER_MIN_PIC_PX) — offering 40 would just be a slider that prints nothing.
-      var pw = mkEl("input", { type: "range", min: "120", max: "240", step: "5" });
-      pw.value = Math.max(120, block.pictureW || 120);
-      pw.addEventListener("input", function () { block.pictureW = parseInt(pw.value, 10) || 120; save(); });
-      blankWrap.appendChild(sliderRow("Picture width (px)", pw, 120, ""));
-      card.appendChild(blankWrap);
-
-      // --- Fake cheer: the header's own shape ---
-      var cheerWrap = mkEl("div");
-      cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "Lays your lines out the way printer-bot lays out a real cheer — picture on "
-        + "top, then the amount, then the name. Nothing is added for you any more: type "
-        + "“-100000 BITS”, “$50.00” or “1,000 Kicks” in full, whichever platform this "
-        + "printer is plugged into."));
-      mkText(cheerWrap, "Amount", "cBits", { type: "text", placeholder: "-100000 BITS" }); mkSize(cheerWrap, "s1", 24); mkFmt(cheerWrap, "f1", 900, false);
-      mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19); mkFmt(cheerWrap, "f2", 700, false);
-      mkText(cheerWrap, "Message (note)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13); mkFmt(cheerWrap, "f3", 400, true);
-      mkPictureRow(cheerWrap, "avatar");
-      // An earlier version of this hint said an over-length fake cheer "splits into a
-      // second cheer". It does NOT: packStackBodies treats the first body of a part as
-      // fitting whatever its length ("cur.length === 0 ||"), and a takeover is a single
-      // SVG that cannot be split anyway — so going over doesn't cost 200 bits, it means
-      // Twitch rejects the message and nothing prints. Measured margins with an uploaded
-      // link: name "IRS" 491/500, "shamu4life" 498 — both fit; a very long name does not. The
-      // name eats the budget just as fast as the URL does, so say so.
-      //
-      // FORMATTING IS PAYLOAD TOO, and the hint has to say so: every control on a line
-      // emits an SVG attribute. Measured against this branch's buildFakeCheer at the
-      // flagship case (39-char minted link, ALL THREE lines, name "IRS", w=263 =
-      // PAPER_PX), base 491/500:
-      //   italic +20  Serif +20  Impact +21  Georgia/Script/Fantasy +22  Monospace +24
-      //   Arial Black +26  underline +28  Comic Sans MS +28  strikethrough +31
-      //   underline + strikethrough together +41
-      // THE "ANY ONE OF THEM GOES OVER" LINE IS ONLY TRUE AT THAT 491 BASE, which needs
-      // all three lines filled. Drop a line and the headroom is real: two lines + the
-      // picture measure 419 (so +41 lands at 460, fits), and one short line + the
-      // picture measures 345-354 depending which slot it is (+41 -> 386-395, fits). An
-      // earlier version of this hint said any control tips a picture cheer over full
-      // stop, which overstated it by a whole line's worth of budget.
-      // TWO COUNTER-INTUITIVE ONES, worth stating because nobody would guess them from
-      // the table above: italic on the NOTE line costs +0 — that slot's default is
-      // already italic (lineFmt(fm.note, 400, true)), so choosing it changes nothing on
-      // the wire. And the weight select can be FREE OR NEGATIVE: fmtAttrs omits weight
-      // at 400, so picking Normal on line 1 or line 2 DELETES the font-weight="900" /
-      // "700" they were emitting and gives back 18 characters each (Normal on the note
-      // line is +0, it is already 400; Black on the note line is +18).
-      cheerWrap.appendChild(mkEl("div", { "class": "hint" },
-        "With a picture and all three lines this nearly fills the message — about 491 of "
-        + "500 with a short name — so watch the counter. Formatting is payload: a font, "
-        + "italic, underline or strikethrough costs 20–31 characters on the line you set "
-        + "it on (41 for underline and strikethrough together), so at 491 any one of them "
-        + "tips it over. Leave a line empty and there is room: two lines with a picture "
-        + "start near 419, one line near 350, which absorbs even the 41. Two that surprise "
-        + "people: italic on the note line is free (it is already italic), and picking "
-        + "Normal weight on the first two lines gives you 18 characters back each. Going "
-        + "over doesn’t cost a second cheer: Twitch rejects an over-length message "
-        + "outright and nothing prints. A long name or a pasted Discord/imgur link will do "
-        + "it too — upload the file here instead and you get the shortest link there is."));
-      var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
-      aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
-      aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; save(); });
-      cheerWrap.appendChild(sliderRow("Picture width (px)", aw, CHEER_AVATAR_W, ""));
-      card.appendChild(cheerWrap);
-
-      var applyStyle = function () {
-        var cheer = block.tkStyle === "cheer";
-        blankWrap.style.display = cheer ? "none" : "";
-        cheerWrap.style.display = cheer ? "" : "none";
-        syncSizes();          // the hidden copy is stale until it's shown again
-        syncFmts();           // same staleness risk for the font/weight/I-U-S row
-      };
-      style.addEventListener("change", function () {
-        block.tkStyle = style.value; applyStyle(); save();
+      items.forEach(function (it, i) {
+        if (!it) return;
+        list.appendChild(it.kind === "pic" ? picRow(it, i) : textRow(it, i));
       });
+      if (!items.length) {
+        list.appendChild(mkEl("div", { "class": "hint" },
+          "Nothing in it yet. An empty takeover still erases the header — add a line or a "
+          + "picture to put something there, or seed the fake donation below and edit it."));
+      }
 
-      card.appendChild(mkEl("label", null, "Carrier tag (for the picture)"));
+      var addRow = mkEl("div", { "class": "add-row" });
+      var addText = mkEl("button", { type: "button" }, "+ text");
+      addText.addEventListener("click", function () {
+        items.push({ kind: "text", text: "", size: 20 }); restack();
+      });
+      var addPic = mkEl("button", { type: "button" }, "+ picture");
+      addPic.addEventListener("click", function () {
+        items.push({ kind: "pic", url: "", width: CHEER_AVATAR_W }); restack();
+      });
+      // Today’s fake cheer, APPENDED as four ordinary items. What it appends and why it is
+      // byte-identical to 0.4.2 lives with the item engine, in takeoverSeed — a claim about
+      // emitted bytes belongs where a test can reach it, not in a click handler. Appends
+      // rather than replaces, because “a fake cheer plus my own lines” is the whole point.
+      var seed = mkEl("button", { type: "button" }, "Seed fake donation");
+      seed.addEventListener("click", function () {
+        var s = takeoverSeed();
+        for (var si = 0; si < s.items.length; si++) items.push(s.items[si]);
+        block.anchor = s.anchor;
+        restack();
+      });
+      addRow.appendChild(addText); addRow.appendChild(addPic); addRow.appendChild(seed);
+      card.appendChild(addRow);
+
+      // ── block-level carrier, and the two ways a picture prints blank ──────────────
+      card.appendChild(mkEl("label", null, "Carrier tag (for the pictures)"));
       var ra = mkEl("select");
       var cur = getEmbed(block.renderAs).id;
       EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === cur)); });
       ra.addEventListener("change", function () { block.renderAs = ra.value; save(); });
       card.appendChild(ra);
 
-      // A carrier can be fine at top level and destructive inside the takeover's frame
+      // The URL YOU TYPED, not the one that survived layout: a picture dropped for want of
+      // room still has a carrier, and going quiet about a broken one the moment it stops
+      // being drawn is how you end up debugging the wrong thing.
+      var anyPicUrl = function () {
+        for (var i = 0; i < items.length; i++) {
+          if (items[i] && items[i].kind === "pic" && String(items[i].url || "").trim()) return true;
+        }
+        return false;
+      };
+      var picUrlMissingExt = function () {
+        for (var i = 0; i < items.length; i++) {
+          var u = items[i] && items[i].kind === "pic" ? String(items[i].url || "").trim() : "";
+          if (u && !urlHasImageExt(u)) return true;
+        }
+        return false;
+      };
+      // A carrier can be fine at top level and destructive inside the takeover’s frame
       // — iframe eats everything stacked below the takeover. Warn rather than silently
       // overriding the pick: an explicit choice should still be honoured.
       var frameWarn = mkEl("div", { "class": "over-note" });
@@ -3446,59 +3505,48 @@
       card.appendChild(frameWarn);
       var syncFrameWarn = function () {
         var e = getEmbed(block.renderAs);
-        // The URL YOU TYPED, not the one that survived layout: a picture dropped for want
-        // of room still has a carrier, and going quiet about a broken one the moment it
-        // stops being drawn is how you end up debugging the wrong thing. Reads this card's
-        // own fields, and moves to the item list when the item card replaces them.
-        var url = block.tkStyle === "cheer" ? block.avatar : block.picture;
-        // Two independent ways the picture prints blank, both silent on the tape.
-        if (e.framedOk === false && url) {
+        if (e.framedOk === false && anyPicUrl()) {
           frameWarn.hidden = false;
           frameWarn.textContent = "“" + e.label + "” breaks inside a Takeover: everything "
             + "you stack BELOW this block disappears from the print. Pick another carrier "
-            + "for the picture here (it's fine on an ordinary Image block).";
+            + "for the pictures here (it’s fine on an ordinary Image block).";
           return;
         }
-        // Same trap the Image block already warns about, and the takeover's default
+        // Same trap the Image block already warns about, and the takeover’s default
         // carrier is the one that has it: embed picks its renderer from the file
         // extension and draws NOTHING without one, with no error anywhere.
-        if (e.needsExt && url && !urlHasImageExt(url)) {
+        if (e.needsExt && picUrlMissingExt()) {
           frameWarn.hidden = false;
-          frameWarn.textContent = "That link doesn’t end in .png/.jpg — the “" + e.label
-            + "” carrier picks its renderer from the extension, so the picture will print "
-            + "blank. Use “input type=image” instead, or upload the file on an Image block "
-            + "to get a .png link.";
+          frameWarn.textContent = "A picture link here doesn’t end in .png/.jpg — the “" + e.label
+            + "” carrier picks its renderer from the extension, so it will print "
+            + "blank. Use “input type=image” instead, or upload the file to get a .png link.";
           return;
         }
         frameWarn.hidden = true;
       };
-      // A dropped picture or line is CORRECT — a sub-120px picture prints nothing while
-      // costing ~90 chars, and a clipped line costs 63 for ink that never appears — but
-      // it is silent, and "Reach up" is a knob the app tells you to calibrate. At the
-      // default sizes every stop at or below 150pt drops the picture: 19 of the 69
-      // positions, the bottom quarter of the slider, 70pt below the default. Without
-      // this note the avatar just vanishes and nothing connects it to the slider.
+      // A dropped item is CORRECT — a line printed off the edge is 63 characters of a
+      // 500-character budget spent on ink nobody sees — but it is silent, and “Reach up” is
+      // a knob the app tells you to calibrate. Without this note the avatar just vanishes
+      // and nothing connects it to the slider.
       var dropNote = mkEl("div", { "class": "hint" });
       dropNote.hidden = true;
       card.appendChild(dropNote);
       var syncDropNote = function () {
         // Counted off the item list and read back off the markup THE PACKER WILL SEND —
         // the same two halves takeoverWants/takeoverReport were split into, so the note
-        // can't quietly describe a different overlay from the one being printed.
-        var want = takeoverWants(block.items);
-        // ASKED-FOR pictures come off this card's fields, not off the item list, and that
-        // is the whole point of the note: a fake cheer whose avatar has no room is
-        // converted WITHOUT a picture item — byte-identical to what it prints today —
-        // so counting items would count zero wanted, zero drawn, and say nothing at all
-        // while the avatar quietly vanished. Also moves to the item list with the card.
-        var asked = (block.tkStyle === "cheer" ? block.avatar : block.picture) ? 1 : 0;
-        var r = takeoverReport(takeoverHtml(block), want.lines,
-                               Math.max(want.pictures, asked));
+        // can’t quietly describe a different overlay from the one being printed. An item
+        // with no text and a picture with no url are not “wanted”: they draw nothing
+        // because they are empty, not because they were dropped.
+        var want = takeoverWants(items);
+        var r = takeoverReport(takeoverHtml(block), want.lines, want.pictures);
         var msgs = [];
         if (r.picturesDrawn < r.picturesWanted) {
-          msgs.push("The picture isn’t in this payload — there’s no room for one at least "
-            + CHEER_MIN_PIC_PX + "px, which is the smallest that renders on the printer. "
-            + "Raise “Reach up”, or shorten a line.");
+          msgs.push((r.picturesWanted === 1 ? "The picture isn’t in this payload"
+                      : (r.picturesWanted - r.picturesDrawn) + " of " + r.picturesWanted
+                        + " pictures didn’t make this payload")
+            + " — there’s no room inside the covered area, and a picture is "
+            + "the first thing to go because it takes the most. Raise “Reach up”, narrow it, "
+            + "or remove a line.");
         }
         if (r.linesDrawn < r.linesWanted) {
           msgs.push("Only " + r.linesDrawn + " of " + r.linesWanted + " lines fit the covered "
@@ -3509,28 +3557,40 @@
         dropNote.textContent = msgs.join(" ");
       };
       var syncNotes = function () { syncFrameWarn(); syncDropNote(); };
-      ra.addEventListener("change", syncNotes);
-      style.addEventListener("change", syncNotes);
-      aw.addEventListener("input", syncNotes);
-      pw.addEventListener("input", syncNotes);
-      for (var sc = 0; sc < sizeCopies.length; sc++) sizeCopies[sc].el.addEventListener("input", syncNotes);
-      [blankWrap, cheerWrap].forEach(function (w) {
-        var ins = w.querySelectorAll ? w.querySelectorAll("input") : [];
-        for (var i = 0; i < ins.length; i++) ins[i].addEventListener("input", syncNotes);
-      });
 
-      var pull = mkEl("input", { type: "range", min: "60", max: "400", step: "5" });
-      pull.value = block.pullPt || TAKEOVER_PULL_PT;
-      pull.addEventListener("input", function () { block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; save(); });
-      pull.addEventListener("input", syncNotes);   // wired here: `pull` doesn't exist yet above
-      card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
+      // An over-length takeover does NOT split into a second cheer: packStackBodies treats
+      // the first body of a part as fitting whatever its length ("cur.length === 0 ||"),
+      // and a takeover is a single SVG that cannot be split anyway — so going over doesn’t
+      // cost 200 bits, it means Twitch rejects the message and nothing prints.
+      //
+      // FORMATTING IS PAYLOAD TOO, and the hint has to say so: every control on a line
+      // emits an SVG attribute. Measured at the flagship case (39-char minted link, all
+      // three seeded lines, name “IRS”, w=263 = PAPER_PX), base 491/500:
+      //   italic +20  Serif +20  Impact +21  Georgia/Script/Fantasy +22  Monospace +24
+      //   Arial Black +26  underline +28  Comic Sans MS +28  strikethrough +31
+      //   underline + strikethrough together +41
+      // THE “ANY ONE OF THEM GOES OVER” LINE IS ONLY TRUE AT THAT 491 BASE, which needs all
+      // three lines filled. Drop a line and the headroom is real: two lines + the picture
+      // measure 419 (so +41 lands at 460, fits), and one short line + the picture measures
+      // 345–354 depending which it is (+41 -> 386–395, fits).
+      // TWO COUNTER-INTUITIVE ONES, worth stating because nobody would guess them: italic
+      // on the seeded note costs +0, that item is already italic. And the weight select can
+      // be FREE OR NEGATIVE: fmtAttrs omits weight at 400, so picking Normal on the amount
+      // or the name DELETES the font-weight="900" / "700" they were emitting and gives back
+      // 18 characters each.
       card.appendChild(mkEl("div", { "class": "hint" },
-        "How far up to paint. The bot’s header is taller or shorter depending on the "
-        + "streamer’s avatar, so this needs one calibration print: too little leaves a "
-        + "strip of the old header showing; too much lifts the block past the top of the "
-        + "paper, and the picture is what goes first — it sits highest. The preview clips "
-        + "at the paper edge, so if it disappears there it won’t print either."));
-      applyStyle();
+        "Every item is payload. A picture and three lines nearly fills the message — about "
+        + "491 of 500 with a short name — so watch the counter. Formatting counts too: a "
+        + "font, italic, underline or strikethrough costs 20–31 characters on the item you "
+        + "set it on (41 for underline and strikethrough together), so at 491 any one of "
+        + "them tips it over. Leave an item out and there is room: two lines with a picture "
+        + "start near 419, one line near 350, which absorbs even the 41. Two that surprise "
+        + "people: italic on an already-italic item is free, and picking Normal weight on a "
+        + "Bold or Black one gives you 18 characters back. Going over doesn’t cost a second "
+        + "cheer: Twitch rejects an over-length message outright and nothing prints. A long "
+        + "name or a pasted Discord/imgur link will do it too — upload the file here instead "
+        + "and you get the shortest link there is."));
+
       syncNotes();
       return card;
     }
@@ -3959,6 +4019,7 @@
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
       lineFmt: lineFmt,
       takeoverItems: takeoverItems, takeoverPlace: takeoverPlace, takeoverWants: takeoverWants,
+      takeoverSeed: takeoverSeed,
       TAKEOVER_BOTTOM_PX: TAKEOVER_BOTTOM_PX, CHEER_GAP_PX: CHEER_GAP_PX,
       CHEER_TOP_PX: CHEER_TOP_PX, CHEER_MAX_LIFT_PX: CHEER_MAX_LIFT_PX,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W,

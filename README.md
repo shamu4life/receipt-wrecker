@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.4.2" src="https://img.shields.io/badge/version-0.4.2-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.5.0" src="https://img.shields.io/badge/version-0.5.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -151,8 +151,9 @@ render is tiled glyphs, not type, and there is nothing to format.
   like `cursive` or `fantasy` to two different typefaces, so no measurement taken on
   one can size the other. (Script and Papyrus name real faces now — see below — which
   narrows that gap without closing it.)
-- **No entry in the font menu is a bare CSS generic any more, and that was a bug worth
-  the name.** `Script` used to be plain `cursive` and `Fantasy` plain `fantasy`. A
+- **No font in the menu is a bare generic that duplicates another entry any more, and
+  that was a bug worth the name.** `Script` used to be plain `cursive` and `Fantasy`
+  plain `fantasy`. A
   generic resolves on the *streamer's* machine, and the owner printed them: Script came
   out as **Comic Sans MS** and Fantasy came out as **Impact** — the standard Windows
   mappings — so both were duplicates of fonts already in the list, and a nine-font menu

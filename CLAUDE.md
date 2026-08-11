@@ -457,11 +457,17 @@ Things already settled this way, so you don't have to re-derive them:
   New, which duplicate nothing else in the list; that is a judgement, not an exemption.
   Cost, measured at the 491-character flagship case: Script +22 → **+35**, Fantasy/
   Papyrus +22 → **+30**.
-  Bench note, separate from the above and worth knowing before trusting a local font
-  render: on this macOS wkhtmltopdf build a **bare** family name often does not resolve
-  at all (`font-family="Impact"` printed Helvetica) while the comma-list form does
-  (`font-family="Impact,serif"` printed real Impact). So a local "font X doesn't work"
-  result is a statement about the bench, not about the rig.
+  **Bench note — REPEAT EVERY FONT RENDER HERE BEFORE CONCLUDING ANYTHING.** Font
+  resolution on this macOS wkhtmltopdf build is **non-deterministic on early renders**:
+  identical markup run five times gives a mix of the requested face and the default one,
+  as the font cache warms. Measured, same bytes each time: bare `Impact` came out stable
+  across five runs in one session and flapping (169,784 / 178,683 / 169,784 / 178,683 /
+  178,683 ink) in another, and the comma-list form flapped in the opposite direction.
+  A one-shot local render is therefore not evidence about anything.
+  (An earlier version of this note read the flapping as a *causal* rule — that bare
+  family names fail here while comma-lists work. That was wrong, and it is recorded
+  rather than deleted because it is exactly the shape of mistake this file exists to
+  stop: a real observation, one sample deep, written up as a mechanism.)
 - **Bold (700) and Black (900) are pixel-identical on Arial.** The markup differs
   (`font-weight="700"` vs `"900"`) but the rasters are **MD5-identical on the real
   engine**, at both 24px and 58px. Chromium agrees, but that half was checked by

@@ -175,6 +175,20 @@ test("no arrangement of pictures ever emits a second <foreignObject>", () => {
         assert.equal(geom(html).pics.length,
           (html.match(/<embed |<input |<img /g) || []).length,
           "a placed picture lost its box or a box lost its picture: " + html);
+
+        // AND the wrapper that makes the shared frame's coordinates mean anything.
+        // WebKit 534.34 does not treat a <foreignObject> as a containing block, so
+        // without position:relative the absolutely-positioned boxes resolve against the
+        // PAGE and the whole picture stack lands off the takeover's own coordinates —
+        // measured on the engine at 32,937 ink vs 28,905, bbox top moving 0 -> 12, both
+        // pictures visibly shifted and one landing on the text. Deleting that one
+        // declaration used to pass all 194 tests, which is exactly why it is pinned
+        // here rather than left to a comment.
+        if (frames(html) === 1 && geom(html).pics.length > 1) {
+          assert.match(html, /<div style="position:relative">/,
+            "the shared frame lost its containing block at " + anchor + "/" + pullPt
+            + " — the pictures will print at page coordinates: " + html);
+        }
       }
     }
   }

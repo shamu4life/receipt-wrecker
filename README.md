@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.4.2" src="https://img.shields.io/badge/version-0.4.2-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.5.0" src="https://img.shields.io/badge/version-0.5.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -149,13 +149,26 @@ render is tiled glyphs, not type, and there is nothing to format.
   the edge (see the changelog) — the fit measures ink correctly, the residue is that
   the browser measuring the line and the engine printing it resolve a generic family
   like `cursive` or `fantasy` to two different typefaces, so no measurement taken on
-  one can size the other.
+  one can size the other. (Script and Papyrus name real faces now — see below — which
+  narrows that gap without closing it.)
+- **No font in the menu is a bare generic that duplicates another entry any more, and
+  that was a bug worth the name.** `Script` used to be plain `cursive` and `Fantasy`
+  plain `fantasy`. A
+  generic resolves on the *streamer's* machine, and the owner printed them: Script came
+  out as **Comic Sans MS** and Fantasy came out as **Impact** — the standard Windows
+  mappings — so both were duplicates of fonts already in the list, and a nine-font menu
+  was really seven. Neither could be caught from a Mac, which maps the same two generics
+  somewhere else entirely. They now name a face that exists on Windows with the generic
+  kept behind it as a fallback (`Segoe Script,cursive`, `Papyrus,fantasy`), so the entry
+  can never be worse than the bare generic was, and the Fantasy slot is labelled
+  **Papyrus** for the face it actually asks for. It costs characters: Script went from
+  +22 to +35 and Papyrus from +22 to +30.
 - More generally the preview can't settle this for you: it renders with **your** fonts
-  and the tape comes out of **theirs**. Serif, Monospace, Script and Fantasy always
-  resolve to *something* — and that is the trap, because "something" is chosen
-  separately by your browser and by their printer, so those four are the likeliest to
-  measure as one typeface and print as another. The named families are standard on
-  Windows. One test print is the real answer.
+  and the tape comes out of **theirs**. Serif and Monospace are still generics —
+  Windows maps them to Times New Roman and Courier New, and neither duplicates anything
+  else in the list — but "something" is still chosen separately by your browser and by
+  their printer, so those two are the likeliest to measure as one typeface and print as
+  another. The named families are standard on Windows. One test print is the real answer.
 
 ---
 
@@ -174,11 +187,22 @@ header used to be. Anything below it in the stack still prints as normal underne
   paper edge, so anything that vanishes there won't print either.
   240 is not a guess: it is the value the owner settled on after looking at real prints
   from the rig this tool was written for.
-- The optional picture rides through the same **carrier tag** table as a normal
-  image block, so it benefits from whatever tag currently survives chat.
+- **The text gets its room first; a picture takes what is left.** Wind the pull down and
+  the panel gets shorter than what is in it — so a picture is shrunk into whatever the
+  lines have not claimed, and dropped outright once that falls under the ~120px it needs
+  to print at all. Your lines survive; the picture is what gives way. And a takeover that
+  ends up with nothing left in it is not sent, rather than spending a cheer on a blank
+  white slab.
+- Pictures ride through the same **carrier tag** table as a normal image block, so they
+  benefit from whatever tag currently survives chat.
+- **You can put more than one picture up there.** They stack with the same gap the
+  header uses, and each one has its own width, alignment and nudge, so two avatars side
+  by side is an arrangement rather than a trick. It is not free: two pictures with the
+  short minted links are ~441 characters before any text, so a fake donation's three
+  lines will not fit beside them.
 - **Every line has its own formatting row**, in both styles: a **font** select (nine
   choices — Default/Arial, Arial Black, Impact, Comic Sans MS, Georgia, Serif,
-  Monospace, Script, Fantasy), a **weight** select (Normal / Bold / Black), and
+  Monospace, Script, Papyrus), a **weight** select (Normal / Bold / Black), and
   **I / U / S** toggles for italic, underline and strikethrough. Untouched, the three
   lines keep the original hand-built look — 900/700/400 weight, only the third line
   italic — so an existing saved block sends byte-identical markup; the controls only
@@ -202,9 +226,10 @@ header used to be. Anything below it in the stack still prints as normal underne
 area it paints over.
 
 **Fake cheer** arranges the same overlay the way printer-bot arranges a real one —
-picture on top, then the bits figure, then the name, then an italic message. Type the
-figure only; ` BITS` is appended for you. It's free text rather than a number, because
-`-100000` and `∞` are the jokes people actually want.
+picture on top, then the amount, then the name, then an italic message. Type the amount
+in full — ` BITS` is no longer appended for you, because the same printer-bot runs on
+YouTube and Kick and their headers say neither "BITS" nor anything like it. It's free
+text rather than a number, so `-100000 BITS`, `$50.00`, `1,000 Kicks` and `∞` all work.
 
 - The layout follows the hand-built payload this was reverse-engineered from — picture
   up top, then three lines sized 24/19/13, each with the formatting row described above.

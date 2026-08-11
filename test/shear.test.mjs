@@ -32,6 +32,15 @@ const IMPACT_OBLIQUE = { width: 84.326171875, actualBoundingBoxLeft: -4.1015625,
 // Upright, no italic anywhere in it, and its ink still overhangs on BOTH sides: the
 // left half-extent (32.01 + 4.52) is the binding one. This is the case the first cut of
 // the fix could not see, because it only looked when `italic` was set.
+//
+// CAPTURED WHEN THE SCRIPT SLOT WAS THE BARE `cursive` GENERIC, and left as it is on
+// purpose. The slot names `Segoe Script,cursive` now (a bare generic resolves to
+// whatever the STREAMER'S machine says, which turned out to be Comic Sans MS on the real
+// rig — see FONTS), so these numbers are a capture of whatever this machine's cursive
+// was. That does not weaken the fixture: what it is here to be is a REAL upright face
+// whose ink overhangs its own advance box, which is a property of the numbers, not of
+// the family they were taken from. The key below states the family only so the app's own
+// canvas lookup finds them.
 const SCRIPT_L_UPRIGHT = { width: 64.013671875, actualBoundingBoxLeft: 4.5230865478515625, actualBoundingBoxRight: 66.259765625 };
 // Georgia DOES ship a real italic face — and that is not by itself evidence that its
 // advance bounds its ink. On "WRECKED" it does (573.24 advance, 571.00 of ink); on "HI"
@@ -143,7 +152,7 @@ test("buildBigTextSvg keeps ink inside the paper end-to-end, italic AND upright,
   const M = loadCore({
     [key("italic 800 100px Impact", "HI")]: IMPACT_OBLIQUE,
     [key("800 100px Impact", "HI")]: IMPACT_UPRIGHT,
-    [key("800 100px cursive", "L")]: SCRIPT_L_UPRIGHT,
+    [key("800 100px Segoe Script,cursive", "L")]: SCRIPT_L_UPRIGHT,
   });
   const sizeOf = (svg) => Number(svg.match(/font-size="(\d+)"/)[1]);
 

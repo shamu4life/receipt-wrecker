@@ -108,8 +108,11 @@ test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
 `HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
 `getEmbed`, `buildImageEmbed`, `buildEmbedProbe`, `buildTakeover`, `takeoverBox`,
-`TAKEOVER_PULL_PT`, `buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_SUFFIX`,
-`CHEER_MIN_PIC_PX`, `takeoverReport`. (That list is easy to let rot — regenerate it
+`TAKEOVER_PULL_PT`, `buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_MIN_PIC_PX`,
+`takeoverReport`, `takeoverItems`, `takeoverPlace`, `takeoverWants`, `lineFmt`,
+`takeoverAmountText`, `takeoverItemsForBlock`, `takeoverPinToInk`,
+`migrateTakeoverItems`, `migrateTakeoverPull`, `TAKEOVER_ITEMS_V`, `TAKEOVER_PULL_V`.
+(That list is easy to let rot — regenerate it
 with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 rather than trusting it.) The canvas/DOM functions — `rasterizeImage`, `computeGrid`,
 the body builders and the UI wiring in `init()` — are **not** exported and are
@@ -216,18 +219,25 @@ All functions live inside the one IIFE in `public/index.html`.
     floor — swept 60–400pt against a short header and it never printed. The app cannot
     know the rig's header height; that is what the pull *is*. The preview clips at the
     paper edge (`.rcpt { overflow: hidden }`) so the loss is visible instead of silent.
-12. `buildFakeCheer(o)` / `CHEER_AVATAR_W` / `CHEER_SUFFIX` — the **Fake cheer**: the
-    same takeover arranged like the bot's own header (picture on top, then `<N> BITS`,
-    then a name, then an italic note). It **composes `buildTakeover`** rather than
-    emitting its own markup, so escaping, the carrier table and the `foreignObject`-last
-    rule are inherited instead of re-implemented — keep it that way. The layout numbers
-    reproduce the hand-built payload this was reverse-engineered from, which printed
-    correctly on the real rig: an 80 px picture at the top, baselines 24/900, 19/700,
-    13/italic — except that the picture is reserved **square** (a profile picture is
-    square, and the carriers state only a width, so a 1.4 reservation left a slab of
-    white under it) and at least `CHEER_MIN_PIC_PX` tall (see the render threshold
-    above). The bits figure is **free text, not a number** — `-100000` and `∞` are
-    both jokes people want, and coercing it to a number kills them.
+12. `buildFakeCheer(o)` / `CHEER_AVATAR_W` — the **Fake cheer**: the same takeover
+    arranged like the bot's own header (picture on top, then the amount, then a name,
+    then an italic note). It **composes `buildTakeover`** rather than emitting its own
+    markup, so escaping, the carrier table and the `foreignObject`-last rule are
+    inherited instead of re-implemented — keep it that way.
+    **Nothing renders through it any more.** Every takeover draws from its item list;
+    this survives as the migration's ORACLE ("where did this block's ink land in 0.4.2")
+    and as the seed button's data, so treat it as frozen. There is no `CHEER_SUFFIX`:
+    `" BITS"` used to be welded on at render time, which is the one thing that made the
+    block Twitch-only, and it is now baked into the amount ITEM's text once, at
+    migration, by `takeoverAmountText`. Nothing appends anything when it draws.
+    The layout numbers reproduce the hand-built payload this was reverse-engineered
+    from, which printed correctly on the real rig: an 80 px picture at the top,
+    baselines 24/900, 19/700, 13/italic — except that the picture is reserved
+    **square** (a profile picture is square, and the carriers state only a width, so
+    a 1.4 reservation left a slab of white under it) and at least `CHEER_MIN_PIC_PX`
+    tall (see the render threshold above). The bits figure is **free text, not a
+    number** — `-100000` and `∞` are both jokes people want, and coercing it to a
+    number kills them.
     **Layout order is load-bearing:** reserve the TEXT's room first, then give the
     picture what is left. Sizing the picture first and clamping the text into the
     remainder drags the stack up into the picture's rectangle — and the picture is
@@ -335,6 +345,19 @@ Things already settled this way, so you don't have to re-derive them:
   SVG context, so `<text>` emitted *after* one is parsed as HTML and silently never
   drawn — the markup looks perfect and the print comes out blank. Measured. Anything
   riding in a `foreignObject` must be emitted **last** (see `buildTakeover`).
+- **A second `<foreignObject>` is one of those siblings, so there may only ever be ONE
+  per SVG.** Two pictures emitted as consecutive frames printed **31,792** ink pixels
+  at 203dpi/1-bit — the first picture's own count to the pixel — with the second one's
+  image XObject present in the PDF and never painted. Reproduced with two URLs, the
+  same URL twice, and every live carrier. Chromium draws both, so the preview, the
+  markup and the drop note all agree with each other and with nothing on the tape.
+  The fix (`takeoverPictures`): **one frame spanning the cover, every picture
+  absolutely positioned inside it.** The `position:relative` wrapper is load-bearing —
+  without it the boxes resolve against the *page's* initial containing block and the
+  whole stack lands at page coordinates; WebKit 534.34 does not make the frame a
+  containing block on its own. Each picture's box must stay shrink-to-fit, or the
+  receipt's inherited `text-align:center` re-centres the carrier and throws away the
+  alignment.
 - A **takeover** — an opaque `<rect>` in an SVG lifted with `margin-top:-Npt` —
   reliably paints out the bot's own header, and a message after it still flows
   below. The pull is per-rig: the header's height depends on the streamer's avatar.
@@ -410,9 +433,41 @@ Things already settled this way, so you don't have to re-derive them:
   which only a real cheer would exercise. And the list is a moving target — this is
   a snapshot, not a guarantee. Re-probe with the same four messages after any
   suspected block; it is free.
+  **Also not covered, and newer than that probe:** the Script and Papyrus entries no
+  longer emit `font-family="cursive"` / `"fantasy"` — they emit `"Segoe Script,cursive"`
+  and `"Papyrus,fantasy"`, which are new literal tokens, and the multi-picture takeover
+  emits `position:relative` / `position:absolute` in a `style=` attribute for the first
+  time. Worth adding to the next free probe round.
 - **All nine offered fonts are legible and distinct at 24px and 58px, at the
   printer's real 203dpi/1-bit dithering.** Checked on the real engine, not just
   in-browser.
+- **NEVER OFFER A BARE CSS GENERIC AS A FONT-MENU ENTRY.** How `cursive`, `fantasy`,
+  `serif` and `monospace` resolve is a property of the **streamer's machine**, not of
+  anything this repo can measure — so a generic in the menu is a control whose result
+  we do not know. FIELD-CONFIRMED 2026-08-10: the owner printed the two that were
+  bare, and `Script` (`cursive`) came out as **Comic Sans MS** while `Fantasy`
+  (`fantasy`) came out as **Impact** — the standard Windows mappings, and both already
+  in the list two rows up, so the nine-font menu was really seven. No bench here could
+  have caught it: macOS maps the same two generics to different faces (`fantasy` →
+  Papyrus). The rule: **name a face that exists on the target box and keep the generic
+  behind it as a fallback** (`Segoe Script,cursive`, `Papyrus,fantasy`), so the entry
+  can never be worse than the bare generic was, and label the entry with the face it
+  actually asks for. Ids never move — saved blocks reference them. `serif` and
+  `monospace` stay bare only because Windows maps them to Times New Roman and Courier
+  New, which duplicate nothing else in the list; that is a judgement, not an exemption.
+  Cost, measured at the 491-character flagship case: Script +22 → **+35**, Fantasy/
+  Papyrus +22 → **+30**.
+  **Bench note — REPEAT EVERY FONT RENDER HERE BEFORE CONCLUDING ANYTHING.** Font
+  resolution on this macOS wkhtmltopdf build is **non-deterministic on early renders**:
+  identical markup run five times gives a mix of the requested face and the default one,
+  as the font cache warms. Measured, same bytes each time: bare `Impact` came out stable
+  across five runs in one session and flapping (169,784 / 178,683 / 169,784 / 178,683 /
+  178,683 ink) in another, and the comma-list form flapped in the opposite direction.
+  A one-shot local render is therefore not evidence about anything.
+  (An earlier version of this note read the flapping as a *causal* rule — that bare
+  family names fail here while comma-lists work. That was wrong, and it is recorded
+  rather than deleted because it is exactly the shape of mistake this file exists to
+  stop: a real observation, one sample deep, written up as a mechanism.)
 - **Bold (700) and Black (900) are pixel-identical on Arial.** The markup differs
   (`font-weight="700"` vs `"900"`) but the rasters are **MD5-identical on the real
   engine**, at both 24px and 58px. Chromium agrees, but that half was checked by

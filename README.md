@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.5.0" src="https://img.shields.io/badge/version-0.5.0-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.6.0" src="https://img.shields.io/badge/version-0.6.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -27,7 +27,10 @@ Receipt Wrecker is a **single-file, dependency-free** web tool. You build a
 - **Image** — a real picture (printed as an actual image) or glyph-art (the
   picture tiled into monospace characters, which nothing can filter).
 - **Takeover** — paints over printer-bot's own header so the tape reads as your
-  artwork. Two styles: your own lines, or a **fake cheer** laid out like a real one.
+  artwork. An ordered list of text and picture items, in any order, with a
+  **Seed fake donation** button for the classic header arrangement.
+- **Presets** — save the whole stack under a name and export it as JSON, so a setup
+  survives the next stream and the next browser.
 
 The output is **one newline-free line per message**, sized to Twitch's 500-character
 limit. The glyph engine runs entirely in your browser; the optional image upload and
@@ -220,19 +223,25 @@ header used to be. Anything below it in the stack still prints as normal underne
 - Budget: a three-line takeover is ~350 chars, and a takeover **plus** a full picture
   payload still fits one 100-bit cheer (458 of 500).
 
-### Two styles
+### An item list, and a seed for the usual arrangement
 
-**Blank** gives you three free lines and an optional picture, bottom-anchored to the
-area it paints over.
+A takeover holds an ordered list of **items** — text or picture, any number, in any
+order. Each carries its own font, size, formatting, alignment and nudge; the block
+carries one **anchor** (top / centre / bottom) and the **reach up** calibration. There
+is no style selector any more: the two old styles were both item lists, and having them
+be mutually exclusive meant you could not have a fake cheer *and* your own lines.
 
-**Fake cheer** arranges the same overlay the way printer-bot arranges a real one —
-picture on top, then the amount, then the name, then an italic message. Type the amount
-in full — ` BITS` is no longer appended for you, because the same printer-bot runs on
-YouTube and Kick and their headers say neither "BITS" nor anything like it. It's free
-text rather than a number, so `-100000 BITS`, `$50.00`, `1,000 Kicks` and `∞` all work.
+**Seed fake donation** fills an empty takeover with the four-item arrangement
+printer-bot's own header uses — picture on top, then the amount, then the name, then an
+italic message. After seeding they are ordinary items: edit them, reorder them, delete
+them, add more around them. Type the amount in full — ` BITS` is not appended for you,
+because the same printer-bot runs on YouTube and Kick and their headers say neither
+"BITS" nor anything like it. It's free text rather than a number, so `-100000 BITS`,
+`$50.00`, `1,000 Kicks` and `∞` all work.
 
-- The layout follows the hand-built payload this was reverse-engineered from — picture
+- The seed reproduces the hand-built payload this was reverse-engineered from — picture
   up top, then three lines sized 24/19/13, each with the formatting row described above.
+  Those sizes are a starting point now rather than a rule; the items are yours to change.
   Formatting doesn't touch the picture's own sizing, which the print engine forced two
   corrections onto. The picture is reserved **square** (a profile picture is square, and the carrier tags
   state only a width, so reserving 1.4× left a slab of white under it), and it is at
@@ -254,6 +263,36 @@ text rather than a number, so `-100000 BITS`, `$50.00`, `1,000 Kicks` and `∞` 
   takeover is one SVG and can't be split, so Twitch rejects the message and nothing
   prints at all. Watch the counter; it turns red before you send. **Upload for a 15-min
   link** on an Image block mints the shortest link there is.
+
+### Continuation covers — why the second receipt used to look wrong
+
+A takeover paints over printer-bot's header on the receipt it rides on, and no other.
+So a stack too big for one cheer used to come off the tape as one piece of artwork
+followed by a stack of ordinary receipts, each with the bot's header back on it. That
+was the whole of "blocks after a takeover are broken".
+
+Every part after the first now repaints the header with a plain **continuation cover** —
+the same white box at the same reach, built by the same code as the takeover it
+continues, so the two can't drift apart. It costs **106 characters per extra part**, and
+there's a stack-level toggle next to the bits control to spend them on content instead.
+
+The characters are *reserved*, not just prepended, and that distinction is the feature:
+Twitch **rejects** an over-length message rather than truncating it, so a cover added
+without making room for it would push every later part over 500 and the tail of your run
+would simply never send.
+
+### Presets — a setup that survives the stream
+
+**Presets** save the whole block stack under a name: save, load, rename, delete. Because
+`localStorage` is per-browser and per-device, you can also **export the lot as JSON** and
+paste it into another browser's Import box — a setup you can't move is one cache clear
+from gone.
+
+One honest caveat, designed for rather than ignored: an **uploaded** picture's link dies
+after 15 minutes. A preset that used one loads with that block flagged in red —
+*this picture's link has expired, re-upload it* — because a message that sends, spends
+your bits and prints blank paper is the worst thing this app can do. Only links this app
+minted are checked; a pasted third-party URL has no such clock and is left alone.
 
 The tape isn't a record of anything — Twitch's bits ledger is server-side, and the
 cheer that triggers the print carries your real name in chat where the whole room sees

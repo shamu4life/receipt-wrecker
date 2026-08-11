@@ -749,10 +749,27 @@
   function takeoverLineText(t) { return String(t == null ? "" : t).replace(/[\r\n\t]+/g, " ").trim(); }
   // The ONLY font families offered, and every one was rendered through printer-bot's
   // own binary (wkhtmltopdf 0.12.6 patched-qt) at both 24px and 58px before being
-  // listed — at 203dpi 1-bit they are visibly distinct shapes, not mush. The four
-  // generics always resolve somewhere; the named ones are core Windows fonts, which is
-  // what the streamer's box runs. An unverified family is a silent fallback that looks
-  // like the control not working, so nothing else goes in this table.
+  // listed — at 203dpi 1-bit they are visibly distinct shapes, not mush. The named ones
+  // are core Windows fonts, which is what the streamer's box runs. An unverified family
+  // is a silent fallback that looks like the control not working, so nothing else goes
+  // in this table.
+  //
+  // NEVER OFFER A BARE CSS GENERIC AS A MENU ENTRY. `cursive` and `fantasy` shipped as
+  // "Script" and "Fantasy", and the owner printed them: Script came out as COMIC SANS MS
+  // and Fantasy came out as IMPACT — the standard Windows mappings of those two generics.
+  // Both entries were duplicates of fonts already two rows up, so a nine-font menu was
+  // really seven, and no bench here could see it because macOS maps the same generics to
+  // different faces. A generic resolves on the STREAMER'S machine, which is not a
+  // property this table gets to know: name a face that exists there and keep the generic
+  // behind it as the fallback, so the entry can never be worse than the bare generic was.
+  // `serif` and `monospace` stay bare deliberately — Times New Roman and Courier New are
+  // what Windows maps them to and neither duplicates anything else in the list.
+  //
+  // Segoe Script ships with Windows Vista onward; Papyrus ships with Windows 7 onward and
+  // is genuinely unlike the Impact and Arial Black heavies already here, which is why the
+  // Fantasy slot is relabelled to the face it now actually names. The ids do not move —
+  // saved blocks reference them.
+  //
   // `css` is what reaches the markup; "" means emit no font-family at all (Arial is
   // the receipt's own default and costs zero characters).
   var FONTS = [
@@ -763,8 +780,8 @@
     { id: "georgia", label: "Georgia",         css: "Georgia" },
     { id: "serif",   label: "Serif",           css: "serif" },
     { id: "mono",    label: "Monospace",       css: "monospace" },
-    { id: "script",  label: "Script",          css: "cursive" },
-    { id: "fantasy", label: "Fantasy",         css: "fantasy" }
+    { id: "script",  label: "Script",          css: "Segoe Script,cursive" },
+    { id: "fantasy", label: "Papyrus",         css: "Papyrus,fantasy" }
   ];
   function getFont(id) {
     for (var i = 0; i < FONTS.length; i++) if (FONTS[i].id === id) return FONTS[i];
@@ -811,17 +828,63 @@
       + (anchor ? ' text-anchor="' + anchor + '"' : "")
       + fmtAttrs(l.fmt) + '>' + escapeHtml(l.text) + '</text>';
   }
-  // The ONE place a takeover's picture becomes markup, shared by the legacy lines path
-  // and the item path so the framed-carrier rules (and the 23-char clamp saving) cannot
-  // exist in two versions. p = {x, y, w, h, url, carrier}.
+  // The ONE place a takeover's picture becomes a CARRIER TAG, shared by every form
+  // below so the framed-carrier rules (and the 23-char clamp saving) cannot exist in
+  // two versions. p = {x, y, w, h, url, carrier}.
+  // framed: the box around this tag is a fixed one the tag already fills, so the
+  // body-width clamp is a no-op here and is 23 chars we need. See clampAttr.
+  function takeoverPicTag(p) {
+    return buildImageEmbed(p.carrier, { url: p.url, w: p.w, h: p.h,
+                                        mm: Math.round(p.w / 3.75), framed: true });
+  }
+  // ONE picture, in its own <foreignObject>. Byte-frozen: this exact string is what the
+  // legacy lines path emits and what a one-picture item list emits, and the 479/491-char
+  // budget plus the migration's byte-identity tests both rest on it.
   function takeoverPicture(p) {
     return '<foreignObject x="' + p.x + '" y="' + p.y + '" width="' + p.w
-      + '" height="' + p.h + '">'
-      // framed: the foreignObject above is a fixed box the tag already fills, so the
-      // body-width clamp is a no-op here and is 23 chars we need. See clampAttr.
-      + buildImageEmbed(p.carrier, { url: p.url, w: p.w, h: p.h,
-                                     mm: Math.round(p.w / 3.75), framed: true })
-      + '</foreignObject>';
+      + '" height="' + p.h + '">' + takeoverPicTag(p) + '</foreignObject>';
+  }
+  // TWO OR MORE PICTURES CANNOT BE SIBLINGS. A <foreignObject> is an HTML integration
+  // point and it swallows every SVG sibling that FOLLOWS it — a second <foreignObject>
+  // is one of those siblings. MEASURED on the real engine at 203dpi/1-bit: two pictures
+  // emitted as consecutive frames laid down 31,792 ink pixels, which is the first
+  // picture ALONE to the pixel; the second one's image XObject is in the PDF and is
+  // never painted. The preview (Chromium) draws both, so this is invisible until it
+  // reaches paper, and the dead picture still costs ~134 characters of a 500-char
+  // budget. Reproduced with two URLs, the same URL twice, and every live carrier.
+  //
+  // So: ONE frame spanning the whole cover, with the pictures absolutely positioned
+  // inside it at the coordinates takeoverPlace already computed. Measured on the same
+  // rig: both pictures draw, at the same coordinates the sibling form put the first one,
+  // and text emitted before the frame still prints under it.
+  //
+  // THE `position:relative` WRAPPER IS LOAD-BEARING, and it is not tidiness. Without it
+  // the absolutely positioned boxes resolve against the page's initial containing block
+  // — the streamer's receipt page, not the takeover — and MEASURED, the whole stack
+  // landed at page coordinates instead: every picture shifted, and the second one printed
+  // on top of the text. WebKit 534.34 does not make the <foreignObject> a containing
+  // block on its own.
+  //
+  // Each picture's own box is shrink-to-fit around the carrier tag, which is what keeps
+  // the x honest: the receipt's `text-align:center` inherits straight through the HTML
+  // integration point, and a full-width box would re-centre the tag inside it and throw
+  // away the alignment. It also means nothing here depends on the bot's stylesheet.
+  //
+  // ONE ACCEPTED COST, and it is the same trade the nudge makes. The single-picture frame
+  // is exactly w x h and CROPS a source whose aspect is taller than the slot it was given;
+  // these boxes do not, so such a source overflows onto whatever is below it instead. That
+  // is visible in the preview, which draws this same markup — and the alternative
+  // (`height:Npx;overflow:hidden` on every box) is 28 characters each, on the arrangement
+  // that is already the closest to the 500-char ceiling.
+  function takeoverPictures(pics, W, H) {
+    if (pics.length < 2) return pics.length ? takeoverPicture(pics[0]) : "";
+    var out = '<foreignObject width="' + W + '" height="' + H
+      + '"><div style="position:relative">', i;
+    for (i = 0; i < pics.length; i++) {
+      out += '<div style="position:absolute;left:' + pics[i].x + 'px;top:' + pics[i].y
+        + 'px">' + takeoverPicTag(pics[i]) + '</div>';
+    }
+    return out + '</div></foreignObject>';
   }
   // A stored per-line fmt merged over this slot's defaults. `null`/absent means "never
   // touched", which must reproduce the old hardcoded look exactly.
@@ -862,7 +925,8 @@
     // down, next to the CHEER_* constants they read; function declarations hoist, which
     // is the same reason this function can already call buildImageEmbed.
     if (o.items) {
-      out += takeoverEmit(takeoverPlace(takeoverItems(o.items, o.carrier), b, o.anchor, W));
+      out += takeoverEmit(takeoverPlace(takeoverItems(o.items, o.carrier), b, o.anchor, W),
+                          W, b.h);
       return '<svg width="' + W + '" height="' + b.h + '" style="margin-top:-' + b.pullPt + 'pt">'
         + out + '</svg>';
     }
@@ -1112,6 +1176,73 @@
     var room = b.h - height;
     return room >= floor ? Math.max(floor, Math.min(top, room)) : floor;
   }
+  // How much of the covered area an anchor can actually put a stack in. The mirror of
+  // takeoverAnchorY's three cases, and it has to STAY the mirror: a top-anchored stack
+  // starts at the lift cap and runs to the bottom of the box, a bottom-anchored one ends
+  // TAKEOVER_BOTTOM_PX above the message, and a centred one has the whole box.
+  function takeoverRoom(anchor, b) {
+    if (anchor === "top") return b.h - Math.max(CHEER_TOP_PX, b.pullPx - CHEER_MAX_LIFT_PX);
+    if (anchor === "centre") return b.h;
+    return b.pullPx - TAKEOVER_BOTTOM_PX;
+  }
+  // RESERVE THE TEXT'S ROOM FIRST, THEN GIVE THE PICTURES WHAT IS LEFT.
+  //
+  // 0.4.2's buildFakeCheer did this and the item engine arrived without it, so the
+  // picture won and the text was dropped instead. MEASURED, same content, 120px width:
+  // pull 160 and up was byte-identical, 140 printed 2 of 3 lines, 120 printed 1 of 3,
+  // 100 printed none of them and just the avatar, and 60 — the slider's minimum —
+  // printed a blank 105-character slab. 0.4.2 printed all three lines at every one of
+  // those pulls, because it shrank the avatar into the room the lines had not claimed
+  // and dropped it when that room fell under CHEER_MIN_PIC_PX.
+  //
+  // THE ORDER IS THE POINT, and there is a scar behind it: sizing the picture first and
+  // clamping the text into the remainder let buildTakeover's clamp drag the stack UP
+  // into the picture's rectangle, and since the picture paints last it erased the line.
+  // Measured on the real engine — the default pull at the maximum width rendered
+  // "-100000 BITS" with zero visible ink while every test still passed.
+  //
+  // Shrinking is proportional, so a stack of pictures keeps its relative sizes and every
+  // aspect ratio survives. A picture that cannot clear the floor is not shrunk into a
+  // smear that still costs ~90 characters: the LAST one is dropped and the fit runs
+  // again, so the first picture — the avatar an arrangement is usually built around — is
+  // the last to go.
+  //
+  // NOT APPLIED TO A LAYOUT SOMEBODY HAS PINNED. A nudge means "this one thing sits
+  // here", which is exactly the promise re-flowing would break, and every migrated
+  // 0.4.2 blank takeover carries nudges that hold it on the pixels it was tuned on. A
+  // migrated FAKE CHEER carries none — its nudges all compute to zero, which is the
+  // canary that the two layouts agree — and it needs none: buildFakeCheer's own
+  // room-first pass reserved `box.h - top - textNeed`, which is this budget to the
+  // pixel, so the fit finds nothing to do and the bytes cannot move. takeoverPinToInk
+  // deliberately does NOT run this, for the same reason: it is pinning to what the old
+  // renderer drew, which has already been through 0.4.2's version of it.
+  function takeoverFit(items, b, anchor) {
+    var budget = takeoverRoom(anchor, b), out = items, i, it, pics, total, over, scale, next, last;
+    for (i = 0; i < items.length; i++) if (items[i].nudge) return items;
+    for (;;) {
+      over = takeoverStack(out).height - budget;
+      if (over <= 0) return out;
+      pics = 0; total = 0;
+      for (i = 0; i < out.length; i++) if (out[i].kind === "pic") { pics++; total += out[i].h; }
+      if (!pics) return out;      // text alone overflows: the overflow rule drops its tail
+      scale = (total - over) / total;
+      next = [];
+      for (i = 0; i < out.length; i++) {
+        it = out[i];
+        if (it.kind !== "pic") { next.push(it); continue; }
+        // floor, not round: a pixel over is a pixel of the text's room, and with one
+        // picture this is exactly 0.4.2's `if (aw > room) aw = room`.
+        it = { kind: "pic", url: it.url, w: Math.floor(it.w * scale), h: Math.floor(it.h * scale),
+               carrier: it.carrier, align: it.align, nudge: it.nudge };
+        if (it.w < CHEER_MIN_PIC_PX || it.h < CHEER_MIN_PIC_PX) { next = null; break; }
+        next.push(it);
+      }
+      if (next) return next;
+      last = -1;
+      for (i = 0; i < out.length; i++) if (out[i].kind === "pic") last = i;
+      out = out.slice(0, last).concat(out.slice(last + 1));
+    }
+  }
   // Text x by align. 4px in from each edge, the centre on the true centre.
   function takeoverTextX(align, W) {
     return align === "left" ? 4 : align === "right" ? W - 4 : Math.round(W / 2);
@@ -1122,6 +1253,7 @@
   // Normalized items -> drawn placements, in STACK order. Emission reorders; this does
   // not. `anchor` is block-level; each item's nudge moves only itself.
   function takeoverPlace(items, b, anchor, W) {
+    items = takeoverFit(items, b, anchor);
     var s = takeoverStack(items), y0 = takeoverAnchorY(anchor, b, s.height);
     var out = [], i, p, it, top;
     for (i = 0; i < s.placed.length; i++) {
@@ -1146,10 +1278,13 @@
     return out;
   }
   // Placements -> markup. EVERY <text> BEFORE EVERY <foreignObject>, whatever the stack
-  // order was — see the foreignObject note above takeoverItems. The one <g> states the
-  // centre so the common case pays for it once; no text means no empty group.
-  function takeoverEmit(placed) {
-    var text = "", pics = "", i, p, mid = 0;
+  // order was — see the foreignObject note above takeoverItems. And EVERY PICTURE IN ONE
+  // <foreignObject> once there are two of them, because a second frame is a sibling and
+  // the first one eats it: see takeoverPictures for what that measured like on paper.
+  // The one <g> states the centre so the common case pays for it once; no text means no
+  // empty group.
+  function takeoverEmit(placed, W, H) {
+    var text = "", pics = [], i, p, mid = 0;
     for (i = 0; i < placed.length; i++) if (placed[i].kind === "text" && !placed[i].anchor) mid++;
     // The group states `middle` once, for 31 characters. That only pays for itself from
     // the SECOND centred item on — with one, spelling the anchor out on it costs 21, and
@@ -1158,11 +1293,11 @@
     var group = mid >= 2;
     for (i = 0; i < placed.length; i++) {
       p = placed[i];
-      if (p.kind !== "text") { pics += takeoverPicture(p); continue; }
+      if (p.kind !== "text") { pics.push(p); continue; }
       text += takeoverText(p.x, p.y, p.size, p, p.anchor || (group ? "" : "middle"));
     }
     if (text && group) text = '<g text-anchor="middle">' + text + '</g>';
-    return text + pics;
+    return text + takeoverPictures(pics, W, H);
   }
   // What the caller ASKED to draw, counted off the item list — the other half of
   // takeoverReport's comparison, so the UI can say "2 of 3". Counting inputs is not a
@@ -1221,7 +1356,15 @@
   // reads it, and because "is there a picture at all" is still the useful question
   // when there is only ever one.
   function takeoverReport(html, wantLines, wantPicture) {
-    var pics = (String(html).match(/<foreignObject/g) || []).length;
+    // COUNTING THE FRAMES IS NOT COUNTING THE PICTURES ANY MORE. Two or more pictures
+    // share ONE <foreignObject> (see takeoverPictures), so a frame count would report
+    // "1 of 2" for the arrangement that works and — before the fix — reported "2 of 2"
+    // for the one that printed a single picture. Count the positioned boxes, which is
+    // one per picture in that form, and fall back to the frame count for the
+    // single-picture form, which has none. Whichever is larger is the number of
+    // pictures the markup actually draws.
+    var pics = Math.max((String(html).match(/<foreignObject/g) || []).length,
+                        (String(html).match(/position:absolute/g) || []).length);
     var want = typeof wantPicture === "number" ? wantPicture : (wantPicture ? 1 : 0);
     return {
       linesDrawn: (String(html).match(/<text/g) || []).length,
@@ -2914,7 +3057,17 @@
       // is not sent, where 0.4.2 sent a blank white slab. Not silent: the card's drop note
       // reads the TYPED fields, so it still says the picture didn't fit and to raise the
       // pull. Pinned in test/takeover-migrate.test.mjs.
-      if (b.type === "takeover") return takeoverItems(b.items).length > 0;
+      //
+      // AND IT HAS TO SURVIVE THE LAYOUT, not merely exist. Having an item is not having
+      // ink: at a short pull the cover is smaller than the stack, and everything in it
+      // can be dropped by the fit and the overflow rule between here and the markup. That
+      // shipped a 105-character white slab that erased the header and put nothing in its
+      // place — a whole cheer spent on blank tape. Asking the placement is asking the code
+      // that decides, rather than keeping a second copy of when a takeover comes out empty.
+      if (b.type === "takeover") {
+        return takeoverPlace(takeoverItems(b.items, b.renderAs), takeoverBox(b.pullPt),
+                             b.anchor, PAPER_PX).length > 0;
+      }
       if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
       return !!(b.text && String(b.text).trim());
     }
@@ -3116,10 +3269,11 @@
             + "streamer's PC doesn't have it, it draws something else, the strip is the "
             + "wrong length, and the last letters shear off. Default (Arial) is the safe "
             + "pick for sideways."
-          : "The preview uses your fonts; the printer uses the streamer's. Serif, "
-            + "Monospace, Script and Fantasy always resolve to something; the named "
-            + "fonts are standard on Windows. If it isn't there it falls back — one test "
-            + "print settles it.";
+          : "The preview uses your fonts; the printer uses the streamer's. Every font here "
+            + "is standard on Windows, and Script and Papyrus keep a generic behind them so "
+            + "they still draw something if they aren’t. Serif and Monospace are generics, "
+            + "which means the streamer’s PC picks the face. If a font isn’t there it falls "
+            + "back — one test print settles it.";
       };
       fmtWrap.appendChild(fontNote);
       syncFontNote();
@@ -3595,9 +3749,14 @@
       // FORMATTING IS PAYLOAD TOO, and the hint has to say so: every control on a line
       // emits an SVG attribute. Measured at the flagship case (39-char minted link, all
       // three seeded lines, name “IRS”, w=263 = PAPER_PX), base 491/500:
-      //   italic +20  Serif +20  Impact +21  Georgia/Script/Fantasy +22  Monospace +24
-      //   Arial Black +26  underline +28  Comic Sans MS +28  strikethrough +31
+      //   italic +20  Serif +20  Impact +21  Georgia +22  Monospace +24  Arial Black +26
+      //   underline +28  Comic Sans MS +28  Papyrus +30  strikethrough +31  Script +35
       //   underline + strikethrough together +41
+      // Script and Papyrus used to be +22 each, when they were the bare `cursive` and
+      // `fantasy` generics — which the rig printed as Comic Sans MS and Impact, i.e. as
+      // two fonts already in the list. Naming the real face and keeping the generic behind
+      // it (see FONTS) is what costs the extra 13 and 8, and it buys two fonts the menu
+      // did not actually have.
       // THE “ANY ONE OF THEM GOES OVER” LINE IS ONLY TRUE AT THAT 491 BASE, which needs all
       // three lines filled. Drop a line and the headroom is real: two lines + the picture
       // measure 419 (so +41 lands at 460, fits), and one short line + the picture measures
@@ -3610,7 +3769,7 @@
       card.appendChild(mkEl("div", { "class": "hint" },
         "Every item is payload. A picture and three lines nearly fills the message — about "
         + "491 of 500 with a short name — so watch the counter. Formatting counts too: a "
-        + "font, italic, underline or strikethrough costs 20–31 characters on the item you "
+        + "font, italic, underline or strikethrough costs 20–35 characters on the item you "
         + "set it on (41 for underline and strikethrough together), so at 491 any one of "
         + "them tips it over. Leave an item out and there is room: two lines with a picture "
         + "start near 419, one line near 350, which absorbs even the 41. Two that surprise "

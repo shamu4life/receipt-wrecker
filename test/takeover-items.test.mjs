@@ -14,6 +14,13 @@ const W = 263;
 
 // Parse a built overlay back into geometry. Every assertion below is about what lands
 // on paper, not about the shape of the string — same discipline as takeoverReport.
+//
+// THERE ARE TWO PICTURE FORMS AND BOTH HAVE TO BE READ HERE. One picture rides in its
+// own <foreignObject>, which states its box. Two or more share ONE frame and are
+// positioned inside it, because a second frame is an SVG sibling and the first frame
+// eats it — see takeoverPictures. The shared form states no per-picture HEIGHT (nothing
+// clips there, so there is nothing to state), so `h` comes back NaN: an assertion that
+// needs a height then fails loudly instead of quietly comparing against a zero.
 function geom(html) {
   const texts = [...html.matchAll(/<text x="(-?\d+)" y="(-?\d+)" font-size="(\d+)"([^>]*)>([^<]*)</g)]
     .map((m) => ({
@@ -23,8 +30,17 @@ function geom(html) {
     }));
   const pics = [...html.matchAll(/<foreignObject x="(-?\d+)" y="(-?\d+)" width="(\d+)" height="(\d+)"/g)]
     .map((m) => ({ x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]), at: m.index }));
+  for (const m of html.matchAll(/<div style="position:absolute;left:(-?\d+)px;top:(-?\d+)px">(.*?)<\/div>/g)) {
+    pics.push({ x: Number(m[1]), y: Number(m[2]),
+                w: Number((m[3].match(/width[=:]"?(\d+)/) || [, NaN])[1]), h: NaN, at: m.index });
+  }
   return { texts, pics };
 }
+// How many <foreignObject> frames the markup carries. ONE is the only correct answer
+// when there is any picture at all: a frame is an HTML integration point that swallows
+// every SVG sibling after it, so a second frame means every picture but the first is
+// dead on paper while the preview draws them all.
+const frames = (html) => (html.match(/<foreignObject/g) || []).length;
 
 // The fake cheer's arrangement, as items: a picture then three lines.
 const CHEER_ITEMS = [
@@ -113,11 +129,66 @@ test("a picture between two text runs pushes the second run down past it", () =>
     "the second line should sit below the picture: " + JSON.stringify(g));
 });
 
-test("two pictures stack, both drawn, separated by the gap", () => {
+test("two pictures stack, both DRAWN — one frame, never two", () => {
+  // THE THING THAT PRINTS, NOT THE THING THAT PARSES. An earlier version of this test
+  // counted <foreignObject> elements and passed on markup that laid down ONE picture:
+  // measured on the real engine at 203dpi/1-bit, two frames emitted as siblings printed
+  // 31,792 ink pixels, the first picture's own count to the pixel, while the second
+  // one's image XObject sat unused in the PDF. Chromium draws both, so the preview and
+  // the drop note agreed with each other and with nothing on the tape.
+  //
+  // So the assertion is the frame count. One frame is the whole fix — every picture
+  // positioned inside it — and two frames is the bug, whatever the picture count says.
   const items = [{ kind: "pic", url: PIC, width: 120 }, { kind: "pic", url: PIC, width: 120 }];
-  const g = geom(C.buildTakeover({ items, anchor: "top", carrier: "embed", pullPt: 400, w: W }));
+  const html = C.buildTakeover({ items, anchor: "top", carrier: "embed", pullPt: 400, w: W });
+  assert.equal(frames(html), 1, "a second <foreignObject> is a sibling and never prints: " + html);
+  const g = geom(html);
   assert.equal(g.pics.length, 2, "two pictures is the arrangement the old model couldn't do");
-  assert.equal(g.pics[1].y, g.pics[0].y + g.pics[0].h + C.CHEER_GAP_PX);
+  // Both carriers are really in the string — the same URL twice must not collapse to one.
+  assert.equal((html.match(/<embed /g) || []).length, 2, "a picture lost its carrier tag");
+  // 120px square, so the second sits a gap below the first.
+  assert.equal(g.pics[1].y, g.pics[0].y + 120 + C.CHEER_GAP_PX);
+  eq(g.pics.map((p) => p.w), [120, 120]);
+});
+
+test("no arrangement of pictures ever emits a second <foreignObject>", () => {
+  // The guard, swept rather than spot-checked: any count, any order against text, any
+  // alignment, any anchor. One frame or none — a second one silently kills every picture
+  // after it, and nothing downstream of the markup can see that happen.
+  const pic = (o) => ({ kind: "pic", url: PIC, width: 120, ...o });
+  const sets = [
+    [pic()],
+    [pic(), pic()],
+    [pic(), pic(), pic()],
+    [pic({ align: "left" }), pic({ align: "right", nudge: -152 }), pic()],
+    [L3[0], pic(), L3[1], pic(), L3[2]],
+    [pic(), L3[0], pic({ align: "left" })],
+    [pic(), pic({ carrier: "input" }), pic({ carrier: "img" })],
+  ];
+  for (const anchor of ["top", "centre", "bottom"]) {
+    for (const items of sets) {
+      for (const pullPt of [220, 240, 400]) {
+        const html = C.buildTakeover({ items, anchor, carrier: "embed", pullPt, w: W });
+        assert.ok(frames(html) <= 1,
+          "two frames at " + anchor + "/" + pullPt + ": " + html);
+        // And every picture that survived placement really is in the string.
+        assert.equal(geom(html).pics.length,
+          (html.match(/<embed |<input |<img /g) || []).length,
+          "a placed picture lost its box or a box lost its picture: " + html);
+      }
+    }
+  }
+});
+
+test("ONE picture keeps the exact frame the budget was measured against", () => {
+  // 479 body / 491 with the cheer token, and the migration's byte-identity tests, all
+  // rest on this string. The multi-picture form must not leak into the single-picture
+  // case to make the code tidier.
+  const html = C.buildTakeover({ items: [{ kind: "pic", url: PIC, width: 120 }],
+                                 anchor: "top", carrier: "embed", pullPt: 240, w: W });
+  assert.ok(html.includes('<foreignObject x="72" y="6" width="120" height="120">'
+                          + '<embed src="' + PIC + '" width="120"></foreignObject>'), html);
+  assert.ok(!html.includes("position:"), "the single picture must not grow a wrapper: " + html);
 });
 
 // ── ANCHOR ──────────────────────────────────────────────────────────────────
@@ -332,6 +403,145 @@ test("nothing is ever drawn outside the painted cover, at any reachable setting"
       }
     }
   }
+});
+
+// ── ROOM FIRST ──────────────────────────────────────────────────────────────
+
+test("the text's room is reserved FIRST — the picture shrinks or goes, the lines stay", () => {
+  // The rule 0.4.2's buildFakeCheer had and the item engine arrived without. MEASURED
+  // before the fix, same content at 120px: pull 160 and up byte-identical, 140 printed
+  // 2 of 3 lines, 120 printed 1 of 3, 100 printed none of them and just the avatar, and
+  // 60 — the slider's minimum — printed a blank 105-character slab. 0.4.2 printed all
+  // three lines at every one of those pulls.
+  for (const width of [120, 160, 240]) {
+    const items = [{ ...CHEER_ITEMS[0], width }, ...CHEER_ITEMS.slice(1)];
+    for (const pullPt of [60, 80, 100, 120, 140, 150, 160, 200, 240, 300, 400]) {
+      const g = geom(C.buildTakeover({ items, anchor: "top", carrier: "embed", pullPt, w: W }));
+      assert.equal(g.texts.length, 3,
+        "a line was dropped to keep the picture at pull " + pullPt + " width " + width);
+    }
+  }
+});
+
+test("a shrunk picture is EXACTLY the size 0.4.2 shrank it to", () => {
+  // buildFakeCheer reserved `box.h - top - textNeed` and clamped the avatar into it, and
+  // that sum is what takeoverRoom has to land on. Asked of the frozen 0.4.2 renderer
+  // rather than restated here — the same discipline the migration uses, and the only
+  // check that can catch the two drifting apart.
+  //
+  // THE SIZE, NOT THE WHOLE STRING, and the difference is worth knowing. Where the fit
+  // bites, 0.4.2 also pulled its TEXT up 6px (buildTakeover's `maxStart` keeps the last
+  // descender 6px inside the box), which squeezed its own CHEER_GAP_PX to 26. The item
+  // engine keeps the tuned gap and lets the stack end at the bottom of the cover — the
+  // overflow rule already guarantees nothing lands outside it. Same avatar, same lines,
+  // 6px lower. That difference predates this test at width 240 / pull 300+, where no
+  // shrinking happens at all.
+  const picW = (html) => Number((html.match(/foreignObject[^>]*width="(\d+)"/) || [, NaN])[1]);
+  let shrunk = 0;
+  for (const pullPt of [160, 180, 200, 220, 240, 300, 400]) {
+    for (const width of [120, 160, 200, 240]) {
+      const items = [{ ...CHEER_ITEMS[0], width }, ...CHEER_ITEMS.slice(1)];
+      const mine = C.buildTakeover({ items, anchor: "top", carrier: "embed", pullPt, w: W });
+      const old = C.buildFakeCheer({ bits: "-100000 BITS", name: "IRS", note: "tax lien",
+                                     avatar: PIC, avatarW: width, carrier: "embed", pullPt, w: W });
+      const where = " at pull " + pullPt + " width " + width;
+      assert.equal(picW(mine), picW(old), "the shrink disagrees with 0.4.2" + where);
+      assert.equal(geom(mine).texts.length, 3, "a line was dropped" + where);
+      if (picW(mine) < width) shrunk++;
+    }
+  }
+  assert.ok(shrunk >= 8, "the grid stopped reaching the shrink cases: " + shrunk);
+  // The headline: 240px at the default pull comes out at 236 with all three lines, where
+  // before this it stayed 240 and cost the note line.
+  const g = geom(C.buildTakeover({ items: [{ ...CHEER_ITEMS[0], width: 240 }, ...CHEER_ITEMS.slice(1)],
+                                   anchor: "top", carrier: "embed", pullPt: 240, w: W }));
+  assert.equal(g.pics[0].w, 236);
+  assert.equal(g.texts.length, 3);
+  // And where nothing needs shrinking the bytes are still 0.4.2's, exactly.
+  for (const pullPt of [160, 200, 240, 300, 400]) {
+    assert.equal(
+      C.buildTakeover({ items: CHEER_ITEMS, anchor: "top", carrier: "embed", pullPt, w: W }),
+      C.buildFakeCheer({ bits: "-100000 BITS", name: "IRS", note: "tax lien", avatar: PIC,
+                         carrier: "embed", pullPt, w: W }),
+      "the untouched case moved at pull " + pullPt);
+  }
+});
+
+test("a picture that cannot clear the printable floor is dropped, never smeared", () => {
+  // Under ~120 drawn px a picture does not render inside a lifted takeover at all (see
+  // CHEER_MIN_PIC_PX) — shrinking past that buys blank paper for ~90 characters. Swept:
+  // nothing in the reachable space ever emits a box under the floor.
+  for (const pullPt of [60, 100, 120, 140, 155, 160, 220, 240, 400]) {
+    for (const anchor of ["top", "centre", "bottom"]) {
+      for (const width of [120, 160, 240]) {
+        const items = [{ ...CHEER_ITEMS[0], width }, ...CHEER_ITEMS.slice(1)];
+        const g = geom(C.buildTakeover({ items, anchor, carrier: "embed", pullPt, w: W }));
+        for (const p of g.pics) {
+          assert.ok(p.w >= C.CHEER_MIN_PIC_PX,
+            "emitted a " + p.w + "px picture at " + pullPt + "/" + anchor + " — it prints nothing");
+        }
+      }
+    }
+  }
+});
+
+test("when several pictures cannot fit, the LAST one goes first", () => {
+  // The arrangement is usually built around the first picture — an avatar at the top of
+  // a header — so it is the last to give way, and the fit runs again after each drop
+  // rather than shrinking everything into the floor.
+  const pic = { kind: "pic", url: PIC, width: 120 };
+  const line = { kind: "text", text: "ONE", size: 20 };
+  const at = (pullPt, anchor) => geom(C.buildTakeover({ items: [pic, pic, pic, line], anchor,
+                                                        carrier: "embed", pullPt, w: W })).pics.length;
+  // Anchor CENTRE for the roomy end: at anchor top the lift cap holds the usable room at
+  // CHEER_MAX_LIFT_PX however far the slider goes, so three pictures and a line never fit
+  // there — which is the cap doing its job, not the fit.
+  assert.equal(at(400, "centre"), 3, "all three should fit a 573px cover");
+  assert.ok(at(240, "top") < 3, "three 120px pictures cannot fit a 360px cover");
+  assert.ok(at(240, "top") >= 1, "and the first one should survive");
+  // Monotone: less room never means more pictures.
+  const counts = [400, 300, 240, 160, 100, 60].map((p) => at(p, "top"));
+  for (let i = 1; i < counts.length; i++) {
+    assert.ok(counts[i] <= counts[i - 1], "picture count went UP as the cover shrank: " + counts);
+  }
+  assert.equal(counts[counts.length - 1], 0, "at the slider's minimum every picture should go");
+  // The line survives all of it — that is the whole point of reserving its room.
+  for (const pullPt of [400, 300, 240, 160, 100, 60]) {
+    assert.equal(geom(C.buildTakeover({ items: [pic, pic, pic, line], anchor: "top",
+                                        carrier: "embed", pullPt, w: W })).texts.length, 1,
+      "the line was dropped at pull " + pullPt);
+  }
+});
+
+test("a layout somebody has PINNED is never re-fitted", () => {
+  // A nudge means "this one thing sits here", which is exactly the promise re-flowing
+  // would break — and every migrated 0.4.2 blank takeover carries nudges holding it on
+  // the pixels it was tuned on. takeoverPinToInk computes those against the un-fitted
+  // stack, so the fit has to stay out of any list that has one.
+  const items = [{ kind: "pic", url: PIC, width: 240, nudge: 1 }, ...CHEER_ITEMS.slice(1)];
+  const g = geom(C.buildTakeover({ items, anchor: "top", carrier: "embed", pullPt: 240, w: W }));
+  assert.equal(g.pics[0].w, 240, "a pinned picture must keep the size it was pinned at");
+  // The nudge is on the picture, and it exempts the whole list — one item's pin is a
+  // statement about the stack it sits in.
+  const onText = [{ kind: "pic", url: PIC, width: 240 },
+                  { ...CHEER_ITEMS[1], nudge: 1 }, CHEER_ITEMS[2], CHEER_ITEMS[3]];
+  assert.equal(geom(C.buildTakeover({ items: onText, anchor: "top", carrier: "embed",
+                                      pullPt: 240, w: W })).pics[0].w, 240);
+});
+
+test("a takeover that would draw NOTHING is empty, not a blank slab", () => {
+  // What the composer's content check asks (blockHasContent runs exactly this): having
+  // an item is not having ink. At a short pull the cover is smaller than the stack and
+  // everything in it can be dropped between the item list and the markup — which used to
+  // ship a 105-character white slab that erased the header and put nothing in its place.
+  const placed = (items, pullPt, anchor) =>
+    C.takeoverPlace(C.takeoverItems(items, "embed"), C.takeoverBox(pullPt), anchor, W).length;
+  assert.equal(placed([{ kind: "pic", url: PIC, width: 120 }], 60, "top"), 0,
+    "a picture too small to print at pull 60 leaves nothing behind");
+  assert.equal(placed([], 240, "top"), 0);
+  // And the ordinary case is still content.
+  assert.ok(placed(CHEER_ITEMS, 240, "top") > 0);
+  assert.ok(placed([{ kind: "pic", url: PIC, width: 120 }], 240, "top") > 0);
 });
 
 // ── EMISSION ORDER ──────────────────────────────────────────────────────────

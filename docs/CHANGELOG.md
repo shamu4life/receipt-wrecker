@@ -10,6 +10,36 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.6.0] — 2026-08-11
+
+Phases 3 and 4 of the takeover design — the last two. With these the four-phase plan is complete.
+
+### Added
+
+- **Continuation covers.** A takeover paints over printer-bot's header on the receipt it rides on and no other, so a stack too big for one cheer came off the tape as one piece of artwork followed by a stack of ordinary receipts with the bot's header back on them. That was the whole of "blocks after a takeover are broken". Every part after the first now repaints the header with a plain cover — the same white box at the same reach, built by `buildTakeover` rather than as a hardcoded string, so the cover and the takeover it continues cannot drift apart. 106 characters per extra part, with a stack-level toggle beside the bits control to spend them on content instead.
+  - **The characters are reserved, not merely prepended, and that is the actual feature.** Twitch *rejects* an over-length message rather than truncating it, so a cover added without making room for it pushes every later part past 500 and the tail of the run silently never sends. Per-part overhead therefore stopped being a constant, which is why this had to happen inside the packer rather than in a wrapper around it. Mutation-verified: delete the reservation and part 2 lands at **598** characters, and the new test names that number rather than just going red.
+  - Only a takeover in **part 1** continues — one that lands in part 3 covers part 3 itself, and parts 1–2 never had a painted header to carry on from. The preview draws the cover, for the same reason it draws the lead.
+
+- **Presets.** Save the whole block stack under a name — save, load, rename, two-press delete — and export the lot as JSON to move it to another browser, because `localStorage` is per-device and a setup you can't move is one cache clear from gone. Loading runs the same migration pipeline a saved stack takes, so a preset exported from an older build converts exactly like one, and block ids are re-keyed so they can't collide with the live counter. Import validates rather than trusts: bad JSON, JSON with no presets, and JSON shaped like presets but carrying no block list each say what is wrong instead of half-loading a stack.
+  - **Expired links are flagged, not printed.** An uploaded picture dies on a 15-minute KV TTL, and a preset that used one would otherwise send, spend your bits and print blank paper — the worst thing this app can do. The block is marked in red until it's fixed. Only links this app minted are checked (all three generations, matched by shape); a pasted third-party URL has no such clock and is deliberately left alone, because flagging one that still works teaches the user to ignore the flag. The probe is an `<img>` load, which is ground truth, needs no CORS grant and **adds no seventh `fetch` call site** — don't "tidy" it into one. A stack restored from `localStorage` gets the same check, since it has the same problem.
+  - `rw_presets_v1` is a fourth `localStorage` key, added by explicit request (spec §8).
+
+### Fixed
+
+- **Two documentation errors that would have misled the next person, including me.** `CLAUDE.md` said the carrier probe is labelled `A`…`G`; `EMBEDS` has six entries and `buildEmbedProbe` derives its letters from the table's length, so it emits A–F. The 0.5.0 entry below stated **16,599** ink pixels for the broken two-`foreignObject` case; the code comment, the test comment and `CLAUDE.md` all independently record **31,792**, written while the measurement was running, and that figure has been restored here. The surviving `.render/` artifacts don't map to that experiment, so it could not be re-derived — the corroborated number wins over the one transcribed later.
+- README and `public/llms.txt` still documented the Blank / Fake-cheer selector that 0.5.0 deleted. Both now describe the item list, the seed, the covers and the presets.
+- `CLAUDE.md`'s exported-symbol list has been regenerated (72 names) instead of drifting further, and its own storage rule updated to four keys.
+
+### Verification
+
+209 tests pass. The browser glue — which the null-DOM harness never executes — was exercised by hand in a real browser: the preset save / export / wipe / import round trip; the expired flag firing against a genuinely dead minted link and **not** firing on a dead third-party one; the cover toggle moving parts 2–3 between 348 and 454 characters with every part under 500; and part 2's first element being the lifted bare `<rect>`.
+
+### Still owner-only
+
+The free offline blocked-terms probe now has more to carry: 0.5.0's `position:relative` / `position:absolute` and the two comma-list font values, and nothing new in 0.6.0 — covers and presets add no payload token that wasn't already shipping. Everything else in the field list is unchanged.
+
+---
+
 ## [0.5.0] — 2026-08-10
 
 ### Added
@@ -18,8 +48,8 @@ then and neither is true now. For current behaviour see the
   - **`Seed fake donation`** fills an empty takeover with the four-item arrangement — picture, amount, name, italic note — reproducing exactly what the old Fake cheer style emitted. After seeding they are ordinary items: editable, deletable, reorderable, and you can add more around them. The seed is **platform-neutral** and pre-fills the amount as plain text, because the same printer-bot runs on YouTube and Kick and their amount formats differ; `CHEER_SUFFIX` is gone and the `" BITS"` is baked in once by the seed rather than appended at render.
   - **Everything you have saved converts and prints the same.** Migration was held to byte-identity against 0.4.2's *actual bytes*, not against a re-derivation: the goldens were generated by checking out `247bb4a` and running that build's own renderer. Verified across a 1,242-cell sweep and four real saved-block shapes.
 
-- **Two or more pictures actually print.** They did not, and the way they failed is worth recording. Pictures were emitted as consecutive `<foreignObject>` siblings, and this engine's documented rule is that a `<foreignObject>` swallows every SVG sibling that *follows* it — a second `<foreignObject>` being one. Measured at 203dpi/1-bit: one, two and three pictures all laid down **16,599** ink pixels, the first picture's own count to the pixel, across every carrier. The preview drew all of them, the drop note stayed silent because `takeoverReport` counts frames in the markup, and each dead picture still cost 134 characters of a 500-character budget.
-  - The fix is **one** frame spanning the cover with the pictures absolutely positioned inside it. Now 16,599 / 28,905 / 50,587. The `position:relative` wrapper is load-bearing and pinned by a test: WebKit 534.34 does not make a `<foreignObject>` a containing block, so without it the whole stack resolves against the page and prints off the takeover's coordinates. Deleting that one declaration used to pass the entire suite.
+- **Two or more pictures actually print.** They did not, and the way they failed is worth recording. Pictures were emitted as consecutive `<foreignObject>` siblings, and this engine's documented rule is that a `<foreignObject>` swallows every SVG sibling that *follows* it — a second `<foreignObject>` being one. Measured at 203dpi/1-bit: two pictures laid down **31,792** ink pixels — the first picture's own count to the pixel — with the second one's image XObject sitting unused in the PDF. Reproduced with two URLs, the same URL twice, and every live carrier. The preview drew all of them, the drop note stayed silent because `takeoverReport` counts frames in the markup, and each dead picture still cost 134 characters of a 500-character budget.
+  - The fix is **one** frame spanning the cover with the pictures absolutely positioned inside it; two pictures then print as two pictures. The `position:relative` wrapper is load-bearing and pinned by a test: WebKit 534.34 does not make a `<foreignObject>` a containing block, so without it the whole stack resolves against the page and prints off the takeover's coordinates. Deleting that one declaration used to pass the entire suite.
   - The single-picture markup is **byte-identical** to before, because the 479/491 flagship budget and the migration goldens both rest on it.
 
 ### Fixed

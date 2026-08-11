@@ -41,10 +41,23 @@ possible:
 - **Text** — a word or phrase as oversized type, straight or rotated, or tiled
   out of Hanzi.
 - **Image** — a real picture from a link or an upload, or glyph-art from either.
-- **Takeover** — paints over the printer bot's own header. Either your own three
-  lines, or a **fake cheer** arranged like a real one (picture, bits figure, name).
-  It is a visual gag printed on till roll; it creates no record of anything, and the
-  chat message that triggers a print carries the real sender's name.
+- **Takeover** — paints over the printer bot's own header. It holds an ordered
+  list of **items**, text or picture, any number in any order, each with its own
+  font, size, formatting, alignment and nudge, under one block-level anchor
+  (top / centre / bottom) and a calibration "reach up". A **Seed fake donation**
+  button fills an empty one with the four-item arrangement of a real header —
+  picture, amount, name, italic note — after which they are ordinary items you can
+  edit, reorder or delete. The amount is free text, because the same printer bot
+  runs on YouTube and Kick and their headers say neither "BITS" nor anything like
+  it. It is a visual gag printed on till roll; it creates no record of anything, and
+  the chat message that triggers a print carries the real sender's name.
+
+When a stack splits across several cheers, every part after the first repaints the
+header with a plain **continuation cover**, so the run reads as one piece rather than
+artwork followed by ordinary receipts. It costs 106 characters per extra part and has
+a stack-level toggle. **Presets** save the whole block stack under a name and export
+it as JSON; an uploaded picture's link expires after 15 minutes, and a preset that
+used one loads with that block flagged for re-upload rather than printing blank.
 
 A **Cheer-ready** toggle prefixes the payload with a `Cheer<N>` token plus a small
 visible rotating nonce, so the message registers as a cheer and a duplicate-message

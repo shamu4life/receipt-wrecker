@@ -102,16 +102,24 @@ browser-glue split**:
 
 An **inert `module.exports` hook** at the end of the IIFE (guarded by
 `typeof module !== "undefined"`, false in browsers, true under Node) hands the
-test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
-`quantizeTone`, `quantizeBinary`, `ditherFloydSteinberg`, `lumaToDots`,
-`packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`,
-`makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
-`HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
-`getEmbed`, `buildImageEmbed`, `buildEmbedProbe`, `buildTakeover`, `takeoverBox`,
-`TAKEOVER_PULL_PT`, `buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_MIN_PIC_PX`,
-`takeoverReport`, `takeoverItems`, `takeoverPlace`, `takeoverWants`, `lineFmt`,
-`takeoverAmountText`, `takeoverItemsForBlock`, `takeoverPinToInk`,
-`migrateTakeoverItems`, `migrateTakeoverPull`, `TAKEOVER_ITEMS_V`, `TAKEOVER_PULL_V`.
+test harness the pure-core functions (72 of them, regenerated at the 0.6.0 cut):
+`TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `quantizeBinary`,
+`ditherFloydSteinberg`, `lumaToDots`, `packBraille`, `render`,
+`payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`, `packageCheer`,
+`buildCensus`, `CHEER_TOKEN`, `packStackBodies`, `HEIGHT_BUDGET`,
+`escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
+`getEmbed`, `FONTS`, `getFont`, `fmtAttrs`, `buildImageEmbed`,
+`buildEmbedProbe`, `buildTakeover`, `takeoverBox`, `TAKEOVER_PULL_PT`,
+`buildStackCover`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
+`presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`,
+`upsertPreset`, `lineFmt`, `takeoverItems`, `takeoverPlace`, `takeoverWants`,
+`takeoverSeed`, `TAKEOVER_BOTTOM_PX`, `CHEER_GAP_PX`, `CHEER_TOP_PX`,
+`CHEER_MAX_LIFT_PX`, `buildFakeCheer`, `CHEER_AVATAR_W`, `takeoverAmountText`,
+`takeoverItemsForBlock`, `takeoverPinToInk`, `migrateTakeoverItems`,
+`migrateTakeoverPull`, `TAKEOVER_ITEMS_V`, `TAKEOVER_PULL_V`,
+`CHEER_MIN_PIC_PX`, `takeoverReport`, `bigFontFor`, `BIG_FONT`,
+`buildBigTextSvg`, `bigWeightFor`, `bigItalicFor`, `rotateBodies`,
+`bigFitBasis`, `PAPER_PX`, `BIG_FIT_PX`, `BIG_WEIGHT`, `__fontLog`.
 (That list is easy to let rot — regenerate it
 with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 rather than trusting it.) The canvas/DOM functions — `rasterizeImage`, `computeGrid`,
@@ -261,11 +269,42 @@ All functions live inside the one IIFE in `public/index.html`.
     argued the opposite and refused a sender template on "forged record" grounds. That
     was wrong: it treated *looks like a receipt* as *functions as a financial record*.)
 13. `buildEmbedProbe(box)` — the diagnostic payload set for the **Find what still
-    sends** button: the same picture through every carrier, labeled `A`…`G`, one
+    sends** button: the same picture through every carrier, labeled `A`…`F` (one per
+    EMBEDS entry — `String.fromCharCode(65 + i)`, so the range follows the table's
+    length rather than a number written down here), one
     message each (they can't share a cheer — one blocked term kills the whole
     message). A letter that prints *with a picture under it* names the carrier that
     works; a bare letter means the tag didn't render; a missing letter means chat
     blocked it. This is `buildCensus`'s counterpart for markup rather than glyphs.
+14. `buildStackCover(o)` — the **continuation cover** for parts 2..N of a split run,
+    and the reason `packStackBodies`' per-part overhead is no longer constant. A
+    takeover paints over the bot's header on the receipt it rides on and no other, so
+    a stack that split used to print as artwork followed by uncovered receipts — the
+    "blocks after a takeover are broken" complaint. It is `buildTakeover({items: []})`
+    and **must stay that way**: the cover and the takeover it continues have to be the
+    identical rect at the identical lift, and one code path is what keeps them so. 106
+    characters at the default pull.
+    **RESERVING those characters is the load-bearing half, not prepending them.** The
+    packer subtracts the cover from `maxBody` for every part after the first, and only
+    for a takeover that landed in part 1 (a takeover in part 3 covers part 3 itself).
+    Prepend without reserving and part 2 lands at 598 characters — Twitch **rejects**
+    an over-length message rather than truncating it, so the tail of the run silently
+    never sends. Mutation-verified; `test/covers.test.mjs` names the number. Bodies
+    carry the cover on themselves (`body.cover`) because only the packer knows which
+    part a block ends up in. The preview renders it, for the same reason it renders
+    the lead.
+15. `makePreset` / `parsePresets` / `serializePresets` / `upsertPreset` / `cleanBlocks`
+    / `isMintedImageUrl` / `presetImageUrls` — **presets** (spec §8): the whole block
+    stack saved under a name in `rw_presets_v1`, plus JSON export/import.
+    Three things here are deliberate and easy to undo by accident. `cleanBlocks` is the
+    single definition of what a saved block is, shared with `saveBlocks`, so the two
+    can't disagree — but `makePreset` **deep**-copies on top of it, because a preset
+    outlives the stack it came from and a shared `items` array means editing a takeover
+    silently rewrites the user's backup. `parsePresets` validates rather than trusts:
+    untrusted text must say what's wrong, not half-load a stack. And `isMintedImageUrl`
+    matches **our** links only, by shape, across all three generations — a pasted
+    third-party URL has no 15-minute clock, and flagging one that still works teaches
+    the user to ignore the flag.
 
 **Browser glue** (canvas + DOM, guarded, browser-verified rather than
 unit-tested):
@@ -596,10 +635,16 @@ These are the project's defining properties (shared with the sibling tools).
   **typing an image URL** and **dragging an adjustment slider**. Don't add a
   seventh, don't call a third party, and don't describe the app as making no
   network calls.
-- **Storage:** `localStorage` holds exactly three keys — the control-panel
-  settings (`rw_controls_v1`), the nonce sequence counter (`rw_nonce_seq`), and
-  the block composer's stack (`rw_blocks_v1`). All wrapped in `try/catch` so
-  sandboxed previews that block storage still render and run. Don't add a fourth
+  **The preset expiry check is not one of them, deliberately.** `probeStackExpiry`
+  asks whether an uploaded link still resolves by *loading it as an `<img>`* — which
+  needs no CORS grant, adds no `fetch` call site, and tests the exact condition that
+  makes the receipt print blank. If you ever "tidy" it into a `fetch`, you have added
+  a seventh call site and a CORS problem in one move.
+- **Storage:** `localStorage` holds exactly four keys — the control-panel
+  settings (`rw_controls_v1`), the nonce sequence counter (`rw_nonce_seq`), the
+  block composer's stack (`rw_blocks_v1`), and the saved presets (`rw_presets_v1`,
+  added by explicit request in 0.6.0 — spec §8). All wrapped in `try/catch` so
+  sandboxed previews that block storage still render and run. Don't add a fifth
   without an explicit request.
 - **Vanilla JS**, IIFE-wrapped, `"use strict"`, ES5-ish style (`var`, function
   expressions) — match the surrounding code's idiom when editing.

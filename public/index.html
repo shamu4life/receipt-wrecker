@@ -935,6 +935,13 @@
   // arrangement differs — so escaping, the carrier table and the foreignObject-last
   // rule all come along for free instead of being re-implemented here.
   //
+  // NOTHING RENDERS THROUGH THIS ANY MORE. The composer draws every takeover from its
+  // item list; this survives as the ORACLE the migration asks "where did this block's ink
+  // land yesterday", and as the data the seed button copies. It is kept rather than
+  // reimplemented because the alternative is a second copy of two legacy layouts whose
+  // only remaining job is to agree with the first copy exactly — see
+  // takeoverItemsForBlock. Treat it as frozen: it has to keep drawing what 0.4.2 drew.
+  //
   // The reference layout is the payload this was reverse-engineered from, which
   // printed correctly on the real rig: an 80px-wide picture at the top, then
   // baselines at 24px/900, 19px/700 and 13px/italic. The numbers below reproduce it.
@@ -959,7 +966,6 @@
   var CHEER_AVATAR_W = 120;     // the smallest square that renders
   var CHEER_GAP_PX = 32;        // picture bottom -> first baseline
   var CHEER_TOP_PX = 6;         // top of the covered area -> top of the picture
-  var CHEER_SUFFIX = " BITS";   // what the bot puts after the figure
   // How far above the message the block may sit, in px. The pull slider reaches 400pt
   // (533px) but the paper above the message is only ever as tall as the rig's real
   // header — so a block anchored to the TOP of an over-pulled cover climbs 1:1 with the
@@ -1182,12 +1188,16 @@
   function buildFakeCheer(o) {
     o = o || {};
     var sz = o.sizes || {};
-    // The figure is free text, not a number: "-100000" and "∞" are both jokes someone
-    // will want, and it gets escaped downstream like every other line.
+    // The amount is FREE TEXT, whole: "-100000 BITS", "$50.00", "1,000 Kicks", "∞".
+    // It used to arrive as a bare figure and leave with " BITS" welded on by a constant
+    // here, which is the one thing that made this block Twitch-only — the same printer-bot
+    // runs on YouTube and Kick, and their headers say neither "BITS" nor anything like it.
+    // The suffix is baked into the amount ITEM's text once now, at migration
+    // (takeoverAmountText), and nothing appends anything at render time.
     var bits = String(o.bits == null ? "" : o.bits).trim();
     var box = takeoverBox(o.pullPt);
     var fm = o.fmts || {};
-    var lines = [{ text: bits ? bits + CHEER_SUFFIX : "", size: sz.bits || 24, fmt: lineFmt(fm.bits, 900, false) },
+    var lines = [{ text: bits, size: sz.bits || 24, fmt: lineFmt(fm.bits, 900, false) },
                  { text: o.name || "", size: sz.name || 19, fmt: lineFmt(fm.name, 700, false) },
                  { text: o.note || "", size: sz.note || 13, fmt: lineFmt(fm.note, 400, true) }]
       .filter(function (l) { return String(l.text || "") !== ""; });
@@ -1231,6 +1241,194 @@
       picture: hasPic ? o.avatar : "", pictureW: aw, pictureH: aw, pictureY: top,
       carrier: o.carrier, pullPt: o.pullPt, w: o.w
     });
+  }
+
+  // ── MIGRATION: THE TWO STYLES BECOME ONE ITEM LIST ────────────────────────
+  // A takeover used to be a Blank/Fake-cheer selector over two disjoint field sets and
+  // two disjoint layouts. It is one ordered list of items now, and every saved block has
+  // to arrive there without moving a pixel — a takeover is calibrated against a physical
+  // printer, so "it looks about the same" is not a migration, it is a re-tune the owner
+  // did not ask for.
+  //
+  // TWO MIGRATIONS LIVE HERE AND THEY MUST COMPOSE IN EITHER ORDER. They are ordered by
+  // migrateTakeoverItems calling migrateTakeoverPull itself, rather than by a call site
+  // remembering to — see the note there for why the order is load-bearing.
+
+  // Relocated here verbatim from the composer, unchanged in rule or stamp: the item
+  // migration below has to run it first, and this is the scope both can see.
+  var TAKEOVER_PULL_V = 3;
+  var TAKEOVER_PULL_DEFAULTS = [220, 240];   // every default this app has shipped
+  // A saved takeover carries the pull it was created with, so a change to the default never
+  // reaches an existing block unless it is migrated. The default has moved three times in a day
+  // (220 -> 240 -> 220 -> 240; see TAKEOVER_PULL_PT for why), so rather than chain another
+  // undo-of-an-undo, v3 states one rule and applies it to every earlier stamp at once.
+  //
+  // THE RULE: a block still sitting on ANY default this app has ever shipped is following the
+  // default, so move it to the current one. A block on any other value was dragged deliberately
+  // and is left alone — that one was tuned against paper, which is the only authority here.
+  //
+  // This does move a block someone deliberately set to 220 or 240 by hand, because a hand-set
+  // value that happens to equal a former default is indistinguishable from a followed one. With
+  // the whole history spanning about a day and the current value being the tuned one, landing on
+  // the tuned value is the better failure.
+  function migrateTakeoverPull(b) {
+    if (b.type !== "takeover" || b.pullV === TAKEOVER_PULL_V) return b;
+    var pull = b.pullPt || TAKEOVER_PULL_DEFAULTS[0];
+    for (var i = 0; i < TAKEOVER_PULL_DEFAULTS.length; i++) {
+      if (pull === TAKEOVER_PULL_DEFAULTS[i]) { b.pullPt = TAKEOVER_PULL_PT; break; }
+    }
+    b.pullV = TAKEOVER_PULL_V;
+    return b;
+  }
+
+  // THE AMOUNT LINE, WHOLE. " BITS" used to be a constant the renderer welded onto a bare
+  // figure; it is baked into the item's text here instead, once, and then it is ordinary
+  // free text that can say "$50.00" or "1,000 Kicks" — the same printer-bot runs on
+  // YouTube and Kick. Typing a bare number appends nothing any more.
+  function takeoverAmountText(v) {
+    var t = String(v == null ? "" : v).trim();
+    return t ? t + " BITS" : "";
+  }
+
+  // What this block draws TODAY, through the code that has been drawing it all along.
+  // `w` is deliberately not passed: only y coordinates are read back off this, and every
+  // legacy y is independent of the paper width.
+  function takeoverLegacyHtml(b) {
+    if (b.tkStyle === "cheer") {
+      return buildFakeCheer({
+        bits: takeoverAmountText(b.cBits), name: b.cName, note: b.cNote,
+        avatar: b.avatar, avatarW: b.avatarW,
+        sizes: { bits: b.s1, name: b.s2, note: b.s3 },
+        fmts: { bits: b.f1, name: b.f2, note: b.f3 },
+        carrier: b.renderAs, pullPt: b.pullPt });
+    }
+    return buildTakeover({
+      lines: [{ text: b.l1, size: b.s1, fmt: lineFmt(b.f1, 900, false) },
+              { text: b.l2, size: b.s2, fmt: lineFmt(b.f2, 700, false) },
+              { text: b.l3, size: b.s3, fmt: lineFmt(b.f3, 400, true) }],
+      picture: b.picture, pictureW: b.pictureW,
+      // 1.4x, because that is what the composer has always asked the blank style for.
+      pictureH: Math.round((b.pictureW || 120) * 1.4),
+      carrier: b.renderAs, pullPt: b.pullPt });
+  }
+
+  // That overlay, read back as geometry. THE OLD RENDERER IS THE ORACLE: rather than
+  // re-deriving where the two legacy layouts put things — the fake cheer's avatar floor,
+  // its room-first shrink, the blank style's picture pinned at y=6 while its text hangs
+  // off the bottom on a DIFFERENT leading rule — the migration asks the code that has
+  // been drawing these blocks all along and copies the answer into item data. A second
+  // copy of the geometry is what put a picture on top of the text once already; a copy
+  // whose only job is to agree with the original exactly is the worst kind. Reading the
+  // markup back is the same discipline takeoverReport already uses.
+  function takeoverLegacyInk(html) {
+    var texts = [], re = /<text x="(-?\d+)" y="(-?\d+)" font-size="(\d+)"/g, m;
+    while ((m = re.exec(html))) texts.push({ y: +m[2], size: +m[3] });
+    var p = /<foreignObject x="(-?\d+)" y="(-?\d+)" width="(\d+)" height="(\d+)"/.exec(html);
+    return { texts: texts, pic: p ? { y: +p[2], w: +p[3], h: +p[4] } : null };
+  }
+
+  // Nudge every item onto the exact y the old renderer used for it.
+  //
+  // WHY NUDGES AND NOT JUST A GOOD STACK. The item engine has ONE leading rule, the
+  // measured one the fake cheer was built from: max(prev, next) * 1.35. The legacy blank
+  // takeover had a different one — it stacked upward from the bottom and stepped by the
+  // LOWER line's size — and it drew its picture at a fixed y=6 regardless of where the
+  // text was. Both differences are real pixels on saved blocks. `nudge` is exactly the
+  // control the item model already has for "this one thing sits here", it moves one item
+  // without re-flowing the rest, so a rigid run keeps its shape; baking the difference
+  // into it is how a migrated block comes out byte-identical instead of nearly.
+  // Zeroes are deleted rather than stored: a fake cheer needs none at all (its layout IS
+  // the item engine's), and an item list full of `nudge: 0` reads like tuning that isn't.
+  function takeoverPinToInk(items, anchor, pullPt, carrier, ink) {
+    var st = takeoverStack(takeoverItems(items, carrier));
+    var y0 = takeoverAnchorY(anchor, takeoverBox(pullPt), st.height);
+    var ti = 0, last = 0, i, pl, raw;
+    for (i = 0; i < st.placed.length && i < items.length; i++) {
+      pl = st.placed[i];
+      raw = y0 + pl.top;
+      if (pl.item.kind === "pic") {
+        if (ink.pic) items[i].nudge = ink.pic.y - raw;
+      } else {
+        // A line the old layout pushed past the bottom of the cover left no ink to copy
+        // from. Give it the nudge its neighbour got so the run stays rigid — the two
+        // layouts agree on leading inside a fake cheer's run, which is the only style
+        // that can drop one, so it lands where the old one would have and the overflow
+        // rule drops it there too.
+        items[i].nudge = last = ti < ink.texts.length
+          ? ink.texts[ti].y - pl.item.size - raw
+          : last;
+        ti++;
+      }
+    }
+    for (i = 0; i < items.length; i++) if (!items[i].nudge) delete items[i].nudge;
+    return items;
+  }
+
+  // block -> {items, anchor}. Pure, and the ONE place the conversion is spelled out: the
+  // one-time migration runs it, and until the item card lands the takeover card re-runs
+  // it on every edit so the old controls still drive the new renderer.
+  //
+  //   Blank      -> the picture (if set) then each non-empty line, anchored bottom.
+  //   Fake cheer -> avatar, amount, name, note at today's sizes and weights, anchored
+  //                 top, which is where the lift cap keeps it.
+  //
+  // Sizes, fonts and weights come off the block; POSITION AND PICTURE SIZE COME OFF THE
+  // OLD RENDERER'S OUTPUT, because those are the parts with rules that would otherwise
+  // have to be reimplemented here (see takeoverLegacyInk).
+  function takeoverItemsForBlock(b) {
+    b = b || {};
+    var cheer = b.tkStyle === "cheer";
+    var anchor = cheer ? "top" : "bottom";
+    var ink = takeoverLegacyInk(takeoverLegacyHtml(b));
+    var items = [], i, t;
+    // The picture only if the old renderer actually drew one. A fake cheer drops an
+    // avatar it cannot fit at CHEER_MIN_PIC_PX and keeps the text instead; copying that
+    // decision is what keeps the bytes identical, and the URL is still on the block, so
+    // more pull brings it back.
+    if (ink.pic) {
+      items.push({ kind: "pic", url: cheer ? b.avatar : b.picture,
+                   width: ink.pic.w, height: ink.pic.h });
+    }
+    // The fake cheer's slot defaults are 24/19/13; the blank style never had any (an
+    // unset size there has always fallen through takeoverSize to 20). Both are the
+    // legacy renderers' own rules, restated here only because the item list stores a
+    // concrete size per item.
+    var src = cheer
+      ? [[takeoverAmountText(b.cBits), b.s1 || 24, lineFmt(b.f1, 900, false)],
+         [b.cName, b.s2 || 19, lineFmt(b.f2, 700, false)],
+         [b.cNote, b.s3 || 13, lineFmt(b.f3, 400, true)]]
+      : [[b.l1, b.s1, lineFmt(b.f1, 900, false)],
+         [b.l2, b.s2, lineFmt(b.f2, 700, false)],
+         [b.l3, b.s3, lineFmt(b.f3, 400, true)]];
+    for (i = 0; i < src.length; i++) {
+      t = takeoverLineText(src[i][0]);
+      if (t === "") continue;   // a blank slot was never drawn and must not become an item
+      items.push({ kind: "text", text: t, size: takeoverSize(src[i][1]), fmt: src[i][2] });
+    }
+    return { items: takeoverPinToInk(items, anchor, b.pullPt, b.renderAs, ink),
+             anchor: anchor };
+  }
+
+  var TAKEOVER_ITEMS_V = 1;
+  // Runs once per block, stamped `tkV`, persisted by the caller. Idempotent, and safe on
+  // a block that already carries items — it stamps and leaves them alone rather than
+  // rebuilding from fields the item card may have stopped writing.
+  function migrateTakeoverItems(b) {
+    if (!b || b.type !== "takeover" || b.tkV === TAKEOVER_ITEMS_V) return b;
+    // THE PULL MIGRATION FIRST, ALWAYS, AND FROM IN HERE. The nudges below pin items to
+    // where the old renderer put them AT THIS BLOCK'S PULL, and a blank takeover's
+    // picture sat at a fixed y=6 while its text hung off the bottom of the cover — so the
+    // gap between them is not the same at 220 as at 240. Migrate the pull afterwards and
+    // that gap is frozen at the wrong number. Calling it here instead of trusting the
+    // call site's .map() order is what makes the two compose in either order.
+    migrateTakeoverPull(b);
+    if (!b.items) {
+      var m = takeoverItemsForBlock(b);
+      b.items = m.items;
+      if (b.anchor == null) b.anchor = m.anchor;
+    }
+    b.tkV = TAKEOVER_ITEMS_V;
+    return b;
   }
 
   // NOT IN THE TABLE, and don't re-add it without re-measuring: a <div> wearing the
@@ -1970,23 +2168,21 @@
       }
       return bodies;
     }
+    // A takeover block's markup. Shared by the packer and by the card's drop note, so
+    // the note can never describe a different overlay from the one being sent — reading
+    // a report off markup nobody prints is how a drop stays invisible.
+    function takeoverHtml(block) {
+      return buildTakeover({ items: block.items || [], anchor: block.anchor,
+                             carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+    }
     // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
     function renderBlockBodies(block) {
       if (block.type === "takeover") {
-        var tHtml = block.tkStyle === "cheer"
-          ? buildFakeCheer({
-              bits: block.cBits, name: block.cName, note: block.cNote,
-              avatar: block.avatar, avatarW: block.avatarW,
-              sizes: { bits: block.s1, name: block.s2, note: block.s3 },
-              fmts: { bits: block.f1, name: block.f2, note: block.f3 },
-              carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX })
-          : buildTakeover({
-              lines: [{ text: block.l1, size: block.s1, fmt: lineFmt(block.f1, 900, false) },
-                      { text: block.l2, size: block.s2, fmt: lineFmt(block.f2, 700, false) },
-                      { text: block.l3, size: block.s3, fmt: lineFmt(block.f3, 400, true) }],
-              picture: block.picture, pictureW: block.pictureW,
-              pictureH: Math.round((block.pictureW || 120) * 1.4),
-              carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
+        // ONE PATH NOW: text or picture, any number, in any order. Both of the old
+        // styles are just item lists — migrateTakeoverItems converted every saved block
+        // to one, byte for byte, and the card keeps them in step until the item card
+        // lands. A block with no items is still a valid takeover: it erases the header.
+        var tHtml = takeoverHtml(block);
         // heightPx 0 on purpose: a takeover sits on top of the header the bot already
         // drew, so it consumes no extra tape. Charging the height packer for it would
         // split receipts apart over space that isn't actually being used.
@@ -2594,38 +2790,17 @@
       b.embedV = EMBED_V;
       return b;
     }
-    // A saved takeover carries the pull it was created with, so a change to the default never
-    // reaches an existing block unless it is migrated. The default has moved three times in a day
-    // (220 -> 240 -> 220 -> 240; see TAKEOVER_PULL_PT for why), so rather than chain another
-    // undo-of-an-undo, v3 states one rule and applies it to every earlier stamp at once.
-    //
-    // THE RULE: a block still sitting on ANY default this app has ever shipped is following the
-    // default, so move it to the current one. A block on any other value was dragged deliberately
-    // and is left alone — that one was tuned against paper, which is the only authority here.
-    //
-    // This does move a block someone deliberately set to 220 or 240 by hand, because a hand-set
-    // value that happens to equal a former default is indistinguishable from a followed one. With
-    // the whole history spanning about a day and the current value being the tuned one, landing on
-    // the tuned value is the better failure.
-    var TAKEOVER_PULL_V = 3;
-    var TAKEOVER_PULL_DEFAULTS = [220, 240];   // every default this app has shipped
-    function migrateTakeoverPull(b) {
-      if (b.type !== "takeover" || b.pullV === TAKEOVER_PULL_V) return b;
-      var pull = b.pullPt || TAKEOVER_PULL_DEFAULTS[0];
-      for (var i = 0; i < TAKEOVER_PULL_DEFAULTS.length; i++) {
-        if (pull === TAKEOVER_PULL_DEFAULTS[i]) { b.pullPt = TAKEOVER_PULL_PT; break; }
-      }
-      b.pullV = TAKEOVER_PULL_V;
-      return b;
-    }
     function newBlock(type) {
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
         tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
-      // The two styles keep SEPARATE text fields on purpose — flipping the selector to
-      // compare them and flipping back must not eat what you typed. The three size
-      // sliders are shared, because they're the same three visual slots either way.
+      // `items` is what renders. The two styles' fields are still here because the card
+      // still edits them and re-derives the items from them (see takeoverCard's `save`);
+      // they go when the item card lands. They keep SEPARATE text fields on purpose —
+      // flipping the selector to compare them and flipping back must not eat what you
+      // typed. The three size sliders are shared: same three visual slots either way.
       if (type === "takeover") return { id: blockIdSeq++, type: "takeover",
+        items: [], anchor: "bottom", tkV: TAKEOVER_ITEMS_V,
         tkStyle: "blank",
         l1: "", s1: 24, l2: "", s2: 19, l3: "", s3: 13,
         cBits: "", cName: "", cNote: "", avatar: "", avatarW: CHEER_AVATAR_W,
@@ -2634,11 +2809,9 @@
       return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
-      if (b.type === "takeover") {
-        return b.tkStyle === "cheer"
-          ? !!((b.cBits || "") + (b.cName || "") + (b.cNote || "") + (b.avatar || "")).trim()
-          : !!((b.l1 || "") + (b.l2 || "") + (b.l3 || "") + (b.picture || "")).trim();
-      }
+      // The item list is the content now — and takeoverItems has already thrown out the
+      // blanks and the empty URLs, so "has any item that would draw" is just its length.
+      if (b.type === "takeover") return takeoverItems(b.items).length > 0;
       if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
       return !!(b.text && String(b.text).trim());
     }
@@ -2656,7 +2829,9 @@
     function seedBlocks() {
       var saved = loadBlocks();
       if (saved && saved.length) {
-        blocks = saved.map(migrateEmbed).map(migrateTakeoverPull);
+        // Order is not load-bearing between the last two — migrateTakeoverItems runs the
+        // pull migration itself, because its nudges are measured at the block's pull.
+        blocks = saved.map(migrateEmbed).map(migrateTakeoverPull).map(migrateTakeoverItems);
         blockIdSeq = blocks.reduce(function (m, b) { return Math.max(m, b.id || 0); }, 0) + 1;
         saveBlocks();   // persist the migration so it runs once, not every load
         return;
@@ -2972,6 +3147,19 @@
     // on the streamer's avatar, so it can't be a constant).
     function takeoverCard(block) {
       var card = mkEl("div", { "class": "block-card" });
+      // TEMPORARY BRIDGE, and the only reason this card still works. It edits the old
+      // Blank/Fake-cheer fields; the renderer reads `items`. So every control here saves
+      // through this instead of straight to storage, re-deriving the item list with the
+      // SAME function the migration uses — which means what this card produces is
+      // byte-identical to what a migrated block produces, and the conversion is exercised
+      // on every keystroke rather than once on somebody else's machine. The item card
+      // replaces both halves of this and the derived call goes with it.
+      var save = function () {
+        var m = takeoverItemsForBlock(block);
+        block.items = m.items;
+        block.anchor = m.anchor;
+        saveBlocks(); update();
+      };
       card.appendChild(cardHead(block));
       card.appendChild(mkEl("div", { "class": "hint" },
         "Paints over the receipt’s own header — the avatar, the bits line and the name "
@@ -3001,7 +3189,7 @@
       var mkSize = function (parent, sizeKey, def) {
         var sz = mkEl("input", { type: "range", min: "8", max: "48", step: "1" });
         sz.value = block[sizeKey] || def;
-        sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; saveBlocks(); update(); });
+        sz.addEventListener("input", function () { block[sizeKey] = parseInt(sz.value, 10) || def; save(); });
         var row = sliderRow("Size", sz, def, "");
         parent.appendChild(row);
         // `.bc-val` is what sliderRow actually builds (see mkEl above). This looked for
@@ -3016,7 +3204,7 @@
         parent.appendChild(mkEl("label", null, labelText));
         var ta = mkEl("input", attrs || { type: "text" });
         ta.value = block[key] || "";
-        ta.addEventListener("input", function () { block[key] = ta.value; saveBlocks(); update(); });
+        ta.addEventListener("input", function () { block[key] = ta.value; save(); });
         parent.appendChild(ta);
         return ta;
       };
@@ -3050,14 +3238,14 @@
         for (var i = 0; i < FONTS.length; i++) {
           font.appendChild(opt(FONTS[i].id, FONTS[i].label, fNow === FONTS[i].id));
         }
-        font.addEventListener("change", function () { cur().font = font.value; saveBlocks(); update(); });
+        font.addEventListener("change", function () { cur().font = font.value; save(); });
         row.appendChild(font);
         var wsel = mkEl("select");
         var wNow = lineFmt(block[key], defWeight, defItalic).weight;
         wsel.appendChild(opt("400", "Normal", wNow === 400));
         wsel.appendChild(opt("700", "Bold", wNow === 700));
         wsel.appendChild(opt("900", "Black", wNow === 900));
-        wsel.addEventListener("change", function () { cur().weight = parseInt(wsel.value, 10); saveBlocks(); update(); });
+        wsel.addEventListener("change", function () { cur().weight = parseInt(wsel.value, 10); save(); });
         row.appendChild(wsel);
         var togs = [];
         [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
@@ -3067,7 +3255,7 @@
             var v = !lineFmt(block[key], defWeight, defItalic)[t[0]];
             cur()[t[0]] = v;
             b.className = "fmt-tog" + (v ? " on" : "");
-            saveBlocks(); update();
+            save();
           });
           row.appendChild(b);
           togs.push({ prop: t[0], el: b });
@@ -3104,7 +3292,7 @@
             var box = parent.querySelector('input[type="url"]');
             if (box) box.value = url;
             st.textContent = "Uploaded ✓ (link expires ~15 min)";
-            saveBlocks(); update(); syncNotes();
+            save(); syncNotes();
           });
         });
       };
@@ -3113,7 +3301,7 @@
       // (see CHEER_MIN_PIC_PX) — offering 40 would just be a slider that prints nothing.
       var pw = mkEl("input", { type: "range", min: "120", max: "240", step: "5" });
       pw.value = Math.max(120, block.pictureW || 120);
-      pw.addEventListener("input", function () { block.pictureW = parseInt(pw.value, 10) || 120; saveBlocks(); update(); });
+      pw.addEventListener("input", function () { block.pictureW = parseInt(pw.value, 10) || 120; save(); });
       blankWrap.appendChild(sliderRow("Picture width (px)", pw, 120, ""));
       card.appendChild(blankWrap);
 
@@ -3121,9 +3309,10 @@
       var cheerWrap = mkEl("div");
       cheerWrap.appendChild(mkEl("div", { "class": "hint" },
         "Lays your lines out the way printer-bot lays out a real cheer — picture on "
-        + "top, then the bits figure, then the name. “ BITS” is added for you, so put "
-        + "just the number (or whatever you want in its place)."));
-      mkText(cheerWrap, "Bits", "cBits", { type: "text", placeholder: "-100000" }); mkSize(cheerWrap, "s1", 24); mkFmt(cheerWrap, "f1", 900, false);
+        + "top, then the amount, then the name. Nothing is added for you any more: type "
+        + "“-100000 BITS”, “$50.00” or “1,000 Kicks” in full, whichever platform this "
+        + "printer is plugged into."));
+      mkText(cheerWrap, "Amount", "cBits", { type: "text", placeholder: "-100000 BITS" }); mkSize(cheerWrap, "s1", 24); mkFmt(cheerWrap, "f1", 900, false);
       mkText(cheerWrap, "Name", "cName", { type: "text", placeholder: "IRS" });     mkSize(cheerWrap, "s2", 19); mkFmt(cheerWrap, "f2", 700, false);
       mkText(cheerWrap, "Message (note)", "cNote", { type: "text", placeholder: "tax lien" }); mkSize(cheerWrap, "s3", 13); mkFmt(cheerWrap, "f3", 400, true);
       mkPictureRow(cheerWrap, "avatar");
@@ -3169,7 +3358,7 @@
         + "it too — upload the file here instead and you get the shortest link there is."));
       var aw = mkEl("input", { type: "range", min: "120", max: "200", step: "5" });
       aw.value = Math.max(CHEER_MIN_PIC_PX, block.avatarW || CHEER_AVATAR_W);
-      aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; saveBlocks(); update(); });
+      aw.addEventListener("input", function () { block.avatarW = parseInt(aw.value, 10) || CHEER_AVATAR_W; save(); });
       cheerWrap.appendChild(sliderRow("Picture width (px)", aw, CHEER_AVATAR_W, ""));
       card.appendChild(cheerWrap);
 
@@ -3181,14 +3370,14 @@
         syncFmts();           // same staleness risk for the font/weight/I-U-S row
       };
       style.addEventListener("change", function () {
-        block.tkStyle = style.value; applyStyle(); saveBlocks(); update();
+        block.tkStyle = style.value; applyStyle(); save();
       });
 
       card.appendChild(mkEl("label", null, "Carrier tag (for the picture)"));
       var ra = mkEl("select");
       var cur = getEmbed(block.renderAs).id;
       EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === cur)); });
-      ra.addEventListener("change", function () { block.renderAs = ra.value; saveBlocks(); update(); });
+      ra.addEventListener("change", function () { block.renderAs = ra.value; save(); });
       card.appendChild(ra);
 
       // A carrier can be fine at top level and destructive inside the takeover's frame
@@ -3199,6 +3388,10 @@
       card.appendChild(frameWarn);
       var syncFrameWarn = function () {
         var e = getEmbed(block.renderAs);
+        // The URL YOU TYPED, not the one that survived layout: a picture dropped for want
+        // of room still has a carrier, and going quiet about a broken one the moment it
+        // stops being drawn is how you end up debugging the wrong thing. Reads this card's
+        // own fields, and moves to the item list when the item card replaces them.
         var url = block.tkStyle === "cheer" ? block.avatar : block.picture;
         // Two independent ways the picture prints blank, both silent on the tape.
         if (e.framedOk === false && url) {
@@ -3231,30 +3424,20 @@
       dropNote.hidden = true;
       card.appendChild(dropNote);
       var syncDropNote = function () {
-        var wantPic = !!(block.tkStyle === "cheer" ? block.avatar : block.picture);
-        var html, wantLines;
-        if (block.tkStyle === "cheer") {
-          wantLines = [block.cBits, block.cName, block.cNote]
-            .filter(function (t) { return String(t || "").trim() !== ""; }).length;
-          html = buildFakeCheer({ bits: block.cBits, name: block.cName, note: block.cNote,
-            avatar: block.avatar, avatarW: block.avatarW,
-            sizes: { bits: block.s1, name: block.s2, note: block.s3 },
-            fmts: { bits: block.f1, name: block.f2, note: block.f3 },
-            carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
-        } else {
-          wantLines = [block.l1, block.l2, block.l3]
-            .filter(function (t) { return String(t || "").trim() !== ""; }).length;
-          html = buildTakeover({
-            lines: [{ text: block.l1, size: block.s1, fmt: lineFmt(block.f1, 900, false) },
-                    { text: block.l2, size: block.s2, fmt: lineFmt(block.f2, 700, false) },
-                    { text: block.l3, size: block.s3, fmt: lineFmt(block.f3, 400, true) }],
-            picture: block.picture, pictureW: block.pictureW,
-            pictureH: Math.round((block.pictureW || 120) * 1.4),
-            carrier: block.renderAs, pullPt: block.pullPt, w: PAPER_PX });
-        }
-        var r = takeoverReport(html, wantLines, wantPic);
+        // Counted off the item list and read back off the markup THE PACKER WILL SEND —
+        // the same two halves takeoverWants/takeoverReport were split into, so the note
+        // can't quietly describe a different overlay from the one being printed.
+        var want = takeoverWants(block.items);
+        // ASKED-FOR pictures come off this card's fields, not off the item list, and that
+        // is the whole point of the note: a fake cheer whose avatar has no room is
+        // converted WITHOUT a picture item — byte-identical to what it prints today —
+        // so counting items would count zero wanted, zero drawn, and say nothing at all
+        // while the avatar quietly vanished. Also moves to the item list with the card.
+        var asked = (block.tkStyle === "cheer" ? block.avatar : block.picture) ? 1 : 0;
+        var r = takeoverReport(takeoverHtml(block), want.lines,
+                               Math.max(want.pictures, asked));
         var msgs = [];
-        if (r.pictureWanted && !r.pictureDrawn) {
+        if (r.picturesDrawn < r.picturesWanted) {
           msgs.push("The picture isn’t in this payload — there’s no room for one at least "
             + CHEER_MIN_PIC_PX + "px, which is the smallest that renders on the printer. "
             + "Raise “Reach up”, or shorten a line.");
@@ -3280,7 +3463,7 @@
 
       var pull = mkEl("input", { type: "range", min: "60", max: "400", step: "5" });
       pull.value = block.pullPt || TAKEOVER_PULL_PT;
-      pull.addEventListener("input", function () { block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; saveBlocks(); update(); });
+      pull.addEventListener("input", function () { block.pullPt = parseInt(pull.value, 10) || TAKEOVER_PULL_PT; save(); });
       pull.addEventListener("input", syncNotes);   // wired here: `pull` doesn't exist yet above
       card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
       card.appendChild(mkEl("div", { "class": "hint" },
@@ -3720,7 +3903,10 @@
       takeoverItems: takeoverItems, takeoverPlace: takeoverPlace, takeoverWants: takeoverWants,
       TAKEOVER_BOTTOM_PX: TAKEOVER_BOTTOM_PX, CHEER_GAP_PX: CHEER_GAP_PX,
       CHEER_TOP_PX: CHEER_TOP_PX, CHEER_MAX_LIFT_PX: CHEER_MAX_LIFT_PX,
-      buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W, CHEER_SUFFIX: CHEER_SUFFIX,
+      buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W,
+      takeoverAmountText: takeoverAmountText, takeoverItemsForBlock: takeoverItemsForBlock,
+      migrateTakeoverItems: migrateTakeoverItems, migrateTakeoverPull: migrateTakeoverPull,
+      TAKEOVER_ITEMS_V: TAKEOVER_ITEMS_V, TAKEOVER_PULL_V: TAKEOVER_PULL_V,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,
       bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,
       bigWeightFor: bigWeightFor, bigItalicFor: bigItalicFor, rotateBodies: rotateBodies,

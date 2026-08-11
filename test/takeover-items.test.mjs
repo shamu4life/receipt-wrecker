@@ -134,7 +134,7 @@ test("anchor top reproduces today's fake cheer BYTE FOR BYTE", () => {
   // migration is no longer byte-equivalent and every saved takeover has moved.
   const items = C.buildTakeover({ items: CHEER_ITEMS, anchor: "top", carrier: "embed",
                                   pullPt: 220, w: W });
-  const cheer = C.buildFakeCheer({ bits: "-100000", name: "IRS", note: "tax lien",
+  const cheer = C.buildFakeCheer({ bits: "-100000 BITS", name: "IRS", note: "tax lien",
                                    avatar: PIC, carrier: "embed", pullPt: 220, w: W });
   assert.equal(items, cheer);
   // And that string is still the reference layout: 182 / 214 / 240.
@@ -499,7 +499,7 @@ test("an item stack still fits one cheer", () => {
     "the seeded arrangement no longer fits one cheer (" + (C.payloadLength(html) + 12) + ")");
   // And it costs exactly what the fake cheer costs — the item path adds no overhead.
   assert.equal(C.payloadLength(html),
-    C.payloadLength(C.buildFakeCheer({ bits: "-100000", name: "IRS", note: "tax lien",
+    C.payloadLength(C.buildFakeCheer({ bits: "-100000 BITS", name: "IRS", note: "tax lien",
       avatar: uploaded, carrier: "embed", pullPt: 220, w: W })));
 });
 

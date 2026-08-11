@@ -202,9 +202,10 @@ header used to be. Anything below it in the stack still prints as normal underne
 area it paints over.
 
 **Fake cheer** arranges the same overlay the way printer-bot arranges a real one —
-picture on top, then the bits figure, then the name, then an italic message. Type the
-figure only; ` BITS` is appended for you. It's free text rather than a number, because
-`-100000` and `∞` are the jokes people actually want.
+picture on top, then the amount, then the name, then an italic message. Type the amount
+in full — ` BITS` is no longer appended for you, because the same printer-bot runs on
+YouTube and Kick and their headers say neither "BITS" nor anything like it. It's free
+text rather than a number, so `-100000 BITS`, `$50.00`, `1,000 Kicks` and `∞` all work.
 
 - The layout follows the hand-built payload this was reverse-engineered from — picture
   up top, then three lines sized 24/19/13, each with the formatting row described above.

@@ -125,28 +125,35 @@ test("a takeover fits a cheer with room for a caption beside it", () => {
 // emitting its own markup, so most of the hard-won rules above are inherited — the
 // tests here are for what the composition itself has to get right.
 
-const CHEER = { bits: "-100000", name: "IRS", note: "tax lien",
+const CHEER = { bits: "-100000 BITS", name: "IRS", note: "tax lien",
                 avatar: "https://x.test/p.png", carrier: "embed", pullPt: 220 };
 
-test("the bits figure gets the suffix, and an empty one draws no line at all", () => {
+test("NOTHING is appended to the amount, and an empty one draws no line at all", () => {
+  // " BITS" used to be welded on here by a constant, which is what made the block
+  // Twitch-only — the same printer-bot runs on YouTube and Kick. The amount arrives
+  // whole now (the migration and the seed bake the suffix into the item's text once),
+  // so a bare figure stays bare.
   const html = C.buildFakeCheer(CHEER);
-  assert.ok(html.indexOf(">-100000 BITS<") >= 0, "expected the suffixed figure: " + html);
-  // No figure means no line — never a stray " BITS" with nothing in front of it.
+  assert.ok(html.indexOf(">-100000 BITS<") >= 0, "the amount should land verbatim: " + html);
+  assert.ok(C.buildFakeCheer({ ...CHEER, bits: "42" }).indexOf(">42<") >= 0,
+    "a bare figure must not grow a suffix");
+  assert.ok(C.buildFakeCheer({ ...CHEER, bits: "$50.00" }).indexOf(">$50.00<") >= 0,
+    "an off-Twitch amount must survive intact");
+  // No amount means no line — never an empty <text> costing 63 characters.
   for (const bits of ["", "   ", null, undefined]) {
     const h = C.buildFakeCheer({ ...CHEER, bits });
-    assert.ok(h.indexOf("BITS") < 0, JSON.stringify(bits) + " emitted a bare suffix: " + h);
     assert.equal((h.match(/<text/g) || []).length, 2, "the other two lines should survive");
   }
   // Surrounding whitespace is trimmed, not baked into the line.
-  assert.ok(C.buildFakeCheer({ ...CHEER, bits: "  42  " }).indexOf(">42 BITS<") >= 0);
+  assert.ok(C.buildFakeCheer({ ...CHEER, bits: "  42 BITS  " }).indexOf(">42 BITS<") >= 0);
 });
 
 test("the figure is free text — the jokes people actually want aren't numbers", () => {
   // A negative amount is the whole gag in the payload this was built from, and it
   // must not be coerced, clamped or NaN'd into nothing.
-  for (const bits of ["-100000", "∞", "0.5", "ONE MILLION"]) {
+  for (const bits of ["-100000 BITS", "∞", "0.5", "ONE MILLION", "1,000 Kicks"]) {
     const h = C.buildFakeCheer({ ...CHEER, bits });
-    assert.ok(h.indexOf(">" + bits + " BITS<") >= 0, bits + " didn't survive: " + h);
+    assert.ok(h.indexOf(">" + bits + "<") >= 0, bits + " didn't survive: " + h);
   }
 });
 

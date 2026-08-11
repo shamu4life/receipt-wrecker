@@ -117,6 +117,13 @@
   .block-card textarea, .block-card input[type=url], .block-card select, .block-card input[type=range] { width: 100%; box-sizing: border-box; }
   .add-row { display: flex; gap: .5rem; margin: .2rem 0 .3rem; }
   .add-row button { flex: 1; padding: .45rem; }
+  #presets { margin-top: .9rem; border-top: 1px solid #ddd; padding-top: .7rem; }
+  #presets input[type=text], #presets select { flex: 2; min-width: 0; padding: .4rem; }
+  #presets textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, Menlo, Consolas, monospace; display: none; }
+  #presets textarea.show { display: block; }
+  /* An expired upload is the project's worst failure mode — it prints blank paper and
+     still spends bits — so it gets the same red treatment as an over-budget part. */
+  .expired-note { color: #d33; font-weight: 700; margin: .25rem 0; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
   .fmt-row { display: flex; gap: .3rem; align-items: center; margin: 0 0 .5rem; flex-wrap: wrap; }
@@ -168,6 +175,26 @@
           <button type="button" id="addTakeoverBtn">+ Takeover</button>
         </div>
         <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more &mdash; each is its own cheer (see the bits total under the preview).</div>
+
+        <div id="presets">
+          <div class="composer-h">Presets &mdash; save this whole stack and bring it back</div>
+          <div class="add-row">
+            <input type="text" id="presetName" placeholder="name this setup" maxlength="60">
+            <button type="button" id="presetSave">Save</button>
+          </div>
+          <div class="add-row">
+            <select id="presetList"></select>
+            <button type="button" id="presetLoad">Load</button>
+            <button type="button" id="presetRename">Rename</button>
+            <button type="button" id="presetDelete">Delete</button>
+          </div>
+          <div class="add-row">
+            <button type="button" id="presetExport">Export JSON</button>
+            <button type="button" id="presetImport">Import JSON</button>
+          </div>
+          <textarea id="presetJson" rows="4" spellcheck="false" placeholder="Exported JSON appears here. Paste JSON in and press Import to bring setups over from another browser."></textarea>
+          <div class="hint" id="presetNote">Saved in this browser only &mdash; export the JSON to move a setup to another device, or to survive a cache clear. An <strong>uploaded</strong> picture's link dies after 15 minutes, so a preset that used one loads with that block flagged for re-upload; a pasted link is left alone.</div>
+        </div>
       </div>
       <div id="glyphControls">
       <div id="tierControl">
@@ -1725,6 +1752,94 @@
   // it looks, which is why a CDN link ending in ".png?ex=abc" still counts.
   var IMG_EXT_RE = /\.(png|jpe?g|gif|svg)(?:[?#]|$)/i;
   function urlHasImageExt(u) { return IMG_EXT_RE.test(String(u == null ? "" : u)); }
+
+  // ── PRESETS ───────────────────────────────────────────────────────────────
+  // Customisation is worthless if it has to be rebuilt every stream, so a preset saves
+  // the WHOLE block stack under a name — not just the takeover, because a takeover is
+  // rarely the only thing on the tape.
+  var PRESET_V = 1;
+  // Runtime-only fields (a decoded <img>, in-flight flags, the expiry mark below) are
+  // `_`-prefixed and never persisted — the same rule saveBlocks follows, shared here so
+  // the two cannot drift into disagreeing about what a saved block is.
+  function cleanBlocks(blocks) {
+    return (blocks || []).map(function (b) {
+      var o = {}, k;
+      for (k in b) if (k.charAt(0) !== "_") o[k] = b[k];
+      return o;
+    });
+  }
+  // OUR minted links, and only those, have a clock on them: /upload stashes the image in
+  // KV with a native 15-minute TTL. A pasted third-party URL has no such expiry and is
+  // deliberately left alone — flagging one that still works teaches the user to ignore
+  // the flag, which is worse than not having it. Matched by SHAPE, the way the Worker
+  // itself resolves them (imageKeyFor), so all three link generations are recognised.
+  function isMintedImageUrl(u) {
+    var m = /^https?:\/\/([^\/?#]+)(\/[^?#]*)/.exec(String(u == null ? "" : u).trim());
+    if (!m) return false;
+    var host = m[1].toLowerCase().replace(/:\d+$/, ""), path = m[2];
+    if (host !== "i.uwutoowo.com" && host !== "receipt.uwutoowo.com") return false;
+    return /^\/[0-9a-f]{12}\.png$/.test(path)        // current: 39-char link
+        || /^\/[0-9a-f]{32}\.png$/.test(path)        // the 128-bit generation
+        || /^\/i\/[0-9a-f]{12,32}$/.test(path);      // legacy /i/ path
+  }
+  // Every picture URL a stack points at, in stack order — image blocks AND takeover
+  // picture items. One walker on purpose: a new picture surface added later cannot
+  // quietly escape the expiry check by living somewhere this doesn't look.
+  function presetImageUrls(blocks) {
+    var out = [], i, j, b, it;
+    for (i = 0; i < (blocks || []).length; i++) {
+      b = blocks[i] || {};
+      if (b.type === "image" && b.url) out.push(String(b.url));
+      for (j = 0; j < ((b.items || []).length); j++) {
+        it = b.items[j];
+        if (it && it.kind === "pic" && it.url) out.push(String(it.url));
+      }
+    }
+    return out;
+  }
+  function makePreset(name, blocks, at) {
+    var nm = String(name == null ? "" : name).trim().slice(0, 60);
+    // DEEP copy, not cleanBlocks' shallow one. saveBlocks can be shallow because it
+    // stringifies immediately; a preset outlives the stack it was taken from, so a
+    // shared `items` array means editing the live takeover silently rewrites the saved
+    // setup — the user's backup changing under them without a single click.
+    var deep;
+    try { deep = JSON.parse(JSON.stringify(cleanBlocks(blocks))); }
+    catch (e) { deep = cleanBlocks(blocks); }   // cyclic/unserialisable: better than nothing
+    return { v: PRESET_V, name: nm, savedAt: at || 0, blocks: deep };
+  }
+  function serializePresets(presets) {
+    return JSON.stringify({ v: PRESET_V, presets: presets || [] }, null, 1);
+  }
+  // Import is the one place untrusted text becomes app state, so it validates rather
+  // than trusts: a bad paste has to say what's wrong, not half-load a stack and leave
+  // the user guessing which half arrived.
+  function parsePresets(text) {
+    var data;
+    try { data = JSON.parse(String(text)); }
+    catch (e) { return { ok: false, error: "That isn't valid JSON." }; }
+    var list = Array.isArray(data) ? data
+             : (data && Array.isArray(data.presets) ? data.presets : null);
+    if (!list) return { ok: false, error: "No presets in there — expected a list, or an object with a \"presets\" list." };
+    var out = [], i, p;
+    for (i = 0; i < list.length; i++) {
+      p = list[i];
+      if (!p || typeof p !== "object" || !Array.isArray(p.blocks)) continue;
+      out.push(makePreset(p.name || ("preset " + (i + 1)), p.blocks, p.savedAt));
+    }
+    if (!out.length) return { ok: false, error: "That JSON has no preset with a block list in it." };
+    return { ok: true, presets: out };
+  }
+  // Saving under a name that already exists replaces it, rather than growing a second
+  // entry with the same label that the user then can't tell apart in the list.
+  function upsertPreset(presets, preset) {
+    var out = (presets || []).slice(), i;
+    for (i = 0; i < out.length; i++) {
+      if (out[i].name === preset.name) { out[i] = preset; return out; }
+    }
+    out.push(preset);
+    return out;
+  }
   // Single pass, no recursion: an EMBED_DEFAULT that named nothing would otherwise
   // spin forever, and a lookup miss must never be able to hang the page.
   function getEmbed(id) {
@@ -3128,10 +3243,7 @@
       try {
         // Strip runtime-only fields (a decoded <img>, in-flight flags) — they aren't
         // serialisable and shouldn't persist; block.url re-decodes on load.
-        var clean = blocks.map(function (b) {
-          var o = {}; for (var k in b) if (k.charAt(0) !== "_") o[k] = b[k]; return o;
-        });
-        localStorage.setItem(BLOCKS_KEY, JSON.stringify(clean));
+        localStorage.setItem(BLOCKS_KEY, JSON.stringify(cleanBlocks(blocks)));
       } catch (e) {}
     }
     function loadBlocks() { try { var r = localStorage.getItem(BLOCKS_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
@@ -3967,8 +4079,174 @@
       if (!list) return;
       list.textContent = "";
       blocks.forEach(function (b) {
-        list.appendChild(b.type === "takeover" ? takeoverCard(b)
-          : b.type === "image" ? imageCard(b) : textCard(b));
+        var card = b.type === "takeover" ? takeoverCard(b)
+          : b.type === "image" ? imageCard(b) : textCard(b);
+        // A dead upload link is the worst failure this app has: the message sends, the
+        // bits are spent, and blank paper comes out. Loud and on the block itself, not
+        // in a status line somewhere else on the page.
+        if (b._expired) {
+          var note = document.createElement("div");
+          note.className = "expired-note";
+          note.textContent = "This picture's link has expired — re-upload it, or the receipt prints blank.";
+          card.insertBefore(note, card.firstChild);
+        }
+        list.appendChild(card);
+      });
+    }
+    // ── PRESETS (glue) ──────────────────────────────────────────────────────
+    var PRESETS_KEY = "rw_presets_v1", presets = [], armedDelete = "";
+    function loadPresets() {
+      try {
+        var r = localStorage.getItem(PRESETS_KEY);
+        if (!r) return [];
+        var parsed = parsePresets(r);
+        return parsed.ok ? parsed.presets : [];
+      } catch (e) { return []; }
+    }
+    function persistPresets() {
+      try { localStorage.setItem(PRESETS_KEY, serializePresets(presets)); } catch (e) {}
+    }
+    function presetNote(msg, bad) {
+      if (!els.presetNote) return;
+      els.presetNote.textContent = msg;
+      els.presetNote.style.color = bad ? "#d33" : "";
+    }
+    function renderPresetList() {
+      var sel = els.presetList;
+      if (!sel) return;
+      var keep = sel.value;
+      sel.textContent = "";
+      if (!presets.length) {
+        var none = document.createElement("option");
+        none.value = ""; none.textContent = "(nothing saved yet)";
+        sel.appendChild(none);
+        return;
+      }
+      presets.forEach(function (p) {
+        var o = document.createElement("option");
+        o.value = p.name; o.textContent = p.name;
+        sel.appendChild(o);
+      });
+      if (keep) sel.value = keep;
+      if (!sel.value) sel.value = presets[0].name;
+    }
+    function selectedPreset() {
+      var v = els.presetList && els.presetList.value;
+      for (var i = 0; i < presets.length; i++) if (presets[i].name === v) return presets[i];
+      return null;
+    }
+    // Ground truth, not arithmetic: ask the link whether it still resolves. An <img>
+    // load is the right probe — it needs no CORS grant and adds no fetch call site, and
+    // "the browser could not load this picture" is exactly the condition that makes the
+    // receipt print blank. Only OUR minted links are probed; a pasted third-party URL
+    // has no 15-minute clock on it and is left alone.
+    function probeStackExpiry() {
+      blocks.forEach(function (b) { delete b._expired; });
+      var dead = {};
+      blocks.forEach(function (b) {
+        presetImageUrls([b]).filter(isMintedImageUrl).forEach(function (u) {
+          if (dead[u] != null) return;
+          dead[u] = false;
+          var im = new Image();
+          im.onerror = function () {
+            dead[u] = true;
+            var hit = false;
+            blocks.forEach(function (bb) {
+              if (presetImageUrls([bb]).indexOf(u) >= 0) { bb._expired = true; hit = true; }
+            });
+            if (hit) renderComposer();
+          };
+          im.src = u;
+        });
+      });
+    }
+    function applyPreset(p) {
+      if (!p) return;
+      // Straight through the same migration pipeline a saved stack takes on load: a
+      // preset exported from an older build is exactly as old as a stack from one, and
+      // giving it a second path is how the two would drift.
+      var fresh = cleanBlocks(p.blocks).map(migrateEmbed).map(migrateTakeoverPull).map(migrateTakeoverItems);
+      // Re-key the ids. A preset carries whatever ids it was saved with, and reusing them
+      // collides with the live counter the moment the user adds a block.
+      fresh.forEach(function (b) { b.id = blockIdSeq++; });
+      blocks = fresh;
+      saveBlocks();
+      renderComposer();
+      update();
+      probeStackExpiry();
+    }
+    function initPresets() {
+      if (!els.presetList) return;
+      presets = loadPresets();
+      renderPresetList();
+      els.presetSave.addEventListener("click", function () {
+        var name = (els.presetName.value || "").trim();
+        if (!name) { presetNote("Give the setup a name first.", true); els.presetName.focus(); return; }
+        presets = upsertPreset(presets, makePreset(name, blocks, Date.now()));
+        persistPresets(); renderPresetList();
+        els.presetList.value = name;
+        presetNote("Saved “" + name + "” — " + blocks.length
+                   + (blocks.length === 1 ? " block." : " blocks."));
+      });
+      els.presetLoad.addEventListener("click", function () {
+        var p = selectedPreset();
+        if (!p) { presetNote("Nothing saved to load yet.", true); return; }
+        applyPreset(p);
+        els.presetName.value = p.name;
+        presetNote("Loaded “" + p.name + "”. Checking any uploaded pictures are still alive…");
+      });
+      els.presetRename.addEventListener("click", function () {
+        var p = selectedPreset(), name = (els.presetName.value || "").trim();
+        if (!p) { presetNote("Nothing saved to rename.", true); return; }
+        if (!name) { presetNote("Type the new name in the box, then press Rename.", true); return; }
+        var old = p.name;
+        p.name = name;
+        persistPresets(); renderPresetList();
+        els.presetList.value = name;
+        presetNote("Renamed “" + old + "” to “" + name + "”.");
+      });
+      // Two-press delete rather than a confirm() — a modal dialog blocks the page, and
+      // the button re-labelling says the same thing in place.
+      els.presetDelete.addEventListener("click", function () {
+        var p = selectedPreset();
+        if (!p) { presetNote("Nothing saved to delete.", true); return; }
+        if (armedDelete !== p.name) {
+          armedDelete = p.name;
+          els.presetDelete.textContent = "Really?";
+          presetNote("Press again to delete “" + p.name + "”. Export first if you want it back.", true);
+          return;
+        }
+        presets = presets.filter(function (q) { return q.name !== p.name; });
+        armedDelete = ""; els.presetDelete.textContent = "Delete";
+        persistPresets(); renderPresetList();
+        presetNote("Deleted “" + p.name + "”.");
+      });
+      els.presetList.addEventListener("change", function () {
+        armedDelete = ""; els.presetDelete.textContent = "Delete";
+        var p = selectedPreset();
+        if (p) els.presetName.value = p.name;
+      });
+      els.presetExport.addEventListener("click", function () {
+        if (!presets.length) { presetNote("Save a setup first — there's nothing to export.", true); return; }
+        els.presetJson.value = serializePresets(presets);
+        els.presetJson.className = "show";
+        els.presetJson.focus(); els.presetJson.select();
+        presetNote("All " + presets.length + (presets.length === 1 ? " setup" : " setups")
+                   + " as JSON — copy it somewhere safe, or into another browser's Import box.");
+      });
+      els.presetImport.addEventListener("click", function () {
+        if (els.presetJson.className !== "show" || !(els.presetJson.value || "").trim()) {
+          els.presetJson.className = "show"; els.presetJson.focus();
+          presetNote("Paste exported JSON into the box, then press Import again.");
+          return;
+        }
+        var res = parsePresets(els.presetJson.value);
+        if (!res.ok) { presetNote(res.error, true); return; }
+        res.presets.forEach(function (p) { presets = upsertPreset(presets, p); });
+        persistPresets(); renderPresetList();
+        presetNote("Imported " + res.presets.length
+                   + (res.presets.length === 1 ? " setup." : " setups.")
+                   + " Same-named setups were replaced.");
       });
     }
     function composeParts() {
@@ -4105,6 +4383,16 @@
         cheer: document.getElementById("cheer"),
         bitsAmount: document.getElementById("bitsAmount"),
         stackCovers: document.getElementById("stackCovers"),
+        presetName: document.getElementById("presetName"),
+        presetSave: document.getElementById("presetSave"),
+        presetList: document.getElementById("presetList"),
+        presetLoad: document.getElementById("presetLoad"),
+        presetRename: document.getElementById("presetRename"),
+        presetDelete: document.getElementById("presetDelete"),
+        presetExport: document.getElementById("presetExport"),
+        presetImport: document.getElementById("presetImport"),
+        presetJson: document.getElementById("presetJson"),
+        presetNote: document.getElementById("presetNote"),
         textInput: document.getElementById("textInput"),
         bigStyle: document.getElementById("bigStyle"),
         sizeControl: document.getElementById("sizeControl"),
@@ -4234,7 +4522,12 @@
       // Composer: seed the block stack (migrating old single-text state), draw the
       // cards, and wire the add buttons. Seed BEFORE setMode so its refresh composes.
       seedBlocks();
+      // A stack restored from localStorage has exactly the same problem a preset does —
+      // an uploaded link older than 15 minutes is dead — so it gets the same check. The
+      // probe is async and marks the cards when it hears back.
+      probeStackExpiry();
       renderComposer();
+      initPresets();
       document.getElementById("addTextBtn").addEventListener("click", function () { addBlock("text"); });
       document.getElementById("addImageBtn").addEventListener("click", function () { addBlock("image"); });
       document.getElementById("addTakeoverBtn").addEventListener("click", function () { addBlock("takeover"); });
@@ -4261,6 +4554,10 @@
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,
       buildStackCover: buildStackCover,
+      PRESET_V: PRESET_V, cleanBlocks: cleanBlocks, isMintedImageUrl: isMintedImageUrl,
+      presetImageUrls: presetImageUrls, makePreset: makePreset,
+      serializePresets: serializePresets, parsePresets: parsePresets,
+      upsertPreset: upsertPreset,
       lineFmt: lineFmt,
       takeoverItems: takeoverItems, takeoverPlace: takeoverPlace, takeoverWants: takeoverWants,
       takeoverSeed: takeoverSeed,

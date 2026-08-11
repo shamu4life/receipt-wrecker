@@ -1188,6 +1188,17 @@
   //
   // The picture arrives with NO url — it draws nothing and costs nothing until you fill it
   // in (takeoverItems drops it), and it is the row that shows where the avatar goes.
+  //
+  // ONE KNOWN COST OF THAT, ACCEPTED. Until the url is pasted there is no picture to hang
+  // from, so the three bare lines sit at the very top of the cover (measured at the default
+  // pull: baselines 30/62/88 in a 360px box) with blank tape under them. 0.4.2 hid that
+  // state by parking bare lines mid-cover inside buildFakeCheer — it had no anchor control,
+  // so it could. Here the anchor is a block-level control the user can see and change, and
+  // "top" is the anchor the finished thing needs: it is what makes this seed byte-identical
+  // to 0.4.2's fake cheer the moment the url lands, which is the whole claim the button
+  // makes. Seeding "centre" would trade a two-second empty state for a finished layout that
+  // is no longer the tuned one. Anyone who wants a permanently text-only fake donation
+  // picks Centre in the Anchor select, which is three rows up.
   // Everything it returns is an ordinary item afterwards: editable, deletable, reorderable,
   // and you can add more around it. That is what makes "a fake cheer plus my own lines"
   // work, which is the whole point of the container.
@@ -3304,9 +3315,12 @@
         var head = mkEl("div", { "class": "tk-head" });
         head.appendChild(mkEl("span", { "class": "tk-kind" }, label));
         head.appendChild(mkEl("span", { "class": "spacer" }));
-        var up = mkEl("button", { type: "button", title: "Move up" }, "↑");
-        var dn = mkEl("button", { type: "button", title: "Move down" }, "↓");
-        var rm = mkEl("button", { type: "button", title: "Remove" }, "✕");
+        // “this item”, not “up/down/remove”: the card head one level up has the same three
+        // buttons for the whole BLOCK, and identical titles make the two scopes
+        // indistinguishable to a screen reader and to any title-based selector.
+        var up = mkEl("button", { type: "button", title: "Move this item up" }, "↑");
+        var dn = mkEl("button", { type: "button", title: "Move this item down" }, "↓");
+        var rm = mkEl("button", { type: "button", title: "Remove this item" }, "✕");
         up.disabled = i === 0;
         dn.disabled = i === items.length - 1;
         up.addEventListener("click", function () { moveItem(i, -1); });
@@ -3429,11 +3443,22 @@
         w.value = Math.max(CHEER_MIN_PIC_PX, takeoverDim(item.width, CHEER_AVATAR_W));
         w.addEventListener("input", function () {
           item.width = parseInt(w.value, 10) || CHEER_AVATAR_W;
-          // `height` is left alone on purpose. Absent, takeoverItems reserves a square,
-          // which is the honest default for a profile picture; present, it came off the
-          // old renderer at migration and rewriting it here would move a migrated block’s
-          // layout under the owner’s hand. Neither number is the drawn height anyway —
-          // the carriers state a width and the source’s own aspect does the rest.
+          // AND THE RESERVED HEIGHT GOES WITH IT. A migrated picture arrives carrying the
+          // explicit height the old renderer gave it at its SAVED width (square for a fake
+          // cheer, 1.4x for a blank) — that is what keeps the migration byte-identical, and
+          // it is right up until the moment the user moves this slider. 0.4.2 recomputed
+          // the reserved height from the width on EVERY render (`pictureH: aw`,
+          // `pictureH: round(pictureW * 1.4)`), so “height tracks width” is the invariant
+          // the owner tuned against; freezing it here meant a migrated fake cheer dragged
+          // from 120 to 240 kept a 120 slot while the carrier drew 240 — the avatar
+          // straight over all three lines, the scar this file names twice. Dropping the
+          // key hands the slot back to takeoverItems’ square default, which IS what the
+          // carrier draws (it states a width and the source’s aspect does the rest), and
+          // reproduces 0.4.2’s cheer geometry exactly at every width (measured: 160 ->
+          // baselines 222/254/280, 200 -> 262/294/320). A migrated BLANK picture stops
+          // reserving its old 1.4x slab when you first drag it, which can push it out of
+          // the covered area — the drop note says so out loud, which is the point.
+          delete item.height;
           save();
         });
         wrap.appendChild(sliderRow("Picture width (px)", w, CHEER_AVATAR_W, ""));
@@ -3466,8 +3491,12 @@
       var seed = mkEl("button", { type: "button" }, "Seed fake donation");
       seed.addEventListener("click", function () {
         var s = takeoverSeed();
+        // The anchor is BLOCK-level, so it is only the seed’s to set when the seed is all
+        // there is. Seeding into a stack somebody already anchored bottom used to yank
+        // their lines to the top of the cover as a side effect of a button that otherwise
+        // only appends.
+        if (!items.length) block.anchor = s.anchor;
         for (var si = 0; si < s.items.length; si++) items.push(s.items[si]);
-        block.anchor = s.anchor;
         restack();
       });
       addRow.appendChild(addText); addRow.appendChild(addPic); addRow.appendChild(seed);

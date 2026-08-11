@@ -568,3 +568,69 @@ test("at the pull slider's minimum an avatar-only fake cheer now counts as EMPTY
   assert.equal(migrate(b).avatar, PIC);
   assert.equal(C.takeoverItems(migrate(cheer({ ...bare, pullPt: 100, avatar: PIC })).items).length, 1);
 });
+
+// The card's picture-width slider, as a rule rather than a widget: set `width`, drop any
+// `height` the migration stamped. takeoverCard can't be constructed in a null DOM, so the
+// two lines are restated here — what is pinned is not "the widget calls these", it is that
+// these two lines are the ones that keep the invariant.
+const widen = (b, nw) => {
+  const pic = b.items.filter((it) => it.kind === "pic")[0];
+  pic.width = nw;
+  delete pic.height;
+  return b;
+};
+
+test("widening a MIGRATED fake cheer's avatar still draws 0.4.2's bytes", () => {
+  // THE REGRESSION THIS EXISTS FOR: the migration stamps an explicit height (square for a
+  // cheer, 1.4x for a blank) so the block arrives byte-identical AT ITS SAVED WIDTH, and
+  // takeoverItems lets an explicit height win. Leave that height in place and the slider
+  // resizes only what the carrier draws — a fake cheer dragged 120 -> 240 kept a 120-tall
+  // slot with its baselines unmoved, and the avatar landed on top of all three lines: the
+  // exact failure the foreignObject and reserve-the-text-first notes were written about.
+  //
+  // 0.4.2 recomputed the reserved height from the width on every render (`pictureH: aw`),
+  // so the bar is the migration's own bar — the same bytes as 0.4.2 — at a width the owner
+  // picked, not only at the one they saved.
+  for (const pullPt of [220, 240, 300]) {
+    for (const avatarW of [120, 140, 160, 180, 200]) {
+      const saved = cheer({ avatar: PIC, avatarW: C.CHEER_AVATAR_W, pullPt });
+      const got = draw(widen(migrate(saved), avatarW));
+      assert.equal(got, asShipped(cheer({ avatar: PIC, avatarW, pullPt })),
+                   "pull " + pullPt + ", width " + avatarW);
+    }
+  }
+});
+
+test("after a width edit the reserved slot is square, whichever style it came from", () => {
+  // The honest invariant underneath the test above, and the one that also covers a
+  // migrated BLANK picture: the carriers state a width only, so the drawn height is the
+  // source's own aspect and a square is what the layout must reserve. The blank style's
+  // 1.4x slab is 0.4.2's reserved slot, kept only so the migration lands on the old bytes;
+  // the first drag of the slider hands the slot back to the item engine's default.
+  for (const saved of [cheer({ avatar: PIC, avatarW: C.CHEER_AVATAR_W, pullPt: 300 }),
+                       blank({ picture: PIC, pictureW: 120, pullPt: 300 })]) {
+    for (const nw of [140, 160]) {
+      const pics = geom(draw(widen(migrate(saved), nw))).pics;
+      assert.equal(pics.length, 1, saved.tkStyle + " at " + nw + " still draws its picture");
+      assert.deepEqual([pics[0].w, pics[0].h], [nw, nw], saved.tkStyle + " at " + nw);
+    }
+  }
+});
+
+test("a widened blank picture is DROPPED once its stale nudge lifts it out of the cover", () => {
+  // The price of the line above, measured rather than discovered on paper. A migrated
+  // blank block's picture carries a nudge pinning it to the y the old renderer used (-8 at
+  // the default pull), and a nudge deliberately does not re-flow — so a taller reserved
+  // slot walks the picture up until its top is above the covered area, where takeoverPlace
+  // drops it rather than printing over the header this block exists to cover.
+  //
+  // NOT SILENT, and that is what makes it acceptable: takeoverReport counts one wanted and
+  // none drawn, which is the card's drop note. Zeroing the nudge — what the card's ↺ is
+  // for, and what its hint already tells a migrated block's owner to do — puts it back.
+  const wide = draw(widen(migrate(blank({ picture: PIC, pictureW: 120, pullPt: 240 })), 180));
+  eq(geom(wide).pics, []);
+  assert.equal(C.takeoverReport(wide, { wantLines: 3, wantPicture: 1 }).picturesDrawn, 0);
+  const m = widen(migrate(blank({ picture: PIC, pictureW: 120, pullPt: 240 })), 180);
+  delete m.items.filter((it) => it.kind === "pic")[0].nudge;
+  eq(geom(draw(m)).pics.map((p) => [p.w, p.h]), [[180, 180]]);
+});

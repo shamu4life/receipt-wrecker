@@ -1337,24 +1337,56 @@
   // control the item model already has for "this one thing sits here", it moves one item
   // without re-flowing the rest, so a rigid run keeps its shape; baking the difference
   // into it is how a migrated block comes out byte-identical instead of nearly.
-  // Zeroes are deleted rather than stored: a fake cheer needs none at all (its layout IS
-  // the item engine's), and an item list full of `nudge: 0` reads like tuning that isn't.
+  //
+  // WHICH BLOCKS COME OUT CLEAN — swept, not assumed. ONLY a fake cheer whose avatar
+  // actually drew: that layout IS the item engine's, so every nudge computes to 0 and
+  // every one is deleted. That is the canary that the shared leading rule really is
+  // shared, and a test asserts it item by item. A fake cheer whose avatar did NOT draw is
+  // NOT clean — with no picture to hang from, buildFakeCheer parks the bare run mid-cover
+  // (see its startY) and the item engine has no equivalent, so all three lines come across
+  // carrying the SAME largish offset: +130 at the default pull. Migrated blank blocks
+  // carry small per-line ones. Both are offsets on geometry the owner never tuned and
+  // cannot see, and a nudge does not re-flow — edit a size afterwards and the old offset
+  // is still there. The item card owes them a word when it grows a nudge control.
+  // Zeroes are deleted rather than stored: an item list full of `nudge: 0` reads like
+  // tuning that isn't.
+  //
+  // `ink` is walked in DRAW ORDER against the stack, so the two must describe the same
+  // items in the same order. takeoverItems drops whatever would draw nothing (empty text,
+  // empty url), which would shift every pin after it by one — so the source-index map
+  // below asks that same rule instead of assuming `items` survives it whole. Today
+  // takeoverItemsForBlock never builds a droppable item and the map is the identity; it
+  // exists so a hand-built list (stage 3's card) can't silently pin item 2 onto item 3.
   function takeoverPinToInk(items, anchor, pullPt, carrier, ink) {
+    var live = [], i;
+    for (i = 0; i < items.length; i++) {
+      // The drop rule ASKED, not restated: an item that survives takeoverItems on its own
+      // is one the stack will contain, and they stay in order.
+      if (takeoverItems([items[i]], carrier).length) live.push(i);
+    }
     var st = takeoverStack(takeoverItems(items, carrier));
     var y0 = takeoverAnchorY(anchor, takeoverBox(pullPt), st.height);
-    var ti = 0, last = 0, i, pl, raw;
-    for (i = 0; i < st.placed.length && i < items.length; i++) {
+    var ti = 0, last = 0, pl, raw, src;
+    for (i = 0; i < st.placed.length && i < live.length; i++) {
       pl = st.placed[i];
+      src = items[live[i]];
       raw = y0 + pl.top;
       if (pl.item.kind === "pic") {
-        if (ink.pic) items[i].nudge = ink.pic.y - raw;
+        if (ink.pic) src.nudge = ink.pic.y - raw;
       } else {
         // A line the old layout pushed past the bottom of the cover left no ink to copy
         // from. Give it the nudge its neighbour got so the run stays rigid — the two
         // layouts agree on leading inside a fake cheer's run, which is the only style
         // that can drop one, so it lands where the old one would have and the overflow
         // rule drops it there too.
-        items[i].nudge = last = ti < ink.texts.length
+        //
+        // DEFENSIVE, AND INVISIBLE IN THE MARKUP: swept the reachable space and using 0
+        // instead of `last` changes not one printed byte, because the only item this fires
+        // for is one the overflow rule then drops anyway. It is written this way so that
+        // the day an anchor or a leading change stops dropping it, the item appears beside
+        // its neighbour rather than at an unrelated offset. Pinned on the item data, which
+        // does show it, rather than on the output, which does not.
+        src.nudge = last = ti < ink.texts.length
           ? ink.texts[ti].y - pl.item.size - raw
           : last;
         ti++;
@@ -1414,13 +1446,31 @@
   // a block that already carries items — it stamps and leaves them alone rather than
   // rebuilding from fields the item card may have stopped writing.
   function migrateTakeoverItems(b) {
-    if (!b || b.type !== "takeover" || b.tkV === TAKEOVER_ITEMS_V) return b;
+    if (!b || b.type !== "takeover") return b;
+    // BOTH STAMPS, NOT JUST THIS ONE. Returning on tkV alone would skip the pull
+    // migration below for every block that has already been converted — and seedBlocks
+    // maps them together, so the composition guarantee this function exists to give
+    // would hold only for blocks that happen to arrive unconverted. The pull default has
+    // moved four times in about a day; "already has items" is not "already done".
+    if (b.tkV === TAKEOVER_ITEMS_V && b.pullV === TAKEOVER_PULL_V) return b;
     // THE PULL MIGRATION FIRST, ALWAYS, AND FROM IN HERE. The nudges below pin items to
     // where the old renderer put them AT THIS BLOCK'S PULL, and a blank takeover's
     // picture sat at a fixed y=6 while its text hung off the bottom of the cover — so the
     // gap between them is not the same at 220 as at 240. Migrate the pull afterwards and
     // that gap is frozen at the wrong number. Calling it here instead of trusting the
     // call site's .map() order is what makes the two compose in either order.
+    //
+    // AND A WARNING FOR WHOEVER BUMPS TAKEOVER_PULL_V NEXT. Once a block carries items,
+    // the branch below leaves them alone on purpose (an item card's data is not
+    // rebuildable from the old fields) — so a pull bump moves the cover while the nudges
+    // stay pinned to the geometry of the OLD pull, which is that same frozen gap arriving
+    // one version late. Measured on a blank block with a picture: migrated at 220 it draws
+    // the picture at y=6 and text at 225/251/269; move the pull to 240 under those nudges
+    // and it draws 20 and 239/265/283, where a fresh migration at 240 draws 6 and
+    // 252/278/296. A pull bump therefore has to decide, in its own migration, whether to
+    // RE-PIN the nudges (possible only while the legacy fields are still on the block) or
+    // CLEAR them and adopt the item engine's own leading. Bumping the constant alone
+    // re-tunes every saved takeover against a printer nobody consulted.
     migrateTakeoverPull(b);
     if (!b.items) {
       var m = takeoverItemsForBlock(b);
@@ -2811,6 +2861,14 @@
     function blockHasContent(b) {
       // The item list is the content now — and takeoverItems has already thrown out the
       // blanks and the empty URLs, so "has any item that would draw" is just its length.
+      //
+      // NARROWER THAN 0.4.2, and deliberately: that tested `b.avatar` directly, so a fake
+      // cheer whose only content was an avatar counted as content even at a pull where the
+      // avatar is clamped under CHEER_MIN_PIC_PX and never drawn. At pullPt 60 — the
+      // slider's minimum — no pic item is created, so that block now counts as empty and
+      // is not sent, where 0.4.2 sent a blank white slab. Not silent: the card's drop note
+      // reads the TYPED fields, so it still says the picture didn't fit and to raise the
+      // pull. Pinned in test/takeover-migrate.test.mjs.
       if (b.type === "takeover") return takeoverItems(b.items).length > 0;
       if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
       return !!(b.text && String(b.text).trim());
@@ -3905,6 +3963,7 @@
       CHEER_TOP_PX: CHEER_TOP_PX, CHEER_MAX_LIFT_PX: CHEER_MAX_LIFT_PX,
       buildFakeCheer: buildFakeCheer, CHEER_AVATAR_W: CHEER_AVATAR_W,
       takeoverAmountText: takeoverAmountText, takeoverItemsForBlock: takeoverItemsForBlock,
+      takeoverPinToInk: takeoverPinToInk,
       migrateTakeoverItems: migrateTakeoverItems, migrateTakeoverPull: migrateTakeoverPull,
       TAKEOVER_ITEMS_V: TAKEOVER_ITEMS_V, TAKEOVER_PULL_V: TAKEOVER_PULL_V,
       CHEER_MIN_PIC_PX: CHEER_MIN_PIC_PX, takeoverReport: takeoverReport,

@@ -108,8 +108,11 @@ test harness the pure-core functions: `TIERS`, `getTier`, `sampleLuma`,
 `makeNonce`, `packageCheer`, `buildCensus`, `CHEER_TOKEN`, `packStackBodies`,
 `HEIGHT_BUDGET`, `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
 `getEmbed`, `buildImageEmbed`, `buildEmbedProbe`, `buildTakeover`, `takeoverBox`,
-`TAKEOVER_PULL_PT`, `buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_SUFFIX`,
-`CHEER_MIN_PIC_PX`, `takeoverReport`. (That list is easy to let rot — regenerate it
+`TAKEOVER_PULL_PT`, `buildFakeCheer`, `CHEER_AVATAR_W`, `CHEER_MIN_PIC_PX`,
+`takeoverReport`, `takeoverItems`, `takeoverPlace`, `takeoverWants`, `lineFmt`,
+`takeoverAmountText`, `takeoverItemsForBlock`, `takeoverPinToInk`,
+`migrateTakeoverItems`, `migrateTakeoverPull`, `TAKEOVER_ITEMS_V`, `TAKEOVER_PULL_V`.
+(That list is easy to let rot — regenerate it
 with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 rather than trusting it.) The canvas/DOM functions — `rasterizeImage`, `computeGrid`,
 the body builders and the UI wiring in `init()` — are **not** exported and are
@@ -216,18 +219,25 @@ All functions live inside the one IIFE in `public/index.html`.
     floor — swept 60–400pt against a short header and it never printed. The app cannot
     know the rig's header height; that is what the pull *is*. The preview clips at the
     paper edge (`.rcpt { overflow: hidden }`) so the loss is visible instead of silent.
-12. `buildFakeCheer(o)` / `CHEER_AVATAR_W` / `CHEER_SUFFIX` — the **Fake cheer**: the
-    same takeover arranged like the bot's own header (picture on top, then `<N> BITS`,
-    then a name, then an italic note). It **composes `buildTakeover`** rather than
-    emitting its own markup, so escaping, the carrier table and the `foreignObject`-last
-    rule are inherited instead of re-implemented — keep it that way. The layout numbers
-    reproduce the hand-built payload this was reverse-engineered from, which printed
-    correctly on the real rig: an 80 px picture at the top, baselines 24/900, 19/700,
-    13/italic — except that the picture is reserved **square** (a profile picture is
-    square, and the carriers state only a width, so a 1.4 reservation left a slab of
-    white under it) and at least `CHEER_MIN_PIC_PX` tall (see the render threshold
-    above). The bits figure is **free text, not a number** — `-100000` and `∞` are
-    both jokes people want, and coercing it to a number kills them.
+12. `buildFakeCheer(o)` / `CHEER_AVATAR_W` — the **Fake cheer**: the same takeover
+    arranged like the bot's own header (picture on top, then the amount, then a name,
+    then an italic note). It **composes `buildTakeover`** rather than emitting its own
+    markup, so escaping, the carrier table and the `foreignObject`-last rule are
+    inherited instead of re-implemented — keep it that way.
+    **Nothing renders through it any more.** Every takeover draws from its item list;
+    this survives as the migration's ORACLE ("where did this block's ink land in 0.4.2")
+    and as the seed button's data, so treat it as frozen. There is no `CHEER_SUFFIX`:
+    `" BITS"` used to be welded on at render time, which is the one thing that made the
+    block Twitch-only, and it is now baked into the amount ITEM's text once, at
+    migration, by `takeoverAmountText`. Nothing appends anything when it draws.
+    The layout numbers reproduce the hand-built payload this was reverse-engineered
+    from, which printed correctly on the real rig: an 80 px picture at the top,
+    baselines 24/900, 19/700, 13/italic — except that the picture is reserved
+    **square** (a profile picture is square, and the carriers state only a width, so
+    a 1.4 reservation left a slab of white under it) and at least `CHEER_MIN_PIC_PX`
+    tall (see the render threshold above). The bits figure is **free text, not a
+    number** — `-100000` and `∞` are both jokes people want, and coercing it to a
+    number kills them.
     **Layout order is load-bearing:** reserve the TEXT's room first, then give the
     picture what is left. Sizing the picture first and clamping the text into the
     remainder drags the stack up into the picture's rectangle — and the picture is

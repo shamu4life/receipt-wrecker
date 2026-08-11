@@ -5,10 +5,23 @@
 // "it looks about the same", it is THE SAME BYTES — anything else is a re-tune nobody
 // asked for, discovered on paper, mid-stream.
 //
-// The old renderer is the reference throughout. `legacy()` below is 0.4.2's
-// renderBlockBodies transcribed, deliberately not a call into any helper the migration
-// also uses: this file has to be able to catch the migration and the thing it is
-// migrating from agreeing with each other and both being wrong.
+// TWO REFERENCES HERE, AND THEY DO DIFFERENT JOBS. READ THIS BEFORE TRUSTING A GREEN RUN.
+//
+// `legacy()` below is 0.4.2's renderBlockBodies transcribed, and it drives the matrices:
+// it is what makes "every reachable setting, both styles, every pull stop" affordable.
+// It is NOT an independent oracle. It calls buildFakeCheer / buildTakeover out of the
+// build under test — the same two functions the migration's own oracle (takeoverLegacyHtml)
+// calls — so moving a legacy baseline moves both sides together and every matrix in this
+// file stays green. Measured, not assumed: `pullPx - 24` -> `- 27` in buildTakeover (the
+// bottom baseline every migrated blank block hangs off) and `pullPx * 0.5` -> `* 0.4` in
+// buildFakeCheer (the placement of every avatar-less fake cheer) each left the whole suite
+// passing while this file claimed to be catching exactly that.
+//
+// So the real bar is GOLD_042: strings captured from the 0.4.2 tag and pasted in as
+// literals. Nothing in this build produced them, so nothing in this build can move them —
+// they are the only thing here that can catch the migration and the thing it is migrating
+// from agreeing with each other and both being wrong. Both sides are asserted against
+// them, the oracle as well as the migration.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadCore, eq } from "./_harness.mjs";
@@ -78,6 +91,43 @@ function exceptional(b) {
   return "";
 }
 
+// ── THE BAR: THE BYTES 0.4.2 ACTUALLY DREW ──────────────────────────────────
+
+// Captured by running the 0.4.2 tag's own renderBlockBodies (`git show 247bb4a:public/
+// index.html`) over the four blocks named here — one blank with a picture, one blank
+// text-only, one fake cheer with an avatar, one without. They cover the two places the
+// matrices below cannot see past their shared helpers: the blank style's bottom baseline
+// (`pullPx - 24`) and the avatar-less fake cheer's mid-cover placement (`pullPx * 0.5`).
+//
+// PASTED LITERALS ON PURPOSE. Regenerating them from this build would defeat the whole
+// point. Regenerate them ONLY from the tag, and only alongside a deliberate divergence —
+// which belongs next to the three pinned exceptions below, with its own test, not here.
+const GOLD_042 = [
+  ["blank, picture + three lines, pull 220",
+   blank({ picture: PIC, pictureW: 120 }),
+   '<svg width="263" height="333" style="margin-top:-220pt"><rect width="263" height="333" fill="#fff"/><g text-anchor="middle"><text x="132" y="225" font-size="24" font-weight="900">TAX LIEN</text><text x="132" y="251" font-size="19" font-weight="700">ASSESSED</text><text x="132" y="269" font-size="13" font-style="italic">please remit</text></g><foreignObject x="72" y="6" width="120" height="168"><embed src="https://x.test/p.png" width="120"></foreignObject></svg>'],
+  ["blank, three lines, no picture, pull 240",
+   blank({ pullPt: 240 }),
+   '<svg width="263" height="360" style="margin-top:-240pt"><rect width="263" height="360" fill="#fff"/><g text-anchor="middle"><text x="132" y="252" font-size="24" font-weight="900">TAX LIEN</text><text x="132" y="278" font-size="19" font-weight="700">ASSESSED</text><text x="132" y="296" font-size="13" font-style="italic">please remit</text></g></svg>'],
+  ["fake cheer with an avatar, pull 240",
+   cheer({ pullPt: 240, avatar: PIC }),
+   '<svg width="263" height="360" style="margin-top:-240pt"><rect width="263" height="360" fill="#fff"/><g text-anchor="middle"><text x="132" y="182" font-size="24" font-weight="900">-100000 BITS</text><text x="132" y="214" font-size="19" font-weight="700">IRS</text><text x="132" y="240" font-size="13" font-style="italic">tax lien</text></g><foreignObject x="72" y="6" width="120" height="120"><embed src="https://x.test/p.png" width="120"></foreignObject></svg>'],
+  ["fake cheer with no avatar, pull 240",
+   cheer({ pullPt: 240 }),
+   '<svg width="263" height="360" style="margin-top:-240pt"><rect width="263" height="360" fill="#fff"/><g text-anchor="middle"><text x="132" y="160" font-size="24" font-weight="900">-100000 BITS</text><text x="132" y="192" font-size="19" font-weight="700">IRS</text><text x="132" y="218" font-size="13" font-style="italic">tax lien</text></g></svg>'],
+];
+
+test("byte-for-byte against markup captured from the 0.4.2 tag", () => {
+  for (const [what, b, gold] of GOLD_042) {
+    // Both sides, because either one drifting is the failure. asShipped() is this file's
+    // in-build reference and after() is the migration; a change that moves them together
+    // is invisible to every other test here and visible to this one.
+    assert.equal(asShipped(b), gold, "the in-build reference drifted from 0.4.2: " + what);
+    assert.equal(after(b), gold, "the migration drifted from 0.4.2: " + what);
+  }
+  assert.equal(GOLD_042.length, 4);
+});
+
 // ── THE BAR: SAME BYTES ─────────────────────────────────────────────────────
 
 test("a migrated BLANK takeover emits byte-identical markup", () => {
@@ -134,21 +184,29 @@ test("byte-identical with formatting on, which is where the payload budget lives
 });
 
 test("byte-identical for the partly-filled blocks, including the empty one", () => {
+  // Each fixture states the category it is expected to be in, rather than being counted
+  // and waved through: four of these are single-line cases, which is a pinned exception
+  // with its own test below, and `checked >= 5` sat exactly on the five that were left.
+  // Named this way, a fixture that silently changes category fails here instead.
   const sets = [
-    blank({ l1: "ONLY", l2: "", l3: "" }), blank({ l1: "", l2: "MID", l3: "" }),
-    blank({ l1: "A", l2: "", l3: "C" }), blank({ l1: "", l2: "", l3: "" }),
-    blank({ l1: "", l2: "", l3: "", picture: PIC, pictureW: 120 }),
-    cheer({ cBits: "42", cName: "", cNote: "" }), cheer({ cBits: "", cName: "IRS", cNote: "" }),
-    cheer({ cBits: "", cName: "", cNote: "" }),
-    cheer({ cBits: "", cName: "", cNote: "", avatar: PIC }),
+    [blank({ l1: "ONLY", l2: "", l3: "" }), "one centred line"],
+    [blank({ l1: "", l2: "MID", l3: "" }), "one centred line"],
+    [blank({ l1: "A", l2: "", l3: "C" }), ""],
+    [blank({ l1: "", l2: "", l3: "" }), ""],
+    [blank({ l1: "", l2: "", l3: "", picture: PIC, pictureW: 120 }), ""],
+    [cheer({ cBits: "42", cName: "", cNote: "" }), "one centred line"],
+    [cheer({ cBits: "", cName: "IRS", cNote: "" }), "one centred line"],
+    [cheer({ cBits: "", cName: "", cNote: "" }), ""],
+    [cheer({ cBits: "", cName: "", cNote: "", avatar: PIC }), ""],
   ];
   let checked = 0;
-  for (const b of sets) {
-    if (exceptional(b)) continue;
+  for (const [b, why] of sets) {
+    assert.equal(exceptional(b), why, "this fixture changed category: " + JSON.stringify(b));
+    if (why) continue;
     checked++;
     assert.equal(after(b), asShipped(b), "moved: " + JSON.stringify(b));
   }
-  assert.ok(checked >= 5, "only " + checked + " of these were real comparisons");
+  assert.equal(checked, 5, "the byte-compared fixtures here changed count");
 });
 
 // ── THE WHOLE REACHABLE SPACE, AS GEOMETRY ──────────────────────────────────
@@ -348,4 +406,165 @@ test("the pull migration and this one compose in EITHER order", () => {
   assert.equal(draw(a), asShipped({ ...saved(), pullPt: C.TAKEOVER_PULL_PT }));
   // The pull rule itself is untouched by any of this.
   assert.equal(C.TAKEOVER_PULL_V, 3);
+});
+
+// ── WHAT THE MIGRATION LEAVES BEHIND: NUDGES ────────────────────────────────
+
+const nudgeOf = (i) => (Object.prototype.hasOwnProperty.call(i, "nudge") ? i.nudge : 0);
+const nudged = (i) => Object.prototype.hasOwnProperty.call(i, "nudge");
+
+test("a fake cheer that drew its avatar is the one style that needs NO nudges", () => {
+  // THE CANARY. That layout IS the item engine's — same leading rule, same gap, same
+  // top — so a correct migration has nothing to correct, and every nudge computes to 0
+  // and is deleted. Asserted as absent keys, which pins the zero-deletion rule too: a
+  // stored `nudge: 0` reads like tuning that isn't, and stage 3's nudge control will
+  // show it. If this test starts failing, the two layouts have drifted apart.
+  const m = migrate(cheer({ pullPt: 240, avatar: PIC }));
+  eq(m.items.map((i) => i.kind), ["pic", "text", "text", "text"]);
+  for (const it of m.items) assert.ok(!nudged(it), "unexpected nudge: " + JSON.stringify(it));
+  let pulls = 0;
+  for (const pullPt of [160, 200, 220, 240, 260, 300, 400]) {
+    const items = C.takeoverItemsForBlock(cheer({ pullPt, avatar: PIC })).items;
+    assert.equal(items[0].kind, "pic", "the avatar should draw at pull " + pullPt);
+    for (const it of items) assert.ok(!nudged(it), "nudge at pull " + pullPt + ": " + JSON.stringify(it));
+    pulls++;
+  }
+  assert.equal(pulls, 7, "the pull stops this canary covers changed");
+});
+
+test("a fake cheer with NO avatar carries a large uniform nudge the owner never set", () => {
+  // Not a defect, but not the canary either, and the report of this stage said the fake
+  // cheer carried none at all. It does: with no picture to hang from, buildFakeCheer
+  // parks the bare run mid-cover (max(top + first, pullPx * 0.5)) and the item engine has
+  // no equivalent, so all three lines come across carrying the same offset. Migrated blank blocks
+  // carry small per-line ones. Both are invisible to the owner and neither re-flows, so
+  // the item card owes them a word when it grows a nudge control.
+  eq(migrate(cheer({ pullPt: 240 })).items.map(nudgeOf), [130, 130, 130]);
+  eq(migrate(blank({ pullPt: 240 })).items.map(nudgeOf), [14, 8, 0]);
+  eq(migrate(blank({ pullPt: 240 })).items.map(nudged), [true, true, false]);
+});
+
+test("across the fake cheer's whole space the run stays rigid and no zero is stored", () => {
+  // The shape of what migration leaves behind, swept rather than asserted on one block:
+  // a text run always moves as a unit (one offset for all of it, which is what keeps a
+  // nudge from becoming a second leading rule), the picture is never nudged at all, and
+  // nothing is ever stored as 0. It also counts how many blocks come out clean, so the
+  // canary above cannot quietly stop being the exception.
+  let drawn = 0, clean = 0, noPic = 0;
+  for (const pullPt of [60, 100, 150, 160, 200, 220, 240, 260, 300, 400]) {
+    for (const avatarW of [120, 160, 200]) {
+      for (const [s1, s2, s3] of [[24, 19, 13], [20, 20, 20], [48, 48, 48], [8, 12, 10]]) {
+        for (const avatar of ["", PIC]) {
+          const b = cheer({ pullPt, avatarW, avatar, s1, s2, s3 });
+          const items = C.takeoverItemsForBlock(b).items;
+          const texts = items.filter((i) => i.kind === "text");
+          const pics = items.filter((i) => i.kind === "pic");
+          const why = " at pull " + pullPt + " avatar " + avatarW + " sizes " + [s1, s2, s3];
+          if (!texts.length) continue;
+          for (const it of items) assert.ok(!nudged(it) || it.nudge !== 0, "stored a zero" + why);
+          for (const t of texts) assert.equal(nudgeOf(t), nudgeOf(texts[0]), "the run split" + why);
+          if (pics.length) {
+            drawn++;
+            assert.equal(nudgeOf(pics[0]), 0, "the picture was nudged" + why);
+            if (!nudgeOf(texts[0])) clean++;
+          } else {
+            noPic++;
+            assert.notEqual(nudgeOf(texts[0]), 0, "an avatar-less cheer with no nudge" + why);
+          }
+        }
+      }
+    }
+  }
+  assert.equal(drawn, 81, "the avatar-drawn population changed");
+  assert.equal(clean, 61, "how many fake cheers migrate clean changed");
+  assert.equal(noPic, 159, "the avatar-less population changed");
+});
+
+// ── takeoverPinToInk, DIRECTLY ──────────────────────────────────────────────
+// It is reached through takeoverItemsForBlock in the app, and everything above tests it
+// that way. These three go at it directly, because each pins a rule the PRINTED MARKUP
+// cannot show — two are only visible in the item data, and one only bites a caller that
+// does not exist yet.
+
+const placeAt = (items, pullPt) =>
+  C.takeoverPlace(C.takeoverItems(items, "embed"), C.takeoverBox(pullPt), "bottom", W);
+
+test("takeoverPinToInk keeps a real offset and deletes a zero", () => {
+  const items = [{ kind: "text", text: "A", size: 24 }, { kind: "text", text: "B", size: 19 }];
+  const at = placeAt(items, 240);
+  // Ask for exactly where the engine already puts the first line, 7px lower for the second.
+  const pinned = C.takeoverPinToInk(items, "bottom", 240, "embed",
+                                    { texts: [{ y: at[0].y }, { y: at[1].y + 7 }], pic: null });
+  assert.ok(!nudged(pinned[0]), "a zero must not be stored: " + JSON.stringify(pinned[0]));
+  assert.equal(pinned[1].nudge, 7);
+  // And it is a pin, not an approximation.
+  eq(geom(C.buildTakeover({ items: pinned, anchor: "bottom", carrier: "embed", pullPt: 240, w: W }))
+       .texts.map((t) => t.y), [at[0].y, at[1].y + 7]);
+});
+
+test("takeoverPinToInk pins the item that DREW, not the one at the same index", () => {
+  // takeoverItems throws out anything that would draw nothing, so a list with a blank in
+  // it is shorter by the time it is placed. Walking the source list by placement index
+  // would hang line 2's pin on the blank and leave line 2 where the engine put it.
+  // takeoverItemsForBlock never builds such a list — this is for whoever reuses this.
+  const items = [{ kind: "text", text: "   ", size: 24 }, { kind: "text", text: "B", size: 19 }];
+  const at = placeAt(items, 240);
+  assert.equal(at.length, 1, "the blank should never have been placed");
+  const pinned = C.takeoverPinToInk(items, "bottom", 240, "embed",
+                                    { texts: [{ y: at[0].y + 5 }], pic: null });
+  assert.ok(!nudged(pinned[0]), "the blank collected the pin");
+  assert.equal(pinned[1].nudge, 5, "the item that drew went unpinned");
+});
+
+test("takeoverPinToInk hands a line with no ink to copy its neighbour's nudge", () => {
+  // DEFENSIVE, and invisible in the markup: swept the reachable space and using 0 instead
+  // of the neighbour's offset changes not one printed byte, because the only item this
+  // fires for is one the overflow rule then drops. It is still visible in the item data —
+  // the rigidity sweep above catches it too — and pinned here against the function, so the
+  // stated rationale (the run stays rigid) is a fact rather than a comment.
+  const items = [{ kind: "text", text: "A", size: 24 }, { kind: "text", text: "B", size: 19 },
+                 { kind: "text", text: "C", size: 13 }];
+  const at = placeAt(items, 240);
+  const pinned = C.takeoverPinToInk(items, "bottom", 240, "embed",
+                                    { texts: [{ y: at[0].y - 11 }, { y: at[1].y - 11 }], pic: null });
+  eq(pinned.map(nudgeOf), [-11, -11, -11]);
+});
+
+// ── TWO CHANGES OF BEHAVIOUR, STATED ────────────────────────────────────────
+
+test("a block that is already stamped still gets a LATER pull migration", () => {
+  // seedBlocks maps both migrations, and this one returning early on tkV alone would skip
+  // the pull migration for every block that had already been converted — so the "pull
+  // first, always" guarantee would hold only for blocks that arrive unconverted, which is
+  // exactly the population that stops existing after the first load.
+  const b = migrate(blank({ picture: PIC, pictureW: 120 }));
+  const stale = { ...b, pullV: 2, pullPt: 220 };        // what the next pull bump looks like
+  const m = C.migrateTakeoverItems(stale);
+  assert.equal(m.pullPt, C.TAKEOVER_PULL_PT, "a stamped block never saw the pull migration");
+  assert.equal(m.pullV, C.TAKEOVER_PULL_V);
+  eq(m.items, JSON.parse(JSON.stringify(b.items)), "the items must not be rebuilt");
+  // AND THE PART A FUTURE PULL BUMP HAS TO DEAL WITH, as a measurement rather than a
+  // worry: the nudges are still the ones measured at 220, so the picture-to-text gap
+  // moves. A fresh migration at 240 puts the picture back at 6 and the text 13px lower.
+  // See the warning in migrateTakeoverItems — re-pin or clear, don't just bump.
+  eq(geom(draw(m)).pics.map((p) => p.y), [20]);
+  eq(geom(draw(m)).texts.map((t) => t.y), [239, 265, 283]);
+  const fresh = migrate(blank({ picture: PIC, pictureW: 120, pullPt: 240 }));
+  eq(geom(draw(fresh)).pics.map((p) => p.y), [6]);
+  eq(geom(draw(fresh)).texts.map((t) => t.y), [252, 278, 296]);
+});
+
+test("at the pull slider's minimum an avatar-only fake cheer now counts as EMPTY", () => {
+  // blockHasContent counts items; 0.4.2 tested b.avatar directly. At pullPt 60 — the
+  // "Reach up" slider's minimum — the avatar is clamped under CHEER_MIN_PIC_PX and the
+  // old renderer never drew it, so no pic item is created and the block is not sent,
+  // where 0.4.2 sent a blank white slab. Narrower on purpose, and not silent: the card's
+  // drop note reads the typed fields and still says the picture didn't fit.
+  const bare = { cBits: "", cName: "", cNote: "" };
+  const b = cheer({ ...bare, pullPt: 60, avatar: PIC });
+  assert.ok(!/foreignObject/.test(asShipped(b)), "0.4.2 didn't draw it either — just the slab");
+  assert.equal(C.takeoverItems(migrate(b).items).length, 0, "blockHasContent counts this");
+  // Nothing is lost: the URL is still on the block, and pull enough and it is back.
+  assert.equal(migrate(b).avatar, PIC);
+  assert.equal(C.takeoverItems(migrate(cheer({ ...bare, pullPt: 100, avatar: PIC })).items).length, 1);
 });

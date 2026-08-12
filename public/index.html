@@ -124,6 +124,10 @@
   /* An expired upload is the project's worst failure mode — it prints blank paper and
      still spends bits — so it gets the same red treatment as an over-budget part. */
   .expired-note { color: #d33; font-weight: 700; margin: .25rem 0; }
+  /* The takeover's own price, live. Same red as an over-budget part, because it means
+     the same thing: this one will not send. */
+  .cost-note { font-size: .8rem; color: #555; margin: .3rem 0 0; font-variant-numeric: tabular-nums; }
+  .cost-note.over { color: #d33; font-weight: 700; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
   .fmt-row { display: flex; gap: .3rem; align-items: center; margin: 0 0 .5rem; flex-wrap: wrap; }
@@ -2602,8 +2606,15 @@
     // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
     // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
     function packStack(blocks, opts) {
-      var bodies = [];
-      for (var i = 0; i < blocks.length; i++) bodies = bodies.concat(renderBlockBodies(blocks[i]));
+      var bodies = [], i, j, bs;
+      for (i = 0; i < blocks.length; i++) {
+        bs = renderBlockBodies(blocks[i]);
+        // Stamp the source block on every body. The packer decides which part a block
+        // lands in, and a card that wants to say "you're in part 2 of 3" has no other
+        // way to find itself in the result.
+        for (j = 0; j < bs.length; j++) bs[j].blockId = blocks[i].id;
+        bodies = bodies.concat(bs);
+      }
       return packStackBodies(bodies, opts);
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
@@ -2949,7 +2960,32 @@
     // after the bytes exist. A picture we can't fetch is left alone: it just
     // won't paint, exactly as before, instead of failing the whole preview.
     var XLINK_NS = "http://www.w3.org/1999/xlink";
+    // A TAKEOVER'S PICTURE IS NOT AN <img>. It rides whichever carrier tag the blocked-
+    // terms list has left us — `<embed>`, `<input type=image>` or `<iframe>` (see EMBEDS)
+    // — so the `img, image` selector below never saw it, never inlined it, and the
+    // thermal preview rasterized a blank hole where a picture really prints. That is the
+    // precise failure §9 of the spec exists to prevent: the owner re-tunes the pull or
+    // swaps carriers chasing a defect that only exists in the preview.
+    //
+    // Swap each carrier for an `<img>` of the same width IN THE CLONE ONLY. The payload
+    // is untouched — this runs on `node.cloneNode(true)` — and the print engine draws
+    // these tags as an image anyway, so an `<img>` is the faithful stand-in rather than
+    // an approximation.
+    function unwrapCarriers(root) {
+      var carriers = root.querySelectorAll('embed[src], input[type="image"][src], iframe[src]'), i, el, im;
+      for (i = 0; i < carriers.length; i++) {
+        el = carriers[i];
+        im = document.createElement("img");
+        im.alt = "";
+        im.setAttribute("src", el.getAttribute("src"));
+        if (el.getAttribute("width")) im.setAttribute("width", el.getAttribute("width"));
+        if (el.getAttribute("height")) im.setAttribute("height", el.getAttribute("height"));
+        if (el.getAttribute("style")) im.setAttribute("style", el.getAttribute("style"));
+        if (el.parentNode) el.parentNode.replaceChild(im, el);
+      }
+    }
     function inlineImages(root) {
+      unwrapCarriers(root);
       var nodes = root.querySelectorAll("img, image"), jobs = [];
       for (var i = 0; i < nodes.length; i++) {
         jobs.push((function (el) {
@@ -3245,6 +3281,9 @@
         // serialisable and shouldn't persist; block.url re-decodes on load.
         localStorage.setItem(BLOCKS_KEY, JSON.stringify(cleanBlocks(blocks)));
       } catch (e) {}
+      // Every block mutation lands here, so this is the one place that can't miss a
+      // picture URL changing — see the note on scheduleExpiryProbe.
+      scheduleExpiryProbe();
     }
     function loadBlocks() { try { var r = localStorage.getItem(BLOCKS_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
     function seedBlocks() {
@@ -3727,6 +3766,26 @@
           row.appendChild(b);
         });
         wrap.appendChild(row);
+        // SPEC §9: "no option may be a gamble", and the font control is the one option
+        // the preview provably CANNOT settle — it renders with your fonts, the print
+        // renders with the streamer's. The identical control on a Big Text block has
+        // carried this note since 0.4.0; a takeover item's did not, which made the
+        // omission an oversight rather than a decision. Same wording on purpose: two
+        // texts saying the same thing differently is how one of them goes stale.
+        var itemFontNote = mkEl("div", { "class": "hint" });
+        var syncItemFontNote = function () {
+          var chosen = (item.fmt || {}).font || "";
+          itemFontNote.style.display = chosen ? "" : "none";
+          itemFontNote.textContent =
+            "The preview uses your fonts; the printer uses the streamer's. Every font here "
+            + "is standard on Windows, and Script and Papyrus keep a generic behind them so "
+            + "they still draw something if they aren’t. Serif and Monospace are generics, "
+            + "which means the streamer’s PC picks the face. If a font isn’t there it falls "
+            + "back — one test print settles it.";
+        };
+        syncItemFontNote();
+        font.addEventListener("change", syncItemFontNote);
+        wrap.appendChild(itemFontNote);
         alignNudgeRow(wrap, item);
         return wrap;
       };
@@ -3879,6 +3938,44 @@
       var dropNote = mkEl("div", { "class": "hint" });
       dropNote.hidden = true;
       card.appendChild(dropNote);
+      // SPEC §6. A takeover is the most expensive block there is and the only one that
+      // can't be split — it is one SVG, so going over doesn't cost a second cheer, it
+      // means Twitch rejects the message and nothing prints. Adding an item therefore
+      // has to show its price at the moment you add it, not after you paste.
+      var costNote = mkEl("div", { "class": "cost-note" });
+      card.appendChild(costNote);
+      var syncCost = function (parts) {
+        var own = payloadLength(takeoverHtml(block));
+        var bits = ["This takeover is " + own + " characters."];
+        var idx = -1, i, j;
+        for (i = 0; parts && i < parts.length; i++) {
+          for (j = 0; j < (parts[i].bodies || []).length; j++) {
+            if (parts[i].bodies[j].blockId === block.id) { idx = i; break; }
+          }
+          if (idx >= 0) break;
+        }
+        var over = false;
+        if (idx >= 0 && parts.length > 1) {
+          bits.push("Your stack needs " + parts.length + " cheers; this block is in part "
+                    + (idx + 1) + ".");
+        }
+        if (idx >= 0) {
+          over = parts[idx].chars > MAX_CHARS;
+          bits.push("That part is " + parts[idx].chars + " / " + MAX_CHARS
+                    + (over ? " — over, so Twitch rejects it and nothing prints." : "."));
+        }
+        // Only worth saying where it's actually being charged: the cover rides on parts
+        // after the first, and only when this takeover is the one in part 1.
+        if (idx === 0 && parts.length > 1 && parts[1] && parts[1].cover) {
+          bits.push("Parts 2–" + parts.length + " each spend "
+                    + payloadLength(parts[1].cover)
+                    + " more repainting the header — turn off “Cover every receipt” to reclaim them.");
+        }
+        costNote.textContent = bits.join(" ");
+        costNote.className = "cost-note" + (over ? " over" : "");
+      };
+      costSyncs.push(syncCost);
+      syncCost(lastParts);
       var syncDropNote = function () {
         // Counted off the item list and read back off the markup THE PACKER WILL SEND —
         // the same two halves takeoverWants/takeoverReport were split into, so the note
@@ -4077,6 +4174,7 @@
     function renderComposer() {
       var list = document.getElementById("blockList");
       if (!list) return;
+      costSyncs = [];   // the cards below are about to be replaced; their callbacks die with them
       list.textContent = "";
       blocks.forEach(function (b) {
         var card = b.type === "takeover" ? takeoverCard(b)
@@ -4140,25 +4238,51 @@
     // "the browser could not load this picture" is exactly the condition that makes the
     // receipt print blank. Only OUR minted links are probed; a pasted third-party URL
     // has no 15-minute clock on it and is left alone.
+    // The spec says the block is marked "until it's fixed" — and the FIXING half is the
+    // half that was missing. The first version only ever SET the mark: re-uploading the
+    // picture minted a live URL and left the red note on the card for the rest of the
+    // session, so the owner did exactly what the note told them to do and watched the
+    // alarm refuse to go away. An alarm that doesn't clear is one the user learns to
+    // ignore, which costs more than never having shown it.
+    //
+    // So this re-derives the whole answer every time rather than accumulating: clear,
+    // probe every minted link, re-mark from the results, and repaint ONCE, only if the
+    // set of flagged blocks actually changed. Waiting for every probe to settle before
+    // repainting is what keeps a clear-then-re-flag from flickering the card.
     function probeStackExpiry() {
+      var before = blocks.map(function (b) { return !!b._expired; });
       blocks.forEach(function (b) { delete b._expired; });
-      var dead = {};
+      var dead = {}, jobs = [];
       blocks.forEach(function (b) {
         presetImageUrls([b]).filter(isMintedImageUrl).forEach(function (u) {
-          if (dead[u] != null) return;
+          if (dead[u] != null) return;         // one probe per distinct URL, not per block
           dead[u] = false;
-          var im = new Image();
-          im.onerror = function () {
-            dead[u] = true;
-            var hit = false;
-            blocks.forEach(function (bb) {
-              if (presetImageUrls([bb]).indexOf(u) >= 0) { bb._expired = true; hit = true; }
-            });
-            if (hit) renderComposer();
-          };
-          im.src = u;
+          jobs.push(new Promise(function (done) {
+            var im = new Image();
+            im.onload = function () { done(); };
+            im.onerror = function () { dead[u] = true; done(); };
+            im.src = u;
+          }));
         });
       });
+      Promise.all(jobs).then(function () {
+        blocks.forEach(function (b) {
+          var urls = presetImageUrls([b]).filter(isMintedImageUrl);
+          for (var i = 0; i < urls.length; i++) if (dead[urls[i]]) { b._expired = true; return; }
+        });
+        var changed = blocks.some(function (b, i) { return !!b._expired !== before[i]; })
+          || blocks.length !== before.length;
+        if (changed) renderComposer();
+      });
+    }
+    // Hung off saveBlocks rather than off the three or four places a picture URL can
+    // change, because that list is exactly what a later edit forgets to update — and a
+    // missed one leaves the stuck-alarm bug back in place. Debounced, so typing a URL
+    // doesn't fire a probe per keystroke.
+    var expiryTimer = null;
+    function scheduleExpiryProbe() {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = setTimeout(probeStackExpiry, 700);
     }
     function applyPreset(p) {
       if (!p) return;
@@ -4291,9 +4415,16 @@
       if (currentKind === "probe") return probeParts();
       return composeParts();
     }
+    // Cards showing a live character cost register a callback here. refresh() runs them
+    // after the parts are recomputed, so a card can report what the WHOLE stack is doing
+    // — which part it landed in, whether that part is over budget — instead of only its
+    // own length, which on its own never tells you a split is coming.
+    // A callback must only WRITE to its card. Calling refresh() from one would recurse.
+    var costSyncs = [];
     function refresh() {
       lastParts = computeParts();
       renderParts(lastParts);
+      for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {
       currentKind = currentMode;

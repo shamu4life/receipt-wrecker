@@ -10,6 +10,34 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.7.0] — 2026-08-11
+
+The four *phases* shipped in 0.6.0, but the design doc has requirements outside the phasing list. An audit of all 63 of them against the shipped code found four gaps, three of them things the owner would hit. This closes them.
+
+### Added
+
+- **The takeover card shows what it costs, live** (spec §6). A takeover is the most expensive block there is and the only one that cannot be split — it is one SVG, so going over 500 does not buy a second cheer, it means Twitch rejects the message and nothing prints. The card now reads its own character count, how many cheers the stack needs and which part this block landed in, that part's `chars / 500`, and — only on the takeover actually in part 1, and only with covers on — what the continuation covers add to the parts after it. Over budget turns it red. Measured while building: 342 characters alone, 773 / 500 in the red state.
+  - Two bits of plumbing make it honest rather than approximate: bodies are stamped with the block they came from (the packer decides which part a block lands in, and a card had no other way to find itself in the result), and cards register a callback that `refresh()` runs *after* the parts are recomputed, so the note describes the real packing instead of guessing from its own length.
+
+- **The takeover's font control carries the accuracy note** (spec §9) the identical Big Text control has carried since 0.4.0. The preview renders with your fonts; the print renders with the streamer's, and `Serif` / `Monospace` are generics whose face that machine picks. Same wording as the Big Text note on purpose — two texts saying the same thing differently is how one of them goes stale.
+
+### Fixed
+
+- **The thermal preview showed a blank hole where a takeover's picture will really print.** `thermalize()` rasterizes by serializing the receipt into an SVG `<foreignObject>` and loading it as an `<img>` — a sandbox that fetches no external subresource, which is why `inlineImages` swaps every picture for a `data:` URI first. It only ever rewrote `img, image`, and a takeover's picture is none of those: it rides `<embed>`, `<input type=image>` or `<iframe>`, whichever the blocked-terms list has left us. So the owner ticked "like the real printer", saw no picture, and could reasonably have re-tuned the pull or swapped carriers chasing a defect that existed only in the preview — exactly the gamble §9 exists to prevent.
+  - Fixed by swapping each carrier for an `<img>` of the same width **in the preview clone only**; the payload is untouched, and the engine draws these tags as an image anyway, so it is a faithful stand-in rather than an approximation. Measured on the same picture and the same 560-dot raster: **production 3,312 ink pixels (the blank hole) against 26,434 with the fix**, and removing the picture from the fixed build returns 3,443. Reproducible in both directions.
+
+- **The expired-link flag never cleared, so it told you to do something and then ignored you for doing it.** 0.6.0 only ever *set* the mark: re-uploading the picture minted a live URL and left the red "this picture's link has expired" note on the card for the rest of the session, clearing only on a page reload. An alarm about the app's worst failure mode that will not go away is one the user learns to ignore, which costs more than never having shown it. The probe now re-derives the whole answer — clear, re-probe every minted link, re-mark from the results, repaint once and only if the flagged set actually changed — and it hangs off `saveBlocks`, the one place every block mutation passes through, rather than off the three or four places a picture URL can change. That list is precisely what a later edit forgets to update. Verified: flag appears on a dead minted link, and clears when the link is fixed.
+
+### Not changed, and why
+
+Ticking **Thermal preview** appeared not to take effect during testing. It does — `thermalView` has a `change` listener that calls `refresh()`; the first attempt simply lost the race with a cold `/px` fetch of an image the browser had not cached yet. Confirmed by toggling it twice with nothing else touched: 0 canvases, then 1. No code changed for something that was not broken.
+
+### Verification
+
+209 tests pass. Everything above is browser glue, which the null-DOM harness never executes, so all of it was measured in a real browser against `wrangler dev` with a genuine 15-minute uploaded link — including the production-versus-branch ink comparison for the preview fix.
+
+---
+
 ## [0.6.0] — 2026-08-11
 
 Phases 3 and 4 of the takeover design — the last two. With these the four-phase plan is complete.

@@ -100,6 +100,12 @@ what actually rendered:
 - Which tiers came out **solid** vs. **tofu** (boxes/blank) on that renderer.
 - The **true column count** per line, read straight off the ruler.
 
+One row on the strip, **`QUAD ▖▚▙▜█`**, is a *probe rather than a setting* — there is no
+quadrant tier to select. It's on the strip because it's the cheap way to find out whether
+a tier between Blocks (4 tone levels, often blank on the RP332) and Braille (8 dots, least
+supported anywhere) would be worth building for your rig. If QUAD prints where Blocks
+tofus, that's the evidence for adding one. Don't go looking for it in the selector.
+
 Set the tier and column-width controls to match what you saw, and every later
 paste is pinned to that rig. This turns "will this render?" from a guess into a
 measured fact, with a single throwaway print — no access to the other side
@@ -385,8 +391,11 @@ It's lower fidelity than the real photo, and it always prints.
    fixed diagnostic string instead of your input, giving you the blind-first-print
    calibration described above.
 
-Everything above happens synchronously in the page; there is no server round-trip
-at any step.
+The glyph pipeline itself runs synchronously in the page. That is not the same as
+"nothing is sent": pasting an image **URL** fetches it through our `/px` proxy, dragging
+a brightness or contrast slider re-uploads a baked PNG, and the uploaders POST your file.
+Big Text and a picture you pick from disk for glyph-art never leave the device. See
+[Privacy](#privacy--what-stays-local-and-what-doesnt) for the honest version.
 
 ---
 
@@ -396,10 +405,12 @@ Every character of an uploaded picture's URL is **payload**. It gets pasted into
 Twitch message with a hard 500-character cap, next to markup that's already most of
 the budget — so the link's length decides whether a payload costs 100 bits or 200.
 
-`POST /upload` mints `https://<host>/<12 hex>.png` — **45 characters** on
-`receipt.uwutoowo.com`. It used to be `/i/<32 hex>.png`, which was 67, and those 22
-characters were the whole difference between a fake cheer fitting one cheer and
-needing two.
+`POST /upload` mints `https://<host>/<12 hex>.png` — **39 characters** on the short
+image host `i.uwutoowo.com`, which is what `vars.RW_IMG_HOST` points at and what the
+Worker really serves. It was 45 on `receipt.uwutoowo.com` before that host existed, and
+67 as `/i/<32 hex>.png` before that. Those 28 characters were the whole difference
+between a fake cheer fitting one cheer and needing two. The var falls back to the
+request origin when unset, so previews and `wrangler dev` still work.
 
 | what changed | why it's safe |
 |---|---|
@@ -442,9 +453,9 @@ is no longer true, and the honest breakdown matters more than the slogan:
 Two of those fire without a dedicated button — typing a URL, and dragging a
 slider — so "I never clicked upload" is not the same as "nothing left the device".
 
-**Storage:** three `localStorage` keys — control settings (`rw_controls_v1`), the
-nonce counter (`rw_nonce_seq`), and your block stack (`rw_blocks_v1`) — all wrapped
-in `try/catch` so locked-down contexts still work.
+**Storage:** four `localStorage` keys — control settings (`rw_controls_v1`), the
+nonce counter (`rw_nonce_seq`), your block stack (`rw_blocks_v1`) and your saved presets
+(`rw_presets_v1`) — all wrapped in `try/catch` so locked-down contexts still work.
 
 The app is still one auditable file, and it still runs offline if you only use Big
 Text and locally-picked pictures.
@@ -530,7 +541,7 @@ A few house rules keep the project what it is (see also [CLAUDE.md](CLAUDE.md)):
 - **Stay single-file.** Keep CSS and JS inline; don't add dependencies, bundlers, or
   external resources.
 - **No new network calls** — the app's `fetch` stays limited to our own `/upload`
-  and `/px` — and no storage beyond the three documented `localStorage` keys.
+  and `/px` — and no storage beyond the four documented `localStorage` keys.
 - **Match the idiom:** vanilla JS, IIFE-wrapped, `"use strict"`, ES5-ish style.
 - **Branch + PR.** Develop on a feature branch and open a PR — avoid pushing
   straight to `main` (it deploys to production).

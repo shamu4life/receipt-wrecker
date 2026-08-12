@@ -561,7 +561,13 @@
       "HANZI 丶二土田車馬鬱",     // CJK density ramp — smooth tone if the printer has a CJK font
       "BRAILLE ⠁⠆⠇⠿⣿",          // braille = 8 dots/char (highest detail) — renders or tofu?
       "BLOCKS ░▒▓█",             // block-element ramp — renders or tofu?
-      "QUAD ▖▚▙▜█",              // 2x2 quadrant blocks (4 dots/char) — renders or tofu?
+      // 2x2 quadrant blocks, 4 dots/char. THERE IS NO QUADRANT TIER — this row is a
+      // forward probe, not a setting, and it is kept deliberately rather than dropped:
+      // it is the one cheap way to learn whether a tier between `safe` (4 tone levels,
+      // often blank on the RP332) and `braille` (8 dots, least supported anywhere) would
+      // be worth building for a given rig. If it prints where BLOCKS tofus, that is the
+      // evidence for adding one. Don't go hunting the selector for it after a print.
+      "QUAD ▖▚▙▜█",
     ];
     return parts.join("  ") + "  " + CHEER_TOKEN;
   }

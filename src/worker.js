@@ -154,6 +154,26 @@ function embeddedIPv4(host) {
 // other scheme, no loopback/private/link-local host (169.254.169.254 is the
 // classic cloud-metadata target). Returns the parsed URL, or null to reject.
 // Exported for the tests.
+//
+// KNOWN RESIDUAL, ACCEPTED DELIBERATELY — read this before "hardening" it.
+// This checks the ADDRESS LITERAL in the URL. A hostname whose DNS answer points at a
+// private or link-local address (`evil.test A 169.254.169.254`, or a rebinding record
+// that answers differently on the second lookup) is NOT caught, because the Workers
+// runtime never hands the script the address it resolved — there is no post-resolution
+// hook to check, and no way to pin the address between the check and the fetch.
+//
+// Two things bound it, and neither is a reason to be careless:
+//   * The fetch originates from Cloudflare's edge, not from any network the operator
+//     controls, so the RFC1918 ranges this blocks are not a route to the owner's LAN
+//     the way they would be from a server inside it.
+//   * The response is gated to image/* under 5 MB, so it is a poor oracle.
+// A pre-flight DNS-over-HTTPS lookup would raise the bar but cannot close it: the
+// answer can change between the lookup and the fetch, which is the whole point of
+// rebinding. It would buy latency and a false sense of completeness.
+//
+// SELF-HOSTERS: this reasoning is about Cloudflare Workers. On a runtime that sits
+// inside a network you care about, that first bullet does not hold and this guard is
+// not sufficient on its own.
 export function isPublicHttpUrl(raw) {
   let u;
   try { u = new URL(String(raw)); } catch (e) { return null; }

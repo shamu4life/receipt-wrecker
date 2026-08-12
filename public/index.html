@@ -3967,9 +3967,13 @@
         // Only worth saying where it's actually being charged: the cover rides on parts
         // after the first, and only when this takeover is the one in part 1.
         if (idx === 0 && parts.length > 1 && parts[1] && parts[1].cover) {
-          bits.push("Parts 2–" + parts.length + " each spend "
-                    + payloadLength(parts[1].cover)
-                    + " more repainting the header — turn off “Cover every receipt” to reclaim them.");
+          // "Parts 2–2" is what a range reads as when there is only one of them.
+          var cov = payloadLength(parts[1].cover);
+          bits.push(parts.length === 2
+            ? "Part 2 spends " + cov + " more repainting the header — turn off “Cover every "
+              + "receipt” to reclaim them."
+            : "Parts 2–" + parts.length + " each spend " + cov
+              + " more repainting the header — turn off “Cover every receipt” to reclaim them.");
         }
         costNote.textContent = bits.join(" ");
         costNote.className = "cost-note" + (over ? " over" : "");

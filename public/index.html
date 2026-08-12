@@ -124,6 +124,10 @@
   /* An expired upload is the project's worst failure mode — it prints blank paper and
      still spends bits — so it gets the same red treatment as an over-budget part. */
   .expired-note { color: #d33; font-weight: 700; margin: .25rem 0; }
+  /* The takeover's own price, live. Same red as an over-budget part, because it means
+     the same thing: this one will not send. */
+  .cost-note { font-size: .8rem; color: #555; margin: .3rem 0 0; font-variant-numeric: tabular-nums; }
+  .cost-note.over { color: #d33; font-weight: 700; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
   .fmt-row { display: flex; gap: .3rem; align-items: center; margin: 0 0 .5rem; flex-wrap: wrap; }
@@ -2602,8 +2606,15 @@
     // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
     // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
     function packStack(blocks, opts) {
-      var bodies = [];
-      for (var i = 0; i < blocks.length; i++) bodies = bodies.concat(renderBlockBodies(blocks[i]));
+      var bodies = [], i, j, bs;
+      for (i = 0; i < blocks.length; i++) {
+        bs = renderBlockBodies(blocks[i]);
+        // Stamp the source block on every body. The packer decides which part a block
+        // lands in, and a card that wants to say "you're in part 2 of 3" has no other
+        // way to find itself in the result.
+        for (j = 0; j < bs.length; j++) bs[j].blockId = blocks[i].id;
+        bodies = bodies.concat(bs);
+      }
       return packStackBodies(bodies, opts);
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
@@ -3879,6 +3890,44 @@
       var dropNote = mkEl("div", { "class": "hint" });
       dropNote.hidden = true;
       card.appendChild(dropNote);
+      // SPEC §6. A takeover is the most expensive block there is and the only one that
+      // can't be split — it is one SVG, so going over doesn't cost a second cheer, it
+      // means Twitch rejects the message and nothing prints. Adding an item therefore
+      // has to show its price at the moment you add it, not after you paste.
+      var costNote = mkEl("div", { "class": "cost-note" });
+      card.appendChild(costNote);
+      var syncCost = function (parts) {
+        var own = payloadLength(takeoverHtml(block));
+        var bits = ["This takeover is " + own + " characters."];
+        var idx = -1, i, j;
+        for (i = 0; parts && i < parts.length; i++) {
+          for (j = 0; j < (parts[i].bodies || []).length; j++) {
+            if (parts[i].bodies[j].blockId === block.id) { idx = i; break; }
+          }
+          if (idx >= 0) break;
+        }
+        var over = false;
+        if (idx >= 0 && parts.length > 1) {
+          bits.push("Your stack needs " + parts.length + " cheers; this block is in part "
+                    + (idx + 1) + ".");
+        }
+        if (idx >= 0) {
+          over = parts[idx].chars > MAX_CHARS;
+          bits.push("That part is " + parts[idx].chars + " / " + MAX_CHARS
+                    + (over ? " — over, so Twitch rejects it and nothing prints." : "."));
+        }
+        // Only worth saying where it's actually being charged: the cover rides on parts
+        // after the first, and only when this takeover is the one in part 1.
+        if (idx === 0 && parts.length > 1 && parts[1] && parts[1].cover) {
+          bits.push("Parts 2–" + parts.length + " each spend "
+                    + payloadLength(parts[1].cover)
+                    + " more repainting the header — turn off “Cover every receipt” to reclaim them.");
+        }
+        costNote.textContent = bits.join(" ");
+        costNote.className = "cost-note" + (over ? " over" : "");
+      };
+      costSyncs.push(syncCost);
+      syncCost(lastParts);
       var syncDropNote = function () {
         // Counted off the item list and read back off the markup THE PACKER WILL SEND —
         // the same two halves takeoverWants/takeoverReport were split into, so the note
@@ -4077,6 +4126,7 @@
     function renderComposer() {
       var list = document.getElementById("blockList");
       if (!list) return;
+      costSyncs = [];   // the cards below are about to be replaced; their callbacks die with them
       list.textContent = "";
       blocks.forEach(function (b) {
         var card = b.type === "takeover" ? takeoverCard(b)
@@ -4291,9 +4341,16 @@
       if (currentKind === "probe") return probeParts();
       return composeParts();
     }
+    // Cards showing a live character cost register a callback here. refresh() runs them
+    // after the parts are recomputed, so a card can report what the WHOLE stack is doing
+    // — which part it landed in, whether that part is over budget — instead of only its
+    // own length, which on its own never tells you a split is coming.
+    // A callback must only WRITE to its card. Calling refresh() from one would recurse.
+    var costSyncs = [];
     function refresh() {
       lastParts = computeParts();
       renderParts(lastParts);
+      for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {
       currentKind = currentMode;

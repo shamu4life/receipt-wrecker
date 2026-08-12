@@ -1,6 +1,6 @@
 {
   "name": "receipt-wrecker",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,9 +8,11 @@
     "deploy": "wrangler deploy",
     "test": "node --test",
     "render": "python3 tools/rig.py",
-    "payload": "node tools/payload.mjs"
+    "payload": "node tools/payload.mjs",
+    "test:browser": "node --test test-browser/composer.spec.mjs"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "wrangler": "^4"
   }
 }

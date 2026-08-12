@@ -35,5 +35,16 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # The browser suite covers the half of the app the null-DOM harness cannot reach —
+      # the composer, persistence, the cards. Every case in it is a bug that actually
+      # shipped because that half was only ever checked by hand. Chromium is installed
+      # here and not by `npm install`, so a contributor running `npm test` still needs
+      # zero downloads, which is a documented property of this repo.
+      - name: Install Chromium for the browser suite
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser smoke tests
+        run: npm run test:browser
+
       - name: Validate Worker & config (dry-run deploy)
         run: npx wrangler deploy --dry-run

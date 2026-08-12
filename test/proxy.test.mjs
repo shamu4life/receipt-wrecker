@@ -140,3 +140,18 @@ test("/px still PROXIES a third-party URL that merely looks like a minted one", 
   assert.notEqual(res.status, 200, "a third-party host must never be served from our KV");
   assert.notEqual(res.status, 404, "and must not be reported as an expired link of ours");
 });
+
+// The guard's CONTRACT, stated as a test so the residual is a decision on the record
+// rather than something a future reader has to infer from what isn't here.
+// isPublicHttpUrl checks the address LITERAL in the URL. A hostname is passed through:
+// the Workers runtime never exposes the address it resolved, so there is no
+// post-resolution hook, and no way to pin the address between the check and the fetch.
+// See the long note above the function for why that is accepted here, and why a
+// self-hoster on another runtime should not assume the same.
+test("a HOSTNAME is allowed even when it plainly intends to resolve somewhere private", () => {
+  ok("http://localtest.me/x.png");                        // real domain, resolves to 127.0.0.1
+  ok("http://metadata.google.internal.example.com/x.png");
+  // Not an endorsement — an assertion that the boundary sits where the comment says it
+  // does. If resolution-time checking is ever added, THESE are the lines that should
+  // change, deliberately, rather than a surprise failure turning up somewhere else.
+});

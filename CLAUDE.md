@@ -49,7 +49,9 @@ Everything else in the repo is documentation, tests, or deploy config.
 | `wrangler.jsonc` | Workers config — `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, and the `RW_IMG` KV binding. |
 | `package.json` | Dev-only metadata: `npm test` (Node's `node:test`) and the Wrangler dev/deploy scripts. No runtime deps. |
 | `test/` | Node `node:test` suite — extracts the inline script from `public/index.html` and unit-tests the pure glyph engine. |
-| `.github/workflows/ci.yml` | CI: install, `npm test`, then `wrangler deploy --dry-run` on push/PR to `main`. |
+| `test-browser/` | **Playwright smoke tests** for the browser glue the null-DOM harness cannot reach. NOT part of `npm test` — run `npm run test:browser` (needs `npx playwright install chromium` once). |
+| `tools/` | **The print-engine bench.** `rig.py` renders a payload the way printer-bot really does and measures the ink; `payload.mjs` builds that payload from the app's own core. This is where "does it print?" gets answered — see "Measuring against the real engine". |
+| `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, then `wrangler deploy --dry-run` on push/PR to `main`. |
 | `.github/` | Community-health files (CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue/PR templates, dependabot). |
 | `docs/CHANGELOG.md` | Release notes / change history. |
 | `docs/superpowers/` | Design spec, plan, and SDD task briefs this build was implemented from — historical reference, not shipped. |
@@ -75,8 +77,13 @@ loop.
 ## Testing — and why the sandbox is a null DOM
 
 ```sh
-npm test   # Node's built-in node:test runner — zero deps to install
+npm test           # Node's built-in node:test runner — zero deps to install
+npm run test:browser   # Playwright smoke tests (needs: npx playwright install chromium)
 ```
+
+**Two suites, and the split is deliberate.** `npm test` stays zero-install — that is a
+documented property of this repo and worth keeping, so the browser suite is NOT in the
+default matcher and lives in `test-browser/` rather than `test/`. CI runs both.
 
 The suite (`test/_harness.mjs` + `test/*.test.mjs`) reads `public/index.html`,
 extracts the single inline `<script>` with a regex, and runs it in a `node:vm`
@@ -123,8 +130,16 @@ test harness the pure-core functions (72 of them, regenerated at the 0.6.0 cut):
 (That list is easy to let rot — regenerate it
 with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 rather than trusting it.) The canvas/DOM functions — `rasterizeImage`, `computeGrid`,
-the body builders and the UI wiring in `init()` — are **not** exported and are
-verified by hand in a browser instead. CI runs the same `npm test` (see
+the body builders and the UI wiring in `init()` — are **not** exported.
+
+**They are no longer only hand-checked, and that mattered.** `test-browser/` drives the
+real page in headless Chromium against a built-in static server, and every case in it is
+a bug that actually shipped for want of exactly this: add/remove/reorder never calling
+`saveBlocks()` so a rebuilt stack vanished on reload; the expired-upload flag that set
+and never cleared; the cost line that said "Parts 2-2". Mutation-verified — restore the
+persistence bug and two of the eight go red. Anything needing the Worker (`/px`,
+`/upload`) is deliberately NOT faked there; those are still checked against
+`wrangler dev` by hand, and the specs say so. CI runs both suites (see
 `.github/workflows/ci.yml`).
 
 ## Deployment (Cloudflare Workers)
@@ -360,13 +375,30 @@ argued about:
   its `.rcpt-body > svg { height: auto }` collapses an SVG carrier to zero height
   and will make you conclude the engine can't render SVG. It can.
 
-To measure: install wkhtmltopdf 0.12.6 (the **patched-qt** build — the distro
-QtWebKit 5.212 build behaves differently), generate pages with the real
-`buildImageEmbed` via `test/_harness.mjs`, render with the flags above, and check
-for an image XObject with `pdfimages -list` plus an ink bbox off `pdftoppm`.
-**Write the test pages and their output into `.render/`** (gitignored) — loose
-`t*.html` / `*.pdf` / `*-1.png` in the repo root have already been swept into a
-commit by a `git add -A` once. Stage explicit paths, not `-A`.
+**The bench is a committed tool now: `tools/rig.py`.** It reproduces printer-bot's
+page, its CSS and every one of its print flags, renders at 203dpi hard-thresholded to
+1 bit, and reports ink count, ink bbox and the image XObjects in the PDF. Feed it a
+payload built by the app's own core with `tools/payload.mjs`, so the bench measures what
+the app really sends rather than markup you hand-wrote:
+
+```sh
+node tools/payload.mjs '{"kind":"takeover","pullPt":240,"items":[...]}' | python3 tools/rig.py my-case
+```
+
+It needs **wkhtmltopdf 0.12.6 with patched Qt** — the distro QtWebKit 5.212 build behaves
+differently and will mislead you, so `rig.py` checks the version string and warns rather
+than assuming. Get it from the upstream release
+(<https://github.com/wkhtmltopdf/packaging/releases/tag/0.12.6-2>). It needs no admin
+rights: expand the `.pkg` with `pkgutil --expand-full` and untar the `wkhtmltox.tar.gz`
+inside it into `~/.local/opt`, which is one of the three places `rig.py` looks
+(`$WKHTMLTOPDF`, then `PATH`, then there).
+
+**This is the file's own cautionary tale.** The previous copy of the harness lived only in
+gitignored `.render/` scratch with the binary path hardcoded to a throwaway job folder.
+When the folder went away the bench silently stopped working, and a figure that could no
+longer be re-run went into a changelog wrong. Artifacts still go to `.render/` (gitignored
+— loose `t*.html` / `*.pdf` / `*-1.png` in the repo root were swept into a commit by a
+`git add -A` once, so stage explicit paths, not `-A`); the TOOL is tracked.
 
 Things already settled this way, so you don't have to re-derive them:
 

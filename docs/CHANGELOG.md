@@ -10,6 +10,35 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.8.0] — 2026-08-12
+
+Four things that make the project easier to keep honest, rather than four features.
+
+### Added
+
+- **The print-engine bench is a committed tool: `tools/rig.py`.** Nearly every "does this print?" claim in `CLAUDE.md` was measured with a harness that lived only in gitignored scratch, with the wkhtmltopdf path hardcoded to a throwaway folder. When the folder went away the bench silently stopped working — which is how a figure that could no longer be re-run ended up wrong in the 0.5.0 changelog. It now reproduces printer-bot's page, its CSS and every one of its print flags, renders at 203dpi hard-thresholded to 1 bit, and reports ink count, ink bbox and the image XObjects in the PDF. The binary is resolved at run time and its version is **checked**, because the distro QtWebKit 5.212 build renders differently and would mislead anyone who reached for it.
+  - `tools/payload.mjs` builds the page's content from the app's **own pure core**, so the bench measures what the app really sends rather than markup someone hand-wrote to match what they expected. `npm run render` / `npm run payload`.
+
+- **Browser smoke tests: `npm run test:browser`.** Eight Playwright cases over the real page, and every one of them is a bug that actually shipped because the browser glue was only ever checked by hand — the stack that vanished on reload, the cost line that said "Parts 2–2", the preset flows. Mutation-verified: restore the persistence bug and two go red. Kept **out** of `npm test`, which stays zero-install; CI runs both.
+
+### Fixed
+
+- **A takeover picture is no longer assumed square.** Nothing asked a picture item its shape, though the Image block has had `probeBlockAspect` for ages. Measured on the real engine with a 120×240 portrait: the square slot **clipped it** and only the top stub printed — **16,962 ink against 53,001** once the slot matches what the carrier actually draws. With two pictures the shared frame doesn't clip, so instead of being cut short it overran and painted over the text beneath.
+  - Height now resolves three ways, in this order: an explicit height wins (that is what the 0.4.2 migration wrote, and pinning it is what keeps those bytes identical), then a probed aspect, then square as before. The probe is keyed to the URL it measured — unlike `probeBlockAspect`, whose guard never re-probes after the picture is swapped.
+  - **Worth knowing:** a tall picture now reserves its true height, so fewer fit and the extra is **dropped with the card's existing note** rather than printing clipped or on top of your text.
+
+- **The escaping chokepoint has tests.** `escapeHtml`/`escapeAttr` had none, despite being the single point every user string passes through on its way into markup that a stranger's machine parses twice. The new cases assert the helpers *and* the call sites — a line trying to close its own `<text>`, a URL trying to open a new attribute, looped over every entry in `EMBEDS`. Mutation-verified: stop escaping `<` and seven tests fail.
+
+- **README told three lies**: "no server round-trip at any step" (its own privacy table disagrees), 45-character uploaded links (they are 39), and three `localStorage` keys (presets made it four).
+
+### Changed
+
+- **The SSRF residual is now a decision on the record.** `isPublicHttpUrl` checks the address *literal*; a hostname resolving somewhere private is not caught, because the Workers runtime never hands the script the address it resolved. A DoH pre-flight would raise the bar and cannot close it — rebinding is precisely a second answer. What bounds it is that the fetch leaves Cloudflare's edge rather than a network the operator controls, and the response is gated to `image/*` under 5 MB. **Self-hosters on another runtime are told explicitly that the first half of that does not hold for them.** A test states the boundary so moving it has to be deliberate.
+- The Census `QUAD` row probes a quadrant tier that does not exist. Kept — it is the cheap way to learn whether a tier between Blocks and Braille is worth building for a rig — but now labelled as a probe in the code and the README, so nobody reads it off the tape and goes hunting the selector.
+- **Fourteen git tags and GitHub releases**, where there were none. Each is derived mechanically from the first commit whose `package.json` carried that version, not placed by hand.
+
+---
+
 ## [0.7.2] — 2026-08-11
 
 ### Fixed

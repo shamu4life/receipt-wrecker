@@ -1154,11 +1154,23 @@
         url = it.url == null ? "" : String(it.url);
         if (url === "") continue;
         w = takeoverDim(it.width, CHEER_AVATAR_W);
-        // The carriers state only a width, so the drawn height is the source's own
-        // aspect ratio. Square is the honest default (a profile picture is square, and
-        // reserving 1.4 left a measured slab of white under one); a caller that has
-        // probed the real aspect passes `height` and wins.
-        out.push({ kind: "pic", url: url, w: w, h: takeoverDim(it.height, w),
+        // The carriers state only a WIDTH, so the drawn height is the source's own aspect
+        // ratio — and the reserved slot has to match it or the picture spills out of the
+        // box the layout gave it. Inside the shared multi-picture frame the boxes are
+        // shrink-to-fit and do not clip, so a portrait source overran its slot and, since
+        // pictures paint last, erased the text underneath.
+        //
+        // Three-way, in this order, and the order is what keeps saved blocks byte-identical:
+        //   1. An explicit `height` wins. That is what the 0.4.2 migration wrote onto every
+        //      converted item, and pinning it is the whole reason those bytes still match.
+        //   2. Otherwise a probed `aspect` (see probeItemAspect) gives the true shape.
+        //   3. Otherwise square — exactly what this always assumed. The probe is one image
+        //      load away, so this is what the first render shows and nothing else.
+        var ph;
+        if (it.height != null) ph = takeoverDim(it.height, w);
+        else if (it.aspect > 0 && isFinite(it.aspect)) ph = Math.max(1, Math.min(4000, Math.round(w * it.aspect)));
+        else ph = w;
+        out.push({ kind: "pic", url: url, w: w, h: ph,
                    carrier: it.carrier || defCarrier,
                    align: takeoverAlign(it.align), nudge: takeoverNudge(it.nudge) });
       } else {
@@ -2469,6 +2481,43 @@
     function embedUrl(block) { return ((block.rotate || block.adjBright || block.adjContrast) && block.outUrl) ? block.outUrl : block.url; }
     // Probe an image block's aspect (height/width) and cache it on the block. The legacy
     // probeAspect() is tied to the now-hidden URL box, so composer blocks need their own.
+    // The same one-shot aspect probe an Image block gets, for a TAKEOVER PICTURE ITEM.
+    // Without it a picture item's slot was always reserved square, so a portrait or a
+    // landscape source overran the box the layout gave it — and because pictures are
+    // painted last, it erased the text underneath.
+    //
+    // Two deliberate differences from probeBlockAspect. It is KEYED TO THE URL it
+    // measured (`aspectFor`): that one's guard is `if (block.aspect) return`, so once a
+    // shape is known it never re-probes even when the picture is swapped, and a stale
+    // aspect is exactly how a portrait ends up reserved as a square again. And the
+    // in-flight flag lives in a module-level map rather than on the item, because
+    // cleanBlocks only strips `_` keys at the top level of a block — one hung on an item
+    // would be persisted to localStorage.
+    //
+    // The result is applied to EVERY item pointing at that URL, so two items sharing a
+    // picture both get the shape rather than whichever one happened to ask first.
+    var aspectProbing = {};
+    function probeItemAspect(item) {
+      var u = item.url;
+      if (!u || item.height != null || item.aspectFor === u || aspectProbing[u]) return;
+      aspectProbing[u] = 1;
+      var im = new Image();
+      im.onload = function () {
+        delete aspectProbing[u];
+        if (!im.naturalWidth || !im.naturalHeight) return;
+        var a = im.naturalHeight / im.naturalWidth, hit = false;
+        blocks.forEach(function (b) {
+          (b.items || []).forEach(function (it) {
+            if (it.kind === "pic" && it.url === u && it.height == null && it.aspectFor !== u) {
+              it.aspect = a; it.aspectFor = u; hit = true;
+            }
+          });
+        });
+        if (hit) update();
+      };
+      im.onerror = function () { delete aspectProbing[u]; };
+      im.src = u;
+    }
     function probeBlockAspect(block) {
       var u = embedUrl(block);
       if (!u || block.aspect || block._probing === u) return;
@@ -2580,6 +2629,11 @@
         // styles are just item lists — migrateTakeoverItems converted every saved block
         // to one, byte for byte, and the card keeps them in step until the item card
         // lands. A block with no items is still a valid takeover: it erases the header.
+        // Ask each picture its real shape, the way imageBox does for an Image block.
+        // One load per URL; the answer re-renders and is then cached on the item.
+        (block.items || []).forEach(function (it) {
+          if (it && it.kind === "pic") probeItemAspect(it);
+        });
         var tHtml = takeoverHtml(block);
         // heightPx 0 on purpose: a takeover sits on top of the header the bot already
         // drew, so it consumes no extra tape. Charging the height packer for it would

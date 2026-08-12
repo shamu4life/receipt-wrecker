@@ -773,3 +773,61 @@ test("takeoverPlace answers geometry only, in stack order", () => {
   eq(placed.map((p) => [p.kind, p.y]), [["pic", 6], ["text", 182], ["text", 214], ["text", 240]],
     "placements must come back in STACK order, picture first");
 });
+
+// ── A PICTURE ITEM'S RESERVED HEIGHT ────────────────────────────────────────
+// The carriers state only a WIDTH, so the drawn height is the source's own aspect. If
+// the reserved slot doesn't match it, the picture spills out of the box the layout gave
+// it — and inside the shared multi-picture frame the boxes are shrink-to-fit and do not
+// clip, so a portrait source overran its slot and, because pictures paint last, erased
+// the text underneath.
+const boxOf = (item) => C.takeoverItems([item], "embed")[0];
+
+test("an explicit height still wins — that is what keeps migrated blocks byte-identical", () => {
+  // The 0.4.2 migration wrote a height onto every converted item. If a probed aspect
+  // could override it, every saved block would start emitting different bytes.
+  const it = boxOf({ kind: "pic", url: PIC, width: 120, height: 168, aspect: 3 });
+  assert.equal(it.w, 120);
+  assert.equal(it.h, 168, "a stated height must beat a probed aspect");
+});
+
+test("without a height, a probed aspect gives the true shape", () => {
+  assert.equal(boxOf({ kind: "pic", url: PIC, width: 120, aspect: 2 }).h, 240, "portrait 1:2");
+  assert.equal(boxOf({ kind: "pic", url: PIC, width: 120, aspect: 0.5 }).h, 60, "landscape 2:1");
+  assert.equal(boxOf({ kind: "pic", url: PIC, width: 120, aspect: 1 }).h, 120, "square");
+});
+
+test("with neither, it is square — exactly what it always was", () => {
+  // The probe is one image load away, so this is what the FIRST render shows. Changing
+  // it would change every takeover's opening layout for no gain.
+  assert.equal(boxOf({ kind: "pic", url: PIC, width: 120 }).h, 120);
+  assert.equal(boxOf({ kind: "pic", url: PIC, width: 200 }).h, 200);
+});
+
+test("a nonsense aspect falls back to square rather than emitting a broken box", () => {
+  // These reach the pure core from a persisted item, so they are reachable by anyone
+  // who has ever hand-edited an exported preset.
+  for (const bad of [0, -1, NaN, Infinity, "tall", null]) {
+    assert.equal(boxOf({ kind: "pic", url: PIC, width: 120, aspect: bad }).h, 120,
+      "aspect " + String(bad) + " must not escape into the layout");
+  }
+});
+
+test("a portrait picture no longer overruns the slot it was given", () => {
+  // The failure this fixes: two pictures share one frame, the boxes do not clip, so a
+  // 1:2 source drawn at 120 wide is 240 tall while the layout reserved 120 — 120px of
+  // picture landing on whatever was placed below it.
+  const items = [
+    { kind: "pic", url: PIC, width: 120, aspect: 2 },
+    { kind: "text", text: "UNDER THE PICTURE", size: 24 },
+  ];
+  const placed = C.takeoverPlace(C.takeoverItems(items, "embed"),
+    C.takeoverBox(400), "top", W);
+  const pic = placed.find((p) => p.kind === "pic");
+  const txt = placed.find((p) => p.kind === "text");
+  assert.ok(pic && txt, "both items should be placed at this pull: " + JSON.stringify(placed));
+  assert.equal(pic.h, 240, "the slot must be the height the carrier will actually draw");
+  // Disjoint: the text starts below the picture's real extent, not its assumed square.
+  assert.ok(txt.y - txt.size >= pic.y + pic.h,
+    "the text sits inside the picture's real box (pic " + pic.y + "+" + pic.h
+    + ", text baseline " + txt.y + " size " + txt.size + ") — it will be painted over");
+});

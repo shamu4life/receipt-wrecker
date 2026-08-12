@@ -10,6 +10,14 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.7.2] — 2026-08-11
+
+### Fixed
+
+- The takeover card's cost line read **"Parts 2–2 each spend 106 more…"** on a two-part run — which is what a range reads as when there is only one of them. It now says "Part 2 spends 106 more…" and keeps the range only when there really is one.
+
+---
+
 ## [0.7.1] — 2026-08-11
 
 ### Fixed

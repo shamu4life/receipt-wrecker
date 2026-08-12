@@ -188,9 +188,48 @@ export function isPublicHttpUrl(raw) {
 // Re-serve a remote image from our origin so the client can read its bytes.
 // Redirects are followed by hand (redirect: "manual") so a public URL can't
 // bounce us into a private one on hop two.
-async function handleProxy(url) {
+async function handleProxy(url, env) {
   let target = isPublicHttpUrl(url.searchParams.get("u") || "");
   if (!target) return json({ error: "bad or disallowed url" }, 400);
+
+  // OUR OWN MINTED LINKS ARE SERVED FROM KV, NEVER FETCHED.
+  // i.uwutoowo.com is a custom domain on THIS Worker, so `fetch()`-ing it asks
+  // Cloudflare to route a request from the Worker back into the same Worker. That does
+  // not loop politely — it times out, and the edge answers 522, which this handler
+  // dutifully reports as `upstream said 522`. Measured on production against a live
+  // 15-minute link that returned 200 to curl a second earlier.
+  //
+  // The visible cost was that the Thermal preview could never inline an uploaded
+  // picture: it needs the bytes through our origin to raster them, got a 502, and drew
+  // blank paper where a picture really prints. Glyph-art decoding of a pasted minted
+  // link and the image-adjust bake go through the same door.
+  //
+  // Reading KV directly is also strictly better than a working fetch would have been:
+  // one less hop, and the bytes are already ours.
+  // GATED ON HOST, and that gate is load-bearing: imageKeyFor matches by path SHAPE
+  // alone, so without it any third-party URL that happened to look like /<hex>.png —
+  // a perfectly ordinary CDN filename — would be answered out of our KV and 404 as
+  // "expired" instead of being proxied.
+  const ownHosts = [String((env && env.RW_IMG_HOST) || ""), String(url.hostname || "")]
+    .map((h) => h.toLowerCase()).filter(Boolean);
+  if (env && env.RW_IMG && ownHosts.indexOf(target.hostname.toLowerCase()) >= 0) {
+    const ownKey = imageKeyFor(target.pathname);
+    if (ownKey) {
+      const got = await env.RW_IMG.getWithMetadata(ownKey, { type: "arrayBuffer" });
+      if (got && got.value) {
+        return new Response(got.value, {
+          headers: {
+            "content-type": (got.metadata && got.metadata.ct) || "application/octet-stream",
+            "cache-control": "public, max-age=" + TTL_SECONDS,
+            "access-control-allow-origin": "*",
+          },
+        });
+      }
+      // A hex-shaped path we don't hold is an expired link, not something to go fetch:
+      // the host is ours, so nobody else can answer for it.
+      return json({ error: "that link has expired" }, 404);
+    }
+  }
 
   let res;
   for (let hop = 0; ; hop++) {
@@ -231,7 +270,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/upload") return handleUpload(request, env, url);
-    if (url.pathname === "/px") return handleProxy(url);
+    if (url.pathname === "/px") return handleProxy(url, env);
     // Image keys are matched by SHAPE, not by host, so the same Worker serves them on
     // receipt.uwutoowo.com and on a short image host alike with no host-sniffing. The
     // pattern is narrow enough that it cannot swallow a real static asset — those all

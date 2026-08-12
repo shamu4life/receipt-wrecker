@@ -10,6 +10,17 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.7.1] — 2026-08-11
+
+### Fixed
+
+- **`/px` could never fetch our own uploaded pictures, so 0.7.0's preview fix only worked locally.** `i.uwutoowo.com` is a custom domain on *this* Worker, so `fetch()`-ing it asks Cloudflare to route a request from the Worker back into the same Worker. It does not loop politely — it times out, and the edge answers **522**, which the proxy dutifully reported as `upstream said 522`. Measured on production against a live 15-minute link that had returned 200 to `curl` a second earlier. This is why the Thermal preview still drew a blank hole on the deployed 0.7.0 even though the carrier fix was in the shipped bytes; glyph-art decoding of a pasted minted link and the image-adjust bake went through the same door.
+  - `/px` now answers our own minted links **straight out of KV**, which is strictly better than a working fetch would have been: one hop fewer, and the bytes are already ours. A hex-shaped path we no longer hold returns 404 "that link has expired" rather than 502 — the host is ours, so nobody else could answer for it.
+  - **The host gate is load-bearing and is pinned by a test.** `imageKeyFor` matches by path *shape* alone, so without it any third-party URL that happened to look like `/<hex>.png` — an ordinary CDN filename — would have been answered out of our KV and reported as an expired link of ours. Mutation-verified: remove the gate and that test is the one that fails.
+  - End-to-end on a real Worker: our host with a live key → 200 `image/png`; our host with an absent key → 404; a third-party URL of the same shape → proxied, not KV. In the browser, a takeover picture through the new path rasterizes at **26,434** ink against 3,312 for the blank hole.
+
+---
+
 ## [0.7.0] — 2026-08-11
 
 The four *phases* shipped in 0.6.0, but the design doc has requirements outside the phasing list. An audit of all 63 of them against the shipped code found four gaps, three of them things the owner would hit. This closes them.

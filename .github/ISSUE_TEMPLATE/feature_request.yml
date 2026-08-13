@@ -33,11 +33,11 @@ body:
     attributes:
       label: Scope notes
       description: >
-        Optional — flag anything that affects scope. Note this project is deliberately
+        Optional: flag anything that affects scope. Note this project is deliberately
         single-file, zero-dependency, no-network and client-only: the whole app is one
         public/index.html (inline CSS + one vanilla-JS IIFE). Features that need a build
         step, an npm package, a framework, a server, accounts, network calls, or HTML/markup
         injection into the payload are likely out of scope (the last was deliberately
-        evaluated and rejected — see CLAUDE.md).
+        evaluated and rejected: see CLAUDE.md).
     validations:
       required: false

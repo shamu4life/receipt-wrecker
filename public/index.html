@@ -162,7 +162,7 @@
       GitHub
     </a>
   </div>
-  <p class="intro">Your words as giant type, or a picture (a real image by link, or glyph-art from a file) — paste the result into Twitch chat as a Cheer100 and it prints on the streamer&rsquo;s receipt printer.</p>
+  <p class="intro">Your words as giant type, or a picture (a real image by link, or glyph-art from a file). Paste the result into Twitch chat as a Cheer100 and it prints on the streamer's receipt printer.</p>
   <div class="tabs">
     <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
     <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
@@ -171,17 +171,17 @@
   <div class="layout">
     <section class="controls">
       <div id="composer">
-        <div class="composer-h">Blocks — stacked top to bottom on the receipt</div>
+        <div class="composer-h">Blocks: stacked top to bottom on the receipt</div>
         <div id="blockList"></div>
         <div class="add-row">
           <button type="button" id="addTextBtn">+ Text</button>
           <button type="button" id="addImageBtn">+ Image</button>
           <button type="button" id="addTakeoverBtn">+ Takeover</button>
         </div>
-        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more &mdash; each is its own cheer (see the bits total under the preview).</div>
+        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more, and each is its own cheer (see the bits total under the preview).</div>
 
         <div id="presets">
-          <div class="composer-h">Presets &mdash; save this whole stack and bring it back</div>
+          <div class="composer-h">Presets: save this whole stack and bring it back</div>
           <div class="add-row">
             <input type="text" id="presetName" placeholder="name this setup" maxlength="60">
             <button type="button" id="presetSave">Save</button>
@@ -197,28 +197,28 @@
             <button type="button" id="presetImport">Import JSON</button>
           </div>
           <textarea id="presetJson" rows="4" spellcheck="false" placeholder="Exported JSON appears here. Paste JSON in and press Import to bring setups over from another browser."></textarea>
-          <div class="hint" id="presetNote">Saved in this browser only &mdash; export the JSON to move a setup to another device, or to survive a cache clear. An <strong>uploaded</strong> picture's link dies after 15 minutes, so a preset that used one loads with that block flagged for re-upload; a pasted link is left alone.</div>
+          <div class="hint" id="presetNote">Saved in this browser only. Export the JSON to move a setup to another device, or to survive a cache clear. An <strong>uploaded</strong> picture's link dies after 15 minutes, so a preset that used one loads with that block flagged for re-upload. A pasted link is left alone.</div>
         </div>
       </div>
       <div id="glyphControls">
       <div id="tierControl">
       <label>Tier
         <select id="tier">
-          <option value="ascii">ASCII &mdash; letters (safest)</option>
-          <option value="asciifull">ASCII &mdash; full detail</option>
-          <option value="cjk">Hanzi &#40845; &mdash; letters, prints on RP332</option>
+          <option value="ascii">ASCII letters (safest)</option>
+          <option value="asciifull">ASCII, full detail</option>
+          <option value="cjk">Hanzi &#40845;, prints on RP332</option>
           <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608; (often blank on printer)</option>
           <option value="braille">Braille (experimental)</option>
         </select>
       </label>
-      <div class="hint">Which characters build the picture. <strong>ASCII — letters</strong> renders in the printer's own font (no tofu) and is space+letters only, so it slips past symbol filters; with dither + run-capping it also dodges Nightbot's repetition filter — the safe default. <strong>Full detail</strong> adds punctuation for more contrast (may trip a symbol filter). <strong>Hanzi</strong> tiles from Han glyphs (letters, no markup — prints on the RP332). <strong>Blocks/Braille</strong> look crispest on screen but this printer usually can't render them — they print as blank boxes.</div>
+      <div class="hint">Which characters build the picture. <strong>ASCII letters</strong> renders in the printer's own font (no tofu) and uses only spaces and letters, so it slips past symbol filters; with dither and run-capping it also dodges Nightbot's repetition filter. It is the safe default. <strong>Full detail</strong> adds punctuation for more contrast, which may trip a symbol filter. <strong>Hanzi</strong> tiles from Han glyphs: letters, no markup, and it prints on the RP332. <strong>Blocks/Braille</strong> look crispest on screen, but this printer usually can't render them and they come out as blank boxes.</div>
       </div><!-- /tierControl -->
 
       <label>Detail (columns)
         <input type="number" id="cols" min="8" max="48" step="1" value="20">
         <button type="button" class="reset" data-target="cols" data-default="20" title="Reset to 20">&#8635;</button>
       </label>
-      <div class="hint">How many characters wide the picture is — more = finer detail. The picture no longer has to fit one message: it splits into as many receipt strips as it needs, so higher detail just means more strips to tape together (in order). ~20 is a quick single strip; crank it up for a real picture.</div>
+      <div class="hint">How many characters wide the picture is. More columns give finer detail. The picture does not have to fit one message: it splits into as many receipt strips as it needs, so higher detail just means more strips to tape together, in order. About 20 gives a quick single strip. Crank it up for a real picture.</div>
 
       <fieldset>
         <legend>Quantize</legend>
@@ -241,10 +241,10 @@
       <div class="hint">Adds " Cheer&lt;bits&gt; " plus a rotating nonce so it triggers the print and dodges Twitch's duplicate-message filter.</div>
 
       <label>Bits per receipt: <input type="number" id="bitsAmount" min="100" step="100" value="100" style="width:6em"></label>
-      <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts &mdash; shown under the preview.</div>
+      <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts. The total is shown under the preview.</div>
 
       <label><input type="checkbox" id="stackCovers" checked> Cover every receipt</label>
-      <div class="hint">When a takeover splits across several cheers, repaints the header on every part after the first, so the run reads as one piece instead of artwork followed by ordinary receipts. Costs 106 characters per extra part &mdash; turn it off to spend them on content.</div>
+      <div class="hint">When a takeover splits across several cheers, repaints the header on every part after the first, so the run reads as one piece instead of artwork followed by ordinary receipts. That costs 106 characters per extra part. Turn it off to spend them on content.</div>
 
       <div id="textControls">
         <label>Text
@@ -252,32 +252,32 @@
         </label>
         <label>Style
           <select id="bigStyle">
-            <option value="big">Big type — fills the width</option>
-            <option value="rotate">Giant sideways — HTML</option>
-            <option value="hanzi">Giant sideways — Hanzi tiling (no markup)</option>
+            <option value="big">Big type (fills the width)</option>
+            <option value="rotate">Giant sideways (HTML)</option>
+            <option value="hanzi">Giant sideways (Hanzi tiling, no markup)</option>
           </select>
         </label>
-        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape (each letter as tall as the paper is wide); line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS &mdash; here each line stacks <em>full-size</em> down the tape (so every line keeps full detail) — no markup, so it slips past the symbol filters that block the HTML sideways payload, and it's the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width (<em>Print test strip</em> has a ruler); if it prints blank, the printer has no CJK font.</div>
+        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape, each letter as tall as the paper is wide, and line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS. Each line stacks <em>full-size</em> down the tape, so every line keeps full detail. It emits no markup, which is how it slips past the symbol filters that block the HTML sideways payload, and it is the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width; <em>Print test strip</em> has a ruler. If it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
           <label>Size: <span id="textSizeVal">90</span><span id="textSizeUnit">%</span>
             <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
             <input type="range" id="textSize" min="25" max="100" step="5" value="90">
           </label>
-          <div class="hint">How big the text is. <strong>100%</strong> = as large as fits the paper width (auto-shrinks so it never runs off the edge); drop it to leave margins. For <strong>Giant sideways</strong> this sets the letter size &mdash; smaller letters fit more text before each strip ends. Press Enter for separate lines.</div>
+          <div class="hint">How big the text is. At <strong>100%</strong> it is as large as fits the paper width and auto-shrinks so it never runs off the edge; drop it to leave margins. For <strong>Giant sideways</strong> this sets the letter size, and smaller letters fit more text before each strip ends. Press Enter for separate lines.</div>
         </div>
         <div id="rotateLenControl">
           <label>Length per receipt: <span id="rotateLenVal">800</span>px
             <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
             <input type="range" id="rotateLen" min="300" max="1400" step="50" value="800">
           </label>
-          <div class="hint">Where each strip ends so it doesn&rsquo;t cross the printer&rsquo;s page break (which slices a word). This is a <strong>cap</strong>, not a target &mdash; slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging <em>worse</em>, so calibrate to your printer. Long messages split into more strips; <strong>tape them together in order</strong>.</div>
+          <div class="hint">Where each strip ends, so it doesn't cross the printer's page break and slice a word. This is a <strong>cap</strong>, not a target: slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging <em>worse</em>, so calibrate to your printer. Long messages split into more strips, so <strong>tape them together in order</strong>.</div>
         </div>
       </div>
       <div id="imageControls" hidden>
-        <label>Image URL — real picture
+        <label>Image URL (real picture)
           <input type="url" id="imgUrl" placeholder="https://&hellip;/pic.jpg">
         </label>
-        <div class="hint">Paste a link to an image already on the web and it prints the <strong>actual picture</strong> (far better than glyph-art). Memes are already hosted; for your own files, drop them in Discord/imgur first and paste the direct link — this tool can&rsquo;t host a local file (no server). Leave blank to make glyph-art from an upload instead.</div>
+        <div class="hint">Paste a link to an image already on the web and it prints the <strong>actual picture</strong>, far better than glyph-art. Memes are already hosted. For your own files, drop them in Discord/imgur first and paste the direct link; this tool can't host a local file (no server). Leave blank to make glyph-art from an upload instead.</div>
         <div id="imgUrlWidth">
           <label>Print width: <span id="imgWidthVal">70</span>mm
             <button type="button" class="reset" data-target="imgWidth" data-default="70" title="Reset to 70mm">&#8635;</button>
@@ -291,24 +291,24 @@
         <div class="hint">A file makes <strong>glyph-art</strong> locally (nothing leaves your device). To print it as the <strong>real picture</strong> instead, upload it for a throwaway link:</div>
         <button type="button" id="uploadBtn">Upload for a 15-min link</button>
         <div id="uploadStatus" class="hint" aria-live="polite"></div>
-        <div class="hint">Shrunk to a print-sized <strong>PNG</strong> first (so WebP &amp; JPEG print at the right size &mdash; the printer mangles those), uploaded to your own server, and <strong>auto-deleted after 15 minutes</strong> &mdash; long enough to cheer it, then it&rsquo;s gone.</div>
+        <div class="hint">Your file is shrunk to a print-sized <strong>PNG</strong> first: the printer mangles WebP and JPEG, and a PNG prints at the right size. It goes to your own server and is <strong>auto-deleted after 15 minutes</strong>, long enough to cheer it before it disappears.</div>
       </div>
     </section>
     <section class="preview">
       <label class="thermal-toggle" title="Render the preview the way the printer does: 1-bit black &amp; white, dithered">
-        <input type="checkbox" id="thermalView"> Thermal preview &mdash; 1-bit dithered, like the real printer
+        <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dithered, like the real printer
       </label>
-      <div class="thermal-note" id="thermalNote" hidden>Dithering a <em>linked</em> picture fetches it through this site&rsquo;s server &mdash; your browser won&rsquo;t let us read a remote image&rsquo;s pixels any other way. Big Text and glyph-art still never leave your device.</div>
+      <div class="thermal-note" id="thermalNote" hidden>Dithering a <em>linked</em> picture fetches it through this site's server, because your browser won't let us read a remote image's pixels any other way. Big Text and glyph-art still never leave your device.</div>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="censusBtn">Print test strip</button>
         <button type="button" id="probeBtn">Find what still sends</button>
       </div>
-      <div class="hint">Pictures ride on an HTML tag, and mods block those one at a time (<code>object</code> went first, then the SVG one). <strong>Find what still sends</strong> builds the same picture with every tag we know, one cheer each &mdash; send them one at a time and whichever letter prints <em>with a picture under it</em> names the <strong>Carrier tag</strong> to pick in the block above.</div>
+      <div class="hint">Pictures ride on an HTML tag, and mods block those one at a time (<code>object</code> went first, then the SVG one). <strong>Find what still sends</strong> builds the same picture with every tag we know, one cheer each. Send them one at a time; whichever letter prints <em>with a picture under it</em> names the <strong>Carrier tag</strong> to pick in the block above.</div>
     </section>
   </div>
-  <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer &mdash; only the first-party client actually cheers.</p>
-  <p class="reminder"><strong>Held or blocked by chat?</strong> Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: a rotating nonce beats duplicate-blocking, letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit (which bypass all of it) there&rsquo;s no way to <em>guarantee</em> delivery &mdash; so if a message is held, just resend, shorten it, or drop the column count and try again.</p>
+  <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer. Only the first-party client actually cheers.</p>
+  <p class="reminder"><strong>Held or blocked by chat?</strong> Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: a rotating nonce beats duplicate-blocking, letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit, which bypass all of it, there is no way to <em>guarantee</em> delivery. If a message is held, resend it, shorten it, or drop the column count and try again.</p>
 </main>
 <script>
   "use strict";
@@ -319,9 +319,9 @@
     // tofu, unlike CJK/blocks/braille). "letters" is space + alnum only, so it
     // also dodges symbol-filters; paired with dither + run-capping it slips past
     // Nightbot's repetition filter too. light -> dark.
-    { id: "ascii",     label: "ASCII — letters (safest)", kind: "tone",
+    { id: "ascii",     label: "ASCII letters (safest)", kind: "tone",
       ramp: [" ","i","c","v","o","x","n","s","a","e","w","m","q","0","8","B","W","M"] },
-    { id: "asciifull", label: "ASCII — full detail",       kind: "tone",
+    { id: "asciifull", label: "ASCII, full detail",       kind: "tone",
       ramp: [" ",".",":","-","=","+","*","o","a","e","w","m","8","%","#","B","@","M"] },
     { id: "safe",  label: "Blocks ░▒▓█", kind: "tone",
       ramp: ["░", "▒", "▓", "█"] },
@@ -653,7 +653,7 @@
     // Only catch: the URL must end in a known image extension, because WebKit picks
     // the image renderer from it — a bare /i/<hex> draws nothing. /upload returns
     // .png links for exactly this reason.
-    { id: "embed", label: "embed tag — default, prints clean (needs a .png/.jpg URL)", token: "<embed",
+    { id: "embed", label: "embed tag: default, prints clean (needs a .png/.jpg URL)", token: "<embed",
       needsExt: true, field: "prints",
       build: function (o) {
         return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
@@ -673,7 +673,7 @@
     // machine that can confirm it is the one that printed it wrong. Until someone
     // re-probes it there, a known-and-warnable limitation (embed's extension) beats
     // an unexplained failure nothing can detect.
-    { id: "input", label: "input type=image — any URL, but printed too wide once", token: "<input",
+    { id: "input", label: "input type=image: any URL, but printed too wide once", token: "<input",
       field: "too-wide",
       build: function (o) {
         // border/padding zeroed on the hypothesis that native form-control chrome is
@@ -693,7 +693,7 @@
     // same page with iframe printed none of it on either PDF page, and a bare iframe
     // with no foreignObject printed it fine. Same class as the foreignObject sibling
     // rule, one level out. Fine as a top-level picture; never inside the frame.
-    { id: "iframe", label: "iframe — prints, but crops a big picture", token: "<iframe", field: "prints",
+    { id: "iframe", label: "iframe: prints, but crops a big picture", token: "<iframe", field: "prints",
       framedOk: false,
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
@@ -702,7 +702,7 @@
     // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
     // the SVG form. It renders fine on the engine (shortest payload of the lot, no
     // extension needed); it just never reaches chat. Kept for a re-probe.
-    { id: "img", label: "img tag — blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
+    { id: "img", label: "img tag: blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
       build: function (o) {
         return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
@@ -712,7 +712,7 @@
     // way while measuring: an `svg { height: auto }` rule collapses it to nothing,
     // which is a property of OUR preview stylesheet, not of the printer's. No clamp
     // here either: this SVG has no viewBox, so max-width would crop rather than scale.)
-    { id: "svg", label: "SVG image — blocked (Aug 2026)", token: "<image", blocked: true, field: "blocked",
+    { id: "svg", label: "SVG image: blocked (Aug 2026)", token: "<image", blocked: true, field: "blocked",
       build: function (o) {
         return '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + o.w + '" height="' + o.h
           + '"><image xlink:href="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '"/></svg>';
@@ -720,7 +720,7 @@
     // Blocked earlier (the list took "<object"). Renders when the URL carries an
     // image extension, nothing when it doesn't — same MIME-from-extension rule as
     // <embed>, which is what the old "renders at native size" folklore really was.
-    { id: "object", label: "object tag — blocked (earlier)", token: "<object", blocked: true,
+    { id: "object", label: "object tag: blocked (earlier)", token: "<object", blocked: true,
       needsExt: true, field: "blocked",
       build: function (o) {
         return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm
@@ -1842,7 +1842,7 @@
     catch (e) { return { ok: false, error: "That isn't valid JSON." }; }
     var list = Array.isArray(data) ? data
              : (data && Array.isArray(data.presets) ? data.presets : null);
-    if (!list) return { ok: false, error: "No presets in there — expected a list, or an object with a \"presets\" list." };
+    if (!list) return { ok: false, error: "No presets in there. Expected a list, or an object with a \"presets\" list." };
     var out = [], i, p;
     for (i = 0; i < list.length; i++) {
       p = list[i];
@@ -3155,8 +3155,8 @@
           count.className = "part-count" + (item.chars > MAX_CHARS ? " over" : "");
           // Probe parts are alternatives, not a sequence, so they get their tag's name
           // instead of a "Part i of N" that would imply you send them all in order.
-          count.textContent = (item.headNote ? item.headNote + " — "
-                               : (n > 1 ? "Part " + (i + 1) + " of " + n + " — " : ""))
+          count.textContent = (item.headNote ? item.headNote + ", "
+                               : (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : ""))
             + item.chars + " / " + MAX_CHARS;
           head.appendChild(count);
           card.appendChild(head);
@@ -3166,7 +3166,7 @@
         if (item.chars > MAX_CHARS) {
           var warn = document.createElement("div");
           warn.className = "over-note";
-          warn.textContent = "Too long for Twitch (~500 chars) — trim it: clear the formatting, fewer columns, shorter text, or a smaller size.";
+          warn.textContent = "Too long for Twitch (~500 chars). Trim it: clear the formatting, fewer columns, shorter text, or a smaller size.";
           card.appendChild(warn);
         }
         if (item.bodies) {
@@ -3253,16 +3253,16 @@
         // few. Say so — every extra letter is another cheer's worth of bits spent
         // re-confirming something already known to be dead.
         var liveN = items.filter(function (it) { return !it.probeBlocked; }).length;
-        pnote.textContent = "These are ALTERNATIVES, not a sequence — send them one at a time (each is its own "
+        pnote.textContent = "These are ALTERNATIVES, not a sequence. Send them one at a time (each is its own "
           + getBits() + "-bit cheer). A letter that prints WITH a picture under it = that tag works, pick it as the "
           + "block's Carrier tag. A letter alone = it sent, but the printer ignored the tag. A letter that never "
           + "shows up = chat blocked it. You only need " + (liveN === 1 ? "the first" : "the first " + liveN)
-          + " — the rest are already known blocked, and are only worth a re-test if you think a mod pruned the list.";
+          + ". The rest are already known blocked, and are only worth a re-test if you think a mod pruned the list.";
         container.appendChild(pnote);
       } else if (n > 1) {
         var note = document.createElement("p");
         note.className = "parts-note";
-        note.textContent = "Paste the parts into chat in order — each is a separate " + getBits()
+        note.textContent = "Paste the parts into chat in order. Each is a separate " + getBits()
           + "-bit cheer (" + copyableParts + " × " + getBits() + " = " + (copyableParts * getBits()) + " bits total).";
         container.appendChild(note);
       }
@@ -3431,8 +3431,8 @@
       // Render: crisp vector Type, or markup-free Hanzi tiling (the filter-proof mode).
       card.appendChild(mkEl("label", null, "Render"));
       var render = mkEl("select");
-      render.appendChild(opt("type", "Type — crisp", block.render !== "hanzi"));
-      render.appendChild(opt("hanzi", "Hanzi tiling — filter-proof", block.render === "hanzi"));
+      render.appendChild(opt("type", "Type (crisp)", block.render !== "hanzi"));
+      render.appendChild(opt("hanzi", "Hanzi tiling (filter-proof)", block.render === "hanzi"));
       card.appendChild(render);
       var isSideways = function (o) { return o === 90 || o === 270; };
       // Type-only controls: orientation + (length when sideways).
@@ -3535,9 +3535,9 @@
             + "pick for sideways."
           : "The preview uses your fonts; the printer uses the streamer's. Every font here "
             + "is standard on Windows, and Script and Papyrus keep a generic behind them so "
-            + "they still draw something if they aren’t. Serif and Monospace are generics, "
-            + "which means the streamer’s PC picks the face. If a font isn’t there it falls "
-            + "back — one test print settles it.";
+            + "they still draw something if they aren't. Serif and Monospace are generics, "
+            + "which means the streamer's PC picks the face. If a font isn't there it falls "
+            + "back, and one test print settles it.";
       };
       fmtWrap.appendChild(fontNote);
       syncFontNote();
@@ -3658,7 +3658,7 @@
     function uploadFileForBlock(block, file, setStatus) {
       uploadPngForUrl(file, setStatus, function (url, aspect) {
         block.url = url; block.outUrl = null; block.aspect = aspect; setImgAspect(url, aspect);
-        if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded — adjusting…"); processImage(block, setStatus); }
+        if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded, now adjusting…"); processImage(block, setStatus); }
         else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
       });
     }
@@ -3692,16 +3692,16 @@
 
       card.appendChild(cardHead(block));
       card.appendChild(mkEl("div", { "class": "hint" },
-        "Paints over the receipt’s own header — the avatar, the bits line and the name "
-        + "printer-bot drew — and puts yours there instead. Put it FIRST in the "
+        "Paints over the receipt's own header (the avatar, the bits line and the name "
+        + "printer-bot drew) and puts yours there instead. Put it FIRST in the "
         + "stack; anything below it prints as normal underneath."));
 
       // Anchor is block-level: the whole stack moves, the items keep their spacing.
       card.appendChild(mkEl("label", null, "Anchor"));
       var anchor = mkEl("select");
-      anchor.appendChild(opt("top", "Top — where the bot’s own header sits", block.anchor === "top"));
+      anchor.appendChild(opt("top", "Top (where the bot's own header sits)", block.anchor === "top"));
       anchor.appendChild(opt("centre", "Centre of the covered area", block.anchor === "centre"));
-      anchor.appendChild(opt("bottom", "Bottom — just above your message",
+      anchor.appendChild(opt("bottom", "Bottom (just above your message)",
                              block.anchor !== "top" && block.anchor !== "centre"));
       anchor.addEventListener("change", function () { block.anchor = anchor.value; save(); });
       card.appendChild(anchor);
@@ -3713,11 +3713,11 @@
       });
       card.appendChild(sliderRow("Reach up (pt)", pull, TAKEOVER_PULL_PT, "pt"));
       card.appendChild(mkEl("div", { "class": "hint" },
-        "How far up to paint. The bot’s header is taller or shorter depending on the "
-        + "streamer’s avatar, so this needs one calibration print: too little leaves a "
+        "How far up to paint. The bot's header is taller or shorter depending on the "
+        + "streamer's avatar, so this needs one calibration print: too little leaves a "
         + "strip of the old header showing; too much lifts the block past the top of the "
-        + "paper, and the picture is what goes first — it sits highest. The preview clips "
-        + "at the paper edge, so if it disappears there it won’t print either."));
+        + "paper, and the picture goes first because it sits highest. The preview clips "
+        + "at the paper edge, so if it disappears there it won't print either."));
 
       // ── the item list ───────────────────────────────
       var list = mkEl("div");
@@ -3839,9 +3839,9 @@
           itemFontNote.textContent =
             "The preview uses your fonts; the printer uses the streamer's. Every font here "
             + "is standard on Windows, and Script and Papyrus keep a generic behind them so "
-            + "they still draw something if they aren’t. Serif and Monospace are generics, "
-            + "which means the streamer’s PC picks the face. If a font isn’t there it falls "
-            + "back — one test print settles it.";
+            + "they still draw something if they aren't. Serif and Monospace are generics, "
+            + "which means the streamer's PC picks the face. If a font isn't there it falls "
+            + "back, and one test print settles it.";
         };
         syncItemFontNote();
         font.addEventListener("change", syncItemFontNote);
@@ -3909,7 +3909,7 @@
       });
       if (!items.length) {
         list.appendChild(mkEl("div", { "class": "hint" },
-          "Nothing in it yet. An empty takeover still erases the header — add a line or a "
+          "Nothing in it yet. An empty takeover still erases the header. Add a line or a "
           + "picture to put something there, or seed the fake donation below and edit it."));
       }
 
@@ -3974,9 +3974,9 @@
         var e = getEmbed(block.renderAs);
         if (e.framedOk === false && anyPicUrl()) {
           frameWarn.hidden = false;
-          frameWarn.textContent = "“" + e.label + "” breaks inside a Takeover: everything "
+          frameWarn.textContent = "\"" + e.label + "\" breaks inside a Takeover: everything "
             + "you stack BELOW this block disappears from the print. Pick another carrier "
-            + "for the pictures here (it’s fine on an ordinary Image block).";
+            + "for the pictures here (it's fine on an ordinary Image block).";
           return;
         }
         // Same trap the Image block already warns about, and the takeover’s default
@@ -3984,9 +3984,9 @@
         // extension and draws NOTHING without one, with no error anywhere.
         if (e.needsExt && picUrlMissingExt()) {
           frameWarn.hidden = false;
-          frameWarn.textContent = "A picture link here doesn’t end in .png/.jpg — the “" + e.label
-            + "” carrier picks its renderer from the extension, so it will print "
-            + "blank. Use “input type=image” instead, or upload the file to get a .png link.";
+          frameWarn.textContent = "A picture link here doesn't end in .png/.jpg. The \"" + e.label
+            + "\" carrier picks its renderer from the extension, so it will print "
+            + "blank. Use \"input type=image\" instead, or upload the file to get a .png link.";
           return;
         }
         frameWarn.hidden = true;
@@ -4022,7 +4022,7 @@
         if (idx >= 0) {
           over = parts[idx].chars > MAX_CHARS;
           bits.push("That part is " + parts[idx].chars + " / " + MAX_CHARS
-                    + (over ? " — over, so Twitch rejects it and nothing prints." : "."));
+                    + (over ? " (over, so Twitch rejects it and nothing prints)." : "."));
         }
         // Only worth saying where it's actually being charged: the cover rides on parts
         // after the first, and only when this takeover is the one in part 1.
@@ -4030,10 +4030,10 @@
           // "Parts 2–2" is what a range reads as when there is only one of them.
           var cov = payloadLength(parts[1].cover);
           bits.push(parts.length === 2
-            ? "Part 2 spends " + cov + " more repainting the header — turn off “Cover every "
-              + "receipt” to reclaim them."
-            : "Parts 2–" + parts.length + " each spend " + cov
-              + " more repainting the header — turn off “Cover every receipt” to reclaim them.");
+            ? "Part 2 spends " + cov + " more repainting the header. Turn off \"Cover every "
+              + "receipt\" to reclaim them."
+            : "Parts 2 to " + parts.length + " each spend " + cov
+              + " more repainting the header. Turn off \"Cover every receipt\" to reclaim them.");
         }
         costNote.textContent = bits.join(" ");
         costNote.className = "cost-note" + (over ? " over" : "");
@@ -4050,16 +4050,16 @@
         var r = takeoverReport(takeoverHtml(block), want.lines, want.pictures);
         var msgs = [];
         if (r.picturesDrawn < r.picturesWanted) {
-          msgs.push((r.picturesWanted === 1 ? "The picture isn’t in this payload"
+          msgs.push((r.picturesWanted === 1 ? "The picture isn't in this payload"
                       : (r.picturesWanted - r.picturesDrawn) + " of " + r.picturesWanted
-                        + " pictures didn’t make this payload")
-            + " — there’s no room inside the covered area, and a picture is "
-            + "the first thing to go because it takes the most. Raise “Reach up”, narrow it, "
+                        + " pictures didn't make this payload")
+            + ". There's no room inside the covered area, and a picture is "
+            + "the first thing to go because it takes the most. Raise \"Reach up\", narrow it, "
             + "or remove a line.");
         }
         if (r.linesDrawn < r.linesWanted) {
           msgs.push("Only " + r.linesDrawn + " of " + r.linesWanted + " lines fit the covered "
-            + "area; the rest are left out rather than printed off the edge. Raise “Reach up” "
+            + "area; the rest are left out rather than printed off the edge. Raise \"Reach up\" "
             + "or drop a size.");
         }
         dropNote.hidden = msgs.length === 0;
@@ -4093,16 +4093,16 @@
       // or the name DELETES the font-weight="900" / "700" they were emitting and gives back
       // 18 characters each.
       card.appendChild(mkEl("div", { "class": "hint" },
-        "Every item is payload. A picture and three lines nearly fills the message — about "
-        + "491 of 500 with a short name — so watch the counter. Formatting counts too: a "
-        + "font, italic, underline or strikethrough costs 20–35 characters on the item you "
+        "Every item is payload. A picture and three lines nearly fills the message, about "
+        + "491 of 500 with a short name, so watch the counter. Formatting counts too: a "
+        + "font, italic, underline or strikethrough costs 20 to 35 characters on the item you "
         + "set it on (41 for underline and strikethrough together), so at 491 any one of "
         + "them tips it over. Leave an item out and there is room: two lines with a picture "
         + "start near 419, one line near 350, which absorbs even the 41. Two that surprise "
         + "people: italic on an already-italic item is free, and picking Normal weight on a "
-        + "Bold or Black one gives you 18 characters back. Going over doesn’t cost a second "
+        + "Bold or Black one gives you 18 characters back. Going over doesn't cost a second "
         + "cheer: Twitch rejects an over-length message outright and nothing prints. A long "
-        + "name or a pasted Discord/imgur link will do it too — upload the file here instead "
+        + "name or a pasted Discord/imgur link will do it too. Upload the file here instead "
         + "and you get the shortest link there is."));
 
       syncNotes();
@@ -4155,8 +4155,8 @@
       EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === curEmbed)); });
       realWrap.appendChild(ra);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
-        "The HTML tag that carries the picture. Mods block these one at a time — when pictures "
-        + "stop printing, work down the list, or hit “Find what still sends” under the "
+        "The HTML tag that carries the picture. Mods block these one at a time. When pictures "
+        + "stop printing, work down the list, or hit \"Find what still sends\" under the "
         + "preview to test every tag in one round."));
       // embed/object pick their renderer from the URL's file extension; without one
       // they print a blank space and nothing tells you why. Say so up front.
@@ -4168,9 +4168,9 @@
         var bad = !!e.needsExt && !!block.url && !urlHasImageExt(block.url);
         extWarn.hidden = !bad;
         if (bad) {
-          extWarn.textContent = "That link doesn’t end in .png/.jpg — the “" + e.label
-            + "” carrier picks its renderer from the extension, so it will print blank. "
-            + "Use “input type=image” instead, or re-upload the file here to get a .png link.";
+          extWarn.textContent = "That link doesn't end in .png/.jpg. The \"" + e.label
+            + "\" carrier picks its renderer from the extension, so it will print blank. "
+            + "Use \"input type=image\" instead, or re-upload the file here to get a .png link.";
         }
       };
       card.appendChild(realWrap);
@@ -4179,7 +4179,7 @@
       var glyphWrap = mkEl("div");
       glyphWrap.appendChild(mkEl("label", null, "Tier (glyph set)"));
       var tier = mkEl("select");
-      [["ascii", "ASCII — letters (safest)"], ["asciifull", "ASCII — full detail"], ["cjk", "Hanzi — prints on RP332"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
+      [["ascii", "ASCII letters (safest)"], ["asciifull", "ASCII, full detail"], ["cjk", "Hanzi, prints on RP332"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
         .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "ascii") === t[0])); });
       glyphWrap.appendChild(tier);
       var gcols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); gcols.value = block.cols || 40;
@@ -4249,7 +4249,7 @@
         if (b._expired) {
           var note = document.createElement("div");
           note.className = "expired-note";
-          note.textContent = "This picture's link has expired — re-upload it, or the receipt prints blank.";
+          note.textContent = "This picture's link has expired. Re-upload it, or the receipt prints blank.";
           card.insertBefore(note, card.firstChild);
         }
         list.appendChild(card);
@@ -4373,7 +4373,7 @@
         presets = upsertPreset(presets, makePreset(name, blocks, Date.now()));
         persistPresets(); renderPresetList();
         els.presetList.value = name;
-        presetNote("Saved “" + name + "” — " + blocks.length
+        presetNote("Saved \"" + name + "\" with " + blocks.length
                    + (blocks.length === 1 ? " block." : " blocks."));
       });
       els.presetLoad.addEventListener("click", function () {
@@ -4381,7 +4381,7 @@
         if (!p) { presetNote("Nothing saved to load yet.", true); return; }
         applyPreset(p);
         els.presetName.value = p.name;
-        presetNote("Loaded “" + p.name + "”. Checking any uploaded pictures are still alive…");
+        presetNote("Loaded \"" + p.name + "\". Checking any uploaded pictures are still alive…");
       });
       els.presetRename.addEventListener("click", function () {
         var p = selectedPreset(), name = (els.presetName.value || "").trim();
@@ -4391,7 +4391,7 @@
         p.name = name;
         persistPresets(); renderPresetList();
         els.presetList.value = name;
-        presetNote("Renamed “" + old + "” to “" + name + "”.");
+        presetNote("Renamed \"" + old + "\" to \"" + name + "\".");
       });
       // Two-press delete rather than a confirm() — a modal dialog blocks the page, and
       // the button re-labelling says the same thing in place.
@@ -4401,13 +4401,13 @@
         if (armedDelete !== p.name) {
           armedDelete = p.name;
           els.presetDelete.textContent = "Really?";
-          presetNote("Press again to delete “" + p.name + "”. Export first if you want it back.", true);
+          presetNote("Press again to delete \"" + p.name + "\". Export first if you want it back.", true);
           return;
         }
         presets = presets.filter(function (q) { return q.name !== p.name; });
         armedDelete = ""; els.presetDelete.textContent = "Delete";
         persistPresets(); renderPresetList();
-        presetNote("Deleted “" + p.name + "”.");
+        presetNote("Deleted \"" + p.name + "\".");
       });
       els.presetList.addEventListener("change", function () {
         armedDelete = ""; els.presetDelete.textContent = "Delete";
@@ -4415,12 +4415,12 @@
         if (p) els.presetName.value = p.name;
       });
       els.presetExport.addEventListener("click", function () {
-        if (!presets.length) { presetNote("Save a setup first — there's nothing to export.", true); return; }
+        if (!presets.length) { presetNote("Save a setup first. There's nothing to export yet.", true); return; }
         els.presetJson.value = serializePresets(presets);
         els.presetJson.className = "show";
         els.presetJson.focus(); els.presetJson.select();
         presetNote("All " + presets.length + (presets.length === 1 ? " setup" : " setups")
-                   + " as JSON — copy it somewhere safe, or into another browser's Import box.");
+                   + " as JSON. Copy it somewhere safe, or into another browser's Import box.");
       });
       els.presetImport.addEventListener("click", function () {
         if (els.presetJson.className !== "show" || !(els.presetJson.value || "").trim()) {
@@ -4457,7 +4457,7 @@
         if (blocks[i].type === "image" && blocks[i].imgKind !== "glyph" && blocks[i].url) { b = blocks[i]; break; }
       }
       if (!b) {
-        return [{ payload: "(add an Image block with a link or an upload first — the probe needs a real picture to point at)",
+        return [{ payload: "(add an Image block with a link or an upload first: the probe needs a real picture to point at)",
                   chars: 0, copyable: false, showHead: false }];
       }
       var box = imageBox(b);
@@ -4468,7 +4468,7 @@
         var part = packStackBodies([{ html: p.html, chars: payloadLength(p.html), heightPx: box.h }],
           { bits: getBits(), cheer: els.cheer.checked, nonceFn: function () { return nonceForPart(k); } })[0];
         return { payload: part.payload, chars: part.chars, copyable: true, probeBlocked: p.blocked,
-                 headNote: p.label + " — " + p.name, previewImgUrl: box.url };
+                 headNote: p.label + ": " + p.name, previewImgUrl: box.url };
       });
     }
     function computeParts() {
@@ -4665,7 +4665,7 @@
             setImgAspect(res.d.url, aspect);   // we already know it from the canvas — skip probing the KV URL (not propagated yet)
             els.imgUrl.value = res.d.url;
             els.imgUrl.dispatchEvent(new Event("input", { bubbles: true }));   // -> real-image mode
-            els.uploadStatus.textContent = "Link ready — it's in the box above, expires in ~15 min. Cheer it now.";
+            els.uploadStatus.textContent = "Link ready. It's in the box above and expires in ~15 min. Cheer it now.";
           })
           .catch(function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Upload failed (network)."; });
       }
@@ -4688,7 +4688,7 @@
           var aspect = h / w;
           cv.toBlob(function (blob) {
             if (!blob) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't process that image."; return; }
-            if (blob.size > 5 * 1024 * 1024) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Too big even after shrinking — try a smaller image."; return; }
+            if (blob.size > 5 * 1024 * 1024) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Too big even after shrinking. Try a smaller image."; return; }
             sendUpload(blob, aspect);
           }, "image/png");
         };

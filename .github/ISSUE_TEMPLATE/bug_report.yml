@@ -66,6 +66,6 @@ body:
     id: context
     attributes:
       label: Additional context
-      description: Console errors, the exact text/image that misformatted, the options you used (tier, columns, quantize mode), a photo of the actual receipt print if relevant, screenshots or screen recordings — anything that helps.
+      description: Console errors, the exact text/image that misformatted, the options you used (tier, columns, quantize mode), a photo of the actual receipt print if relevant, screenshots or screen recordings, anything that helps.
     validations:
       required: false

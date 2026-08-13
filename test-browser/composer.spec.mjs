@@ -131,9 +131,13 @@ test("the cover surcharge line never says a range of one", async () => {
   const cost = page.locator(".cost-note").first();
   await cost.waitFor();
   const text = await cost.textContent();
-  assert.ok(!/Parts (\d+)–\1\b/.test(text), "a range of one: " + text);
+  // Both spellings, because the copy has already changed once underneath this test.
+  // The en-dash form is what 0.7.2 shipped and the " to " form is what it says now; a
+  // guard that only knows the retired spelling is a guard that has quietly stopped
+  // working, which is worse than not having one.
+  assert.ok(!/Parts (\d+)\s*(?:–|to)\s*\1\b/.test(text), "a range of one: " + text);
   if (/cheers/.test(text)) {
-    assert.match(text, /Part 2 spends|Parts 2–[3-9]/, "unexpected surcharge phrasing: " + text);
+    assert.match(text, /Part 2 spends|Parts 2 to [3-9]/, "unexpected surcharge phrasing: " + text);
   }
   await ctx.close();
 });
@@ -143,7 +147,7 @@ test("presets round-trip through a reload", async () => {
   await page.click("#addTakeoverBtn");
   await page.fill("#presetName", "smoke setup");
   await page.click("#presetSave");
-  assert.match(await page.textContent("#presetNote"), /Saved “smoke setup”/);
+  assert.match(await page.textContent("#presetNote"), /Saved "smoke setup" with \d+ blocks?\./);
 
   await page.reload();
   await page.waitForSelector("#presetList");

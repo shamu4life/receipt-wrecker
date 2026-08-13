@@ -19,45 +19,48 @@ Key facts:
 
 ## What it outputs
 
-Two different kinds of payload, and the distinction matters:
+There are two kinds of payload:
 
-- **HTML markup** — big type, sideways type, real pictures, and Takeover overlays
-  are emitted as HTML/SVG, because the receipt printer's bot renders a chat message
-  as HTML. This is the primary path.
-- **Plain Unicode glyphs** — glyph-art tiles a picture into monospace characters
-  (ASCII ramps, a curated Hanzi density ramp, block elements, or 2x4 Braille), and
-  Hanzi-tiled big text does the same for words. No markup at all, so nothing can
-  filter it. This is the fallback that always prints.
+- HTML markup. Big type, sideways type, real pictures and Takeover overlays go out
+  as HTML/SVG, because the receipt printer's bot renders a chat message as HTML.
+  This is the primary path.
+- Plain Unicode glyphs. Glyph-art tiles a picture into monospace characters (ASCII
+  ramps, a curated Hanzi density ramp, block elements, or 2x4 Braille), and
+  Hanzi-tiled big text does the same for words. There is no markup at all, so
+  nothing can filter it. This is the fallback that always prints.
 
-Glyph output stays inside the Basic Multilingual Plane — no colour emoji, no
-astral-plane codepoints — because the target renderer is a 2011-era browser engine
+Glyph output stays inside the Basic Multilingual Plane, with no colour emoji and no
+astral-plane codepoints, because the target renderer is a 2011-era browser engine
 with no colour-font support.
 
 ## Modes
 
-You compose a **stack of blocks**, and the app packs them into as few messages as
-possible:
+You compose a stack of blocks, and the app packs them into as few messages as
+possible.
 
-- **Text** — a word or phrase as oversized type, straight or rotated, or tiled
-  out of Hanzi.
-- **Image** — a real picture from a link or an upload, or glyph-art from either.
-- **Takeover** — paints over the printer bot's own header. It holds an ordered
-  list of **items**, text or picture, any number in any order, each with its own
-  font, size, formatting, alignment and nudge, under one block-level anchor
-  (top / centre / bottom) and a calibration "reach up". A **Seed fake donation**
-  button fills an empty one with the four-item arrangement of a real header —
-  picture, amount, name, italic note — after which they are ordinary items you can
-  edit, reorder or delete. The amount is free text, because the same printer bot
-  runs on YouTube and Kick and their headers say neither "BITS" nor anything like
-  it. It is a visual gag printed on till roll; it creates no record of anything, and
-  the chat message that triggers a print carries the real sender's name.
+- A Text block sets a word or phrase as oversized type, straight or rotated, or
+  tiled out of Hanzi.
+- An Image block carries a real picture from a link or an upload, or glyph-art made
+  from either.
+- A Takeover block paints over the printer bot's own header. It holds an ordered
+  list of items, text or picture, any number of them in any order, each with its own
+  font, size, formatting, alignment and nudge, under one block-level anchor (top /
+  centre / bottom) and a calibration "reach up". The **Seed fake donation** button
+  fills an empty one with the four-item arrangement of a real header: picture,
+  amount, name, italic note. After that they are ordinary items you can edit,
+  reorder or delete. The amount is free text, because the same printer bot runs on
+  YouTube and Kick, and their headers say neither "BITS" nor anything like it. It is
+  a visual gag printed on till roll. It creates no record of anything, and the chat
+  message that triggers a print carries the real sender's name.
 
 When a stack splits across several cheers, every part after the first repaints the
-header with a plain **continuation cover**, so the run reads as one piece rather than
-artwork followed by ordinary receipts. It costs 106 characters per extra part and has
-a stack-level toggle. **Presets** save the whole block stack under a name and export
-it as JSON; an uploaded picture's link expires after 15 minutes, and a preset that
-used one loads with that block flagged for re-upload rather than printing blank.
+header with a plain continuation cover, so the run reads as one piece rather than
+artwork followed by ordinary receipts. It costs 106 characters per extra part, and
+there is a stack-level toggle for it.
+
+**Presets** save the whole block stack under a name and export it as JSON. An
+uploaded picture's link expires after 15 minutes, so a preset that used one loads
+with that block flagged for re-upload rather than printing blank.
 
 A **Cheer-ready** toggle prefixes the payload with a `Cheer<N>` token plus a small
 visible rotating nonce, so the message registers as a cheer and a duplicate-message
@@ -70,9 +73,9 @@ call this project's own Cloudflare Worker and nothing else:
 
 - Clicking **Upload** stores an image in Cloudflare KV behind an unguessable link
   that auto-deletes after 15 minutes.
-- **Pasting an image URL** for glyph-art, **adjusting brightness/contrast**, or
-  using **Thermal preview** fetches that picture through an image proxy, because a
-  browser canvas cannot read cross-origin pixels directly.
+- Pasting an image URL for glyph-art, adjusting brightness/contrast, or using
+  **Thermal preview** fetches that picture through an image proxy, because a browser
+  canvas cannot read cross-origin pixels directly.
 
 Big Text, and any picture you pick from your own disk for glyph-art, never leave the
 device. Settings and your block stack are kept in `localStorage`.

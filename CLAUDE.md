@@ -50,7 +50,7 @@ Everything else in the repo is documentation, tests, or deploy config.
 | `package.json` | Dev-only metadata: `npm test` (Node's `node:test`) and the Wrangler dev/deploy scripts. No runtime deps. |
 | `test/` | Node `node:test` suite. Extracts the inline script from `public/index.html` and unit-tests the pure glyph engine. |
 | `test-browser/` | Playwright smoke tests for the browser glue the null-DOM harness cannot reach. NOT part of `npm test`; run `npm run test:browser` (needs `npx playwright install chromium` once). |
-| `tools/` | The print-engine bench. `rig.py` renders a payload the way printer-bot really does and measures the ink; `payload.mjs` builds that payload from the app's own core. This is where "does it print?" gets answered; see "Measuring against the real engine". |
+| `tools/` | The print-engine bench. `rig.py` renders a payload the way printer-bot really does and measures the ink; `payload.mjs` builds that payload from the app's own core; `calibrate.py` builds the dither test print. This is where "does it print?" gets answered; see "Measuring against the real engine". |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, then `wrangler deploy --dry-run` on push/PR to `main`. |
 | `.github/` | Community-health files (CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue/PR templates, dependabot). |
 | `docs/CHANGELOG.md` | Release notes / change history. |
@@ -376,10 +376,19 @@ argued about:
   and will make you conclude the engine can't render SVG. It can.
 
 **The bench is a committed tool now: `tools/rig.py`.** It reproduces printer-bot's
-page, its CSS and every one of its print flags, renders at 203dpi hard-thresholded to
-1 bit, and reports ink count, ink bbox and the image XObjects in the PDF. Feed it a
-payload built by the app's own core with `tools/payload.mjs`, so the bench measures what
-the app really sends rather than markup you hand-wrote:
+page, its CSS and every one of its print flags, renders at 203dpi, and reports ink
+count, ink bbox and the image XObjects in the PDF. **It does NOT reproduce the
+greyscale->1-bit step**: wkhtmltopdf and pdftoppm emit continuous tone (a 256-level
+ramp comes back with all 256 levels), so what turns grey into burnt dots happens
+downstream in the printer or its driver where nothing here can observe it. `ink()`
+hard-thresholds at 128 to COUNT ink; that is a proxy for "how much did this lay
+down", not a picture of the tape. **`--paper` is the roll width in mm and defaults
+to 80, the rig's.** It was a buried `paper_mm=72` that `main()` never passed, so every
+run rendered a 64mm page, 8mm narrower than reality, and reported clipping for
+payloads that fit.
+
+Feed it a payload built by the app's own core with `tools/payload.mjs`, so the bench
+measures what the app really sends rather than markup you hand-wrote:
 
 ```sh
 node tools/payload.mjs '{"kind":"takeover","pullPt":240,"items":[...]}' | python3 tools/rig.py my-case
@@ -399,6 +408,31 @@ When the folder went away the bench silently stopped working, and a figure that 
 longer be re-run went into a changelog wrong. Artifacts still go to `.render/`
 (gitignored; loose `t*.html` / `*.pdf` / `*-1.png` in the repo root were swept into a
 commit by a `git add -A` once, so stage explicit paths, not `-A`); the TOOL is tracked.
+
+### The one thing the bench CANNOT settle: how grey becomes burnt dots
+
+wkhtmltopdf and pdftoppm emit continuous tone. A 256-level ramp comes back with all 256
+levels, so the greyscale->1-bit step happens downstream, where no tool here can see it.
+Uploads are not pre-dithered either (`uploadPngForUrl` shrinks to 720px and re-encodes
+PNG), so whatever texture a photo prints with is the printer's own. **Do not settle this
+by argument.** The app's Thermal preview assumes Atkinson error diffusion and `rig.py`'s
+`ink()` hard-thresholds; the field (photos print halftoned, not posterised) rules out the
+threshold but names no kernel.
+
+`tools/calibrate.py` (`npm run calibrate`) exists to answer it with one physical print:
+five bands — continuous-tone patches as the actual probe, the same levels pre-dithered
+with Atkinson / Floyd-Steinberg / ordered Bayer as references, and a dot ruler. Whichever
+reference matches the probe's texture is the answer.
+
+**The 1:1 rule makes or breaks that test.** 1 CSS px is **2.119** device dots, measured
+with an image carrying 1px black columns at its own edges and reading the distance
+between them in the render. So a 498-dot image is pixel-exact at **235** CSS px and
+nowhere else (234 -> 496, 236 -> 500, 240 -> 509, which also exceeds the 508-dot body).
+Draw a pre-dithered reference at any other width and it is resampled into grey mush that
+proves nothing. `--check` renders the strip through the bench and refuses to bless it
+unless the width came back exact and the ruler band has no soft pixels. Measure widths
+with the edge-column method, not by ink extent: ink extent underreports, because an
+edge pixel may legitimately be white.
 
 Things already settled this way, so you don't have to re-derive them:
 
@@ -433,10 +467,21 @@ Things already settled this way, so you don't have to re-derive them:
   reliably paints out the bot's own header, and a message after it still flows
   below. The pull is per-rig: the header's height depends on the streamer's avatar.
 - The usable body width is `paperWidth - 8`mm minus the 1em margins: **240 px** on
-  an 80 mm roll, against `PAPER_PX = 263`. Field-confirmed: a real print came out
-  too wide. Real-image carriers now carry `max-width:100%` so they clamp to whatever
-  the body really is; `PAPER_PX` itself is left alone because the text modes are
-  field-verified at it. Prefer a clamp over another hardcoded number here.
+  an 80 mm roll. `PAPER_PX` **is** that 240 now. It was 263 for a long time, on the
+  reasoning that real-image carriers clamp with `max-width:100%` and "the text modes
+  are field-verified at it" — the bench disagrees, and the text modes were not fine.
+  Measured with an SVG that draws its own left/centre/right markers: at 263 the right
+  marker never prints and the centre lands 22 dots (2.8mm) right of the page centre,
+  because an SVG too wide for the body is pinned left rather than centred. At 240 all
+  three print and the centre lands on 287 against a page centre of 288.
+  **"Prefer a clamp over another hardcoded number" does not apply here, and that was
+  the trap.** A clamp is unavailable on SVG: `max-width:100%` is ignored, adding
+  `height:auto` collapses the element to nothing, and a `viewBox` (with or without a
+  percentage width) collapses it too — all three measured on the engine. QtWebKit
+  534.34 honours an explicit pixel width and nothing else, so the number has to be
+  right. `max-width:100%` **does** work on an `<img>`, which is why the image carriers
+  keep it and only the text modes were silently clipping. A narrower roll needs
+  `PAPER_MM` / `PAPER_PX` edited by hand; nothing derives it at run time.
 - **A picture drawn under ~120 CSS px TALL does not render inside a lifted takeover.**
   No image XObject in the PDF at all; the tape prints blank where the picture should
   be. It is the drawn HEIGHT, not width or area: a 60x240 draw renders, a 200x67 draw
@@ -463,7 +508,9 @@ Things already settled this way, so you don't have to re-derive them:
   error (above).
 - **The width clamp may be dropped inside a fixed `<foreignObject>`, and nowhere else.**
   `max-width:100%` on a top-level carrier is field-verified: without it real pictures
-  printed off the right edge, because the body is ~240px and not `PAPER_PX`'s 263.
+  printed off the right edge, because the body is 240px. (It read "and not `PAPER_PX`'s
+  263" until PAPER_PX was corrected to 240; the clamp still earns its place, since it
+  also bounds a picture whose own intrinsic width exceeds the box.)
   Inside a `foreignObject` the containing block IS the frame and the tag already states
   that width, so it is a no-op worth 23 chars. `buildImageEmbed({framed:true})` is the
   only way to drop it, `buildTakeover` is the only caller, and a test asserts every

@@ -68,9 +68,16 @@ test("Big Text's shared <g> carries the block's formatting; per-line <text> elem
 test("an unformatted Big Text block is byte-identical to today", () => {
   // Full-string pin, not a negative regex — a negative match on font-family/
   // text-decoration is satisfied even by an empty string, which proves nothing.
+  //
+  // These numbers moved once, when PAPER_PX went 263 -> 240 and BIG_FIT_PX 250 -> 228
+  // because the engine was measured clipping the old width (see test/paper.test.mjs).
+  // Every figure here is the old one times 228/250, and the SHAPE is untouched: same
+  // tags, same attribute order, still no font-family or text-decoration. That is what
+  // this pin is for — if a future diff changes anything but the scale, it is a
+  // regression, and re-deriving the literal to make it pass defeats the test.
   assert.equal(
     C.buildBigTextSvg("HELLO", 1),
-    '<svg width="263" height="33500"><g font-size="25000" text-anchor="middle" fill="#000" stroke="#000" stroke-width="781"><text x="132" y="22500">HELLO</text></g></svg>'
+    '<svg width="240" height="30552"><g font-size="22800" text-anchor="middle" fill="#000" stroke="#000" stroke-width="713"><text x="120" y="20520">HELLO</text></g></svg>'
   );
 });
 
@@ -115,9 +122,9 @@ test("an unformatted rotated Big Text block is byte-identical to before this fix
   const html = bodies[0].html;
   assert.equal(
     html,
-    '<div style="position:relative;width:263px;height:41px;margin:0 auto">'
-      + '<span style="position:absolute;top:50%;left:50%;width:41px;height:263px;'
-      + 'white-space:nowrap;text-align:center;\\66ont:800 342px/263px Arial,sans-serif;'
+    '<div style="position:relative;width:240px;height:37px;margin:0 auto">'
+      + '<span style="position:absolute;top:50%;left:50%;width:37px;height:240px;'
+      + 'white-space:nowrap;text-align:center;\\66ont:800 312px/240px Arial,sans-serif;'
       + '-webkit-transform:translate(-50%,-50%) rotate(90deg)">HELLO</span></div>'
   );
   // The real constraint, encoded directly: a literal "font" substring re-trips the
@@ -139,9 +146,9 @@ test("rotateBodies is byte-identical for an explicitly-empty fmt, and honours an
   const html = explicit400[0].html;
   assert.equal(
     html,
-    '<div style="position:relative;width:263px;height:41px;margin:0 auto">'
-      + '<span style="position:absolute;top:50%;left:50%;width:41px;height:263px;'
-      + 'white-space:nowrap;text-align:center;\\66ont:400 342px/263px Arial,sans-serif;'
+    '<div style="position:relative;width:240px;height:37px;margin:0 auto">'
+      + '<span style="position:absolute;top:50%;left:50%;width:37px;height:240px;'
+      + 'white-space:nowrap;text-align:center;\\66ont:400 312px/240px Arial,sans-serif;'
       + '-webkit-transform:translate(-50%,-50%) rotate(90deg)">HELLO</span></div>'
   );
   assert.ok(html.indexOf("font") < 0, "no literal 'font' substring anywhere in the payload");
@@ -153,7 +160,7 @@ test("a rotated Big Text block's weight/italic/decoration reach the CSS style, n
   const html = bodies[0].html;
   // CSS `font` shorthand order is style, then weight, then size/line-height, then
   // family — any other order and the whole declaration is silently dropped.
-  assert.ok(html.includes("\\66ont:italic 900 342px/263px Impact;"), "style-weight-size-family order, escaped");
+  assert.ok(html.includes("\\66ont:italic 900 312px/240px Impact;"), "style-weight-size-family order, escaped");
   // Underline/strike don't affect metrics, so they ride a separate plain declaration.
   assert.ok(html.includes("text-decoration:underline line-through;"), "decoration rides the style");
   // fmtAttrs' SVG-attribute form must never land on this HTML element — it would be
@@ -178,7 +185,7 @@ test("the rotate path measures in EXACTLY the descriptor it renders — maxL, se
   const measured = C.__fontLog.slice(before);
   assert.ok(measured.length > 0, "the call must actually measure something, or this test proves nothing");
   for (const m of measured) {
-    assert.equal(m, "italic 900 342px Impact",
+    assert.equal(m, "italic 900 312px Impact",
       "every measurement taken anywhere in the rotate path must match the rendered descriptor");
   }
   assert.equal(bodies.length, 1);
@@ -187,6 +194,6 @@ test("the rotate path measures in EXACTLY the descriptor it renders — maxL, se
   // physical length would no longer match what Impact/900/italic actually draws at
   // 342px, shearing the last letters off — even though this assertion on the `font:`
   // declaration alone would still pass.
-  assert.ok(bodies[0].html.includes("\\66ont:italic 900 342px/263px Impact;"),
+  assert.ok(bodies[0].html.includes("\\66ont:italic 900 312px/240px Impact;"),
     "the rendered CSS shorthand must agree with what was measured");
 });

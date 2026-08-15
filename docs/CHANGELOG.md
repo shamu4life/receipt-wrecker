@@ -10,6 +10,27 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.8.2] - 2026-08-15
+
+### Fixed
+
+- **Big Text and sideways text have been printing clipped and off-centre, and the bench could not see it.** `PAPER_PX` was 263 CSS px, on the reading that the paper is an 80mm roll with 70mm printable. What we can actually draw into is neither: printer-bot prints a (roll - 8)mm page and its own body carries a 1em margin each side, so the usable width is 72 - 2*4.23 = 63.5mm, or **240 px**. Measured with an SVG that draws its own left, centre and right markers: at 263 the right marker never prints at all, and the centre lands 22 dots (2.8mm) right of the page centre, because an SVG too wide for its body is pinned left rather than centred. At 240 all three markers print and the centre lands on 287 against a page centre of 288. `BIG_FIT_PX` moves 250 -> 228 with it, the same fraction of the paper as before.
+  - Real pictures were never affected. They carry `max-width:100%`, which works on an `<img>`; the text modes had no such guard, which is why only they were losing an edge.
+  - **There is no clamp to reach for here, and that is why this went unnoticed.** CLAUDE.md said to prefer one over another hardcoded number. All three adaptive forms were then tried on the engine and all three fail: `max-width:100%` is ignored on an SVG, adding `height:auto` collapses it to nothing, and a `viewBox` (with or without a percentage width) collapses it too. QtWebKit 534.34 honours an explicit pixel width and nothing else, so the number simply has to be right. A narrower roll needs it edited by hand.
+  - Five golden-value assertions moved. Every figure in them is the old one times 228/250 and the markup shape is untouched, which is what those pins exist to prove.
+
+- **The bench was rendering the wrong paper.** `tools/rig.py` had `paper_mm=72` as a function default that `main()` never passed, so every measurement ever taken with it used a 64mm page: 8mm, or 62 dots, narrower than the rig. That makes it pessimistic, reporting clipping for payloads that really fit. It is now `--paper MM`, defaulting to 80, and every result reports the `paper_mm` it was measured on, because a number recorded without its paper is how this hid.
+
+### Added
+
+- **`tools/calibrate.py` (`npm run calibrate`), to settle how the printer turns grey into burnt dots.** Nothing in this repo could observe that step: wkhtmltopdf and pdftoppm emit continuous tone, and a 256-level ramp comes back with all 256 levels, so the quantisation happens downstream in the rasteriser, the driver or the head. The repo had been carrying two contradictory guesses about it — the Thermal preview does Atkinson error diffusion, `rig.py`'s `ink()` hard-thresholds at 128 — with evidence for neither. The strip prints five bands: continuous-tone patches as the actual probe, the same levels pre-dithered with Atkinson, Floyd-Steinberg and ordered Bayer as references, and a dot ruler. Whichever reference matches the probe's texture is the answer; a probe that comes back flat with no texture at all means a plain threshold.
+  - The test is only meaningful at 1:1, so the tool measures rather than assumes. 1 CSS px is **2.119** device dots, so a 498-dot image is pixel-exact at **235** CSS px and nowhere else (234 gives 496, 236 gives 500, 240 gives 509 and also exceeds the 508-dot body). Drawn at any other width the pre-dithered bands are resampled into grey mush that proves nothing. `--check` renders the strip through the bench and refuses to bless it unless the width came back exact and the ruler band has no soft pixels.
+  - Widths here are measured off 1px black columns at the image's own edges, not off ink extent: ink extent underreports, because an edge pixel may legitimately be white. Getting that wrong is what first produced a draw width of 236.
+
+### Changed
+
+- `ink()`'s hard threshold is documented as what it is, an ink-count proxy for comparing two payloads, rather than "what the thermal head does". The field says photos print halftoned rather than posterized, so error diffusion of some kind is at work downstream and this threshold is not it.
+
 ## [0.8.1] - 2026-08-12
 
 ### Changed

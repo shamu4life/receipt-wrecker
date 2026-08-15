@@ -14,3 +14,6 @@ package-lock.json
 # ignored directory stops stray t*.html / *.pdf / *-1.png artifacts from being
 # swept into a commit, which has happened.
 .render/
+
+# python bytecode from importing tools/rig.py as a module
+__pycache__/

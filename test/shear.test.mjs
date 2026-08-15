@@ -138,8 +138,10 @@ test("a REAL italic face is measured like any other, and pays the pad when its i
   assert.ok(basis > GEORGIA_ITALIC_HI.width,
     "a true italic face is not exempt — 136.38 advance against 149.07 of ink is still an overhang");
   const before = sizeFor(GEORGIA_ITALIC_HI.width), after = sizeFor(basis);
-  assert.equal(before, 183);
-  assert.equal(after, 155, "the measured cost of the pad here: ~15% smaller type, and it is the price of the rule");
+  // 183/155 before PAPER_PX went 263 -> 240 and BIG_FIT_PX 250 -> 228; both are the old
+  // figure times 228/250. The ratio is what this test is about and it is unchanged.
+  assert.equal(before, 167);
+  assert.equal(after, 142, "the measured cost of the pad here: ~15% smaller type, and it is the price of the rule");
   assert.ok(inkEdges(GEORGIA_ITALIC_HI, after).right <= C.PAPER_PX,
     "and it does buy something — the padded fit keeps this inside the viewport");
 });

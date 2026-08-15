@@ -1,6 +1,6 @@
 {
   "name": "receipt-wrecker",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,6 +9,7 @@
     "test": "node --test",
     "render": "python3 tools/rig.py",
     "payload": "node tools/payload.mjs",
+    "calibrate": "python3 tools/calibrate.py",
     "test:browser": "node --test test-browser/composer.spec.mjs"
   },
   "devDependencies": {

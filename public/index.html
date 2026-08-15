@@ -2212,19 +2212,36 @@
     // the markup-free glyph modes. (JS needs \\ for one backslash; strict mode forbids
     // a bare \66 octal escape.) Used as the property prefix in every generated style.
     var FONT_PROP = "\\66ont:";
-    // Real hardware: 80mm roll, ~5mm unprintable margin each side => 70mm printable.
-    // PAPER_PX is that printable width in px, used to size SVG/rotate/glyph output and
-    // as the preview paper width. Keep it and the mm->px factor in step so an image
-    // capped at PAPER_PX caps exactly at 70mm. Calibrate the factor to a print if needed.
-    var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.78; rounded
-    var PAPER_MM = 70;                                     // printable width
-    var PAPER_PX = Math.round(PAPER_MM * PX_PER_MM);       // 263
+    // Real hardware: an 80mm roll. What we can draw into is NOT the roll and not the
+    // 70mm of it the head can reach — printer-bot prints a (roll - 8)mm page, and its
+    // own body carries a 1em margin each side, so the usable body is
+    // 72 - 2*4.23 = 63.5mm => 240 CSS px at 96dpi.
+    //
+    // MEASURED on the engine rather than derived and hoped for (tools/rig.py --paper 80,
+    // with an SVG that draws its own left/centre/right markers): at 263 the right marker
+    // is GONE and the centre sits 22 dots (2.8mm) right of the page centre, because an
+    // SVG too wide for the body is pinned left instead of centred. At 240 all three
+    // markers print and the centre lands on 287 against a page centre of 288.
+    //
+    // IT HAS TO BE A CONSTANT, much as a clamp would be preferable. All three adaptive
+    // forms were tried on the engine and all three fail: `max-width:100%` is ignored on
+    // an SVG, `max-width` plus `height:auto` collapses it to nothing, and a `viewBox`
+    // (with or w/o a percentage width) collapses it too. QtWebKit 534.34 honours an
+    // explicit pixel width and nothing else. A narrower roll needs this changed by hand.
+    // Real-image carriers keep their `max-width:100%` — it DOES work on an <img>.
+    var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.7795; rounded
+    var PAPER_MM = 63.5;                                   // the usable BODY, not the roll
+    var PAPER_PX = Math.round(PAPER_MM * (96 / 25.4));     // 240
     // How much of the paper the widest Big Text line is fitted to. The 13px it leaves
     // against PAPER_PX is the whole clipping margin: SVG has no overflow, so anything
     // past the viewport is simply not printed, and the fake-bold stroke (S/32, centred,
     // so S/64 a side) already spends part of it before glyph ink is considered. ONE
     // owner so the fit and any test of the fit cannot disagree about the target.
-    var BIG_FIT_PX = 250;
+    // Held at the same FRACTION of the paper it had when PAPER_PX was 263 (250/263),
+    // because everything in the fit scales with the emitted font size — the fake-bold
+    // stroke included — so the margin that matters is proportional, not the old
+    // absolute 13px. 240 * 250/263 = 228.
+    var BIG_FIT_PX = 228;
     // Margin applied whenever bigFitBasis has to fall back to ink bounds — see its note.
     // KNOWN LIMIT: 1.08 was derived from ONE case (the 3.9% engine-vs-browser drift on
     // Impact's synthesised oblique, plus the fake-bold stroke). It is not universally

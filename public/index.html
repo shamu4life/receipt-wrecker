@@ -257,7 +257,7 @@
             <option value="hanzi">Giant sideways (Hanzi tiling, no markup)</option>
           </select>
         </label>
-        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape, each letter as tall as the paper is wide, and line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS. Each line stacks <em>full-size</em> down the tape, so every line keeps full detail. It emits no markup, which is how it slips past the symbol filters that block the HTML sideways payload, and it is the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width; <em>Print test strip</em> has a ruler. If it prints blank, the printer has no CJK font.</div>
+        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape, each letter as tall as the paper is wide, and line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS. Each line stacks <em>full-size</em> down the tape, so every line keeps full detail. It emits no markup, which is how it slips past the symbol filters that block the HTML sideways payload, and it is the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to how many <em>Han characters</em> the printer fits on one line, which is about <strong>half</strong> what the <em>Print test strip</em> ruler reports: that ruler is ASCII digits and a Han glyph is twice as wide. Too wide and every row starts late, so the picture slants. If it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
           <label>Size: <span id="textSizeVal">90</span><span id="textSizeUnit">%</span>
             <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
@@ -1991,7 +1991,18 @@
     // always preserved — never squished or stretched. sf=1 fills the column width;
     // lower shrinks the letters (centered, side-margins) and uses fewer receipts.
     // Tops/bottoms are never clipped. Read by turning the tape.
-    function renderColumn(line, cwCols, sizeFactor) {
+    // `weight` is the CSS font-weight the letters are rasterized at, and it has exactly
+    // TWO useful settings however it is spelled. MEASURED in Chromium against this same
+    // code path, one word at 15 columns: 600, 700 and 900 produce a BYTE-IDENTICAL grid
+    // (mean ramp index 17.86 for all three), while 400 comes out markedly lighter (12.74)
+    // with the letters' counters still open instead of blobbed shut. That is the same
+    // clamp CLAUDE.md records for the print engine — Arial has no true 900 face, so
+    // everything at or above bold resolves to the one bold face it does have. So this is
+    // offered as Regular/Bold rather than a 100-900 slider, which would be theatre on
+    // nine tenths of its travel. It defaults to bold, which is what the hardcoded "900"
+    // here was really producing all along.
+    function renderColumn(line, cwCols, sizeFactor, weight) {
+      var wt = weight === 400 ? 400 : 700;
       var CELL = 24, w = Math.max(1, cwCols * CELL);
       var s = String(line).toUpperCase().split(/\s+/).filter(Boolean).join(" ");
       if (!s) { var blank = []; for (var z = 0; z < Math.max(1, cwCols); z++) blank.push(255); return { luma: [blank], rows: 1 }; }
@@ -1999,7 +2010,7 @@
       // Measure the real ink box at a reference size, then scale linearly.
       var REF = 100;
       var scratch = document.createElement("canvas").getContext("2d");
-      scratch.font = "900 " + REF + "px Arial, sans-serif";
+      scratch.font = wt + " " + REF + "px Arial, sans-serif";
       scratch.textAlign = "left"; scratch.textBaseline = "alphabetic";
       var m = scratch.measureText(s);
       // Perpendicular extent (ascent+descent) becomes the column-width dimension;
@@ -2020,7 +2031,7 @@
       var canvasH = Math.max(1, Math.ceil(advPx));
       var buf = canvasPixels(function (ctx) {
         ctx.translate(w, 0); ctx.rotate(Math.PI / 2);   // deviceX = w - localY, deviceY = localX
-        ctx.font = "900 " + size + "px Arial, sans-serif";
+        ctx.font = wt + " " + size + "px Arial, sans-serif";
         ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
         // Baseline so the ink is centered across the column width (center at localY = w/2);
         // x = leftPx so the ink's left edge sits at the top of the tape (deviceY = 0).
@@ -2037,7 +2048,7 @@
     // longer strip (banding just adds receipts). Blank rows separate stacked lines,
     // and line order is top-to-bottom in the feed = the order they were typed.
     // Returns a combined luma grid (rows × totalCols).
-    function textColumnsLuma(text, totalCols, sizeFactor) {
+    function textColumnsLuma(text, totalCols, sizeFactor, weight) {
       var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
       if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
       if (lines.length > 24) lines = lines.slice(0, 24);   // sanity cap on runaway input
@@ -2045,7 +2056,7 @@
       var grid = [], GAP = 2;
       lines.forEach(function (line, k) {
         if (k > 0) for (var g = 0; g < GAP; g++) grid.push(blankRow());
-        var cd = renderColumn(line, totalCols, sizeFactor);
+        var cd = renderColumn(line, totalCols, sizeFactor, weight);
         for (var r = 0; r < cd.luma.length; r++) grid.push(cd.luma[r]);
       });
       return grid;
@@ -2066,7 +2077,7 @@
     // right height for its width.
     function computeGrid(kind, tier, o) {
       if (kind === "text") {
-        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2, o.sizeFactor) : textColumnsLuma(o.text, o.cols, o.sizeFactor);
+        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2, o.sizeFactor, o.weight) : textColumnsLuma(o.text, o.cols, o.sizeFactor, o.weight);
         if (tier.kind === "braille") return packBraille(lumaToDots(tl, { threshold: o.threshold, invert: o.invert }));
         if (tier.kind === "binary") return quantizeBinary(tl, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
         if (o.dither) tl = ditherFloydSteinberg(tl, tier.ramp.length);
@@ -2646,10 +2657,21 @@
     // Bands like buildTextParts; cols is the resolution lever (size is floored so tiny
     // letters can't turn illegible). CJK ramp + defaults, no per-block glyph knobs beyond
     // Detail (columns).
-    function hanziBodies(text, cols, sizeFactor) {
+    function hanziBodies(text, cols, sizeFactor, weight) {
       var tier = getTier("cjk");
-      var o = { cols: Math.max(8, Math.min(48, cols || 20)), threshold: 128, invert: false,
-                dither: false, sizeFactor: Math.max(0.85, sizeFactor || 0.9), text: text || "" };
+      // cols IS THE WRAP WIDTH, and getting it wrong shears the whole image.
+      // This body is pure text with no row separator: rows only become rows because
+      // the line wraps at the paper edge. So the grid width has to equal what the
+      // printer actually fits on one line, in FULL-WIDTH glyphs. Han characters are
+      // full-width — twice the advance of an ASCII digit — so the Census ruler, which
+      // is a run of half-width digits, reports roughly TWICE the number this wants.
+      // Reading the ruler's count straight into this box is what makes every row start
+      // half a row late and the picture slant. 15 is the field-proven full-width count
+      // for the target RP332 (the same number receiptify's art grid is built on, and
+      // that is where this tier's ramp came from too).
+      var o = { cols: Math.max(8, Math.min(48, cols || 15)), threshold: 128, invert: false,
+                dither: false, sizeFactor: Math.max(0.85, sizeFactor || 0.9), text: text || "",
+                weight: weight === 400 ? 400 : 700 };
       var grid = computeGrid("text", tier, o);
       if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
       var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - 14) / o.cols));
@@ -2745,7 +2767,7 @@
       }
       var text = block.text || "";
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
-      if (block.render === "hanzi") return hanziBodies(text, block.cols, factor);
+      if (block.render === "hanzi") return hanziBodies(text, block.cols, factor, block.hanziWeight);
       var orient = block.orient || 0;
       if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient, block.fmt);
       return bigTypeBodies(text, factor, orient, block.fmt);   // 0 or 180
@@ -3408,7 +3430,7 @@
       // path) and the rotate <div>/<span> style (the "Giant sideways" path), so Hanzi
       // tiling — pure text, no markup at all — is the only Big Text form that still
       // prints. See the ⚠ sanitizer note on EMBEDS.
-      return { id: blockIdSeq++, type: "text", render: "hanzi", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
+      return { id: blockIdSeq++, type: "text", render: "hanzi", orient: 0, text: "", size: 90, rotateLen: 800, cols: 15 };
     }
     function blockHasContent(b) {
       // The item list is the content now — and takeoverItems has already thrown out the
@@ -3565,12 +3587,44 @@
       card.appendChild(typeWrap);
       // Hanzi-only control: Detail (columns) — the resolution lever for tiled glyphs.
       var hanziWrap = mkEl("div");
-      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 20;
-      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 20; saveBlocks(); update(); });
-      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 20, ""));
+      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 15;
+      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 15; saveBlocks(); update(); });
+      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 15, ""));
+      hanziWrap.appendChild(mkEl("div", { "class": "hint" },
+        "This is the wrap width, not a quality dial, and it is the one setting that can "
+        + "ruin the print. Hanzi rows are plain text with no line breaks in them: a row "
+        + "only becomes a row because the paper wraps it. Set this wider than the printer "
+        + "really fits and every row starts late, so the picture slants. "
+        + "Count Han characters, not the test strip's ruler: that ruler is ASCII digits, "
+        + "which are half as wide as a Han glyph, so it reports about double what this "
+        + "wants. 15 suits the target printer; if yours slants, drop it a character at a "
+        + "time until the edges line up."));
+      // Stroke weight. Two positions on purpose — see renderColumn's note: 600, 700 and
+      // 900 all rasterize to the identical grid because Arial has no face above bold, so
+      // a 100-900 slider would be inert across most of its range. Bold is the default
+      // because it is what the old hardcoded "900" actually produced.
+      hanziWrap.appendChild(mkEl("label", null, "Stroke weight"));
+      var hw = mkEl("select");
+      hw.appendChild(opt("700", "Bold (default)", block.hanziWeight !== 400));
+      hw.appendChild(opt("400", "Regular — lighter, keeps letter holes open", block.hanziWeight === 400));
+      hw.addEventListener("change", function () {
+        block.hanziWeight = parseInt(hw.value, 10) === 400 ? 400 : 700; saveBlocks(); update();
+      });
+      hanziWrap.appendChild(hw);
+      hanziWrap.appendChild(mkEl("div", { "class": "hint" },
+        "How heavy the letters are before they get tiled. Bold survives the shrink to a "
+        + "few characters wide, but at low column counts its strokes thicken until the "
+        + "holes in letters like A, O and R fill in and the word turns into a block. "
+        + "Regular keeps those holes open. Anything heavier than bold is the same as bold: "
+        + "Arial has no face above it, so 900 and 700 rasterize identically."));
       card.appendChild(hanziWrap);
-      // Size (both renders use it).
-      var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;
+      // Size (both renders use it). The floor differs by render, and the control says so
+      // rather than offering travel that silently does nothing: tiled Hanzi clamps at 85%
+      // (below that the letters stop filling the paper width and there are too few
+      // columns left to read them), while the vector renders keep the full 25-100%.
+      var hanziNow = block.render === "hanzi";
+      var size = mkEl("input", { type: "range", min: hanziNow ? "85" : "25", max: "100", step: "5" });
+      size.value = Math.max(hanziNow ? 85 : 25, block.size || 90);
       size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
       card.appendChild(sliderRow("Size", size, 90, "%"));
       // Formatting row — hidden for Hanzi (see applyRender below). One fmt per block (a
@@ -3653,6 +3707,12 @@
         typeWrap.style.display = hanzi ? "none" : "";
         hanziWrap.style.display = hanzi ? "" : "none";
         fmtWrap.style.display = hanzi ? "none" : "";
+        // The Size floor follows the render. Tiled Hanzi ignores anything under 85%, so
+        // the slider stops there rather than offering travel that does nothing; switching
+        // back to a vector render hands the full range back. A value carried over from
+        // the other mode is lifted to the floor so the thumb never sits off its own track.
+        size.min = hanzi ? "85" : "25";
+        if (hanzi && (block.size || 90) < 85) { block.size = 85; size.value = "85"; }
       };
       render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
       applyRender();

@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.9.0" src="https://img.shields.io/badge/version-0.9.0-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.9.1" src="https://img.shields.io/badge/version-0.9.1-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -99,15 +99,18 @@ each one is to render correctly almost anywhere:
 
 | Tier | Glyphs | Notes |
 |---|---|---|
-| **ASCII letters** (glyph-art default) | ` icvoxnsaewmq08BWM` | Plain letters, so there is no font to be missing. The safest thing to send, and the default for a reason. |
-| **ASCII full detail** | ` .:-=+*oaewm8%#B@M` | Denser ramp, more tonal steps, same no-font-needed property. |
-| **Hanzi** | curated Han density ramp | Higher tonal range, and field-confirmed to print on the RP332. Width/fallback is more rig-dependent than ASCII. |
+| **Hanzi** (the default now) | curated Han density ramp | The only tier that survives the sanitizer intact: Han glyphs are uniform-width and the ramp holds no spaces, so the grid keeps its shape with no styling at all. Field-confirmed to print on the RP332. |
+| **ASCII letters** | ` icvoxnsaewmq08BWM` | Plain letters, so there is no font to be missing — but it leans on spaces, and see the note below. Was the default before the sanitizer. |
+| **ASCII full detail** | ` .:-=+*oaewm8%#B@M` | Denser ramp, more tonal steps, same no-font-needed property, same space problem. |
 | **Blocks `░▒▓█`** | 4-level tone ramp | Looks ideal and often **prints blank** on the real machine. The app's own selector says so. Kept because it renders fine in other destinations. |
 | **Braille** | U+2800-28FF (2×4 dot cells) | Highest resolution at 8 dots per glyph, and the least universally supported. Marked experimental. |
 | **Big text (on/off)** | `█` / `░` binary | Used by big type: maximum contrast, tolerant of a column of wrap drift. |
 
-Both ASCII ramps use a literal space as their lightest cell. That's safe because
-every glyph body ships inside `white-space:pre`, so runs of spaces can't collapse.
+Both ASCII ramps use a literal space as their lightest cell, and **that no longer
+survives**. It used to be safe because every glyph body shipped inside
+`white-space:pre` — but the sanitizer strips `style`, so runs of spaces collapse and
+the grid shears. Han glyphs need no such wrapper: they are uniform-width and the ramp
+contains no space at all, which is why Hanzi is the default now.
 
 Because the tool can't see the destination renderer, there's a dedicated **Print
 test strip** button (the Census). It emits one diagnostic payload: a short, labeled
@@ -116,7 +119,11 @@ your first calibration paste, and look at what actually rendered:
 
 - Which tiers came out solid and which came out tofu (boxes or blank) on that
   renderer.
-- The true column count per line, read straight off the ruler.
+- The true column count per line, read straight off the ruler. **That number is in
+  ASCII digits, which are half-width.** A Han glyph is twice as wide, so the Hanzi
+  column box wants roughly **half** the ruler's count — about 15 on the target rig.
+  Typing the ruler's number straight in is what makes a Hanzi print come out slanted,
+  because the grid ends up about twice as wide as the paper can wrap.
 
 One row on the strip, `QUAD ▖▚▙▜█`, is a probe rather than a setting: there is no
 quadrant tier to select. It's on the strip because it's the cheap way to find out whether

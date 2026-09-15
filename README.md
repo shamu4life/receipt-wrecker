@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.8.1" src="https://img.shields.io/badge/version-0.8.1-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.9.0" src="https://img.shields.io/badge/version-0.9.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -19,16 +19,29 @@ Unicode has to stand in for a picture or a poster-sized word.
   <a href="https://developers.cloudflare.com/workers/static-assets/"><img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" /></a>
 </p>
 
+> **⚠ printer-bot added an HTML sanitizer (2026-09-15), and it changed what prints.**
+> The chat message is no longer rendered as raw HTML — it passes through an allow-list
+> that keeps only a few tags and the `src`/`class` attributes. What that means in
+> practice: **Hanzi tiling (text) and CJK glyph-art (pictures) are the reliable paths
+> now.** Real pictures have one possible route — `<img class="emote">` — which is built
+> in but needs a test print to confirm (see [Carrier tags](#carrier-tags-how-a-real-picture-gets-there-and-what-to-do-when-it-stops)).
+> **Big Text "Type"/sideways, ASCII glyph-art, the Takeover and the fake cheer no
+> longer print** and are flagged as such in the app. Full detail in the
+> [changelog](docs/CHANGELOG.md#090---2026-09-15).
+
 Receipt Wrecker is a single-file, dependency-free web tool. You build a stack of
 blocks and it packs them into as few chat messages as possible:
 
-- **Text** blocks render a word or phrase as oversized type, straight or sideways,
-  or tile it out of Hanzi as a markup-free fallback.
-- **Image** blocks send a real picture (printed as an actual image), or glyph-art:
-  the picture tiled into monospace characters, which nothing can filter.
-- **Takeover** paints over printer-bot's own header so the tape reads as your
-  artwork. It holds an ordered list of text and picture items, in any order, with a
-  **Seed fake donation** button for the classic header arrangement.
+- **Text** blocks tile a word or phrase out of **Hanzi** — a markup-free grid of Han
+  glyphs that survives the sanitizer and prints on the target RP332. (An older
+  oversized-Type render, straight or sideways, is still selectable but is stripped by
+  the sanitizer and no longer prints.)
+- **Image** blocks make **glyph-art** — the picture tiled into characters, which
+  nothing can filter — or attempt a **real picture** via `<img class="emote">` (the
+  one carrier the sanitizer allows; probe it on your rig).
+- **Takeover** / **fake cheer** paint over printer-bot's own header. These are an SVG
+  trick the sanitizer now strips, so they no longer print; the blocks stay in the app,
+  flagged, in case the sanitizer is rolled back.
 - **Presets** save the whole stack under a name and export it as JSON, so a setup
   survives the next stream and the next browser.
 

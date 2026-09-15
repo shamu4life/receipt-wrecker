@@ -42,38 +42,60 @@ test("the default carrier is a live surface, not one the blocked-terms list alre
 test("every carrier declares the exact token a blocked-terms list would have to match", () => {
   // The point of the table: switching carrier has to actually change the token the
   // list is keyed on, otherwise the fallback is theatre. Each entry names its token
-  // and must actually emit it — and no two may share one, or a single blocked term
-  // would take out two "alternatives" at once.
+  // and must actually emit it. Tokens are unique, with ONE deliberate exception: the
+  // live sanitizer keys <img> on its CLASS, not just the tag, so imgemote and imgbits
+  // both declare "<img" and are told apart by "emote" vs "bits". They are real
+  // alternatives to each other even though a "<img" blocked term would take both.
   const seen = new Set();
   for (const e of C.EMBEDS) {
     assert.ok(e.token && e.token.startsWith("<"), e.id + " must declare its blocked-term token");
     const html = C.buildImageEmbed(e.id, BOX);
     assert.ok(html.indexOf(e.token) >= 0, e.id + " doesn't emit its declared token " + e.token);
-    assert.ok(!seen.has(e.token), "two carriers share the token " + e.token + " — not real alternatives");
-    seen.add(e.token);
+    if (e.token === "<img") {
+      // The <img family is distinguished by class, so assert on that instead of the
+      // token. The two LIVE ones must carry an emote/bits class (that is what the
+      // sanitizer keeps); the old classless <img is kept blocked for re-probe and is
+      // distinct precisely because it has no class.
+      const cls = (html.match(/class="([^"]*)"/) || [])[1] || "(none)";
+      if (!e.blocked) assert.ok(cls === "emote" || cls === "bits", e.id + " must carry an emote/bits class: " + html);
+      assert.ok(!seen.has(e.token + cls), "two <img carriers share the class " + cls);
+      seen.add(e.token + cls);
+    } else {
+      assert.ok(!seen.has(e.token), "two carriers share the token " + e.token + " — not real alternatives");
+      seen.add(e.token);
+    }
   }
 });
 
-test("the tokens already eaten by the list are all flagged blocked", () => {
-  // Field record as of Aug 2026: object, then the SVG image form, then img.
-  const dead = new Set(["<object", "<image", "<img"]);
+test("under the live sanitizer, only the two img-class carriers survive", () => {
+  // The sanitizer (confirmed live 2026-09-15) strips every tag but a short allow-list,
+  // and the only picture it keeps is <img class="emote"|"bits">. So the field record
+  // above is superseded: embed/input/iframe/object AND the SVG image form are ALL dead
+  // now, and the only live carriers are the two img-class forms.
+  const stripped = new Set(["<object", "<image", "<embed", "<input", "<iframe"]);
   for (const e of C.EMBEDS) {
-    if (dead.has(e.token)) assert.ok(e.blocked, e.token + " is blocked in the field but not flagged");
+    if (stripped.has(e.token)) assert.ok(e.blocked, e.token + " is stripped by the sanitizer but not flagged blocked");
   }
+  // The bare <img (no class) is still dead: the sanitizer deletes a classless <img>.
+  assert.ok(C.getEmbed("img").blocked, "a classless <img must stay flagged blocked");
   const live = C.EMBEDS.filter(e => !e.blocked).map(e => e.id);
-  assert.ok(live.length >= 3, "want several live fallbacks left, got " + live.join(","));
-  assert.ok(live.includes("input"), "input is the extension-independent fallback — keep it live");
+  assert.equal(live.slice().sort().join(","), "imgbits,imgemote", "only the img-class carriers survive, got " + live.join(","));
 });
 
-test("every live carrier clamps to the receipt body, which is narrower than the box we ask for", () => {
-  // Measured on the real engine: at the requested 263px every carrier drew to the
-  // paper edge and lost its right margin (the body is ~240px on an 80mm roll). The
-  // clamp adapts instead of hardcoding another guess. This is what made the field
-  // print come out "too wide".
+test("every live carrier emits ONLY the attributes the sanitizer keeps (src, class)", () => {
+  // The old width clamp (max-width:100%) lived in `style`, and the sanitizer strips
+  // `style` along with width/height — so on a live carrier a clamp is dead weight that
+  // never reaches the tape. The live forms therefore carry nothing but src and class;
+  // sizing has to come from the uploaded PNG's own pixels (and printer-bot's emote/bits
+  // CSS), not from markup. This asserts we don't ship attributes that get stripped.
+  const ALLOWED = new Set(["src", "class"]);
   for (const e of C.EMBEDS) {
-    if (e.blocked) continue;                       // dead forms aren't worth the chars
+    if (e.blocked) continue;                       // dead forms aren't worth auditing
     const html = C.buildImageEmbed(e.id, BOX);
-    assert.ok(/max-width:100%/.test(html), e.id + " can overflow the paper: " + html);
+    const attrs = [...html.matchAll(/(\w[\w-]*)=/g)].map(m => m[1]);
+    for (const a of attrs) {
+      assert.ok(ALLOWED.has(a), e.id + " emits '" + a + "', which the sanitizer strips: " + html);
+    }
   }
 });
 
@@ -113,7 +135,7 @@ test("no carrier leans on a CSS background — printer-bot prints with --no-back
 test("the carriers are ordered by what actually printed, live ones first", () => {
   // joined, not deepEqual: arrays built inside the vm realm aren't reference-equal
   // to this realm's Array, which assert/strict's deep compare rejects.
-  assert.equal(ids().slice(0, 2).join(","), "embed,input", "the two that printed lead, best-printing first");
+  assert.equal(ids().slice(0, 2).join(","), "imgemote,imgbits", "the two the sanitizer keeps lead the list");
   const firstBlocked = C.EMBEDS.findIndex(e => e.blocked);
   const lastLive = ids().length - 1 - [...C.EMBEDS].reverse().findIndex(e => !e.blocked);
   assert.ok(firstBlocked > lastLive, "blocked carriers must sort below every live one");
@@ -139,13 +161,17 @@ test("a hostile URL can't break out of any attribute, style, or url() token", ()
   }
 });
 
-test("a carrier marked blocked or cropping says so in its label, so the dropdown can't mislead", () => {
+test("a carrier that won't reach the tape says so in its label, so the dropdown can't mislead", () => {
+  // Two ways a carrier is dead now: the blocked-terms list ate its tag, or the
+  // sanitizer strips it. Either way the label has to say so.
   for (const e of C.EMBEDS) {
-    if (e.blocked) assert.ok(/blocked/i.test(e.label), e.id + " is blocked but doesn't say so: " + e.label);
+    if (e.blocked) assert.ok(/blocked|stripped/i.test(e.label), e.id + " is dead but doesn't say so: " + e.label);
   }
-  // iframe renders but draws the picture at natural size and clips it (a subframe
-  // gets no shrink-to-fit), so it must not read like a clean fallback.
-  assert.ok(/crop/i.test(C.getEmbed("iframe").label), "iframe should warn that it crops");
+  // The two live carriers must flag themselves as unverified — the tag survives the
+  // sanitizer, but only a real print confirms it clears chat and prints at a usable size.
+  for (const id of ["imgemote", "imgbits"]) {
+    assert.ok(/probe/i.test(C.getEmbed(id).label), id + " should tell the user to probe it: " + C.getEmbed(id).label);
+  }
 });
 
 test("sizes are normalized, so a missing aspect probe or junk slider can't emit a broken box", () => {
@@ -154,8 +180,15 @@ test("sizes are normalized, so a missing aspect probe or junk slider can't emit 
       const html = C.buildImageEmbed(e.id, { url: BOX.url, ...bad });
       assert.ok(!/(NaN|Infinity|undefined|null)/.test(html), e.id + " emitted junk: " + html);
       const dims = [...html.matchAll(/(?:width|height)(?:="|:)(-?\d+)/g)].map(m => Number(m[1]));
-      assert.ok(dims.length > 0, e.id + " stated no size at all: " + html);
-      for (const d of dims) assert.ok(d > 0, e.id + " emitted a non-positive size: " + html);
+      // The live img-class carriers state no size on purpose — the sanitizer strips
+      // width/height, so a stated box would be dead weight. Every OTHER carrier that
+      // states a dimension must normalize it to a positive number.
+      if (e.token === "<img" && !e.blocked) {
+        assert.equal(dims.length, 0, e.id + " should state no size (the sanitizer strips it): " + html);
+      } else {
+        assert.ok(dims.length > 0, e.id + " stated no size at all: " + html);
+        for (const d of dims) assert.ok(d > 0, e.id + " emitted a non-positive size: " + html);
+      }
     }
   }
 });
@@ -194,16 +227,20 @@ test("probe bodies survive the real packer as one cheer each", () => {
   }
 });
 
-test("the default must be a carrier that PRINTED CORRECTLY on the real machine", () => {
-  // The rule the hard way: a bench measurement never overrides what came off the
-  // tape. `field` records the real-rig verdict, and only "prints" may lead. This
-  // exists because the default was once set to a carrier the owner had reported
-  // printing wrong, on the strength of a bench result that couldn't reproduce it.
+test("the default is the only sanitizer-legal carrier, flagged honestly and never overclaimed", () => {
+  // The old rule was: only a carrier field-recorded as "prints" may be the default,
+  // because the default was once set on a bench result the tape contradicted. The
+  // sanitizer forces a harder situation — the ONLY carrier it keeps is <img class=…>,
+  // which no one has printed yet — so the default is legitimately unverified. The rule
+  // that survives is the honest half: we do NOT relabel it "prints" to make it look
+  // proven. It carries field "probe" until the rig says otherwise.
   const def = C.getEmbed(C.EMBED_DEFAULT);
-  assert.equal(def.field, "prints", "default " + def.id + " is field-recorded as '" + def.field + "'");
   assert.ok(!def.blocked, "default " + def.id + " is blocked");
+  assert.equal(def.token, "<img", "default must be a sanitizer-legal <img carrier");
+  assert.equal(def.field, "probe", "default " + def.id + " must be flagged 'probe', not overclaimed — got '" + def.field + "'");
+  // No carrier may claim "prints" until a real print earns it: nothing has, post-sanitizer.
   for (const e of C.EMBEDS) {
-    assert.ok(["prints", "too-wide", "blocked"].includes(e.field),
-      e.id + " needs a field verdict from the real rig, got " + JSON.stringify(e.field));
+    assert.ok(["probe", "blocked", "stripped"].includes(e.field),
+      e.id + " has an unexpected field verdict: " + JSON.stringify(e.field));
   }
 });

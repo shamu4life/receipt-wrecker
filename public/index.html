@@ -304,7 +304,7 @@
         <button type="button" id="censusBtn">Print test strip</button>
         <button type="button" id="probeBtn">Find what still sends</button>
       </div>
-      <div class="hint">Pictures ride on an HTML tag, and mods block those one at a time (<code>object</code> went first, then the SVG one). <strong>Find what still sends</strong> builds the same picture with every tag we know, one cheer each. Send them one at a time; whichever letter prints <em>with a picture under it</em> names the <strong>Carrier tag</strong> to pick in the block above.</div>
+      <div class="hint">Pictures ride on an HTML tag. printer-bot now runs an allow-list sanitizer that deletes every tag it doesn't recognise, and the only picture it keeps is <code>&lt;img class="emote"&gt;</code> or <code>&lt;img class="bits"&gt;</code> — so those are the two carriers to try first. <strong>Find what still sends</strong> builds the same picture with every tag we know, one cheer each. Send them one at a time; whichever letter prints <em>with a picture under it</em> names the <strong>Carrier tag</strong> to pick in the block above.</div>
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer. Only the first-party client actually cheers.</p>
@@ -634,15 +634,56 @@
   //   svg     blocked earlier             -> "<image"
   //   object  blocked before that         -> "<object"
   //
-  // EVERY LIVE ENTRY CARRIES `max-width:100%`. The print box we ask for (263px, i.e.
-  // 70mm) is wider than the receipt body actually is: printer-bot renders at
+  // EVERY LIVE ENTRY USED TO CARRY `max-width:100%`. The print box we ask for (263px,
+  // i.e. 70mm) is wider than the receipt body actually is: printer-bot renders at
   // `paperWidth-8`mm and its template sets `body{margin:1em}`, leaving ~240px on an
   // 80mm roll. Measured, every carrier drew to the paper edge and lost its right
-  // margin. A clamp fixes it adaptively — narrower paper shrinks to fit, wider paper
-  // still gets the full 263 — which beats hardcoding another guess at the width.
+  // margin. A clamp fixed it adaptively. That clamp lives in `style`, and `style` no
+  // longer survives (see the sanitizer note directly below) — so on the two live
+  // carriers it is dropped, and sizing has to come from the uploaded PNG's own pixels.
+  //
+  // ⚠ SANITIZER, CONFIRMED LIVE 2026-09-15 — THIS SUPERSEDES EVERYTHING ABOVE.
+  // printer-bot no longer renders the chat message as raw innerHTML. It now runs it
+  // through an allow-list sanitizer (a DOMParser walk) BEFORE the engine sees it. The
+  // allow-list is tiny: tags {img, span, b, i, br, em, strong} and attributes
+  // {src, class} ONLY — and an <img> is deleted outright unless its class contains the
+  // token "emote" or "bits". Everything else is unwrapped (tag deleted, text kept).
+  // The whole point of that filter is to allow only Twitch's own inline images plus
+  // basic formatting, which is very nearly the exact surface this tool depended on.
+  //
+  // What that does to this table: <embed>, <input>, <iframe>, <object> and even a bare
+  // <img> are ALL stripped — every one of them is dead, whatever the blocked-terms list
+  // does. The ONLY picture that can survive is `<img class="emote">` or
+  // `<img class="bits">`, and only its src/class attributes come through (no width, no
+  // height, no style). Those two are the new live entries; the rest are kept `blocked`
+  // so the migration moves saved blocks off them and the probe can still re-test them
+  // if the sanitizer is ever relaxed. TWO THINGS ONLY THE RIG CAN ANSWER, so both live
+  // entries stay probe-me until it does: (1) whether "<img" still clears the channel's
+  // blocked-terms list at all (it was on it in Aug 2026 — the sanitizer and the automod
+  // are separate gates), and (2) how printer-bot's own emote/bits CSS sizes the picture.
   var EMBEDS = [
-    // DEFAULT. Measured on the engine AND field-confirmed: printed perfectly on the
-    // real machine, and it's the shortest live payload. Its one limitation is real
+    // ── LIVE UNDER THE SANITIZER (the only two that can) ────────────────────
+    // src + class are all that survive the sanitizer, so these are as short as a carrier
+    // gets and carry no width/height/style at all. DEFAULT. See the ⚠ note above: needs a
+    // real print to confirm it clears chat and to see what size the emote class gives it.
+    { id: "imgemote", label: "img class=emote: the one form the sanitizer keeps — PROBE IT", token: "<img",
+      field: "probe",
+      build: function (o) {
+        return '<img src="' + escapeAttr(o.url) + '" class="emote">';
+      } },
+    // The bits/cheermote class, kept as the A/B partner: if "emote" prints too small (or
+    // is itself filtered), "bits" is the other class the sanitizer whitelists. Same tag,
+    // different class — one print says which the receipt template sizes usefully.
+    { id: "imgbits", label: "img class=bits: sanitizer-safe alternative to emote — PROBE IT", token: "<img",
+      field: "probe",
+      build: function (o) {
+        return '<img src="' + escapeAttr(o.url) + '" class="bits">';
+      } },
+    // ── DEAD UNDER THE SANITIZER (kept for the probe / a possible rollback) ──
+    // WAS THE DEFAULT before the sanitizer. Measured on the engine AND field-confirmed:
+    // printed perfectly on the real machine, and it was the shortest live payload — but
+    // the sanitizer strips <embed> outright now, so it never reaches the tape. Its one
+    // other limitation is real
     // but KNOWN and detectable: the URL must end in an image extension or it prints
     // blank, because the engine picks the image renderer from it — so the UI warns
     // before you send (see needsExt). A limitation you can be warned about beats one
@@ -653,8 +694,8 @@
     // Only catch: the URL must end in a known image extension, because WebKit picks
     // the image renderer from it — a bare /i/<hex> draws nothing. /upload returns
     // .png links for exactly this reason.
-    { id: "embed", label: "embed tag: default, prints clean (needs a .png/.jpg URL)", token: "<embed",
-      needsExt: true, field: "prints",
+    { id: "embed", label: "embed tag: stripped by the sanitizer (was the default)", token: "<embed",
+      needsExt: true, field: "stripped", blocked: true,
       build: function (o) {
         return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
@@ -673,8 +714,8 @@
     // machine that can confirm it is the one that printed it wrong. Until someone
     // re-probes it there, a known-and-warnable limitation (embed's extension) beats
     // an unexplained failure nothing can detect.
-    { id: "input", label: "input type=image: any URL, but printed too wide once", token: "<input",
-      field: "too-wide",
+    { id: "input", label: "input type=image: stripped by the sanitizer", token: "<input",
+      field: "stripped", blocked: true,
       build: function (o) {
         // border/padding zeroed on the hypothesis that native form-control chrome is
         // what made this print wide on Windows — unverified, see the note above.
@@ -693,7 +734,7 @@
     // same page with iframe printed none of it on either PDF page, and a bare iframe
     // with no foreignObject printed it fine. Same class as the foreignObject sibling
     // rule, one level out. Fine as a top-level picture; never inside the frame.
-    { id: "iframe", label: "iframe: prints, but crops a big picture", token: "<iframe", field: "prints",
+    { id: "iframe", label: "iframe: stripped by the sanitizer", token: "<iframe", field: "stripped", blocked: true,
       framedOk: false,
       build: function (o) {
         return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
@@ -702,7 +743,7 @@
     // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
     // the SVG form. It renders fine on the engine (shortest payload of the lot, no
     // extension needed); it just never reaches chat. Kept for a re-probe.
-    { id: "img", label: "img tag: blocked (Aug 2026)", token: "<img", blocked: true, field: "blocked",
+    { id: "img", label: "img tag (no class): blocked in chat, and the sanitizer drops a classless img", token: "<img", blocked: true, field: "blocked",
       build: function (o) {
         return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
       } },
@@ -1767,7 +1808,7 @@
   // in WebKit 534.34 (the whole declaration is discarded, silently), so it drew
   // nothing even with backgrounds enabled. The longhand form does render, but only
   // once `--no-background` is off — which is hardcoded in printer-bot's C#.
-  var EMBED_DEFAULT = "embed";
+  var EMBED_DEFAULT = "imgemote";
   // The extension-sniffing carriers (embed, object) fail SILENTLY on a link without
   // one — the message sends, the tape prints, and there's just no picture. So the UI
   // warns instead of leaving you to guess. wkhtmltopdf strips the query string before
@@ -2600,7 +2641,7 @@
         if (block.url && !block._decoding) decodeGlyphImage(block);
         return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: block._decoding ? "(decoding image…)" : "(paste an image URL or pick a file)" } }];
       }
-      var tier = getTier(block.tier || "ascii");
+      var tier = getTier(block.tier || "cjk");
       var o = { cols: Math.max(8, Math.min(48, block.cols || 40)),
                 threshold: block.contrast != null ? block.contrast : 128,
                 invert: !!block.invert, dither: block.dither != null ? block.dither : true,
@@ -3284,7 +3325,11 @@
     // keeps that choice across reloads instead of being dragged back every time.
     // v3: the list took "<img" too, so the previous default is blocked — anyone whose
     // saved block still points at it gets moved to the current default on next load.
-    var EMBED_V = 3;
+    // v4: printer-bot's live HTML sanitizer strips every carrier except <img class=emote|
+    // bits>, so embed/input/iframe/object are now all `blocked` and the default is
+    // "imgemote" — every saved image/takeover block that still points at a stripped
+    // carrier is moved to it once, on next load.
+    var EMBED_V = 4;
     // Takeover blocks carry a renderAs too (their picture rides the same carrier table),
     // so they need the same migration — without this a takeover saved when the default
     // was a since-blocked tag keeps pointing at it forever and its picture never prints.
@@ -3295,9 +3340,14 @@
       return b;
     }
     function newBlock(type) {
+      // tier defaults to "cjk": under the live sanitizer it is the only glyph set that
+      // survives as a real picture. ASCII rows lose their monospace + white-space:pre
+      // wrapper (it lives in `style`, which the sanitizer strips) so their spaces
+      // collapse and the grid shears; Han glyphs are uniform-width with no spaces, so
+      // <br>-separated rows still line up. See the ⚠ sanitizer note on EMBEDS.
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
-        tier: "ascii", cols: 40, dither: true, contrast: 128, invert: false };
+        tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false };
       // `items` IS the block now — the Blank/Fake-cheer fields (tkStyle, l1..l3, cBits,
       // avatar…) are gone from a new block entirely, because the card that edited them is
       // gone. They still exist as an INPUT to migrateTakeoverItems, which is the only
@@ -3308,7 +3358,11 @@
         items: [], anchor: "bottom", tkV: TAKEOVER_ITEMS_V,
         renderAs: EMBED_DEFAULT, embedV: EMBED_V,
         pullPt: TAKEOVER_PULL_PT, pullV: TAKEOVER_PULL_V };
-      return { id: blockIdSeq++, type: "text", render: "type", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
+      // render defaults to "hanzi": the live sanitizer strips <svg> (the "Type"/crisp
+      // path) and the rotate <div>/<span> style (the "Giant sideways" path), so Hanzi
+      // tiling — pure text, no markup at all — is the only Big Text form that still
+      // prints. See the ⚠ sanitizer note on EMBEDS.
+      return { id: blockIdSeq++, type: "text", render: "hanzi", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
     }
     function blockHasContent(b) {
       // The item list is the content now — and takeoverItems has already thrown out the
@@ -3431,9 +3485,15 @@
       // Render: crisp vector Type, or markup-free Hanzi tiling (the filter-proof mode).
       card.appendChild(mkEl("label", null, "Render"));
       var render = mkEl("select");
-      render.appendChild(opt("type", "Type (crisp)", block.render !== "hanzi"));
-      render.appendChild(opt("hanzi", "Hanzi tiling (filter-proof)", block.render === "hanzi"));
+      render.appendChild(opt("type", "Type (crisp) — STRIPPED by the sanitizer, won't print", block.render !== "hanzi"));
+      render.appendChild(opt("hanzi", "Hanzi tiling (the one that still prints)", block.render === "hanzi"));
       card.appendChild(render);
+      card.appendChild(mkEl("div", { "class": "hint" },
+        "printer-bot now runs the message through an allow-list sanitizer, and it deletes "
+        + "the <svg> that \"Type\" (every orientation, sideways included) is built from — "
+        + "that text no longer prints. \"Hanzi tiling\" is pure text with no markup, so it "
+        + "survives untouched: it's the print-safe choice now. It needs a CJK font on the "
+        + "printer (the target RP332 has one); if it comes out blank, the printer has none."));
       var isSideways = function (o) { return o === 90 || o === 270; };
       // Type-only controls: orientation + (length when sideways).
       var typeWrap = mkEl("div");
@@ -3691,6 +3751,12 @@
       var restack = function () { saveBlocks(); renderComposer(); update(); };
 
       card.appendChild(cardHead(block));
+      card.appendChild(mkEl("div", { "class": "over-note" },
+        "⚠ Does not print any more. printer-bot's live sanitizer strips <svg>, and the "
+        + "whole takeover trick is an opaque SVG lifted over the header with a negative "
+        + "margin — there is no allowed tag that draws a filled box or applies a margin, "
+        + "so this can't be rebuilt to survive. Kept here in case the sanitizer is rolled "
+        + "back. For a picture that still prints, use an Image block."));
       card.appendChild(mkEl("div", { "class": "hint" },
         "Paints over the receipt's own header (the avatar, the bits line and the name "
         + "printer-bot drew) and puts yours there instead. Put it FIRST in the "
@@ -4155,9 +4221,12 @@
       EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === curEmbed)); });
       realWrap.appendChild(ra);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
-        "The HTML tag that carries the picture. Mods block these one at a time. When pictures "
-        + "stop printing, work down the list, or hit \"Find what still sends\" under the "
-        + "preview to test every tag in one round."));
+        "The HTML tag that carries the picture. printer-bot's sanitizer now deletes every "
+        + "one of these except <img class=\"emote\"> and <img class=\"bits\"> — the two at the "
+        + "top of the list — so start there. Both still need one real print to confirm: the "
+        + "sanitizer keeps the tag, but chat's filter may still block \"<img\", and the size "
+        + "comes from the emote/bits styling, not from us. \"Find what still sends\" under the "
+        + "preview tests every tag in one round; whichever prints a picture is your carrier."));
       // embed/object pick their renderer from the URL's file extension; without one
       // they print a blank space and nothing tells you why. Say so up front.
       var extWarn = mkEl("div", { "class": "over-note" });
@@ -4179,9 +4248,15 @@
       var glyphWrap = mkEl("div");
       glyphWrap.appendChild(mkEl("label", null, "Tier (glyph set)"));
       var tier = mkEl("select");
-      [["ascii", "ASCII letters (safest)"], ["asciifull", "ASCII, full detail"], ["cjk", "Hanzi, prints on RP332"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
-        .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "ascii") === t[0])); });
+      [["cjk", "Hanzi — the one that survives the sanitizer (default)"], ["ascii", "ASCII letters — sheared by the sanitizer"], ["asciifull", "ASCII, full detail — sheared by the sanitizer"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
+        .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "cjk") === t[0])); });
       glyphWrap.appendChild(tier);
+      glyphWrap.appendChild(mkEl("div", { "class": "hint" },
+        "Glyph-art rows used to ride in a monospace, space-preserving <span>. The sanitizer "
+        + "strips that styling, so ASCII art — which leans on spaces and equal letter widths "
+        + "— collapses and shears. Han glyphs are uniform-width with no spaces, so Hanzi "
+        + "still lines up: it's the default and the safe choice. Blocks/Braille usually tofu "
+        + "on this printer anyway."));
       var gcols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); gcols.value = block.cols || 40;
       glyphWrap.appendChild(sliderRow("Detail (columns)", gcols, 40, ""));
       var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = block.contrast != null ? block.contrast : 128;

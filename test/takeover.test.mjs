@@ -57,16 +57,20 @@ test("lines stack upward from the bottom of the covered area, in order", () => {
   assert.ok(first > 0 && first < second, "line order scrambled");
 });
 
-test("a picture rides through the carrier table, never SVG's blocked image tag", () => {
-  const html = C.buildTakeover({ lines: [], picture: "https://x.test/p.png", carrier: "embed",
+test("a picture rides through the carrier table, in a foreignObject, using the chosen carrier", () => {
+  // The takeover itself no longer prints — the live sanitizer strips the whole <svg> —
+  // but the carrier plumbing it shares with Image blocks must stay correct. The picture
+  // always goes through buildImageEmbed (never a hardcoded tag), and never the SVG
+  // <image form the blocked-terms list ate. Under the sanitizer the live carriers emit
+  // <img class="emote"|"bits">, which is now the sanctioned form — not a leak.
+  const html = C.buildTakeover({ lines: [], picture: "https://x.test/p.png", carrier: "imgemote",
                                  pictureW: 120, pictureH: 168 });
   assert.ok(/<foreignObject /.test(html), "picture should ride in a foreignObject");
-  assert.ok(html.indexOf("<embed") >= 0, "should use the chosen carrier");
-  // The whole point: no blocked token anywhere, for any carrier choice.
+  assert.ok(/<img [^>]*class="emote"/.test(html), "should use the chosen carrier: " + html);
   for (const id of C.EMBEDS.filter(e => !e.blocked).map(e => e.id)) {
     const h = C.buildTakeover({ lines: LINES, picture: "https://x.test/p.png", carrier: id });
-    assert.ok(h.indexOf("<image") < 0, id + " leaked the blocked <image tag: " + h);
-    assert.ok(h.indexOf("<img") < 0, id + " leaked the blocked <img tag: " + h);
+    assert.ok(h.indexOf("<image") < 0, id + " leaked the blocked SVG <image tag: " + h);
+    assert.ok(h.indexOf(C.getEmbed(id).token) >= 0, id + " didn't emit its carrier token: " + h);
   }
   // No picture, no foreignObject — don't pay chars for an empty frame.
   assert.ok(!/foreignObject/.test(C.buildTakeover({ lines: LINES })));
@@ -216,10 +220,12 @@ test("a fake cheer inherits the takeover's rules — escaping, carriers, picture
   // The foreignObject-last rule is the one that silently kills the print.
   assert.ok(html.lastIndexOf("<text") < html.indexOf("<foreignObject"),
     "every line must precede the picture, else the engine drops the text");
-  // The picture rides the carrier table, never SVG's blocked image tag.
+  // The picture rides the carrier table (never the SVG <image form). The live carriers
+  // emit <img class=…>, the sanitizer-legal form, so that is asserted, not banned.
   for (const id of C.EMBEDS.filter(e => !e.blocked).map(e => e.id)) {
     const h = C.buildFakeCheer({ ...CHEER, carrier: id });
-    assert.ok(h.indexOf("<image") < 0 && h.indexOf("<img") < 0, id + " leaked a blocked tag: " + h);
+    assert.ok(h.indexOf("<image") < 0, id + " leaked the SVG <image tag: " + h);
+    assert.ok(h.indexOf(C.getEmbed(id).token) >= 0, id + " didn't emit its carrier token: " + h);
   }
   // Same opaque, lifted overlay as any other takeover.
   assert.ok(/^<svg /.test(html) && /style="margin-top:-220pt"/.test(html));
@@ -268,7 +274,9 @@ test("the width clamp survives everywhere except inside a fixed frame", () => {
   for (const e of C.EMBEDS) {
     const unframed = C.buildImageEmbed(e.id, { url: "https://x.test/p.png", w: 263, h: 197, mm: 70 });
     // The SVG carrier has never clamped (no viewBox — max-width would crop, not scale).
-    if (e.id !== "svg") {
+    // The live <img class=… carriers carry no style at all (the sanitizer strips it, so
+    // a clamp would reach nothing) — the src/class-only property is asserted in embed.test.
+    if (e.id !== "svg" && e.token !== "<img") {
       assert.ok(/max-width:100%/.test(unframed), e.id + " lost its width clamp on the ordinary path");
     }
     const framed = C.buildImageEmbed(e.id, { url: "https://x.test/p.png", w: 80, h: 112, mm: 21, framed: true });
@@ -475,9 +483,11 @@ test("a takeover's picture rides the same carrier table, so it must migrate too"
   for (const id of blocked) {
     assert.equal(C.getEmbed(id).id, id, "an explicit re-pick of a blocked tag should be honoured");
   }
-  // A takeover built with the default carrier never emits a blocked token.
+  // A takeover built with the default carrier uses the sanitizer-legal <img form and
+  // never the SVG <image the blocked-terms list ate.
   const html = C.buildFakeCheer({ ...CHEER, carrier: C.EMBED_DEFAULT });
-  assert.ok(html.indexOf("<image") < 0 && html.indexOf("<img") < 0, "default carrier leaked a blocked tag");
+  assert.ok(html.indexOf("<image") < 0, "default carrier leaked the SVG <image tag");
+  assert.ok(html.indexOf(C.getEmbed(C.EMBED_DEFAULT).token) >= 0, "default carrier didn't emit its token");
 });
 
 test("a lone space in a line costs nothing — it isn't a line", () => {

@@ -19,15 +19,22 @@ Key facts:
 
 ## What it outputs
 
-There are two kinds of payload:
+As of 2026-09-15 the receipt printer's bot runs the chat message through an HTML
+sanitizer (an allow-list keeping only a few tags and the src/class attributes)
+before rendering it. That inverted which path is primary:
 
-- HTML markup. Big type, sideways type, real pictures and Takeover overlays go out
-  as HTML/SVG, because the receipt printer's bot renders a chat message as HTML.
-  This is the primary path.
-- Plain Unicode glyphs. Glyph-art tiles a picture into monospace characters (ASCII
-  ramps, a curated Hanzi density ramp, block elements, or 2x4 Braille), and
-  Hanzi-tiled big text does the same for words. There is no markup at all, so
-  nothing can filter it. This is the fallback that always prints.
+- Plain Unicode glyphs — now the primary, reliable path. Glyph-art tiles a picture
+  into characters and Hanzi-tiled big text does the same for words. There is no
+  markup at all, so the sanitizer can't touch it. The Hanzi/CJK forms are the
+  backbone because their uniform-width glyphs line up without any styling.
+- HTML markup — now stripped, and real pictures cannot be sent at all. The
+  sanitizer removes SVG (so big "Type", sideways type and the Takeover/fake-cheer
+  overlays no longer render) and every picture carrier except an <img> whose class
+  is "emote" or "bits" — and the channel's separate blocked-terms filter blocks
+  "<img", which was confirmed by a test message the same day. The two filters leave
+  no tag that can carry a picture, so the app warns instead of sending one. ASCII
+  glyph-art also breaks, because it depended on styling the sanitizer strips;
+  Hanzi/CJK is used instead.
 
 Glyph output stays inside the Basic Multilingual Plane, with no colour emoji and no
 astral-plane codepoints, because the target renderer is a 2011-era browser engine

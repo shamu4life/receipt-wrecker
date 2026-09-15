@@ -10,6 +10,69 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.9.0] - 2026-09-15
+
+### The short version
+
+printer-bot added an HTML **sanitizer**, confirmed live on 2026-09-15, and it strips
+almost everything this tool relied on. The message is no longer rendered as raw HTML:
+it now passes through an allow-list (tags `img`/`span`/`b`/`i`/`br`/`em`/`strong`,
+attributes `src`/`class` only, and an `<img>` only if its class is `emote` or `bits`).
+This release pivots the app to the paths that survive.
+
+### Changed
+
+- **Pictures now ride `<img class="emote">` (or `<img class="bits">`).** The sanitizer
+  deletes every other carrier — `<embed>`, `<input type=image>`, `<iframe>`, `<object>`
+  and a classless `<img>` are all stripped — so those are now marked blocked and the
+  default carrier is `imgemote`. Only `src` and `class` survive the sanitizer, so the
+  carrier states no width/height/style; a picture's size now comes from the uploaded
+  PNG's own pixels (and printer-bot's emote/bits CSS), not from markup. Saved image and
+  takeover blocks migrate off the dead carriers automatically (`EMBED_V` 3 → 4).
+- **The glyph backbone is now Hanzi/CJK.** A new Image block defaults to the **CJK**
+  tier and a new Text block defaults to **Hanzi tiling** — the only forms that survive
+  the sanitizer. Hanzi tiling is pure text; CJK picture rows are `<br>`-separated
+  uniform-width glyphs, so they still line up without the stripped monospace styling.
+- **The dropdowns tell the truth now.** ASCII glyph tiers are labelled *sheared by the
+  sanitizer* (their space-preserving monospace `<span>` styling is stripped, so the
+  spaces collapse and the grid shears). Big Text's "Type" render (all orientations,
+  including Giant sideways) is labelled *stripped by the sanitizer, won't print*.
+
+### Known non-printing (kept, not removed)
+
+- **Takeover and fake cheer no longer print.** They are an opaque `<svg><rect>` lifted
+  over the header with a negative margin, and the sanitizer strips `<svg>` and all
+  styling; there is no allowed tag that draws a filled box or applies a margin, so this
+  cannot be rebuilt to survive. The composer flags these blocks as non-printing. The
+  code is kept in case the sanitizer is rolled back.
+
+### Field result: real pictures cannot be sent at all
+
+The probe above was run the same day, free (non-cheer, so it never reaches the printer
+but still passes the terms filter), with a control carrying the same link and no tag.
+**`<img` is still blocked by automod.** Both the `emote` and `bits` forms were eaten;
+the control went through, so the tag is what is blocked, not the link or the host.
+
+That closes the picture. Two gates, empty intersection:
+
+- The **sanitizer** keeps exactly one image-capable tag, `<img>`, and only with an
+  `emote`/`bits` class. Of the seven tags it allows, only `<img>` can load an image —
+  `src` on a `<span>`/`<b>`/`<i>`/`<em>`/`<strong>`/`<br>` does nothing.
+- **Automod blocks `<img`.**
+
+So every `EMBEDS` entry is now `blocked: true`, `anyCarrierLive()` returns false, and
+`field` records which gate killed each one (`blocked` = automod, `stripped` = the
+sanitizer). The img-class pair still leads the table because it is sanitizer-legal and
+only chat-blocked — it is what to re-probe first if the terms list is ever pruned. The
+Image block's real-picture mode now warns plainly instead of offering a carrier that
+would silently spend bits on blank paper, and points at glyph-art.
+
+Glyph-art is unaffected: it is plain text and clears both gates untouched.
+
+**Not doing:** obfuscating the tag to get past the filter. The terms list has eaten
+`<object`, then `<image`, then `<img`, and printer-bot separately added a sanitizer
+admitting only Twitch's own emotes. Two parties have said no to arbitrary images.
+
 ## [0.8.2] - 2026-08-15
 
 ### Fixed

@@ -17,13 +17,70 @@ is framed neutrally, like its siblings `cheer-splitter-9k` (chunking) and
 `transliterate-me` (phonetic transliteration). The cheer use is one application
 of a general glyph-art generator.
 
-**The app emits HTML markup, and that is the main path now.** The v1 spec
-deliberately cut markup (see `docs/superpowers/specs/`) on the grounds that it
-depended on undocumented sanitization. Then it was confirmed in the field that
-printer-bot renders the chat message as raw HTML. Big type, sideways type, real
-pictures, takeovers and the fake cheer are all markup. Glyph-art is still here as
-the markup-free fallback that always prints. Do not "restore" the glyphs-only
-rule: it describes a product that no longer exists.
+**⚠ 2026-09-15 — printer-bot added an HTML sanitizer, and it changes everything
+below. READ THIS FIRST.** For a long time printer-bot rendered the chat message
+as raw, unsanitised HTML, and the whole app was built on that: big type, sideways
+type, real pictures, takeovers and the fake cheer are all markup. That premise is
+now dead. printer-bot runs the message through an allow-list sanitizer (a
+`DOMParser` walk) before the engine ever sees it, and the allow-list is tiny:
+
+- **Tags kept:** `img`, `span`, `b`, `i`, `br`, `em`, `strong`. Everything else is
+  *unwrapped* (the tag is deleted, its text kept).
+- **Attributes kept:** `src` and `class` — and nothing else, on any element. `style`,
+  `width`, `height`, SVG presentation attributes: all stripped.
+- **`<img>`** is deleted outright unless its `class` contains `emote` or `bits`.
+
+What that does to the feature list: **SVG is gone**, so Big Text ("Type", every
+orientation) and the whole Takeover / fake-cheer trick (an opaque `<svg><rect>`
+lifted with a negative margin) no longer render. **The rotate `<div>`/`<span>`
+styling is stripped**, so "Giant sideways" degrades to plain text. **Every picture
+carrier (`<embed>`/`<input>`/`<iframe>`/`<object>`) is stripped**; the only picture
+the sanitizer keeps is `<img class="emote">` or `<img class="bits">`, and only its
+`src`/`class` survive (so sizing has to come from the uploaded PNG's pixels, not
+markup). **ASCII glyph-art shears**, because it depended on a `white-space:pre`
+monospace `<span>` (that styling is in `style`, now stripped) — its spaces collapse.
+
+So the durable paths, and the app's new backbone, are the ones that were always
+markup-free: **Hanzi tiling for text and the CJK glyph tier for pictures** (pure
+text, or `<br>`-separated rows of uniform-width Han glyphs — no `style` needed).
+Everything in the sections below that assumes raw-HTML rendering is now historical;
+it is kept (not deleted) as the record of how the app got here and in case the
+sanitizer is ever rolled back.
+
+**⚠⚠ AND THEN THE PICTURE DIED COMPLETELY — FIELD-CONFIRMED 2026-09-15.** The
+`<img class="emote">` carrier shipped as a probe-me candidate. The probe came back
+**blocked**. There are two independent gates and their intersection is empty:
+
+- The **sanitizer** keeps exactly one image-capable tag, `<img>`, and only with an
+  `emote`/`bits` class. Of the seven tags it allows, only `<img>` can load an image
+  at all — `src` on a `<span>`/`<b>`/`<i>`/`<em>`/`<strong>`/`<br>` does nothing.
+- **Automod still blocks the literal `<img`.** Re-probed free (non-cheer, so it
+  never reaches the printer but still passes the terms filter): the `emote` and
+  `bits` forms were both eaten, while a control carrying the same link with no tag
+  went through. So the tag is what is blocked, not the link or the host.
+
+**No carrier can put a real picture on the tape.** `anyCarrierLive()` returns false,
+every `EMBEDS` entry is `blocked: true`, and `field` records which gate killed it
+(`"blocked"` = automod ate the token, `"stripped"` = the sanitizer removes the tag).
+The img-class pair still leads the table because it is sanitizer-legal and only
+chat-blocked — it is the pair to re-probe first if the terms list is ever pruned.
+The Image block warns rather than offering a pick that silently spends bits on blank
+paper. **Glyph-art is unaffected and is the whole picture story now.**
+
+**Do NOT "fix" this by obfuscating the tag** (case-mangling `<IMG`, padding,
+entities, zero-width splitting). The terms list has now eaten `<object`, then
+`<image`, then `<img` — three rounds of a channel's mods blocking every picture
+surface this tool has offered — and printer-bot independently added a sanitizer that
+admits only Twitch's *own* emotes. Two separate parties have said no to arbitrary
+images. Route around it with glyph-art, which is plain text and needs no evasion;
+do not route around the moderators. The carrier table's swap-to-another-tag drill
+below is for finding a surface that is *allowed*, never for defeating a filter.
+
+**The v1 spec's original warning turned out right.** It cut markup (see
+`docs/superpowers/specs/`) precisely because it "depended on undocumented
+sanitization." Field evidence overturned that for a couple of years; the sanitizer
+has now vindicated it. Do not build a new feature on a tag outside the allow-list
+above without a fresh field probe proving it survives.
 
 ## The one file that matters
 
@@ -358,8 +415,15 @@ argued about:
 - Engine: `wkhtmltopdf 0.12.6 (with patched qt)`, which is patched **Qt 4.8.7**,
   i.e. QtWebKit ~**534.34** (a 2011 snapshot). Not Chromium, not Qt 5. Then printed via
   SumatraPDF 3.5.2. There is no ESC/POS text path.
-- **The message is inserted with raw `innerHTML`**, unsanitised, then re-serialised
-  into a standalone HTML document and parsed a second time by wkhtmltopdf.
+- **The message used to be inserted with raw `innerHTML`, unsanitised**, then
+  re-serialised into a standalone HTML document and parsed a second time by
+  wkhtmltopdf. **As of 2026-09-15 it is NOT unsanitised** — printer-bot now runs it
+  through the allow-list sanitizer described in the ⚠ banner at the top of this file
+  *before* this step. So the engine notes below still describe what wkhtmltopdf does
+  with whatever survives the sanitizer, but a form that the sanitizer strips
+  (`<svg>`, `<embed>`, a styled `<span>`) never reaches the engine at all — the bench
+  will happily render markup that chat will never deliver. Bench-test only the
+  sanitizer-surviving allow-list.
 - Its exact print flags, from the Print Routine. Several of these decide whether
   a given form renders at all:
 
@@ -638,28 +702,40 @@ not arbitrary style choices:
 - **The nonce is visible, never zero-width.** It exists to defeat a duplicate-
   message filter; an invisible/zero-width character is likely to be stripped by
   the same sanitizing behavior that rules out HTML injection.
-- **Markup was originally out of scope; that was overtaken by field evidence.** The
-  v1 spec rejected it (see
+- **Markup went out of scope, came back on field evidence, and the sanitizer has
+  now cut most of it again.** The v1 spec rejected markup (see
   `docs/superpowers/specs/2026-07-05-block-glyph-art-generator-design.md`, §2) on
-  the grounds that it depended on undocumented sanitization. It was then confirmed
-  live that printer-bot renders the chat message as HTML, so big type, sideways
-  type, and real pictures are all markup now. **The spec's reasoning still holds as
-  a warning, though:** markup is the surface mods block, and every markup mode
-  needs a markup-free fallback behind it (Hanzi tiling for text, glyph-art for
-  pictures). The Takeover and the fake cheer are the standing exception: painting
-  over the bot's header is inherently a markup trick with no glyph equivalent, so
-  they ship markup-only by necessity. Everything that *can* have a fallback still
-  should.
-- **Carrier tags: the tag for a real picture is DATA, not a hardcode.** The
-  blocked-terms list has already eaten `<object` and then `<image`, each block
-  killing every picture the tool makes. `EMBEDS` in the pure core lists the
-  interchangeable surfaces (`embed` default, `input type=image`, `iframe`,
-  plus the two blocked ones kept for A/B) and `buildImageEmbed()` is the only place
-  that markup gets built. When the next one gets blocked: mark it `blocked: true`,
-  move `EMBED_DEFAULT`, bump `EMBED_V` so saved blocks migrate. Do **not** hardcode
-  a new tag at a call site, and **measure a candidate before adding it** (see
-  "Measuring against the real engine"; a CSS-background carrier was written, found
-  dead, and cut, because `--no-background` makes it unrenderable).
+  the grounds that it depended on undocumented sanitization. Field evidence then
+  showed printer-bot rendering raw HTML, so big type, sideways type and real
+  pictures became markup modes. **The 2026-09-15 sanitizer (see the ⚠ banner at the
+  top) vindicated the original warning:** it strips `<svg>`, every picture carrier
+  but `<img class="emote"|"bits">`, and all styling — so Big Text's SVG, the rotate
+  styling, the Takeover and the fake cheer no longer render, and ASCII glyph-art
+  shears. **The rule the spec stated is now load-bearing again:** every mode needs a
+  markup-free path behind it, and the ones that survive are exactly the markup-free
+  ones — Hanzi tiling for text, the CJK glyph tier for pictures. The Takeover and
+  fake cheer were the standing markup-only exception; under the sanitizer they
+  simply have no surviving form, which is why the composer now flags them as
+  non-printing rather than pretending otherwise.
+- **Carrier tags: the tag for a real picture is DATA, not a hardcode — and right now
+  there is no working one.** The blocked-terms list ate `<object`, then `<image`, then
+  `<img`; the 2026-09-15 sanitizer independently stripped
+  `<embed>`/`<input>`/`<iframe>`/`<object>` and a classless `<img>`. The only tag the
+  sanitizer keeps is `<img class="emote"|"bits">`, and automod blocks `<img`, so
+  **every entry in `EMBEDS` is `blocked: true` and `anyCarrierLive()` is false**
+  (field-confirmed; see the ⚠⚠ banner at the top). `EMBEDS` still lists the surfaces
+  and `buildImageEmbed()` is still the only place markup gets built; `imgemote` remains
+  `EMBED_DEFAULT` as the entry to re-probe first, not as one that works. When a surface
+  dies: mark it `blocked: true`, set `field` to which gate killed it, and bump
+  `EMBED_V` if there is something live to migrate onto. Do **not** hardcode a new tag
+  at a call site, and **before adding a candidate, prove it clears BOTH gates** — the
+  sanitizer allow-list and the channel's blocked-terms list — with a field probe, not
+  just the bench. (A bench-only pass is how a CSS-background carrier got written before
+  `--no-background` was found to kill it, and the bench cannot see either gate.) The
+  free probe is the cheapest tool here: send the candidate as a **non-cheer** message,
+  which never reaches the printer but still passes the terms filter, and include a
+  control of the same shape so a block is attributable. **Swapping to an allowed tag is
+  the drill; obfuscating a blocked one is not** — see the banner.
 
 ## Hard constraints: keep these true
 

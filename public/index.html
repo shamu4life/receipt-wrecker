@@ -257,7 +257,7 @@
             <option value="hanzi">Giant sideways (Hanzi tiling, no markup)</option>
           </select>
         </label>
-        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape, each letter as tall as the paper is wide, and line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS. Each line stacks <em>full-size</em> down the tape, so every line keeps full detail. It emits no markup, which is how it slips past the symbol filters that block the HTML sideways payload, and it is the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to the printer's true width; <em>Print test strip</em> has a ruler. If it prints blank, the printer has no CJK font.</div>
+        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape, each letter as tall as the paper is wide, and line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS. Each line stacks <em>full-size</em> down the tape, so every line keeps full detail. It emits no markup, which is how it slips past the symbol filters that block the HTML sideways payload, and it is the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to how many <em>Han characters</em> the printer fits on one line, which is about <strong>half</strong> what the <em>Print test strip</em> ruler reports: that ruler is ASCII digits and a Han glyph is twice as wide. Too wide and every row starts late, so the picture slants. If it prints blank, the printer has no CJK font.</div>
         <div id="sizeControl">
           <label>Size: <span id="textSizeVal">90</span><span id="textSizeUnit">%</span>
             <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
@@ -2648,7 +2648,17 @@
     // Detail (columns).
     function hanziBodies(text, cols, sizeFactor) {
       var tier = getTier("cjk");
-      var o = { cols: Math.max(8, Math.min(48, cols || 20)), threshold: 128, invert: false,
+      // cols IS THE WRAP WIDTH, and getting it wrong shears the whole image.
+      // This body is pure text with no row separator: rows only become rows because
+      // the line wraps at the paper edge. So the grid width has to equal what the
+      // printer actually fits on one line, in FULL-WIDTH glyphs. Han characters are
+      // full-width — twice the advance of an ASCII digit — so the Census ruler, which
+      // is a run of half-width digits, reports roughly TWICE the number this wants.
+      // Reading the ruler's count straight into this box is what makes every row start
+      // half a row late and the picture slant. 15 is the field-proven full-width count
+      // for the target RP332 (the same number receiptify's art grid is built on, and
+      // that is where this tier's ramp came from too).
+      var o = { cols: Math.max(8, Math.min(48, cols || 15)), threshold: 128, invert: false,
                 dither: false, sizeFactor: Math.max(0.85, sizeFactor || 0.9), text: text || "" };
       var grid = computeGrid("text", tier, o);
       if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
@@ -3408,7 +3418,7 @@
       // path) and the rotate <div>/<span> style (the "Giant sideways" path), so Hanzi
       // tiling — pure text, no markup at all — is the only Big Text form that still
       // prints. See the ⚠ sanitizer note on EMBEDS.
-      return { id: blockIdSeq++, type: "text", render: "hanzi", orient: 0, text: "", size: 90, rotateLen: 800, cols: 20 };
+      return { id: blockIdSeq++, type: "text", render: "hanzi", orient: 0, text: "", size: 90, rotateLen: 800, cols: 15 };
     }
     function blockHasContent(b) {
       // The item list is the content now — and takeoverItems has already thrown out the
@@ -3565,9 +3575,18 @@
       card.appendChild(typeWrap);
       // Hanzi-only control: Detail (columns) — the resolution lever for tiled glyphs.
       var hanziWrap = mkEl("div");
-      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 20;
-      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 20; saveBlocks(); update(); });
-      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 20, ""));
+      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 15;
+      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 15; saveBlocks(); update(); });
+      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 15, ""));
+      hanziWrap.appendChild(mkEl("div", { "class": "hint" },
+        "This is the wrap width, not a quality dial, and it is the one setting that can "
+        + "ruin the print. Hanzi rows are plain text with no line breaks in them: a row "
+        + "only becomes a row because the paper wraps it. Set this wider than the printer "
+        + "really fits and every row starts late, so the picture slants. "
+        + "Count Han characters, not the test strip's ruler: that ruler is ASCII digits, "
+        + "which are half as wide as a Han glyph, so it reports about double what this "
+        + "wants. 15 suits the target printer; if yours slants, drop it a character at a "
+        + "time until the edges line up."));
       card.appendChild(hanziWrap);
       // Size (both renders use it).
       var size = mkEl("input", { type: "range", min: "25", max: "100", step: "5" }); size.value = block.size || 90;

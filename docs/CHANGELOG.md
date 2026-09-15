@@ -10,6 +10,15 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.9.1] - 2026-09-15
+
+### Fixed
+
+- **Hanzi tiling printed slanted, because the column box was being calibrated off the wrong ruler.** A Hanzi body is plain text with no line break in it: a row only becomes a row because the paper wraps it. So Detail (columns) is the *wrap width*, and it has to equal how many Han characters the printer really fits on a line. Han glyphs are **full-width** — twice the advance of an ASCII digit — but the Census test strip's ruler is a run of digits, and both hints told you to read the printer's column count off it and type that in. Do that and the grid comes out about twice as wide as the paper, every row starts part-way through the previous one, and the whole image shears diagonally.
+  - The default is now **15**, the full-width count for the target RP332 — the same width the sibling `receiptify` builds its art grid on, which is also where this tier's ramp came from.
+  - Both hints now say to count Han characters and that the ruler reports roughly double, and the block card explains that this setting is the wrap width rather than a quality dial.
+  - Narrower rows also fit *more* per message, so this costs nothing: **32 rows per receipt at 15 columns against 24 at the old 20**, about a quarter fewer cheers for the same artwork.
+
 ## [0.9.0] - 2026-09-15
 
 ### The short version

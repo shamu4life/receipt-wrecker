@@ -19,6 +19,10 @@ then and neither is true now. For current behaviour see the
   - Both hints now say to count Han characters and that the ruler reports roughly double, and the block card explains that this setting is the wrap width rather than a quality dial.
   - Narrower rows also fit *more* per message, so this costs nothing: **32 rows per receipt at 15 columns against 24 at the old 20**, about a quarter fewer cheers for the same artwork.
 
+- **The Hanzi stroke weight was hardcoded to 900, and the Size slider offered travel that did nothing.** Both are now honest controls.
+  - **Stroke weight** is a new Regular/Bold choice on the Hanzi block, defaulting to Bold, which is what the old hardcoded `900` was really producing. It is two positions rather than a 100-900 slider because **measured in Chromium through this exact code path, 600, 700 and 900 rasterize a byte-identical grid** (mean ramp index 17.86 of 40 for all three) while 400 comes back markedly lighter (12.74). Arial has no face above bold, so everything at or above it clamps to the same one — the same effect `CLAUDE.md` already recorded for the print engine, which nobody had connected to this path. A nine-position slider would be inert across most of its travel. At low column counts Bold thickens until the holes in letters like A, O and R fill in; Regular keeps them open.
+  - **Size** now stops at 85% on a Hanzi block instead of showing a 25-100% track whose bottom two thirds collapsed to the same output. The 85% floor is deliberate and stays — below it the letters no longer fill the paper width and too few columns are left to read them, which an earlier round recorded as "the #1 cause of 'mine looks worse than receiptify'". Switching the block back to a vector render hands the full 25-100% range back.
+
 ## [0.9.0] - 2026-09-15
 
 ### The short version

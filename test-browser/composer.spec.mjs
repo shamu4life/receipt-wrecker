@@ -137,7 +137,14 @@ test("the cover surcharge line never says a range of one", async () => {
   // working, which is worse than not having one.
   assert.ok(!/Parts (\d+)\s*(?:–|to)\s*\1\b/.test(text), "a range of one: " + text);
   if (/cheers/.test(text)) {
-    assert.match(text, /Part 2 spends|Parts 2 to [3-9]/, "unexpected surcharge phrasing: " + text);
+    // \d+, not [3-9]: the upper bound is not single-digit any more. Since 0.9.0 a Text
+    // block defaults to Hanzi tiling (the SVG "Type" render no longer survives the
+    // sanitizer), and tiling bands across far more receipts — this stack now reports
+    // "Parts 2 to 23". That is correct phrasing, and the range-of-one case it must not
+    // print is already caught by the assertion directly above, which still fails on a
+    // "Parts 2 to 2". Pinning a single digit here only encoded how many parts the old
+    // default happened to make.
+    assert.match(text, /Part 2 spends|Parts 2 to \d+/, "unexpected surcharge phrasing: " + text);
   }
   await ctx.close();
 });

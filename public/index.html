@@ -639,8 +639,9 @@
   // `paperWidth-8`mm and its template sets `body{margin:1em}`, leaving ~240px on an
   // 80mm roll. Measured, every carrier drew to the paper edge and lost its right
   // margin. A clamp fixed it adaptively. That clamp lives in `style`, and `style` no
-  // longer survives (see the sanitizer note directly below) — so on the two live
-  // carriers it is dropped, and sizing has to come from the uploaded PNG's own pixels.
+  // longer survives (see the sanitizer note directly below) — so on the two img-class
+  // carriers it is dropped, and sizing would have to come from the uploaded PNG's own
+  // pixels if either of them ever became sendable again.
   //
   // ⚠ SANITIZER, CONFIRMED LIVE 2026-09-15 — THIS SUPERSEDES EVERYTHING ABOVE.
   // printer-bot no longer renders the chat message as raw innerHTML. It now runs it
@@ -653,29 +654,47 @@
   //
   // What that does to this table: <embed>, <input>, <iframe>, <object> and even a bare
   // <img> are ALL stripped — every one of them is dead, whatever the blocked-terms list
-  // does. The ONLY picture that can survive is `<img class="emote">` or
+  // does. The ONLY picture the sanitizer keeps is `<img class="emote">` or
   // `<img class="bits">`, and only its src/class attributes come through (no width, no
-  // height, no style). Those two are the new live entries; the rest are kept `blocked`
-  // so the migration moves saved blocks off them and the probe can still re-test them
-  // if the sanitizer is ever relaxed. TWO THINGS ONLY THE RIG CAN ANSWER, so both live
-  // entries stay probe-me until it does: (1) whether "<img" still clears the channel's
-  // blocked-terms list at all (it was on it in Aug 2026 — the sanitizer and the automod
-  // are separate gates), and (2) how printer-bot's own emote/bits CSS sizes the picture.
+  // height, no style). Clearing the sanitizer is only half the journey, though — see the
+  // second banner directly below, which is what the rig came back and said.
+  // ⚠⚠ FIELD-CONFIRMED 2026-09-15: THERE IS NO WORKING CARRIER. EVERY ENTRY IS DEAD.
+  // Two independent gates now close on the picture, and their intersection is empty:
+  //   * The SANITIZER keeps exactly one image-capable tag, <img>, and only with an
+  //     emote/bits class. Of the seven tags it allows, only <img> can load an image at
+  //     all — `src` on a <span>/<b>/<i>/<em>/<strong>/<br> does nothing.
+  //   * AUTOMOD still blocks the literal "<img", re-confirmed by a free non-cheer probe
+  //     on the real channel: the emote and bits forms were both eaten, while a control
+  //     carrying the same link with no tag went through, so the tag is what is blocked.
+  // So `field` records WHICH gate kills an entry ("blocked" = automod ate the token,
+  // "stripped" = the sanitizer removes the tag) and `blocked` means "will not put a
+  // picture on the tape", whatever the reason. Every entry now has it. Do NOT read the
+  // img-class entries' "blocked" as "the sanitizer rejects them" — it does not; they are
+  // sanitizer-legal and chat-blocked, which is exactly why they stay at the top as the
+  // first things to re-probe if the terms list is ever pruned.
+  //
+  // DO NOT "fix" this by obfuscating the tag (case-mangling "<IMG", padding, entities).
+  // The terms list has now eaten <object, then <image, then <img — three rounds of a
+  // channel's mods blocking every picture surface this tool has offered — and
+  // printer-bot independently added a sanitizer that admits only Twitch's OWN emotes.
+  // Two separate parties have said no to arbitrary images. Route around glyph-art, which
+  // is plain text and needs no evasion, not around the moderators.
   var EMBEDS = [
-    // ── LIVE UNDER THE SANITIZER (the only two that can) ────────────────────
+    // ── SANITIZER-LEGAL BUT CHAT-BLOCKED (re-probe these first) ─────────────
     // src + class are all that survive the sanitizer, so these are as short as a carrier
-    // gets and carry no width/height/style at all. DEFAULT. See the ⚠ note above: needs a
-    // real print to confirm it clears chat and to see what size the emote class gives it.
-    { id: "imgemote", label: "img class=emote: the one form the sanitizer keeps — PROBE IT", token: "<img",
-      field: "probe",
+    // gets and carry no width/height/style at all. The sanitizer keeps them; automod does
+    // not. EMBED_DEFAULT still names the first one — not because it works, but because it
+    // is the candidate to re-probe first if the blocked-terms list is ever pruned.
+    { id: "imgemote", label: "img class=emote: sanitizer-legal, but automod blocks it (Sep 2026)", token: "<img",
+      blocked: true, field: "blocked",
       build: function (o) {
         return '<img src="' + escapeAttr(o.url) + '" class="emote">';
       } },
-    // The bits/cheermote class, kept as the A/B partner: if "emote" prints too small (or
-    // is itself filtered), "bits" is the other class the sanitizer whitelists. Same tag,
-    // different class — one print says which the receipt template sizes usefully.
-    { id: "imgbits", label: "img class=bits: sanitizer-safe alternative to emote — PROBE IT", token: "<img",
-      field: "probe",
+    // The bits/cheermote class, the A/B partner: same tag, different class. Probed in the
+    // same free round and blocked identically, which is what shows the block is keyed on
+    // the "<img" token and not on the class.
+    { id: "imgbits", label: "img class=bits: sanitizer-legal, but automod blocks it (Sep 2026)", token: "<img",
+      blocked: true, field: "blocked",
       build: function (o) {
         return '<img src="' + escapeAttr(o.url) + '" class="bits">';
       } },
@@ -1912,6 +1931,16 @@
       if (EMBEDS[i].id === EMBED_DEFAULT) def = EMBEDS[i];
     }
     return def || EMBEDS[0];
+  }
+  // Is there ANY carrier that can actually put a picture on the tape right now? Since
+  // 2026-09-15 the honest answer is no: the sanitizer strips every tag but <img>, and
+  // automod blocks "<img". The UI asks this rather than assuming a live carrier exists,
+  // because a real-picture block that silently never sends is the worst outcome — the
+  // user spends bits and watches blank paper come out. When this goes true again (a
+  // pruned terms list, a relaxed sanitizer), the warning disappears on its own.
+  function anyCarrierLive() {
+    for (var i = 0; i < EMBEDS.length; i++) if (!EMBEDS[i].blocked) return true;
+    return false;
   }
   // The single place markup for a real picture gets built. Sizes are normalized here
   // (not in each builder) so a missing aspect probe or a junk slider value can only
@@ -4221,12 +4250,22 @@
       EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === curEmbed)); });
       realWrap.appendChild(ra);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
-        "The HTML tag that carries the picture. printer-bot's sanitizer now deletes every "
-        + "one of these except <img class=\"emote\"> and <img class=\"bits\"> — the two at the "
-        + "top of the list — so start there. Both still need one real print to confirm: the "
-        + "sanitizer keeps the tag, but chat's filter may still block \"<img\", and the size "
-        + "comes from the emote/bits styling, not from us. \"Find what still sends\" under the "
-        + "preview tests every tag in one round; whichever prints a picture is your carrier."));
+        "The HTML tag that carries the picture. Two gates have to pass and right now none "
+        + "of these clears both: printer-bot's sanitizer deletes every tag except "
+        + "<img class=\"emote\"> and <img class=\"bits\">, and chat's blocked-terms filter eats "
+        + "\"<img\" before it ever gets there. The two at the top are the ones to re-probe "
+        + "first if that filter is ever pruned — \"Find what still sends\" retests the whole "
+        + "list in one round, and costs nothing with Cheer-ready off."));
+      // The honest headline, shown only while no carrier can actually deliver. Spending
+      // bits on a picture that cannot arrive is the worst thing this card could allow.
+      if (!anyCarrierLive()) {
+        realWrap.appendChild(mkEl("div", { "class": "over-note" },
+          "⚠ No real picture can print right now, on any carrier. Field-confirmed "
+          + "2026-09-15: the sanitizer allows only an <img> tag, and chat's automod blocks "
+          + "\"<img\" — so the message never arrives. Sending one spends bits on blank paper. "
+          + "Switch this block to glyph-art (the Picture style above), which is plain text "
+          + "and passes both gates untouched."));
+      }
       // embed/object pick their renderer from the URL's file extension; without one
       // they print a blank space and nothing tells you why. Say so up front.
       var extWarn = mkEl("div", { "class": "over-note" });
@@ -4819,7 +4858,7 @@
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
       escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
-      EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed,
+      EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed, anyCarrierLive: anyCarrierLive,
       FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,
       buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       buildTakeover: buildTakeover, takeoverBox: takeoverBox, TAKEOVER_PULL_PT: TAKEOVER_PULL_PT,

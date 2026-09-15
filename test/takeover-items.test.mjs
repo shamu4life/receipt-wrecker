@@ -632,10 +632,13 @@ test("sizes are clamped the same way lines are", () => {
 });
 
 test("a picture rides the carrier table, per item, using the chosen carrier", () => {
-  for (const id of C.EMBEDS.filter((e) => !e.blocked).map((e) => e.id)) {
+  // Every carrier in the table: none are unblocked since 2026-09-15, so a `!blocked`
+  // filter here would iterate nothing and silently stop guarding anything.
+  for (const id of C.EMBEDS.map((e) => e.id)) {
     const h = C.buildTakeover({ items: CHEER_ITEMS, anchor: "top", carrier: id, pullPt: 220, w: W });
-    assert.ok(h.indexOf("<image") < 0, id + " leaked the SVG <image tag: " + h);
     assert.ok(h.indexOf(C.getEmbed(id).token) >= 0, id + " didn't emit its carrier token: " + h);
+    // The svg carrier's OWN token is "<image"; no other carrier may emit it.
+    if (id !== "svg") assert.ok(h.indexOf("<image") < 0, id + " leaked the SVG <image tag: " + h);
   }
   // An item may override the block's pick — two pictures, two carriers.
   const mixed = C.buildTakeover({ carrier: "embed", anchor: "top", pullPt: 400, w: W, items: [

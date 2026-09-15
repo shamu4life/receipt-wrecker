@@ -27,13 +27,14 @@ before rendering it. That inverted which path is primary:
   into characters and Hanzi-tiled big text does the same for words. There is no
   markup at all, so the sanitizer can't touch it. The Hanzi/CJK forms are the
   backbone because their uniform-width glyphs line up without any styling.
-- HTML markup — now mostly stripped. The sanitizer removes SVG (so big "Type",
-  sideways type and the Takeover/fake-cheer overlays no longer render) and every
-  picture carrier except an <img> whose class is "emote" or "bits". A real picture
-  is attempted through <img class="emote">, but whether it prints depends on the
-  channel's separate blocked-terms filter and the bot's own emote sizing, so the
-  app treats it as needing a test print. ASCII glyph-art also breaks, because it
-  depended on styling the sanitizer strips; Hanzi/CJK is used instead.
+- HTML markup — now stripped, and real pictures cannot be sent at all. The
+  sanitizer removes SVG (so big "Type", sideways type and the Takeover/fake-cheer
+  overlays no longer render) and every picture carrier except an <img> whose class
+  is "emote" or "bits" — and the channel's separate blocked-terms filter blocks
+  "<img", which was confirmed by a test message the same day. The two filters leave
+  no tag that can carry a picture, so the app warns instead of sending one. ASCII
+  glyph-art also breaks, because it depended on styling the sanitizer strips;
+  Hanzi/CJK is used instead.
 
 Glyph output stays inside the Basic Multilingual Plane, with no colour emoji and no
 astral-plane codepoints, because the target renderer is a 2011-era browser engine

@@ -46,14 +46,32 @@ This release pivots the app to the paths that survive.
   cannot be rebuilt to survive. The composer flags these blocks as non-printing. The
   code is kept in case the sanitizer is rolled back.
 
-### Needs a field probe (only the rig can answer)
+### Field result: real pictures cannot be sent at all
 
-- Whether `<img` still clears the **channel's blocked-terms list** — that is a separate
-  gate from the sanitizer, and `<img` was on it as of Aug 2026. Use **Find what still
-  sends**: `img class=emote` and `img class=bits` lead the probe.
-- How printer-bot's own **emote/bits CSS sizes** the picture. If it forces the picture
-  small, a follow-up will need to adjust `/upload`'s output dimensions — deferred until
-  the probe shows the picture prints at all.
+The probe above was run the same day, free (non-cheer, so it never reaches the printer
+but still passes the terms filter), with a control carrying the same link and no tag.
+**`<img` is still blocked by automod.** Both the `emote` and `bits` forms were eaten;
+the control went through, so the tag is what is blocked, not the link or the host.
+
+That closes the picture. Two gates, empty intersection:
+
+- The **sanitizer** keeps exactly one image-capable tag, `<img>`, and only with an
+  `emote`/`bits` class. Of the seven tags it allows, only `<img>` can load an image —
+  `src` on a `<span>`/`<b>`/`<i>`/`<em>`/`<strong>`/`<br>` does nothing.
+- **Automod blocks `<img`.**
+
+So every `EMBEDS` entry is now `blocked: true`, `anyCarrierLive()` returns false, and
+`field` records which gate killed each one (`blocked` = automod, `stripped` = the
+sanitizer). The img-class pair still leads the table because it is sanitizer-legal and
+only chat-blocked — it is what to re-probe first if the terms list is ever pruned. The
+Image block's real-picture mode now warns plainly instead of offering a carrier that
+would silently spend bits on blank paper, and points at glyph-art.
+
+Glyph-art is unaffected: it is plain text and clears both gates untouched.
+
+**Not doing:** obfuscating the tag to get past the filter. The terms list has eaten
+`<object`, then `<image`, then `<img`, and printer-bot separately added a sanitizer
+admitting only Twitch's own emotes. Two parties have said no to arbitrary images.
 
 ## [0.8.1] - 2026-08-12
 

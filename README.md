@@ -23,10 +23,13 @@ Unicode has to stand in for a picture or a poster-sized word.
 > The chat message is no longer rendered as raw HTML — it passes through an allow-list
 > that keeps only a few tags and the `src`/`class` attributes. What that means in
 > practice: **Hanzi tiling (text) and CJK glyph-art (pictures) are the reliable paths
-> now.** Real pictures have one possible route — `<img class="emote">` — which is built
-> in but needs a test print to confirm (see [Carrier tags](#carrier-tags-how-a-real-picture-gets-there-and-what-to-do-when-it-stops)).
-> **Big Text "Type"/sideways, ASCII glyph-art, the Takeover and the fake cheer no
-> longer print** and are flagged as such in the app. Full detail in the
+> now**, because they are plain text and nothing can filter them.
+>
+> **Real pictures cannot be sent at all.** The sanitizer allows only an `<img>` tag, and
+> the channel's automod blocks `<img` — field-confirmed the same day, with a control, so
+> the two gates leave nothing in between. **Big Text "Type"/sideways, ASCII glyph-art,
+> the Takeover and the fake cheer no longer print either**, and the app flags all of
+> them rather than letting you spend bits on blank paper. Full detail in the
 > [changelog](docs/CHANGELOG.md#090---2026-09-15).
 
 Receipt Wrecker is a single-file, dependency-free web tool. You build a stack of
@@ -37,8 +40,9 @@ blocks and it packs them into as few chat messages as possible:
   oversized-Type render, straight or sideways, is still selectable but is stripped by
   the sanitizer and no longer prints.)
 - **Image** blocks make **glyph-art** — the picture tiled into characters, which
-  nothing can filter — or attempt a **real picture** via `<img class="emote">` (the
-  one carrier the sanitizer allows; probe it on your rig).
+  nothing can filter. The **real picture** mode is currently non-functional: the only
+  carrier the sanitizer allows is `<img class="emote">`, and automod blocks `<img`, so
+  the block warns instead of sending.
 - **Takeover** / **fake cheer** paint over printer-bot's own header. These are an SVG
   trick the sanitizer now strips, so they no longer print; the blocks stay in the app,
   flagged, in case the sanitizer is rolled back.

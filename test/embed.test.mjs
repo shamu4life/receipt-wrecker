@@ -29,11 +29,15 @@ test("EMBEDS: ids are unique and every surface fits a cheer with room to spare",
   }
 });
 
-test("the default carrier is a live surface, not one the blocked-terms list already ate", () => {
+test("the default carrier is the one to re-probe first, and leads the dropdown", () => {
+  // It used to be an invariant that the default was a LIVE surface. As of 2026-09-15
+  // that is impossible: the sanitizer strips every tag but <img>, and automod blocks
+  // "<img", so no carrier can deliver. The default's remaining job is to name the entry
+  // worth re-probing first — the sanitizer-legal one — and to lead the dropdown.
   const def = C.getEmbed(C.EMBED_DEFAULT);
   assert.equal(def.id, C.EMBED_DEFAULT, "EMBED_DEFAULT names no entry in EMBEDS");
-  assert.ok(!def.blocked, "default carrier " + def.id + " is marked blocked");
   assert.equal(C.EMBEDS[0].id, C.EMBED_DEFAULT, "the default should lead the dropdown");
+  assert.notEqual(def.field, "stripped", "the default should be the sanitizer-legal candidate, not one the sanitizer removes");
   const html = C.buildImageEmbed(C.EMBED_DEFAULT, BOX);
   assert.ok(html.indexOf("<image") < 0, "default still emits the blocked <image tag");
   assert.ok(html.indexOf("<object") < 0, "default still emits the blocked <object tag");
@@ -67,19 +71,24 @@ test("every carrier declares the exact token a blocked-terms list would have to 
   }
 });
 
-test("under the live sanitizer, only the two img-class carriers survive", () => {
-  // The sanitizer (confirmed live 2026-09-15) strips every tag but a short allow-list,
-  // and the only picture it keeps is <img class="emote"|"bits">. So the field record
-  // above is superseded: embed/input/iframe/object AND the SVG image form are ALL dead
-  // now, and the only live carriers are the two img-class forms.
-  const stripped = new Set(["<object", "<image", "<embed", "<input", "<iframe"]);
+test("every carrier is dead, and `field` records WHICH of the two gates killed it", () => {
+  // Field-confirmed 2026-09-15, and the reason the app now warns instead of offering a
+  // pick: the two gates have an empty intersection. The sanitizer keeps only <img>
+  // (emote/bits class); automod blocks the literal "<img". Nothing clears both.
+  assert.equal(C.anyCarrierLive(), false, "no carrier can deliver a picture — this must stay false until a gate opens");
   for (const e of C.EMBEDS) {
-    if (stripped.has(e.token)) assert.ok(e.blocked, e.token + " is stripped by the sanitizer but not flagged blocked");
+    assert.ok(e.blocked, e.id + " must be flagged blocked: nothing delivers a picture right now");
+    assert.ok(["blocked", "stripped"].includes(e.field), e.id + " needs a gate on record, got " + JSON.stringify(e.field));
   }
-  // The bare <img (no class) is still dead: the sanitizer deletes a classless <img>.
-  assert.ok(C.getEmbed("img").blocked, "a classless <img must stay flagged blocked");
-  const live = C.EMBEDS.filter(e => !e.blocked).map(e => e.id);
-  assert.equal(live.slice().sort().join(","), "imgbits,imgemote", "only the img-class carriers survive, got " + live.join(","));
+  // The sanitizer is NOT what kills the img-class pair — chat is. That distinction is
+  // the whole reason they lead the list: prune the terms list and they work again.
+  for (const id of ["imgemote", "imgbits"]) {
+    assert.equal(C.getEmbed(id).field, "blocked", id + " is chat-blocked, not sanitizer-stripped");
+  }
+  // The tags the sanitizer removes are on record as such, not mislabelled as chat-blocked.
+  for (const id of ["embed", "input", "iframe"]) {
+    assert.equal(C.getEmbed(id).field, "stripped", id + " is removed by the sanitizer");
+  }
 });
 
 test("every live carrier emits ONLY the attributes the sanitizer keeps (src, class)", () => {
@@ -132,14 +141,21 @@ test("no carrier leans on a CSS background — printer-bot prints with --no-back
   }
 });
 
-test("the carriers are ordered by what actually printed, live ones first", () => {
+test("the carriers are ordered by what is worth re-probing first", () => {
+  // Nothing is live any more, so "live ones first" can't be the rule. What replaces it:
+  // the two the SANITIZER would keep lead the list, because they are the only entries a
+  // pruned blocked-terms list could bring back. Everything the sanitizer strips sorts
+  // below them — those need the sanitizer itself to change, which is a longer shot.
   // joined, not deepEqual: arrays built inside the vm realm aren't reference-equal
   // to this realm's Array, which assert/strict's deep compare rejects.
   assert.equal(ids().slice(0, 2).join(","), "imgemote,imgbits", "the two the sanitizer keeps lead the list");
-  const firstBlocked = C.EMBEDS.findIndex(e => e.blocked);
-  const lastLive = ids().length - 1 - [...C.EMBEDS].reverse().findIndex(e => !e.blocked);
-  assert.ok(firstBlocked > lastLive, "blocked carriers must sort below every live one");
-  // A carrier that sniffs the extension has to say so, since it fails silently.
+  const sanitizerLegal = ["imgemote", "imgbits"].map(id => ids().indexOf(id));
+  const strippedIdx = C.EMBEDS.map((e, i) => (e.field === "stripped" ? i : -1)).filter(i => i >= 0);
+  assert.ok(Math.max(...sanitizerLegal) < Math.min(...strippedIdx),
+    "sanitizer-legal carriers must sort above every tag the sanitizer strips");
+  // A carrier that sniffs the extension has to say so, since it fails silently. This
+  // loop is deliberately vacuous today (no carrier is live) and re-arms by itself the
+  // moment one is — it is a guard for the state we want back, not a dead assertion.
   for (const e of C.EMBEDS) {
     if (e.needsExt && !e.blocked) {
       assert.ok(/needs a/i.test(e.label), e.id + " should warn about the URL extension: " + e.label);
@@ -165,12 +181,15 @@ test("a carrier that won't reach the tape says so in its label, so the dropdown 
   // Two ways a carrier is dead now: the blocked-terms list ate its tag, or the
   // sanitizer strips it. Either way the label has to say so.
   for (const e of C.EMBEDS) {
-    if (e.blocked) assert.ok(/blocked|stripped/i.test(e.label), e.id + " is dead but doesn't say so: " + e.label);
+    assert.ok(/block|stripped/i.test(e.label), e.id + " is dead but doesn't say so: " + e.label);
   }
-  // The two live carriers must flag themselves as unverified — the tag survives the
-  // sanitizer, but only a real print confirms it clears chat and prints at a usable size.
+  // The img-class pair must not read as merely "blocked" like the rest: their label has
+  // to say the SANITIZER accepts them and CHAT is what refuses, because that is what
+  // makes them the pair to re-probe rather than abandoned tags.
   for (const id of ["imgemote", "imgbits"]) {
-    assert.ok(/probe/i.test(C.getEmbed(id).label), id + " should tell the user to probe it: " + C.getEmbed(id).label);
+    const label = C.getEmbed(id).label;
+    assert.ok(/sanitizer-legal/i.test(label), id + " should say the sanitizer accepts it: " + label);
+    assert.ok(/automod/i.test(label), id + " should name chat's filter as the blocker: " + label);
   }
 });
 
@@ -183,7 +202,10 @@ test("sizes are normalized, so a missing aspect probe or junk slider can't emit 
       // The live img-class carriers state no size on purpose — the sanitizer strips
       // width/height, so a stated box would be dead weight. Every OTHER carrier that
       // states a dimension must normalize it to a positive number.
-      if (e.token === "<img" && !e.blocked) {
+      // The img-class pair states no size on purpose — the sanitizer strips width/height,
+      // so a stated box would be dead weight. Keyed by id, not by `blocked`: everything is
+      // blocked now, and the classless <img> in this table DOES still state a size.
+      if (e.id === "imgemote" || e.id === "imgbits") {
         assert.equal(dims.length, 0, e.id + " should state no size (the sanitizer strips it): " + html);
       } else {
         assert.ok(dims.length > 0, e.id + " stated no size at all: " + html);
@@ -227,20 +249,20 @@ test("probe bodies survive the real packer as one cheer each", () => {
   }
 });
 
-test("the default is the only sanitizer-legal carrier, flagged honestly and never overclaimed", () => {
-  // The old rule was: only a carrier field-recorded as "prints" may be the default,
-  // because the default was once set on a bench result the tape contradicted. The
-  // sanitizer forces a harder situation — the ONLY carrier it keeps is <img class=…>,
-  // which no one has printed yet — so the default is legitimately unverified. The rule
-  // that survives is the honest half: we do NOT relabel it "prints" to make it look
-  // proven. It carries field "probe" until the rig says otherwise.
+test("nothing claims to work: no carrier may be marked live without a field result", () => {
+  // The rule this file has always enforced, in its current form. It began as "only a
+  // carrier field-recorded as 'prints' may be the default", after the default was once
+  // set on a bench result the tape contradicted. 0.9.0 briefly shipped the img-class
+  // pair as the unverified default under field "probe" — and the free chat probe then
+  // came back BLOCKED, which is precisely why the optimistic label was wrong to ship.
+  // So: no entry may claim to print, and the app must report that nothing works.
   const def = C.getEmbed(C.EMBED_DEFAULT);
-  assert.ok(!def.blocked, "default " + def.id + " is blocked");
-  assert.equal(def.token, "<img", "default must be a sanitizer-legal <img carrier");
-  assert.equal(def.field, "probe", "default " + def.id + " must be flagged 'probe', not overclaimed — got '" + def.field + "'");
-  // No carrier may claim "prints" until a real print earns it: nothing has, post-sanitizer.
+  assert.equal(def.token, "<img", "default must still be the sanitizer-legal <img candidate");
+  assert.equal(C.anyCarrierLive(), false, "no carrier is live; the UI depends on this to warn");
   for (const e of C.EMBEDS) {
-    assert.ok(["probe", "blocked", "stripped"].includes(e.field),
+    assert.ok(["blocked", "stripped"].includes(e.field),
       e.id + " has an unexpected field verdict: " + JSON.stringify(e.field));
+    assert.notEqual(e.field, "prints", e.id + " claims to print with no field result behind it");
+    assert.notEqual(e.field, "probe", e.id + " is still marked unverified — the probe has since returned a verdict");
   }
 });

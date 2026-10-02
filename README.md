@@ -170,13 +170,15 @@ and it shows whether the message gets through.)
   block really costs once the stack is packed. It also warns when a line is too wide,
   when emoji were left out, and when a word would be charged as another cheer.
 
-Rough sizes (capitals are about 70% of the type size; a level is one more nested title):
+Rough sizes, all for one cheer. Capitals are about 70% of the type size, and a level is
+one more nested title. Auto also uses in-between sizes (0.9 × and 0.8 × a level), so
+real picks land between these rows.
 
-| levels | type size | capitals | a typical use, one cheer |
+| levels | type size | capitals | what Auto gives it |
 |---|---|---|---|
-| 5 | 40 px | ≈ 0.7 cm | a short sentence on a few lines |
+| 5 | 40 px | ≈ 0.7 cm | `WRECK THE RECEIPT COMPLETELY`, stacked (just under this row) |
 | 8 | 69 px | ≈ 1.3 cm | `HAPPY BIRTHDAY`, stacked |
-| 10 | 99 px | ≈ 1.8 cm | about ten stacked letters |
+| 10 | 99 px | ≈ 1.8 cm | a ten-letter word, stacked |
 | 14 | 205 px | ≈ 3.8 cm | a five-letter word, stacked (`HELLO`) |
 | 16 | 296 px | ≈ 5.5 cm | two or three letters (`GG`, `LOL`) |
 
@@ -306,13 +308,40 @@ measured fact, with a single throwaway print and no access to the other side.
 
 ## Cheer-ready output & the AutoMod caveat
 
-For the Twitch-cheer use case there's a **Cheer-ready** toggle (on by default):
-it adds a space-delimited `Cheer100` token plus a small visible rotating nonce
-to the payload, so Twitch registers the message as a cheer and a duplicate-message
-filter doesn't eat a re-send. Turn it off to get the raw glyph block only, either
-for other destinations or when you're composing with a chunking tool like
-[`cheer-splitter-9k`](https://github.com/shamu4life/cheer-splitter-9k) that adds
-its own prefix.
+For the Twitch-cheer use case there's a **Cheer-ready** toggle (on by default). Every
+message then **starts with** a `Cheer100` token (`Cheer<your bits>` if you set more) and
+a small visible rotating two-digit nonce, so Twitch registers the message as a cheer and
+a duplicate-message filter doesn't eat a re-send. The token goes first so it survives
+anything that trims a long message, and so the message never starts with `<`, which
+some sends are dropped for. Turn it off to get the blocks only, for three reasons:
+
+- other destinations;
+- composing with a chunking tool like
+  [`cheer-splitter-9k`](https://github.com/shamu4life/cheer-splitter-9k) that adds its
+  own prefix;
+- a **free test**. A message with no cheer never reaches the printer, but it does go
+  through the channel's chat filters, so sending it shows whether the channel lets that
+  text through before you spend bits on it.
+
+### Hide the cheer gem (optional)
+
+printer-bot turns your `Cheer100` into a small cheer gem plus "100", and with the
+nonce that takes a line of its own above your art. **Hide the cheer gem in the
+corner** (off by default, needs Cheer-ready) wraps the token in a box that
+printer-bot's own stylesheet pins to the receipt's top-right corner and clips. The gem
+is squeezed into a tiny corner box, "100" and the nonce are cut off, and with Giant type
+the line they used is saved for your art. printer-bot's header still prints the bits
+and your name, and Twitch still sees, shows and charges an ordinary cheer.
+
+- It costs **48 of the 500 characters** at 100 bits, a little more for bigger amounts.
+  The hint under the checkbox computes it. A cheer that starts with Giant type gets 4
+  back. Any other block gets a line break in front of it instead, so a Hanzi grid still
+  starts on a clean line.
+- It was made for Giant type. With other blocks it hides the gem but saves no paper.
+- How sure: the corner box rode the one real cheer that printed giant letters, so chat
+  and the sanitizer accept it. That it clips the gem into the corner is measured on
+  printer-bot's print engine, not yet seen on paper. If printer-bot ever changes that
+  style, the gem just prints normally and nothing else breaks.
 
 One caveat: a channel's AutoMod or blocked-terms list can hold or drop a message
 before it ever reaches chat. That's a per-channel moderation setting on Twitch's
@@ -323,6 +352,12 @@ before assuming the tool is broken.
 ---
 
 ## Big Text formatting, and why the font matters more sideways
+
+*This section is about the old **Type** render (straight or sideways), which the
+sanitizer stopped from printing in September 2026. It is kept as a record, and for any
+destination that still renders markup. **Giant type has no formatting row**: its weight
+and font come from printer-bot's own style (bold Segoe UI on a Windows rig), so the
+card hides the font, weight and I/U/S controls and says so.*
 
 A **Text** block rendered as Big Text (straight or sideways) carries the same
 formatting row as a takeover line: the nine-font select, a weight select, and

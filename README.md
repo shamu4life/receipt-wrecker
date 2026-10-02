@@ -108,8 +108,8 @@ cheer on a new printer, send the **Print size ruler** once (see below).
 ## Giant type: how and why it works
 
 **Giant type** prints your text as huge bold capitals. A five-letter word stacked one
-letter per line comes out with capitals about **3.8 cm** tall, filling the width of an
-80 mm roll, for one 100-bit cheer. It is the default render of a Text block.
+letter per line comes out with capitals about **3.8 cm** tall on an 80 mm roll, for one
+100-bit cheer. It is the default render of a Text block.
 
 ### Why it works, step by step
 
@@ -337,7 +337,7 @@ and your name, and Twitch still sees, shows and charges an ordinary cheer.
   The hint under the checkbox computes it. A cheer that starts with Giant type gets 4
   back. Any other block gets a line break in front of it instead, so a Hanzi grid still
   starts on a clean line.
-- It was made for Giant type. With other blocks it hides the gem but saves no paper.
+- It was made for Giant type. With other blocks it hides the gem, but the line stays.
 - How sure: the corner box rode the one real cheer that printed giant letters, so chat
   and the sanitizer accept it. That it clips the gem into the corner is measured on
   printer-bot's print engine, not yet seen on paper. If printer-bot ever changes that
@@ -407,6 +407,10 @@ render is tiled glyphs, not type, and there is nothing to format.
 ---
 
 ## Takeover: make the tape your artwork, not a receipt
+
+*A takeover is an SVG, and since printer-bot's sanitizer arrived (September 2026) it no
+longer prints, because the sanitizer removes SVG. The block stays in the app, flagged,
+in case that changes. This section is the record of how it worked.*
 
 printer-bot draws its own header above your message: the avatar, a `<N> BITS` line,
 and the cheerer's name. A **Takeover** block paints over it. The block is an opaque
@@ -534,6 +538,11 @@ it. The paper is the gag; everyone watching knows it's lying, which is the joke.
 
 ## Carrier tags: how a real picture gets there, and what to do when it stops
 
+*Since September 2026 none of these carriers can be sent: the sanitizer keeps only
+`<img class="emote">` or `<img class="bits">`, and the channel's automod blocks `<img`
+(see the banner at the top). The table below is the record from before that, and the
+list to re-check if either filter ever changes. Glyph-art is the picture path now.*
+
 Glyph art is just text, so nothing can really stop it. A **real picture** is
 different: printer-bot drops the chat message into its page as markup, so the photo
 rides on an HTML tag pointing at a URL. Which tag that is has turned into a moving
@@ -595,6 +604,10 @@ photo, and it always prints.
 
 ## How it works / first-print Census
 
+This describes the glyph-art pipeline (Hanzi tiling and Image glyph-art). Giant type
+skips steps 1 to 3: it sends your text as text, wrapped in nested titles, and the
+printer draws the letters. See [Giant type](#giant-type-how-and-why-it-works).
+
 1. **Rasterize.** Big Text mode draws your word(s) onto an off-screen `<canvas>`,
    scaled to fill the target width; Image mode draws your picked image onto a
    canvas at the sampled resolution. Either way you get a luminance grid.
@@ -610,12 +623,15 @@ photo, and it always prints.
    cell.
 4. **Package.** If **Cheer-ready** is on, the payload is *prefixed* with
    `Cheer<N>` plus a visible rotating nonce, leading so that they survive any
-   trailing-strip and the message never starts with `<`. A live character counter
+   trailing-strip and the message never starts with `<`. (With **Hide the cheer gem**
+   on, a non-breaking space leads and the token sits in the corner box right after it,
+   so the message still never starts with `<`.) A live character counter
    (budget: 500, Twitch's per-message cap, leaving headroom) turns red if you go
    over instead of silently truncating.
 5. **Census.** The **Print test strip** button runs the same pipeline over a
    fixed diagnostic string instead of your input. That is the blind-first-print
-   calibration described above.
+   calibration described above. Its Giant type counterpart is the **Print size
+   ruler**: one cheer, the numbers 1 to 13 at every size.
 
 The glyph pipeline itself runs synchronously in the page. That is not the same as
 "nothing is sent": pasting an image URL fetches it through our `/px` proxy, dragging
@@ -662,7 +678,8 @@ is no longer true, and the honest breakdown matters more than the slogan:
 
 **Stays on your device:**
 
-- **Big Text** in every style. Nothing is sent.
+- **Big Text** in every style, Giant type included. Nothing is sent. The Emote layout's
+  preview draws a labelled box for each emote and never downloads the emote.
 - **A picture you pick from disk for glyph-art**, decoded locally in a canvas.
 - No analytics, no accounts, no third parties. Every request below goes to this
   project's own Cloudflare Worker and nowhere else.
@@ -680,9 +697,9 @@ Two of those fire without a dedicated button (typing a URL, and dragging a slide
 so "I never clicked upload" is not the same as "nothing left the device".
 
 **Storage:** four `localStorage` keys, all wrapped in `try/catch` so locked-down
-contexts still work: control settings (`rw_controls_v1`), the nonce counter
-(`rw_nonce_seq`), your block stack (`rw_blocks_v1`) and your saved presets
-(`rw_presets_v1`).
+contexts still work: control settings (`rw_controls_v1`, which also holds the "Hide the
+cheer gem" choice), the nonce counter (`rw_nonce_seq`), your block stack
+(`rw_blocks_v1`) and your saved presets (`rw_presets_v1`).
 
 The app is still one auditable file, and it still runs offline if you only use Big
 Text and locally-picked pictures.
@@ -743,8 +760,12 @@ image URL for glyph-art, and the image adjustment bake.
 |---|---|
 | [`public/`](public) | **The deployed site.** Cloudflare serves *only* this directory. |
 | [`public/index.html`](public/index.html) | **The entire app.** Inline CSS + vanilla JS, no assets. |
+| [`src/worker.js`](src/worker.js) | The Cloudflare Worker: serves `public/`, plus `/upload`, the short image links and the `/px` proxy. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers config (serves `public/`). |
 | [`test/`](test) | Node `node:test` suite. Extracts the inline script and unit-tests the pure glyph engine. |
+| [`test-browser/`](test-browser) | Playwright tests that drive the real page in headless Chromium (`npm run test:browser`). |
+| [`tools/`](tools) | The print bench, for contributors: see [below](#the-print-bench-for-contributors). Dev-only, never shipped. |
+| [`docs/`](docs) | The changelog and the design specs each feature was built from. |
 | [`README.md`](README.md) | This file. |
 | [`CLAUDE.md`](CLAUDE.md) | Guidance for AI assistants and contributors. |
 | [`LICENSE`](LICENSE) | MIT. |
@@ -753,8 +774,44 @@ image URL for glyph-art, and the image adjustment bake.
 IIFE (`"use strict"`). No build step, no framework, no dependencies, no external
 resources: system font stacks only, with no web fonts, no CDN and no external images.
 Browser APIs used: Canvas 2D (rasterizing text/images), Clipboard (with
-`execCommand` fallback), and `localStorage` (control settings + nonce counter
-only).
+`execCommand` fallback), and `localStorage` (the four keys listed under
+[Privacy](#privacy-what-stays-local-and-what-doesnt)). The only network calls go to
+this project's own Worker, and only for the picture flows described there.
+
+### The print bench (for contributors)
+
+"Does it print?" is answered by measuring, not by arguing, and the tools for it live in
+[`tools/`](tools). They are dev-only: nothing here ships, and nothing of nutty's, and no
+font, is ever committed. Everything they fetch or render goes to the gitignored
+`.render/` folder.
+
+- **`tools/payload.mjs`** builds a payload with the app's own code, so the bench measures
+  what the app really sends rather than markup someone typed by hand.
+- **`tools/printerbot.mjs`** (`npm run printerbot`, new in 0.10.0) builds the *exact* page
+  printer-bot would print for a chat message. It fetches printer-bot's live settings page
+  and the stylesheets and sanitizer it uses, caches them with a checksum and the time
+  they were fetched, runs printer-bot's real sanitizer, and repeats its emote and cheer
+  steps. `--png FILE` renders the result on the real engine through `rig.py`, and
+  `--check` compares the class rules Giant type relies on against the live stylesheet:
+  run it before a release. It needs Playwright's Chromium (`npx playwright install
+  chromium`) and the network, or a cache from an earlier run (`--offline`).
+- **`tools/rig.py`** (`npm run render`) renders a page with the same print engine and
+  settings printer-bot uses (wkhtmltopdf 0.12.6 with patched Qt) and reports how much ink
+  landed where, how many pages it took, which stylesheet it used, and which fonts were
+  embedded. `--document` renders a complete page from `printerbot.mjs` untouched.
+  `--fonts DIR` points it at **your own** copy of Segoe UI, the font the real rig prints
+  in. Without it the numbers are for a substitute font and can differ by a whole page.
+- **`tools/calibrate.py`** builds the one-print test for how the printer turns grey into
+  dots.
+
+```sh
+node tools/payload.mjs '{"kind":"giant","text":"HELLO"}' \
+  | node tools/printerbot.mjs --out - \
+  | python3 tools/rig.py hello --document - --fonts ~/my-segoe-ui
+```
+
+The details (every flag, what the bench can and can't see, and the measurements it has
+settled) are in [CLAUDE.md](CLAUDE.md), under "Measuring against the real engine".
 
 ---
 
@@ -778,8 +835,13 @@ Run the tests before sending a change:
 
 ```sh
 npm test                       # Node's built-in test runner; zero deps to install
+npm run test:browser           # the real page in headless Chromium (npx playwright install chromium, once)
 npx wrangler deploy --dry-run  # validates config + assets
 ```
+
+Before a release, also run `npm run printerbot -- --check`. It compares the printer-bot
+styles Giant type borrows against the live stylesheet. It needs the network, so it is a
+checklist step, not part of CI.
 
 ---
 

@@ -766,14 +766,25 @@ node tools/payload.mjs '{"kind":"takeover","pullPt":240,"items":[...]}' | python
 0.10.0 means Giant type and the tuck, use the faithful pipeline instead:**
 
 ```sh
-node tools/payload.mjs '{"kind":"raw","lead":true,"html":"<br><b class=title>HI</b><br>"}' \
+node tools/payload.mjs '{"kind":"giant","text":"HELLO"}' \
   | node tools/printerbot.mjs --out - \
-  | python3 tools/rig.py my-case --document - --fonts ~/my-segoe-ui
+  | python3 tools/rig.py hello --document - --fonts ~/my-segoe-ui
 ```
 
-(Or paste a payload from the app's Copy button: `node tools/printerbot.mjs --message
-'…' --png .render/printerbot/x.png`.) `tools/printerbot.mjs` (`npm run printerbot --
-…`) fetches nutty's **live** settings page (`widgets.nutty.gg/printer-bot/contents/`)
+`payload.mjs` gained two kinds for this in 0.10.0, both built through the app's own
+path: `{"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote","size":"fit1|width"|1..18,"tuck":false,"bits":100,"cheer":true,"part":0}`
+runs `buildGiantBodies` at `packStack`'s budget and then `packStackBodies`, and emits
+part `part` (0-based), with the part count and the predicted size on stderr.
+`"cheer":false` is the free-probe message. `{"kind":"ruler"}` is the Print size ruler.
+Both are **complete messages, lead included**, because they only mean anything after
+the sanitizer and the cheermote pass. Piped straight into `rig.py`'s template page they
+still render, but unsanitized and with the token left as text. `"lead":true` on the
+other kinds now goes through `packStackBodies` too (it honours `"tuck"` and `"bits"`),
+where it used to hand-build `"Cheer100 00 "`. (Or paste a payload from the app's Copy
+button: `node tools/printerbot.mjs --message '…' --png .render/printerbot/x.png`.)
+
+`tools/printerbot.mjs` (`npm run printerbot -- …`) fetches nutty's **live** settings
+page (`widgets.nutty.gg/printer-bot/contents/`)
 and takes the stylesheet list, their order and the receipt `<template>` *from that
 page* rather than from anything typed here. It fetches `global.css`, `style.css` and
 `helpers.js` and caches every file under `.render/printerbot/cache/` with its sha256
@@ -797,6 +808,7 @@ back to a Chromium render, labelled APPROXIMATE. Flags:
 | `--png FILE` | render it: real wkhtmltopdf via `rig.py`, else APPROXIMATE Chromium |
 | `--fonts DIR` / `--paper MM` | passed to `rig.py`; the paper defaults to 80 (page = MM-8) |
 | `--offline` | cache only, never the network |
+| `--ref SHA\|BRANCH` | read nutty's files from `github.com/nuttylmao/nutty.gg` at that commit instead of the live site (a branch or tag is resolved to its sha and recorded), so a measurement can be re-run against exactly the CSS it was taken on, or replayed against a past commit. The live site **is** that repo's `main` (GitHub Pages): checked 2026-10-02, all five files byte-identical to `main` @ be2972f |
 | `--check` | the release-checklist canary: exit 1 if any `PB_CLASSES` declaration (read from the app core via `loadCore`) is missing from the live CSS, or the real sanitizer drops one of our classes. **Not in CI**, which stays offline, and no test may import this tool. |
 
 Exit status 0 fine, 1 check or render failed, 2 usage or environment. A file that
@@ -1092,8 +1104,9 @@ and Segoe UI metrics from a local copy that is not, and never will be, in this r
   whether the gem was clipped was not judged.
 - **Emotes.** Twitch reports an emote only when the name is a whitespace-delimited word
   of the raw message. Glued to a tag (`class=title>Kappa`, `Kappa<br>`) it is never in
-  `data.emotes`, so the tape prints "KAPPA" in giant capitals sized for a 1em square:
-  383px wide per line at L11, clipped at the page edge. Hence the padding. QtWebKit 534
+  `data.emotes`, so the tape prints "KAPPA" in giant capitals sized for a 1em square
+  (383px wide per line at L11 in Chromium; on the engine the ink runs to the page edge
+  and is clipped). Hence the padding. QtWebKit 534
   **counts the trailing pad space when centring** a line that still fits, so the line
   shifts left by half a space (0.138em; -16.1px at L11). Chromium hangs the space
   instead. `giantLineEm` counts that space, so the fit stays honest. `.emote{height:1em}`

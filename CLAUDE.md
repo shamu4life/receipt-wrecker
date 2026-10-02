@@ -53,8 +53,11 @@ sample up as a mechanism.**
   corner box clipped the gem was not.
 - **BENCH**: real wkhtmltopdf 0.12.6.1 (patched Qt) with Segoe UI metrics, fed the
   document `tools/printerbot.mjs` builds with printer-bot's own sanitizer. It covers the
-  sizes, line pitch, the 23px lead/gap line, the tuck's clipping and the line it saves,
-  the shrink wrappers, emote sizing and page spill. See "Settled for Giant type" below.
+  sizes, line pitch, the 23px lead/gap line, the small stack word gap (0.11.0), the tuck's
+  clipping and the line it saves, the shrink wrappers, and emote sizing. It does NOT cover
+  the one thing that caused the 0.11.0 field cut-off — the printer driver's real paper
+  length and SumatraPDF's `noscale` clip — because the bench renders wkhtmltopdf's 500mm
+  page; that is the Receipt length control's job. See "Settled for Giant type" below.
 - **NEVER SENT**: `class=setting-description` / `class=setting-attribute` (the ×0.9 /
   ×0.8 shrink wrappers, which Auto emits whenever such a step is the best fit, so they
   are far from exotic), the padded emote form, and the app's EXACT tucked lead: a leading
@@ -314,14 +317,17 @@ browser-glue split:
 
 An inert `module.exports` hook at the end of the IIFE (guarded by
 `typeof module !== "undefined"`, false in browsers, true under Node) hands the
-test harness the pure-core functions. **110 keys, regenerated at the 0.10.0 cut: 109
+test harness the pure-core functions. **118 keys, regenerated at the 0.11.0 cut: 117
 from the app's `module.exports`, plus `__fontLog`, which `test/_harness.mjs` adds
 itself.** (The 0.6.0 list said 72 and was already one short by 0.9.1: `anyCarrierLive`
-was missing.)
+was missing. 0.11.0 replaced the `HEIGHT_BUDGET` constant with the length helpers below.)
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `quantizeBinary`,
 `ditherFloydSteinberg`, `lumaToDots`, `packBraille`, `render`,
 `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`, `packageCheer`,
-`buildCensus`, `CHEER_TOKEN`, `packStackBodies`, `HEIGHT_BUDGET`,
+`buildCensus`, `CHEER_TOKEN`, `packStackBodies`, and, new in 0.11.0 (the
+length-derived per-receipt height budget), `heightBudget`, `clampReceiptMm`,
+`giantHeight`, `DEFAULT_HEIGHT_BUDGET`, `HEIGHT_RESERVE_PX`, `LEN_PX_PER_MM`,
+`RECEIPT_MM_DEFAULT`, `RECEIPT_MM_MIN`, `RECEIPT_MM_MAX`,
 `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
 `getEmbed`, `anyCarrierLive`, `FONTS`, `getFont`, `fmtAttrs`, `buildImageEmbed`,
 `buildEmbedProbe`, `buildTakeover`, `takeoverBox`, `TAKEOVER_PULL_PT`,
@@ -652,13 +658,39 @@ Pure core (DOM-free, unit-tested):
       and a shrink step carries one tag more than the plain step below it, so Auto could
       pick a 549-character L14×0.9 that Twitch rejects while L12 sent in 478.
     - **Chunking is on height AND characters.** The height is `GIANT_GAP_PX + Σ
-      giantLineH ≤ HEIGHT_BUDGET`. The characters are `≤ budget`, which is `MAX_CHARS -
-      leadLength`. Height alone once let 26 lines of "ROSES nnn" become a 487-character
-      body: 499 with the plain lead, 543 tucked, and Twitch rejects that outright. The
-      chunker prefers to break at a blank line and trims blanks at both edges of every
-      chunk, because a chunk that starts with one prints a giant-height blank. A single
-      line over budget on its own is emitted with `giant.over` and warned about, never
-      truncated.
+      giantLineH ≤ hb`, where `hb` is the per-receipt height budget, `heightBudget(mm)` —
+      **length-derived since 0.11.0, not a fixed 1400** (see the next item). The characters
+      are `≤ budget`, which is `MAX_CHARS - leadLength`. Height alone once let 26 lines of
+      "ROSES nnn" become a 487-character body: 499 with the plain lead, 543 tucked, and
+      Twitch rejects that outright. The chunker prefers to break at a blank line and trims
+      blanks at both edges of every chunk, because a chunk that starts with one prints a
+      giant-height blank. A single line over budget on its own is emitted with `giant.over`
+      and warned about, never truncated; one taller than `hb` is flagged `giant.tall`
+      (`giantStepTall`, O(1)) and the report says it is cut off — never silently clipped.
+    - **The height budget is the receipt's length, not a fixed page (0.11.0, the field
+      cut-off fix).** `heightBudget(mm) = floor(mm × LEN_PX_PER_MM − HEIGHT_RESERVE_PX)`,
+      A4 → 771 px. `HEIGHT_RESERVE_PX` (351) is the header + lead line + footer a cheer
+      spends outside the body, MEASURED on the real engine (inked page = the per-body
+      height estimate + 351, flat across L6–L14). `LEN_PX_PER_MM` is the TRUE 96/25.4, not
+      the rounded `PX_PER_MM` (3.75) the picture box uses — length needs the exact constant.
+      WHY: printer-bot lays the page out at `--page-height 500mm`, so the old fixed 1400 px
+      (~37 cm) packed a tall Giant stack into one cheer, but the real printer stops at its
+      Windows driver's paper length (often A4, 297 mm) and SumatraPDF prints `noscale`,
+      which CLIPS the overflow — a stacked cheer came off cut at ~29.7 cm. The length is a
+      per-stack option (`opts.heightPx`) threaded from the **Receipt length** control
+      through `packStack` → `renderBlockBodies`/`buildGiantBodies` and into `packStackBodies`
+      (both read the SAME value); absent, everything falls back to `DEFAULT_HEIGHT_BUDGET`
+      (A4). The bench can set it: `tools/payload.mjs` takes an optional `"mm"`.
+    - **Stack word gaps can be the small inter-body gap, not a giant blank line (0.11.0).**
+      `giantChunks` takes a `gap` style; `"small"` (stack only) gives each WORD its own nest
+      joined by a base-level `<br><br>` (~GIANT_GAP_PX, measured: `I RAID RAID` at L7, pitch
+      77 px within a word vs 100 px between), `"blank"` is the old single nest. `giantPick`
+      picks whichever gives FEWER cheers, tie to `blank` — so a spaceless word (`HELLO`) and
+      a run of single-letter words (`C O C K`, where per-word nests would blow the character
+      budget) stay byte-identical to pre-0.11, and `small` only wins when it buys a bigger
+      one-cheer size for a spaced PHRASE (e.g. `I RAID RAID`). `fit.gap` / `giant.gap`
+      records the choice. Note the packer's split-and-merge ALSO renders a word gap small
+      (two bodies meet at a base `<br><br>`), which is why `blank` is usually enough.
     - **Payload rules.** The payload is never uppercased: `text-transform` is visual,
       and emote names are case-sensitive. Every body closes every tag, because the
       packer concatenates raw and an unclosed `.title` would make everything after it
@@ -684,8 +716,10 @@ Pure core (DOM-free, unit-tested):
       `blockRender` maps an absent or unknown `render` to `"type"`, today's
       fall-through, so the card's select and the payload can never disagree.
     - **The report.** `giantReport` is the card's plain-language text ("Capitals ≈
-      3.8 cm · fits 1 cheer", too wide, over-length, emoji or invisible characters
-      left out, cheer-shaped words). It stays pure so its numbers are tested. The cm
+      3.8 cm · fits 1 cheer", too wide, over-length, **taller than the receipt so cut off**,
+      emoji or invisible characters left out, cheer-shaped words). It takes `opts.receiptMm`
+      so the cut-off warning and the ruler gauge name the user's real length. It stays pure
+      so its numbers are tested. The cm
       figures are `giantCapCm` (`round(px)` × 1434/2048 × 25.4/96: the engine rounds
       font-size to whole px, and Segoe UI's cap height is 1434 of 2048 units) and, for
       emotes, `giantEmoteCm` (the whole rounded font-size). Both use `GIANT_MM_PER_PX`
@@ -724,7 +758,13 @@ Pure core (DOM-free, unit-tested):
     type. The numbers 1-13, each one `.title` level deeper than the last, in one body:
     316 characters (328 with the plain lead), 1275px, one cheer on one 500mm page. It
     proves the trick on THIS rig today and shows every size at once. It is never
-    tucked, because it is a diagnostic and should look like every other cheer.
+    tucked, because it is a diagnostic and should look like every other cheer. **It is
+    also the length gauge (0.11.0):** it carries `giant.rungs` (each number's bottom in px
+    and cm, measured the way the packer measures a body), and `giantReport(ruler,
+    {receiptMm})` turns that into "at N mm, numbers up to K print, higher ones are cut off,
+    each lands at … cm down the tape". It is ONE body, so `packStackBodies` never splits it
+    — it rides the full 500mm page and may run past a short receipt on purpose, which is how
+    the user reads their real length off it. Do NOT make it honour `heightPx`.
 
 Browser glue (canvas + DOM, guarded, browser-verified rather than
 unit-tested):
@@ -750,20 +790,29 @@ unit-tested):
 - `saveControls()` / `restoreControls()` / `loadSavedControls()`: persist/restore
   the control panel (tier, columns, mode, toggles, text) to `localStorage`. Since
   0.10.0 that includes `tuck` (the "Hide the cheer gem" checkbox) as a FIELD of
-  `rw_controls_v1`; absent reads as off. No new key.
+  `rw_controls_v1`; absent reads as off. 0.11.0 adds `receiptLen` (the Receipt length
+  mm) the same way, clamped on restore to `clampReceiptMm`; absent reads as the A4
+  default. No new key.
+- `getReceiptMm()` / `getHeightPx()`: the Receipt length control, clamped, and its
+  `heightBudget(mm)`. `composeParts` passes `heightPx: getHeightPx()` into `packStack`,
+  and the giant card passes it (and `receiptMm`) into `giantPlan` / `giantReport`, so
+  every size label, cheer count and the note reflect the user's real page.
 - `getTuck()` / `syncTuckUi()`: the tuck checkbox. It is *disabled*, not unchecked,
   without Cheer-ready, so turning Cheer-ready back on restores the user's choice, and
   its hint computes the cost from the two real leads (`buildLead`) rather than writing
   a number down: an earlier draft said "+46" for what measures 48.
-- `packStack(blocks, opts)` computes `budget = MAX_CHARS - leadLength(opts)` once and
-  passes it (and `tuck`) to `renderBlockBodies(block, budget, tuck)`, which routes
-  through `blockRender`: giant first, then hanzi, and everything else falls through to
-  Type as it always has. `composeParts` / `probeParts` pass the tuck. The Census and
-  the ruler are never tucked.
+- `packStack(blocks, opts)` computes `budget = MAX_CHARS - leadLength(opts)` and
+  `heightPx = giantHeight(opts.heightPx)` once and passes them (and `tuck`) to
+  `renderBlockBodies(block, budget, tuck, heightPx)`, which routes through `blockRender`:
+  giant first, then hanzi, and everything else falls through to Type as it always has.
+  `opts.heightPx` also reaches `packStackBodies`, so the body builders and the packer
+  split against the SAME per-receipt height. `composeParts` / `probeParts` pass the tuck.
+  The Census and the ruler are never tucked.
 - The Giant type card (in `textCard`): Layout and Size selects whose every option is
   labelled with what it would print for the current text ("Level 14 · capitals 3.8 cm
   · 1 cheer", "… · letters cut off"), computed by `giantPlan` with the packer's own
-  budget and tuck and cached per (text, layout, size, budget, tuck). The card's note
+  budget, tuck and receipt height and cached per (text, layout, size, budget, tuck,
+  heightPx) — so changing Receipt length re-labels. The card's note
   uses class `giant-note`, **not** `cost-note`: two browser tests find the takeover's
   price as `.cost-note.first()`. It is driven by a `costSyncs` callback reading the
   PACKED parts (`parts[i].bodies[j].blockId`), so its cheer count is the real one after
@@ -1253,13 +1302,35 @@ and Segoe UI metrics from a local copy that is not, and never will be, in this r
   instead. `giantLineEm` counts that space, so the fit stays honest. `.emote{height:1em}`
   draws an emote 16 / 33 / 69 / 143 / 247px square at depth 0 / 4 / 8 / 12 / 15
   (Chromium), and the model assumes square: a wide BTTV/7TV/FFZ emote is wider.
-- **Page spill.** The field payload (15 levels, P E N I S stacked) is a 1645px message
-  with Segoe. Page 1's ink ends under the I (y 1541.7), and S plus the footer print as
-  page 2. About 1516px of message fits one 500mm page under a 216px avatar, so
-  `HEIGHT_BUDGET` stays 1400 plus the 23px line. That is why `fit1` gives five stacked
-  letters 14 levels (1393px, one page), not 15. Whether the rig printed that S on a
-  second page is not recorded. (A FIELD check if it ever matters: Segoe's 1.33 line
-  height predicts a ~9 cm gap between I and S.)
+- **Page length is the DRIVER's, not wkhtmltopdf's 500mm (0.11.0, the field cut-off).**
+  FIELD: a stacked Giant cheer printed only its first ~4 lines and the top of the 5th, cut
+  at roughly A4 (~29.7 cm). wkhtmltopdf lays out on a 500mm page, but the physical printer
+  stops at its Windows driver's paper length — commonly A4 (297 mm) for an 80 mm roll — and
+  SumatraPDF's `-print-settings "noscale"` CLIPS the overflow rather than shrinking it. The
+  bench CANNOT see this (it renders the 500mm page); it is what the **Receipt length**
+  control exists to let each user set. So `HEIGHT_BUDGET` is no longer a fixed 1400: it is
+  `heightBudget(mm) = floor(mm × 96/25.4 − 351)`, A4 → 771 px.
+- **The fixed reserve beyond the body estimate is 351 CSS px.** MEASURED: at a fixed level,
+  the inked page total = the app's per-body height estimate + 351, LEVEL-INDEPENDENT (held
+  at L6/L10/L12/L14). It is the header (216px avatar for a real square Twitch 300×300, +
+  "100 BITS" + sender) above the body, minus the 23px lead line already in the estimate,
+  plus the footer (icon + date) below. 351 is exact for the square avatar; a (non-Twitch)
+  portrait avatar hitting the 240px max would want ~375. Bracketed on the engine: body_est
+  683 → 273.6 mm fits A4, 815 → 308.6 mm clipped; 771 sits between. End to end: `C O C K`
+  fit1 came off A4 at 295.4 mm (one receipt), `HELLO` at 288.0 mm, a 13-letter word at a
+  fixed L12 split into five receipts of ≤251 mm, none spilling to a second page.
+- **The small stack word gap is a base line (~23px), not a giant blank line.** MEASURED
+  (`I RAID RAID` at L7, per-word nests joined by a base `<br><br>`): the pitch within a
+  word is 77px (one `giantLineH`), between words 100px — a +23px (`GIANT_GAP_PX`) gap, vs a
+  giant blank line's full 77px. The packer's split-and-merge already produces this (two
+  bodies meet at a base `<br><br>`), so the explicit `small` gap only wins where it packs a
+  spaced phrase into one cheer at a bigger size; `giantPick` prefers `blank` on a tie, which
+  keeps a spaceless or single-letter-word stack (`C O C K`) byte-identical and character-cheap.
+  (The old reasoning, kept as the cautionary note it is: "about 1516px fits one 500mm page,
+  so `HEIGHT_BUDGET` stays 1400" — true for the 500mm PAGE, but the printer never reaches
+  500mm, which is the whole bug. The field payload P E N I S at 15 levels is a 1645px
+  message that the bench spilled to a 2nd page at 500mm; the real rig had already cut it at
+  A4.)
 - **Don't measure geometry with JavaScript on the engine.** wkhtmltopdf runs scripts
   during `--javascript-delay` on a 0px-wide layout, which reported widths of 0 and a
   337px header. Measure from ink. A bench-only `outline` on `#receipt-content>div` takes
@@ -1443,10 +1514,11 @@ These are the project's defining properties (shared with the sibling tools).
   block composer's stack (`rw_blocks_v1`), and the saved presets (`rw_presets_v1`,
   added by explicit request in 0.6.0, spec §8). All wrapped in `try/catch` so
   sandboxed previews that block storage still render and run. Don't add a fifth
-  without an explicit request. (0.10.0 added state without adding a key: the
-  "Hide the cheer gem" checkbox is a `tuck` field inside `rw_controls_v1`, absent
-  meaning off, and a giant block's `giantLayout` / `giantSize` ride in `rw_blocks_v1`
-  and presets like every other block field.)
+  without an explicit request. (0.10.0 and 0.11.0 added state without adding a key: the
+  "Hide the cheer gem" checkbox is a `tuck` field inside `rw_controls_v1`, the Receipt
+  length is a `receiptLen` field there, both absent-means-default, and a giant block's
+  `giantLayout` / `giantSize` ride in `rw_blocks_v1` and presets like every other block
+  field.)
 - **Vanilla JS**, IIFE-wrapped, `"use strict"`, ES5-ish style (`var`, function
   expressions). Match the surrounding code's idiom when editing.
 - **Privacy: state it accurately.** Big Text (Giant type included) and a

@@ -22,11 +22,17 @@ Unicode has to stand in for a picture or a poster-sized word.
 > **Giant type (0.10.0): big letters print again.** printer-bot's sanitizer strips
 > styling, but it keeps the `class` attribute, and the page it prints carries nutty's
 > whole shared stylesheet. One class in it, `title`, makes text 1.2× bigger, and
-> nesting it multiplies. So a Text block now prints **real bold capitals up to about
-> 4 cm tall** (5.5 cm for two or three letters) in one cheer. It borrows someone else's
+> nesting it multiplies. So a Text block now prints **real bold capitals** — about
+> **2 cm tall** for a five-letter word, up to **5 cm** for two or three letters, in one
+> cheer on a default A4 receipt, and bigger on a longer one. It borrows someone else's
 > style, so it can stop working any day without warning: the **Print size ruler**
 > checks it for the price of one cheer, and Hanzi tiling is one click away as the
 > backup. [How and why it works](#giant-type-how-and-why-it-works).
+
+> **0.11.0 fixes a field cut-off.** A tall Giant stack used to be cut off at the
+> printer's real paper length (often A4), losing everything past ~29.7 cm. It is now
+> packed to a **Receipt length** you set (default A4), splitting a tall stack across
+> receipts that each fit. [Receipt length](#receipt-length).
 
 > **⚠ printer-bot added an HTML sanitizer (2026-09-15), and it changed what prints.**
 > The chat message is no longer rendered as raw HTML — it passes through an allow-list
@@ -172,25 +178,52 @@ and it shows whether the message gets through.)
   more cheers. Then every size by hand. Each option in both menus is labelled with what
   it would actually print for your text, for example `Level 14 · capitals 3.8 cm · 1
   cheer`, or `… · letters cut off` when a size is too wide for the paper.
+- **Receipt length (mm).** How long one receipt prints before the printer cuts it. See
+  [Receipt length](#receipt-length) below. It decides how big Auto can go in one cheer and
+  where a tall stack splits into several.
 - The card under the text says how tall the capitals will print and how many cheers the
-  block really costs once the stack is packed. It also warns when a line is too wide,
-  when emoji were left out, and when a word would be charged as another cheer.
+  block really costs once the stack is packed. It also warns when a line is too wide, when
+  a line is **taller than one receipt** (so its bottom would be cut off), when emoji were
+  left out, and when a word would be charged as another cheer.
 
-Rough sizes, all for one cheer. Capitals are about 70% of the type size, and a level is
-one more nested title. Auto also uses in-between sizes (0.9 × and 0.8 × a level), so
-real picks land between these rows.
+Rough sizes. Capitals are about 70% of the type size, and a level is one more nested
+title. Auto also uses in-between sizes (0.9 × and 0.8 × a level), so real picks land
+between these rows. The last column is what **Auto** gives each example **on the default
+A4 (297 mm) receipt**, in one cheer; a longer Receipt length lets Auto go bigger (or a
+tall stack fit in fewer cheers).
 
-| levels | type size | capitals | what Auto gives it |
+| levels | type size | capitals | what Auto gives, on A4 |
 |---|---|---|---|
-| 5 | 40 px | ≈ 0.7 cm | `WRECK THE RECEIPT COMPLETELY`, stacked (just under this row) |
-| 8 | 69 px | ≈ 1.3 cm | `HAPPY BIRTHDAY`, stacked (just above this row) |
-| 10 | 99 px | ≈ 1.8 cm | a ten-letter word, stacked |
-| 14 | 205 px | ≈ 3.8 cm | a five-letter word, stacked (`HELLO`) |
-| 16 | 296 px | ≈ 5.5 cm | two or three letters (`GG`, `LOL`) |
+| 5 | 40 px | ≈ 0.7 cm | `HAPPY BIRTHDAY`, stacked |
+| 8 | 69 px | ≈ 1.3 cm | a nine- or ten-letter word, stacked |
+| 11 | 119 px | ≈ 2.0 cm | a five-letter word, stacked (`HELLO`) |
+| 14 | 205 px | ≈ 3.4 cm | three letters (`LOL`) |
+| 16 | 296 px | ≈ 4.9 cm | two letters (`GG`) |
 
 From about 15 levels up, wide capitals like M and W no longer fit across the paper.
 Auto knows each letter's width and never picks a size that cuts one off. A size you pick
 by hand says so in its label.
+
+### Receipt length
+
+printer-bot lays every receipt out on a 500 mm-tall page, but **the real printer cuts the
+tape at its Windows driver's paper length** — commonly **A4 (297 mm)** for an 80 mm roll.
+Anything past that is clipped, not shrunk. Before 0.11.0 a tall Giant stack was packed up
+to ~37 cm into one cheer, so on an A4 driver it printed the first few lines and then
+**stopped mid-letter**. That is the field bug 0.11.0 fixes.
+
+So Receipt Wrecker now packs each cheer to fit the **Receipt length** you set (default
+**297 mm**). A stack too tall for one receipt is split across several — each is its own
+cheer, with printer-bot's header between them — so **no content is lost**; the card says
+how many it needs. A single giant line taller than the whole receipt is warned, never
+silently cut.
+
+To get longer receipts, set your printer's driver to **Roll Paper / continuous** (the
+RP332 and most 80 mm printers can, but often ship set to a fixed size like A4), then raise
+Receipt length. To find your real length, send the **Print size ruler**: its note says
+which of its numbers 1–13 should print at the current setting and roughly where each lands
+(cm down the tape). Read the **last whole number** off the paper and set Receipt length to
+about its mark.
 
 ### Things it can't do
 

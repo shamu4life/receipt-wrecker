@@ -84,6 +84,18 @@ header with a plain continuation cover, so the run reads as one piece rather tha
 artwork followed by ordinary receipts. It costs 106 characters per extra part, and
 there is a stack-level toggle for it.
 
+A **Receipt length (mm)** setting (default 297, A4) sets how long one receipt prints
+before the printer cuts it. printer-bot lays every page out at 500mm, but the real
+printer stops at its Windows driver's paper length — often A4 — and clips the rest, so
+a tall Giant stack used to print only its first few lines and stop (fixed in 0.11.0).
+The app now packs each cheer to fit this length, splitting a tall stack across receipts
+that each fit (each its own cheer, with the bot's header between them) so nothing is
+lost; the card says how many it needs, and warns if a single line is taller than one
+receipt. In a stacked phrase a space is a small gap, not a full giant blank line. The
+**Print size ruler** doubles as a length gauge: its note says which of its numbers print
+at the current setting and roughly where each lands, so you can read your real length off
+the tape (set the printer to Roll Paper / continuous for longer receipts).
+
 **Presets** save the whole block stack under a name and export it as JSON. An
 uploaded picture's link expires after 15 minutes, so a preset that used one loads
 with that block flagged for re-upload rather than printing blank.

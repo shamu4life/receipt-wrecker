@@ -50,15 +50,22 @@ function randomText(r) {
   return s;
 }
 
-// A giant body is exactly "<br>" + open + lines.join("<br>") + close + "<br>". Pull the
-// printed lines back out of it (escaped as they were sent), checking the frame as we go.
+// A giant body is "<br>" + inner + "<br>", where inner is either ONE nest with its lines
+// joined by <br> (the "blank" gap form), or several per-word nests joined by a base-level
+// <br><br> (the "small" stack gap form, 0.11.0). Either way, stripping the outer <br>s and
+// every <b>/</b> tag leaves the logical lines separated by <br>, with a word gap showing as
+// an empty "" between words. We check the frame (starts/ends with <br>, tags balanced) too.
 function bodyLines(html) {
-  const m = html.match(/^<br>((?:<b class=[a-z-]+>)+)([\s\S]*?)((?:<\/b>)+)<br>$/);
-  assert.ok(m, "a giant body must be <br> + open + lines + close + <br>: " + html);
-  const opens = m[1].match(/<b /g).length, closes = m[3].match(/<\/b>/g).length;
+  assert.ok(html.startsWith("<br>") && html.endsWith("<br>"),
+    "a giant body must start and end with <br>: " + html);
+  const opens = (html.match(/<b /g) || []).length, closes = (html.match(/<\/b>/g) || []).length;
   assert.equal(opens, closes, "a giant body must close every tag it opens: " + html);
-  return m[2].split("<br>");
+  return html.slice(4, -4).replace(/<\/?b(?: [^>]*)?>/g, "").split("<br>");
 }
+// The budget for one 500mm wkhtmltopdf page (heightBudget(500)): the full sheet the engine
+// lays out on. Tests that document a packing phenomenon independent of the receipt-length
+// default pin to it, so the default moving (A4) can't change what they demonstrate.
+const PAGE_FULL = C.heightBudget(500);
 
 // ── PB_CLASSES: the borrowed classes are DATA ──
 
@@ -367,7 +374,7 @@ test("fit sizes: the integer is exact, an empty list is 'none', and too-wide is 
   assert.equal(C.giantFit(["HI"], { size: "9" }).levels, 9, "a <select> hands the size over as a string");
   // Nothing to print is size "none", never 18 levels of empty tags spent on blank paper.
   for (const lines of [[], [""], ["", ""]]) {
-    eq(C.giantFit(lines, { size: "fit1" }), { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0, cheers: 0, over: false });
+    eq(C.giantFit(lines, { size: "fit1" }), { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0, cheers: 0, over: false, tall: false, gap: "blank" });
     assert.equal(C.giantFit(lines, { size: 12 }).levels, 0);
   }
   // ~21em: wider than the paper even at the smallest step. The result says so.
@@ -394,7 +401,10 @@ test("fit1 is the biggest size in ONE cheer, and never costs more cheers than th
   // Spot checks against the real choices for words people actually send.
   const penis = C.buildGiantBodies("PENIS", { layout: "stack", size: "fit1" });
   assert.equal(penis.length, 1, "PENIS stacked must fit one cheer (it printed from one)");
-  assert.equal(penis[0].giant.levels, 14);
+  // L11 at the A4 default (heightBudget(297)=771px): five stacked letters at ~2.0cm fit one
+  // receipt. At the old fixed 1400px budget this was L14 — but 1400px is ~37cm, longer than
+  // the A4 the real driver cuts at, which is the 0.10.0 field cut-off this release fixes.
+  assert.equal(penis[0].giant.levels, 11);
   for (const [text, layout] of [["PENIS", "stack"], ["HELLO", "lines"], ["HELLO", "stack"], ["GG", "lines"], ["LOL", "stack"]]) {
     const lines = C.giantLines(text, layout);
     const f = C.giantFit(lines, { layout, size: "fit1" });
@@ -454,32 +464,35 @@ test("auto layout: a layout that fits beats one that doesn't; both in one cheer,
   assert.equal(C.giantPlan("WRECK THE RECEIPT COMPLETELY", { layout: "auto" }).layout, "stack",
     "too wide as a line, so it must stack rather than print cut off");
   // A genuine tie in cheers (both fit, both two cheers at L14): lines, which reads as typed.
-  // The random texts above never produce one, so it is built by hand.
+  // The random texts above never produce one, so it is built by hand. Pinned to one 500mm
+  // page so the tie is about the tie-break rule, not the receipt-length default.
   const tie = "A\nB\nC\nD\nE\nF";
-  const tl = C.giantPlan(tie, { layout: "lines", size: 14 }), ts = C.giantPlan(tie, { layout: "stack", size: 14 });
+  const tl = C.giantPlan(tie, { layout: "lines", size: 14, heightPx: PAGE_FULL }), ts = C.giantPlan(tie, { layout: "stack", size: 14, heightPx: PAGE_FULL });
   assert.ok(tl.fit.fits && ts.fit.fits && tl.fit.cheers === 2 && ts.fit.cheers === 2,
     "the tie fixture stopped being a tie: " + tl.fit.cheers + " vs " + ts.fit.cheers);
-  assert.equal(C.giantPlan(tie, { layout: "auto", size: 14 }).layout, "lines");
+  assert.equal(C.giantPlan(tie, { layout: "auto", size: 14, heightPx: PAGE_FULL }).layout, "lines");
 });
 
 // The cheer count every label quotes is the PACKER's, not the chunk count. giantChunks
 // breaks a stack at a word gap and drops the blank edge line, and that saving is often
 // exactly what lets packStackBodies put both halves back into ONE part. Counted as
-// chunks, "HELLO WORLD" at Level 10 read "2 cheers" over a preview showing one part, and
-// fit1 settled for L10x0.9 (1.65 cm) when full L10 (1.83 cm) is one cheer.
+// chunks, "HELLO WORLD" read "2 cheers" over a preview showing one part. At the A4 default
+// (heightBudget(297)=771px) fit1 lands this at L7x0.9: two 5-letter chunks that the packer
+// merges into one part (bodyH 378+378), which is the exact phenomenon.
 test("the cheer count is the packer's: fit, report and packed parts agree, and fit1 uses it", () => {
-  const b10 = C.buildGiantBodies("HELLO WORLD", { size: 10 });
-  const p10 = C.giantPlan("HELLO WORLD", { size: 10 });
-  assert.equal(p10.layout, "stack");
-  assert.equal(p10.fit.chunks, 2, "fixture: L10 stacked is two chunks (the word gap is the break)");
-  assert.equal(b10.length, 2);
-  assert.equal(C.packStackBodies(b10, { cheer: true, bits: 100 }).length, 1, "fixture: the packer merges them");
-  assert.equal(p10.fit.cheers, 1, "the label must say what the packer does");
-  assert.match(C.giantReport(b10), /fits 1 cheer/);
-  const fit1 = C.giantPlan("HELLO WORLD", {});
-  eq([fit1.layout, fit1.fit.levels, fit1.fit.shrink, fit1.fit.cheers], ["stack", 10, "", 1],
-    "fit1 must take full L10, which IS one cheer");
-  assert.equal(C.giantCapCm(fit1.fit.px).toFixed(1), "1.8");
+  const bw = C.buildGiantBodies("HELLO WORLD", {});
+  const pw = C.giantPlan("HELLO WORLD", {});
+  assert.equal(pw.layout, "stack");
+  assert.equal(pw.fit.chunks, 2, "fixture: fit1 splits at the word gap into two chunks");
+  assert.equal(bw.length, 2);
+  assert.equal(C.packStackBodies(bw, { cheer: true, bits: 100 }).length, 1, "fixture: the packer merges them");
+  assert.equal(pw.fit.cheers, 1, "the label must say what the packer does");
+  assert.match(C.giantReport(bw), /fits 1 cheer/);
+  // fit1 reports that one-cheer size, not the two-chunk count. L7x0.9 (setting-description
+  // shrink) at ~1.0cm is the biggest that sends HELLO WORLD in one cheer on an A4 receipt.
+  eq([pw.fit.levels, pw.fit.shrink, pw.fit.cheers], [7, "setting-description", 1],
+    "fit1 must take the biggest one-cheer size");
+  assert.equal(C.giantCapCm(pw.fit.px).toFixed(1), "1.0");
   // And for anything: the count a body carries is the number of parts the packer makes of
   // the block's bodies on their own, in every layout, size and lead.
   const r = rng(23);
@@ -550,7 +563,7 @@ test("a line too long to send on its own ranks below every step that sends, in f
 test("a body that prints nothing never opens or closes a part of its own", () => {
   const big = C.buildGiantBodies("THANK YOU SO MUCH", { layout: "lines", size: 14 });
   const none = C.buildGiantBodies("🔥🔥");
-  assert.ok(big.length === 1 && big[0].heightPx > C.HEIGHT_BUDGET, "fixture: one over-tall body, alone in its part");
+  assert.ok(big.length === 1 && big[0].heightPx > C.DEFAULT_HEIGHT_BUDGET, "fixture: one over-tall body, alone in its part");
   eq(none.map((b) => [b.html, b.chars, b.heightPx]), [["", 0, 0]], "fixture: the empty body");
   for (const bodies of [[...big, ...none], [...none, ...big], [...none, ...big, ...none]]) {
     const parts = C.packStackBodies(bodies, { cheer: true, bits: 100 });
@@ -660,9 +673,11 @@ test("tucked, a real giant body sheds its leading <br> in every part; a Hanzi ba
   // The packer only strips what a body flags with leadBr. Every giant body must carry it,
   // or the tuck hides the gem and saves no tape (the <br> leaves a blank line exactly as
   // tall as the one it hid: 156px either way on the engine, 133px with it stripped).
-  const opts = { cheer: true, bits: 100, tuck: true };
+  // Pinned to one 500mm page: the multi-cheer run here is forced by HEIGHT (20 lines at L11),
+  // and this test is about the leadBr fix-up, not the receipt-length default.
+  const opts = { cheer: true, bits: 100, tuck: true, heightPx: PAGE_FULL };
   const text = "ABCDEFGHIJKLMNOPQRST".split("").join("\n");
-  const bodies = C.buildGiantBodies(text, { layout: "lines", size: 11, tuck: true, budget: budgetFor(opts) });
+  const bodies = C.buildGiantBodies(text, { layout: "lines", size: 11, tuck: true, budget: budgetFor(opts), heightPx: PAGE_FULL });
   assert.ok(bodies.length >= 3, "want a multi-cheer giant run, got " + bodies.length);
   for (const b of bodies) {
     assert.equal(b.leadBr, true);
@@ -745,9 +760,12 @@ test("chunks never start or end on a blank line, lose no line, and fit the page 
   // A chunk that STARTS blank prints a giant-height blank above its first letter
   // (measured: 396px of nothing above "D" at L16); one that ENDS blank is counted a giant
   // line tall but collapses to a small one. Both waste a cheer's paper.
-  const abc = C.buildGiantBodies("ABC DEF", { layout: "stack", size: "width" });
+  // Pinned to one 500mm page: "width" picks a large step, and these words only stay whole in
+  // one chunk on a long receipt (on A4 a 3-letter word at a width step exceeds the page and
+  // splits — covered by the over-tall/length tests, not this edge-rule fixture).
+  const abc = C.buildGiantBodies("ABC DEF", { layout: "stack", size: "width", heightPx: PAGE_FULL });
   eq(abc.map((b) => bodyLines(b.html)), [["A", "B", "C"], ["D", "E", "F"]]);
-  const hiyou = C.buildGiantBodies("HI YOU", { layout: "stack", size: "width" });
+  const hiyou = C.buildGiantBodies("HI YOU", { layout: "stack", size: "width", heightPx: PAGE_FULL });
   eq(hiyou.map((b) => bodyLines(b.html)), [["H", "I"], ["Y", "O", "U"]]);
   // Runs of blank lines in a lines layout, at a size that has to split.
   const gappy = Array.from({ length: 30 }, (_, i) => "AB" + i).join("\n\n\n");
@@ -771,11 +789,14 @@ test("chunks never start or end on a blank line, lose no line, and fit the page 
       assert.notEqual(ls[0], "", where + " starts on a blank line");
       assert.notEqual(ls.at(-1), "", where + " ends on a blank line");
       // A multi-line chunk fits the page; a single line can't be split any further.
-      if (ls.length > 1) assert.ok(b.heightPx <= C.HEIGHT_BUDGET, where + " is " + b.heightPx + "px tall");
-      // The height model: the small lead/gap line plus one real-engine line pitch per
-      // line (blank lines in a stack are giant-height too); a line too wide for the paper
-      // wraps there and counts once per row it wraps to.
-      const base = C.GIANT_GAP_PX + C.giantLineH(b.giant.px) * ls.length;
+      if (ls.length > 1) assert.ok(b.heightPx <= C.DEFAULT_HEIGHT_BUDGET, where + " is " + b.heightPx + "px tall");
+      // The height model: the small lead/gap line plus one real-engine line pitch per line. A
+      // blank line is giant-height in the "blank" gap form AND in lines/emote, but a base line
+      // (GIANT_GAP_PX) in the "small" stack gap form; a line too wide for the paper wraps there
+      // and counts once per row it wraps to.
+      const small = resolved === "stack" && b.giant.gap === "small";
+      let base = C.GIANT_GAP_PX;
+      for (const l of ls) base += (small && l === "") ? C.GIANT_GAP_PX : C.giantLineH(b.giant.px);
       if (b.giant.fits || resolved === "stack") assert.equal(b.heightPx, base, where);
       else assert.ok(b.heightPx >= base, where);
       kept.push(...ls);
@@ -945,7 +966,9 @@ test("Print size ruler: 1..13, one level deeper each, balanced, one cheer on one
   const text = ru.html.replace(/<b class=title>/g, "[").replace(/<\/b>/g, "]").replace(/<br>/g, "|");
   assert.equal(text, "|" + Array.from({ length: 13 }, (_, i) => "[" + (i + 1)).join("|") + "]".repeat(13));
   assert.equal(ru.chars, len(ru.html));
-  assert.ok(ru.heightPx <= C.HEIGHT_BUDGET, ru.heightPx + "px is more than one page");
+  // The ruler is the length gauge, so it rides the full 500mm wkhtmltopdf page (it may run
+  // past a shorter receipt on purpose — that is how the user reads their real length off it).
+  assert.ok(ru.heightPx <= C.heightBudget(500), ru.heightPx + "px is more than the 500mm page");
   for (const bits of [100, 10000]) {
     const parts = C.packStackBodies([ru], { cheer: true, bits });
     assert.equal(parts.length, 1);
@@ -1155,4 +1178,117 @@ test("giantReport names what it left out for what it is: emoji, or invisible cha
   assert.ok(both.some((l) => /^Emoji/.test(l)) && both.some((l) => /^Invisible/.test(l)), both.join(" | "));
   // Nothing dropped, nothing said.
   assert.ok(!/Emoji|Invisible/.test(report("HELLO")));
+});
+
+// ── RECEIPT LENGTH (0.11.0): the per-receipt height budget is derived from a user-set
+// length, so a tall stack splits into receipts that each fit the printer's real page
+// instead of being cut off at the driver's paper length (the 0.10.0 field cut-off). ──
+test("heightBudget(mm): length-derived, floored to page - reserve, clamped to the control's range", () => {
+  assert.equal(C.RECEIPT_MM_DEFAULT, 297, "the default is A4, the common Windows-driver cut");
+  assert.equal(C.heightBudget(297), 771, "A4 -> 771px of body (field-validated: reg-5 683 fits, reg-6 815 clipped)");
+  assert.equal(C.heightBudget(500), 1538, "the 500mm wkhtmltopdf page ceiling");
+  assert.equal(C.DEFAULT_HEIGHT_BUDGET, C.heightBudget(C.RECEIPT_MM_DEFAULT));
+  // floor(mm * 96/25.4 - 351): length uses the true 96dpi constant, not the rounded width one.
+  for (const mm of [120, 150, 200, 250, 297, 350, 400, 500]) {
+    assert.equal(C.heightBudget(mm), Math.floor(mm * (96 / 25.4) - C.HEIGHT_RESERVE_PX), "mm=" + mm);
+  }
+  // Clamp: below min -> min, above max -> max, junk/absent -> default, never below 1.
+  assert.equal(C.heightBudget(10), C.heightBudget(C.RECEIPT_MM_MIN));
+  assert.equal(C.heightBudget(99999), C.heightBudget(C.RECEIPT_MM_MAX));
+  assert.equal(C.heightBudget("not a number"), C.DEFAULT_HEIGHT_BUDGET);
+  assert.equal(C.heightBudget(undefined), C.DEFAULT_HEIGHT_BUDGET);
+  assert.ok(C.heightBudget(C.RECEIPT_MM_MIN) >= 1);
+  assert.equal(C.clampReceiptMm(50), C.RECEIPT_MM_MIN);
+  assert.equal(C.clampReceiptMm(5000), C.RECEIPT_MM_MAX);
+  assert.equal(C.clampReceiptMm("x"), C.RECEIPT_MM_DEFAULT);
+});
+
+test("a stacked word packs into A4-fitting receipts, and fewer on a longer receipt", () => {
+  const bud = budgetFor({ cheer: true, bits: 100 });
+  const pack = (text, size, mm) => {
+    const hp = C.heightBudget(mm);
+    const bodies = C.buildGiantBodies(text, { layout: "stack", size, budget: bud, heightPx: hp });
+    return C.packStackBodies(bodies, { cheer: true, bits: 100, heightPx: hp });
+  };
+  // fit1 keeps a short 5- or 7-letter word to ONE A4 receipt by shrinking it (the headline
+  // field case: "HELLO" / "PENIS" came off A4 whole once the budget stopped being 1400px).
+  assert.equal(pack("HELLO", "fit1", 297).length, 1, "HELLO fits one A4 receipt");
+  assert.equal(pack("RECEIPT", "fit1", 297).length, 1, "RECEIPT fits one A4 receipt");
+  // A fixed size too big for A4 splits into several parts; a 500mm receipt holds it in one.
+  const a4 = pack("RECEIPT", 12, 297), long = pack("RECEIPT", 12, 500);
+  assert.equal(a4.length, 3, "RECEIPT at L12 needs three A4 receipts");
+  assert.equal(long.length, 1, "RECEIPT at L12 fits one 500mm receipt");
+  // No part exceeds its receipt's body budget, so nothing prints past the page.
+  for (const p of a4) assert.ok(p.heightPx <= C.heightBudget(297), "A4 part is " + p.heightPx + "px");
+  for (const p of long) assert.ok(p.heightPx <= C.heightBudget(500), "500mm part is " + p.heightPx + "px");
+});
+
+test("a single giant line taller than the receipt is flagged tall, emitted, never silently cut", () => {
+  const shortHb = C.heightBudget(120);   // ~102px, under one L8 line
+  // A fixed size whose one line cannot fit the page: flagged, and still emitted (one body).
+  const fit = C.giantFit(["A"], { layout: "stack", size: 14, heightPx: shortHb });
+  assert.ok(fit.tall, "one L14 line must be taller than a 120mm receipt");
+  const bodies = C.buildGiantBodies("A", { layout: "stack", size: 14, heightPx: shortHb });
+  assert.equal(bodies.length, 1, "an over-tall single line is still emitted, not dropped");
+  assert.ok(bodies[0].giant.tall);
+  assert.match(C.giantReport(bodies, { receiptMm: 120 }), /taller than a 120 mm receipt.*cut off/);
+  // fit1 at the same short receipt backs off to a size that is NOT tall (never picks a cut-off).
+  assert.ok(!C.giantFit(["A"], { layout: "stack", size: "fit1", heightPx: shortHb }).tall,
+    "fit1 must pick a height that fits the receipt");
+  // At the A4 default no giant size overflows one line (max L18 is ~590px < 771), so tall is off.
+  assert.ok(!C.giantFit(["A"], { layout: "stack", size: 18 }).tall);
+});
+
+test("stack word gaps: the 'small' gap is a base line (GIANT_GAP_PX), the height model counts it", () => {
+  // Real engine (I RAID RAID at L7, Segoe UI, 203dpi): within-word pitch 77px, between-word
+  // pitch 100px -> a +23px (GIANT_GAP_PX) gap, vs a giant blank line's full giantLineH. fit1
+  // picks "small" when it buys a bigger one-cheer size for a spaced PHRASE.
+  const plan = C.giantPlan("I RAID RAID", { layout: "stack", size: "fit1" });   // A4 default
+  assert.equal(plan.fit.gap, "small", "a spaced phrase should use the small gap on A4");
+  const b = C.buildGiantBodies("I RAID RAID", { layout: "stack", size: "fit1" })[0];
+  assert.equal(b.giant.gap, "small");
+  assert.match(b.html, /<\/b><br><br><b class=/, "words are separated by a base-level <br><br>");
+  assert.equal((b.html.match(/<b /g) || []).length, (b.html.match(/<\/b>/g) || []).length, "every tag closed");
+  const lines = bodyLines(b.html), letters = lines.filter((l) => l !== "").length, gaps = lines.filter((l) => l === "").length;
+  assert.ok(gaps === 2 && letters === 9, "fixture: nine letters, two word gaps");
+  assert.equal(b.heightPx, C.GIANT_GAP_PX + letters * C.giantLineH(b.giant.px) + gaps * C.GIANT_GAP_PX,
+    "a word gap costs GIANT_GAP_PX, not a giant line");
+  // A SPACELESS word never pays per-word nest tags: it stays one nest, byte-identical to the
+  // pre-0.11 "blank" form, so "C O C K"-style single-letter words can't be char-blown.
+  const solo = C.buildGiantBodies("HELLO", { layout: "stack", size: 11 })[0];
+  assert.ok(!/<\/b><br><br><b/.test(solo.html), "a spaceless word must stay one nest");
+  assert.equal(solo.giant.gap, "blank");
+});
+
+test("the receipt length changes only the split, never a non-giant body's markup", () => {
+  // The height budget decides where TALL content splits; it does not touch how a body renders.
+  // A Hanzi/glyph band (no `giant` field) packs to the same payload at any length while it fits.
+  const band = { html: "丶二土田" + "<br>" + "車馬鬱言", chars: 0, heightPx: 72 };
+  band.chars = C.payloadLength(band.html);
+  const at297 = C.packStackBodies([band], { cheer: true, bits: 100, heightPx: C.heightBudget(297) });
+  const at500 = C.packStackBodies([band], { cheer: true, bits: 100, heightPx: C.heightBudget(500) });
+  assert.equal(at297[0].payload, at500[0].payload, "a fitting non-giant body is length-independent");
+  // The Print size ruler is one body, so it is never split by a short receipt (it is the gauge).
+  const ru = C.packStackBodies([C.buildGiantRuler()], { cheer: true, bits: 100, heightPx: C.heightBudget(120) });
+  assert.equal(ru.length, 1, "the ruler stays one cheer even on a short receipt");
+});
+
+test("the ruler doubles as a length gauge: which numbers print at the current length, and where", () => {
+  const ru = C.buildGiantRuler();
+  assert.ok(Array.isArray(ru.giant.rungs) && ru.giant.rungs.length === C.GIANT_RULER_LEVELS);
+  // Each rung's bottom is monotic and measured the way the packer measures a body.
+  for (let i = 1; i < ru.giant.rungs.length; i++) assert.ok(ru.giant.rungs[i].atPx > ru.giant.rungs[i - 1].atPx);
+  // Without a length, just the "it works" sentence; with one, the gauge is appended.
+  assert.equal(C.giantReport(ru), "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.");
+  const a4 = C.giantReport(ru, { receiptMm: 297 });
+  assert.match(a4, /At 297 mm/);
+  assert.match(a4, /cm down the tape/);
+  // The last number that fits A4 is the biggest rung within A4's budget.
+  const hb = C.heightBudget(297);
+  let last = 0;
+  for (const r of ru.giant.rungs) if (r.atPx <= hb) last = r.n;
+  if (last < ru.giant.rungs.length && last > 0) assert.match(a4, new RegExp("numbers up to " + last + " print"));
+  // A tiny receipt: even number 1 may run past the cut.
+  const tiny = C.giantReport(ru, { receiptMm: 100 });
+  assert.match(tiny, /At 100 mm/);
 });

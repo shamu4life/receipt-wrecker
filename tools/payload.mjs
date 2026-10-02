@@ -18,7 +18,9 @@
 //
 // Specs (all fields optional unless noted):
 //   {"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote",
-//    "size":"fit1|width"|1..18,"tuck":false,"bits":100,"cheer":true,"part":0}
+//    "size":"fit1|width"|1..18,"tuck":false,"bits":100,"cheer":true,"part":0,"mm":297}
+//        "mm" is the app's Receipt length (the per-receipt height budget = heightBudget(mm));
+//        omit it for the A4 default the app ships with.
 //        Giant type, through the app's own path: buildGiantBodies at the budget packStack
 //        gives it, then packStackBodies, so the lead, the tuck's <br> handling and the
 //        split into cheers are the app's. Emits parts[part] (0-based); the part count and
@@ -76,9 +78,13 @@ switch (spec.kind) {
     // packStack's budget: what a body may spend after the lead this part will carry.
     const budget = C.MAX_CHARS - C.leadLength(leadOpts);
     const tuck = leadOpts.cheer && leadOpts.tuck;
+    // Per-receipt height budget, from an optional "mm" (the app's Receipt length control);
+    // omitted = the A4 default the app ships with. Both the body builder and the packer get
+    // it, so the split matches what the app sends for that length.
+    const heightPx = spec.mm == null ? C.DEFAULT_HEIGHT_BUDGET : C.heightBudget(Number(spec.mm));
     const bodies = C.buildGiantBodies(String(spec.text == null ? "" : spec.text),
-      { layout: spec.layout, size: spec.size, budget, tuck });
-    const parts = C.packStackBodies(bodies, leadOpts);
+      { layout: spec.layout, size: spec.size, budget, tuck, heightPx });
+    const parts = C.packStackBodies(bodies, Object.assign({ heightPx }, leadOpts));
     const idx = spec.part == null ? 0 : Number(spec.part);
     if (!Number.isInteger(idx) || idx < 0 || idx >= parts.length) {
       console.error("part " + JSON.stringify(spec.part) + " does not exist: this text packs into "
@@ -94,6 +100,8 @@ switch (spec.kind) {
       : "nothing to print")
       + "; " + bodies.length + " body(ies), predicted height "
       + bodies.map((b) => b.heightPx + "px").join(" + "));
+    console.error("[payload] receipt " + (spec.mm == null ? C.RECEIPT_MM_DEFAULT : Math.round(C.clampReceiptMm(Number(spec.mm))))
+      + "mm -> height budget " + heightPx + "px");
     console.error("[payload] " + parts.length + " part(s): "
       + parts.map((p, k) => (k === idx ? "[" + p.chars + "]" : String(p.chars))).join(", ")
       + " chars (emitting part " + idx + ")");

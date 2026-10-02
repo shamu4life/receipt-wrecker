@@ -28,15 +28,18 @@ before rendering it. What prints now, as of version 0.10.0 (2026-10-02):
   in which the class "title" means bold, uppercase and 1.2 times the parent's size.
   Nesting it multiplies, so N nested <b class=title> tags print at 16px x 1.2^N:
   capitals about 3.8 cm tall for a five-letter stacked word in one cheer. Every tag is
-  one the sanitizer allows, sent as written; nothing is disguised. One real cheer
+  one the sanitizer allows, sent as written; nothing in the markup is disguised. (A
+  stacked word goes out one letter per line, so a word filter never sees it whole;
+  that is how it fits the paper, not a way around a channel's rules.) One real cheer
   confirmed it prints (2026-10-01); sizes are measured on the bot's own print engine.
   It depends on a stylesheet the bot's author can change at any time, so the app
   offers a one-cheer "Print size ruler" to check it, and keeps Hanzi tiling as the
   backup.
 - Plain Unicode glyphs, the markup-free path. Glyph-art tiles a picture into
-  characters, and Hanzi tiling does the same for words. There is no markup at all, so
-  the sanitizer can't touch it. The Hanzi/CJK forms are used because their
-  uniform-width glyphs line up without any styling. For pictures this is the only path.
+  characters, and Hanzi tiling does the same for words. Hanzi tiling is plain text;
+  glyph-art rows are plain glyphs separated by <br> (their styling wrapper is
+  stripped, which is why the uniform-width CJK forms are used: they line up without
+  any styling). For pictures this is the only path.
 - Other HTML markup is stripped, and an arbitrary picture cannot be sent at all. The
   sanitizer removes SVG (so the old "Type" render, sideways type and the
   Takeover/fake-cheer overlays no longer render) and every picture carrier except an

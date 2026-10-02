@@ -53,7 +53,7 @@
   }
   /* Faithful receipt preview, modelled on printer-bot's #receipt-container (the sim
      is reverse-engineered from nutty.gg's own printer code, so trust its geometry):
-     an 80mm roll with ~5mm unprintable margins each side => 70mm printable content.
+     an 80mm roll, printed as a 72mm page (paperWidth-8mm, below) at 203dpi.
      Avatar / 100 BITS / username / content / twitch / date, centered. View-only, so
      pointer-events:none — same reason as above (Rotate's span steals clicks). */
   /* Numbers mirror the printer-bot's real template: the page wkhtmltopdf prints is
@@ -536,7 +536,7 @@
     // still could not afford it (one oversized body), so a cover never costs the cheer.
     var covers = opts.covers !== false;   // on by default; a stack-level toggle turns it off
     var cover = "", coverChars = 0;
-    var parts = [], cur = [], curChars = 0, curH = 0;
+    var parts = [], cur = [], curChars = 0, curH = 0, curInk = false;
     function flush() {
       if (!cur.length) return;
       var nonce = opts.cheer ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
@@ -602,7 +602,7 @@
           if (cur[ci].cover) { cover = cur[ci].cover; coverChars = payloadLength(cover); break; }
         }
       }
-      cur = []; curChars = 0; curH = 0;
+      cur = []; curChars = 0; curH = 0; curInk = false;
     }
     for (var i = 0; i < bodies.length; i++) {
       var b = bodies[i];
@@ -610,9 +610,19 @@
       var bH = b.heightPx || 0;
       // A part after the first pays for its cover before any body goes into it.
       var room = maxBody - ((parts.length && cover) ? coverChars : 0);
-      var fits = cur.length === 0 || ((curChars + bChars <= room) && (curH + bH <= HEIGHT_BUDGET));
+      // A body that prints NOTHING (a giant block of only emoji or invisible characters
+      // builds one: html "", 0 characters, 0px) never opens a part, and a part holding
+      // only such bodies never closes one. Either way round, the "does it fit" test could
+      // fail with nothing printable on one side (0 + an over-tall or over-long neighbour),
+      // and flush() then sent a cheer that was the lead and nothing else: 100 bits for a
+      // receipt with only the gem on it ("Cheer100 03 "), or, after a takeover with the
+      // tuck on, the lead plus a cover the sanitizer strips. It costs nothing to join any
+      // part, and flush() already skips html-less bodies when it picks the tuck's first.
+      var empty = !b.html && !bChars && !bH;
+      var fits = !curInk || empty || ((curChars + bChars <= room) && (curH + bH <= HEIGHT_BUDGET));
       if (!fits) flush();
       cur.push(b); curChars += bChars; curH += bH;
+      if (!empty) curInk = true;
     }
     flush();
     return parts;
@@ -2729,16 +2739,20 @@
     // into the document wkhtmltopdf prints. So any class defined there styles our markup
     // on paper. `.title` is font-size:1.2em, font-weight:900, text-transform:uppercase, and
     // `em` is relative to the PARENT, so N nested `.title` elements multiply: 16px x 1.2^N
-    // (15 levels -> ~247px). Every token is sent literally and is on the sanitizer's own
-    // allow-list (tag `b`, attribute `class`): nothing is disguised from automod, from the
-    // sanitizer or from the bits ledger.
+    // (15 levels -> ~247px). Every MARKUP token is sent literally and is on the sanitizer's
+    // own allow-list (tag `b`, attribute `class`): nothing in the markup is disguised from
+    // automod, from the sanitizer or from the bits ledger. That is a claim about the tags,
+    // not the user's words: the stack layout sends a word one letter per <br>, so a word
+    // filter never sees it whole, exactly as with Hanzi tiling. A side effect of fitting
+    // the width, never a feature to offer (CLAUDE.md, under THE RULE).
     //
     // EVIDENCE LEVELS, kept apart on purpose. FIELD: one real cheer carrying the tuck span,
     // 15 x `<b class=title>` and `</br>` passed automod and printed giant stacked letters.
     // BENCH (real wkhtmltopdf 0.12.6.1 with patched Qt, Segoe UI metrics): the sizes, the
     // line heights, the tuck clipping, the shrink wrappers. NEVER SENT: the two shrink
-    // classes, the padded emote form, and a tucked lead followed by a giant body with no
-    // leading <br>.
+    // classes, the padded emote form, and the EXACT tucked lead (a leading nbsp and the
+    // two-digit nonce inside the span). The field cheer's span was followed directly by
+    // <b class=title> with no <br>, so that adjacency itself has printed.
     //
     // IT IS FRAGILE BY CONSTRUCTION. nutty can rename or retune these classes, or stop
     // inlining global.css, any day. So the class names and what they do are DATA (the
@@ -2827,7 +2841,7 @@
     // Millimetres per CSS px, the unit the engine lays the page out in: 1in / 96px. NOT
     // PX_PER_MM, a deliberately rounded 3.75 that the picture blocks' mm-to-px box (and
     // the tests built on it) use, and which stays as it is; the cm sizes on the card used
-    // to divide by it and read 0.8% high.
+    // to divide by it, which alone read 0.8% high (up to ~1.8% with the unrounded px).
     var GIANT_MM_PER_PX = 25.4 / 96;
     // What a tucked lead costs line 1. The packer strips a giant body's own leading <br>
     // under the tuck, so the nbsp (0.276em of 16px Segoe = 4.4px) shares the first giant
@@ -2899,21 +2913,34 @@
     // (any astral code point) prints as a tofu box, at giant size a huge one, and the
     // joiners and variation selectors that build emoji sequences are invisible debris once
     // the emoji is gone. Lone surrogates go too (they are not characters at all).
-    // AND what prints nothing at all (GIANT_INVISIBLE): zero-width spaces and joiners,
-    // direction marks and embeddings, the word-joiner block, the BOM, the soft hyphen,
-    // every variation selector, and C0/C1 control codes. Copy-paste brings these in
-    // unseen, and almost none of them is whitespace to JS's \s, so the stack layout made
-    // each one a giant LINE of its own: "HI\u200BYOU" fell from 14 levels to 13 to make
-    // room for it and left a full blank line of tape between I and Y, and the chunk-edge
-    // trim (which only trims "") could open a cheer on one. Tab and newline
-    // are kept: they are whitespace, and every layout already knows what to do with them.
+    // AND what prints nothing at all (GIANT_INVISIBLE): the whole BMP part of Unicode's
+    // Default_Ignorable_Code_Point set (zero-width spaces and joiners, direction marks and
+    // embeddings, the word-joiner block, the BOM, the soft hyphen, the combining grapheme
+    // joiner U+034F, the Hangul fillers U+115F/U+1160/U+3164/U+FFA0, the Khmer inherent
+    // vowels U+17B4/5, the Mongolian selectors U+180B-180F, U+FE00-FE0F and U+FFF0-FFF8),
+    // plus the interlinear annotation marks U+FFF9-FFFB and C0/C1 control codes.
+    // Copy-paste brings these in unseen, and almost none of them is whitespace to JS's \s,
+    // so the stack layout made each one a giant LINE of its own: "HI\u200BYOU" fell from
+    // 14 levels to 13 to make room for it and left a full blank line of tape between I
+    // and Y, and the chunk-edge trim (which only trims "") could open a cheer on one. The
+    // first version of this list stopped at the zero-width/bidi/BOM set and missed U+3164,
+    // the HANGUL FILLER, which is the "invisible character" people actually paste on
+    // Twitch: "HI\u3164YOU" still printed at 13 levels with a blank giant line (real
+    // engine). U+034F is in GIANT_MARK's range, so it used to glue onto the letter before
+    // it and widen that line by a whole em instead. Tab and newline are kept: they are
+    // whitespace, and every layout already knows what to do with them.
     // CR, CRLF and the Unicode line/paragraph separators (U+2028/2029) all become "\n":
     // they ARE line breaks, so a lines layout breaks there and a stack makes its one word
     // gap, rather than CR silently gluing two lines together as it used to.
+    // U+2800 (BRAILLE PATTERN BLANK) is NOT dropped but becomes a space: it has width,
+    // and people paste it on purpose as a blank that Twitch will not trim. As a space it
+    // makes the stack's one word gap and collapses in a line, where kept as a "letter" it
+    // was a giant blank line the chunk-edge trim could not see.
     // `dropped` lists what went, each once, so the card can SAY so: never silent.
-    var GIANT_INVISIBLE = /^[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFE00-\uFE0F\uFEFF]$/;
+    var GIANT_INVISIBLE = /^[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB]$/;
     var giantClean = function (text) {
-      var s = String(text == null ? "" : text).replace(/\r\n?|[\u2028\u2029]/g, "\n"), out = "", dropped = [];
+      var s = String(text == null ? "" : text).replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(/\u2800/g, " "),
+          out = "", dropped = [];
       Array.from(s).forEach(function (ch) {
         var cp = ch.codePointAt(0);
         if (cp >= 0x10000 || (cp >= 0xD800 && cp <= 0xDFFF) || GIANT_INVISIBLE.test(ch)) {
@@ -3046,7 +3073,8 @@
     // the same), so this does too. Real engine, Segoe UI, 203dpi, flat-topped capitals:
     // L14 3.805, L15 4.580, L16x0.8 4.392, L13 3.164, L13x0.8 2.540 cm measured, and this
     // gives 3.798 / 4.576 / 4.391 / 3.168 / 2.538, every one within 0.01 cm. The old
-    // px x 0.70 / PX_PER_MM read 0.6-0.8% high (3.835 for L14), which put 12 of the 51
+    // px x 0.70 / PX_PER_MM read up to ~1.8% high (0.8% from PX_PER_MM alone, the rest
+    // from not rounding the font-size to whole px; 3.835 for L14), which put 12 of the 51
     // sizes 0.1 cm high on the card: GG/WP at L13x0.8 said 2.6 cm and printed 2.54.
     var giantCapCm = function (px) { return Math.round(px) * GIANT_CAP_EM * GIANT_MM_PER_PX / 10; };
     // How tall an EMOTE prints, in cm: printer-bot's .emote is height:1em and a Twitch
@@ -3073,11 +3101,17 @@
     };
     // Same line for the preview. An emote is a dashed 1em placeholder labelled with the
     // exact name: no <img>, so no request leaves the page (the network rule in CLAUDE.md).
+    // EXCEPT a name with < > or & in it (Twitch's "<3", ">("): giantLineHtml escapes it,
+    // as every user character must be, so chat carries "&lt;3", Twitch never reports the
+    // emote and printer-bot's emote pass never swaps it. The tape prints the characters
+    // in giant capitals (repo bench: Kappa swapped, "&lt;3" left as text), so the preview
+    // shows text there too rather than a placeholder that promises a picture.
+    var giantEmoteSendable = function (name) { return !/[<>&]/.test(name); };
     var giantLinePreview = function (line, layout) {
       if (layout !== "emote") return escapeHtml(line);
       var t = giantTokens(line);
       return t.length ? " " + t.map(function (n) {
-        return '<span class="rw-emote-ph">' + escapeHtml(n) + "</span>";
+        return giantEmoteSendable(n) ? '<span class="rw-emote-ph">' + escapeHtml(n) + "</span>" : escapeHtml(n);
       }).join(" ") + " " : "";
     };
     // Per-line measurements, once per layout (they do not depend on the step). The three
@@ -3106,7 +3140,7 @@
     //  - characters: open + close + the two outer <br>s + the escaped lines + a <br>
     //    between each <= budget, which is exactly payloadLength(body.html). Height alone
     //    let 26 lines of "ROSES 000".. become one 487-character body: 499 with the plain
-    //    lead, 547 tucked, rejected by Twitch, nothing printed.
+    //    lead, 543 tucked, rejected by Twitch, nothing printed.
     // Greedy, at least one line per chunk. It PREFERS to break at a "" line (a word gap in
     // stack, a blank line in lines) and drops "" at both edges of every chunk: a chunk
     // that starts with "" prints a giant-height blank (measured +132px at L10, 396px of
@@ -3145,6 +3179,43 @@
       }
       return out;
     };
+    // How many CHEERS a step's chunks need on their own, counted the way the packer packs
+    // them: packStackBodies' own greedy test (characters <= budget AND height <=
+    // HEIGHT_BUDGET), run over the chunks. NOT the chunk count, which is what the labels
+    // and the fit used to read. giantChunks prefers to break a stack at a word gap and
+    // drops the blank line at the edge, and that saving is often exactly what lets the
+    // packer put both halves back into ONE part: "HELLO WORLD" at L10 is two chunks of
+    // 219 characters and 683px, which the packer sends as one 450-character, 1366px part.
+    // Counted as chunks, the Size select said "Level 10 · 2 cheers" over a preview showing
+    // one part, and fit1 settled for L10x0.9 (1.65 cm) when full L10 (1.83 cm) is one
+    // cheer: 12 of 60 common phrases undershot like that. Merged, the words are separated
+    // by the small gap one body leaves after another (GIANT_GAP_PX), not by a giant-height
+    // blank line; that is the trade, made on purpose, for the bigger letters. Real engine:
+    // the merged L10 part printed on one page with HELLO / WORLD at full L10. A
+    // continuation cover's reservation is left out: only the packer knows which part a
+    // block lands in, and the card reads the packed parts for that.
+    var giantCheerCount = function (ranges, budget) {
+      var n = 0, c = 0, h = 0;
+      for (var i = 0; i < ranges.length; i++) {
+        var r = ranges[i];
+        if (n && c + r.chars <= budget && h + r.heightPx <= HEIGHT_BUDGET) { c += r.chars; h += r.heightPx; continue; }
+        n++; c = r.chars; h = r.heightPx;
+      }
+      return n;
+    };
+    // Whether step `st` leaves a line too long for one message even ON ITS OWN, which
+    // giantChunks emits as a single-line chunk flagged `over` (a multi-line chunk is within
+    // budget by construction). Such a part is over 500 and Twitch rejects it, so the fit
+    // ranks it below every step without one. O(1): a line is over exactly when the step's
+    // tags plus that line exceed the budget, so the longest non-blank line decides. The
+    // tags are NOT monotone in px: L14x0.9 carries one tag more than L14 and is smaller, so
+    // a shrunk step can be over where a bigger plain one is not (measured: 240 x "A" in
+    // emote layout, fit1 picked L14x0.9 at 549 characters while L12 sent in 478).
+    var giantStepOver = function (m, st, budget) {
+      if (!m.ink) return false;
+      var tags = giantStepTags(st);
+      return payloadLength(tags.open) + payloadLength(tags.close) + 8 + m.maxLen4 - 4 > budget;
+    };
     // A LOWER BOUND on how many chunks any valid split needs at step `st`, in O(1), so the
     // fit can skip steps that cannot beat the best it already has without chunking them.
     // Without it a 480-character stack chunked all ~50 steps per call (~7ms), and the
@@ -3153,6 +3224,10 @@
     // budget - base + 4 of (line + <br>) characters, and a single-line chunk holds one line
     // however big, which is why each line's share is capped at one chunk's worth. Wrapping
     // only adds height, so one unwrapped line per non-blank line stays a floor.
+    // It is ALSO a floor on giantCheerCount, which is what the fit compares, so pruning
+    // with it never skips the winner: a part merged from k chunks pays k gaps and k sets
+    // of tags, so it holds no MORE line height (HEIGHT_BUDGET - k x GIANT_GAP_PX) and no
+    // more (line + <br>) characters (budget - k x (base - 4)) than one chunk can.
     var giantChunkFloor = function (m, st, budget) {
       if (!m.ink) return 0;
       var room = HEIGHT_BUDGET - GIANT_GAP_PX, lh = Math.min(giantLineH(st.px), room);
@@ -3160,22 +3235,30 @@
       var byChars = cap <= 0 ? m.ink : (m.maxLen4 <= cap ? Math.ceil(m.len4 / cap) : 1);
       return Math.max(Math.ceil(m.ink * lh / room), byChars);
     };
-    // Pick the step. Returns {fit, ranges}; fit is giantFit's public shape.
+    // Pick the step. Returns {fit, ranges}; fit is giantFit's public shape. "Cheers" below
+    // is giantCheerCount (what the packer makes of the chunks), never the chunk count.
     //  fit1 ("biggest that fits ONE cheer", the default): the largest step that fits the
-    //    width in one chunk. If none does, the width-fitting step with the FEWEST chunks,
+    //    width in one cheer. If none does, the width-fitting step with the FEWEST cheers,
     //    then the largest; NOT the biggest width fit, which is the most cheers (an 80-char
     //    stack fell back to 20 cheers that way). If nothing fits the width at all: the
     //    smallest step, fits:false, and the offending lines in `overflow`.
-    //  width: the largest width-fitting step, however many chunks.
-    //  integer n: exactly n levels, unshrunk; fits/overflow reported honestly.
+    //  width: the largest width-fitting step, however many cheers.
+    //  integer n: exactly n levels, unshrunk; fits/overflow/over reported honestly.
+    // In fit1 and width, a step with a line too long to send at all (giantStepOver) ranks
+    // below EVERY step without one: it used to count as a valid one-cheer chunk, so Auto
+    // could choose a part Twitch rejects while a smaller step sent fine. An over step is
+    // only ever the answer when every width-fitting step has one.
     var giantPick = function (m, size, budget, fitPx) {
-      var none = { fit: { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0 }, ranges: [] };
+      var none = { fit: { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0, cheers: 0, over: false },
+                   ranges: [] };
       if (!m.lines.length || !m.lines.some(function (l) { return l !== ""; })) return none;
       function wrap(st, ranges) {
         var overflow = [];
         for (var i = 0; i < m.ems.length; i++) if (m.ems[i] * st.px > fitPx) overflow.push(i);
         return { fit: { levels: st.levels, shrink: st.shrink, factor: st.factor, px: st.px,
-                        fits: overflow.length === 0, overflow: overflow, chunks: ranges.length },
+                        fits: overflow.length === 0, overflow: overflow, chunks: ranges.length,
+                        cheers: giantCheerCount(ranges, budget),
+                        over: ranges.some(function (r) { return r.over; }) },
                  ranges: ranges };
       }
       if (typeof size === "number") {
@@ -3186,29 +3269,41 @@
       // Width only shrinks with the step, so if the smallest is too wide, every one is.
       if (m.maxEm * steps[0].px > fitPx) return wrap(steps[0], giantChunks(m, steps[0], budget, fitPx));
       if (size === "width") {
+        var widest = -1;
         for (k = steps.length - 1; k >= 0; k--) {
-          if (m.maxEm * steps[k].px <= fitPx) return wrap(steps[k], giantChunks(m, steps[k], budget, fitPx));
+          if (m.maxEm * steps[k].px > fitPx) continue;
+          if (widest < 0) widest = k;
+          if (!giantStepOver(m, steps[k], budget)) return wrap(steps[k], giantChunks(m, steps[k], budget, fitPx));
         }
+        return wrap(steps[widest], giantChunks(m, steps[widest], budget, fitPx));
       }
       // fit1. Seed with the smallest step (the cheapest in height AND characters, so in
-      // practice the fewest chunks), then walk down from the largest: the first step that
-      // fits one chunk wins outright; otherwise keep the fewest chunks, ties to the larger
-      // step. A step whose floor already exceeds the best count cannot win and is skipped.
-      var best = steps[0], bestRanges = giantChunks(m, steps[0], budget, fitPx);
+      // practice the fewest cheers, and the fewest tags, so over only if every step is),
+      // then walk down from the largest: the first step that fits one cheer with no over
+      // line wins outright; otherwise rank on (over, cheers, larger). A step that cannot
+      // beat the best (over where the best is not, or a floor above the best count) is
+      // skipped without chunking.
+      var best = steps[0], bestRanges = giantChunks(m, best, budget, fitPx);
+      var bestOver = giantStepOver(m, best, budget), bestN = giantCheerCount(bestRanges, budget);
       for (k = steps.length - 1; k >= 1; k--) {
         st = steps[k];
-        if (m.maxEm * st.px > fitPx || giantChunkFloor(m, st, budget) > bestRanges.length) continue;
-        var ranges = giantChunks(m, st, budget, fitPx);
-        if (ranges.length === 1) return wrap(st, ranges);
-        if (ranges.length < bestRanges.length || (ranges.length === bestRanges.length && st.px > best.px)) {
-          best = st; bestRanges = ranges;
+        if (m.maxEm * st.px > fitPx) continue;
+        var over = giantStepOver(m, st, budget);
+        if ((over && !bestOver) || (over === bestOver && giantChunkFloor(m, st, budget) > bestN)) continue;
+        var ranges = giantChunks(m, st, budget, fitPx), n = giantCheerCount(ranges, budget);
+        if (n === 1 && !over) return wrap(st, ranges);
+        if (over !== bestOver || n < bestN || (n === bestN && st.px > best.px)) {
+          best = st; bestRanges = ranges; bestOver = over; bestN = n;
         }
       }
       return wrap(best, bestRanges);
     };
     // giantFit(lines, {layout, size, budget, fitPx}) -> {levels, shrink, factor, px, fits,
-    // overflow:[lineIdx], chunks}. `chunks` is how many bodies buildGiantBodies would make
-    // at that step. An empty list is size "none" (levels 0), never 18 levels of empty tags.
+    // overflow:[lineIdx], chunks, cheers, over}. `chunks` is how many bodies
+    // buildGiantBodies would make at that step; `cheers` is how many parts the packer puts
+    // them in on their own (giantCheerCount), which is the number every label quotes;
+    // `over` is a line too long for one message even alone. An empty list is size "none"
+    // (levels 0), never 18 levels of empty tags.
     var giantFit = function (lines, opts) {
       opts = opts || {};
       var layout = opts.layout === "stack" || opts.layout === "emote" ? opts.layout : "lines";
@@ -3238,24 +3333,42 @@
       else {
         var a = one("lines"), s = one("stack"), stackWins;
         if (a.fit.fits !== s.fit.fits) stackWins = s.fit.fits;
-        else if (go.size === "width" || (a.fit.chunks === 1 && s.fit.chunks === 1)) stackWins = s.fit.px > a.fit.px;
-        else stackWins = s.fit.chunks < a.fit.chunks;
+        else if (go.size === "width" || (a.fit.cheers === 1 && s.fit.cheers === 1)) stackWins = s.fit.px > a.fit.px;
+        else stackWins = s.fit.cheers < a.fit.cheers;
         p = stackWins ? s : a;
       }
       return { layout: p.layout, size: go.size, lines: p.lines, fit: p.fit, ranges: p.ranges,
                dropped: cleaned.dropped, budget: budget, fitPx: fitPx };
     };
-    // Words Twitch would charge as EXTRA cheers: a standalone token shaped like a
-    // cheermote ("CHEER100", "Kappa50"). Read off the raw body, because that is what Twitch
-    // parses: in a lines layout only words away from the line edges are standalone (the
-    // edge ones are glued to a tag); in emote layout every token is padded on purpose; a
-    // stack has no spaces at all. Hanzi never had this exposure; real letters do.
+    // Words Twitch MIGHT charge as EXTRA cheers: a standalone token shaped like a
+    // cheermote ("CHEER100", "Kappa50", "4Head100"). Read off the raw body, because that is
+    // what Twitch parses: in a lines layout only words away from the line edges are
+    // standalone (the edge ones are glued to a tag); in emote layout every token is padded
+    // on purpose; a stack has no spaces at all. Hanzi never had this exposure; real
+    // letters do. The shape is a letter/digit prefix ENDING in a letter, then the amount:
+    // the old /^[a-z]+\d+$/ missed 4Head, a digit-led GLOBAL cheermote (Twitch's own docs
+    // use "4Head100" as their example), so "HI 4HEAD100 YOU" charged 100 bits unwarned.
+    // Deliberately conservative: a channel's own cheermote prefixes are unknowable from
+    // here, so "PS5" and "TOP10" are flagged too, and giantReport hedges for any word
+    // whose prefix is not one of the global ones below.
     var giantCheerWords = function (html) {
       var out = [];
       String(html).split(/\s+/).forEach(function (t) {
-        if (/^[a-z]+\d+$/i.test(t) && out.indexOf(t) < 0) out.push(t);
+        if (/^[a-z0-9]*[a-z]\d+$/i.test(t) && out.indexOf(t) < 0) out.push(t);
       });
       return out;
+    };
+    // Twitch's GLOBAL cheermote prefixes, which charge in every channel with bits on, so
+    // the card can say so flatly. Matched case-insensitively, as Twitch matches. A word
+    // whose prefix is not here ("PS5", "MP3", "COVID19") gets a hedged sentence instead
+    // of being called a cheer: telling a user to delete a legitimate word on a guess was
+    // the bug. So a stale list only ever SOFTENS the wording; it never hides the warning.
+    var GIANT_GLOBAL_CHEERS = ["cheer", "biblethump", "cheerwhal", "corgo", "uni", "showlove", "party",
+      "seemsgood", "pride", "kappa", "frankerz", "heyguys", "dansgame", "elegiggle", "trihard", "kreygasm",
+      "4head", "swiftrage", "notlikethis", "failfish", "vohiyo", "pjsalt", "mrdestructoid", "bday",
+      "ripcheer", "shamrock"];
+    var giantGlobalCheer = function (w) {
+      return GIANT_GLOBAL_CHEERS.indexOf(String(w).replace(/\d+$/, "").toLowerCase()) >= 0;
     };
     // buildGiantBodies(text, {layout, size, budget, tuck}) -> Body[]; budget = characters
     // per body (MAX_CHARS - leadLength). Each body is
@@ -3279,11 +3392,17 @@
     var buildGiantBodies = function (text, opts) {
       var p = giantPlan(text, opts), f = p.fit;
       var overflowText = f.overflow.map(function (i) { return p.lines[i]; });
+      // overflow, overflowText and dropped are block-wide and READ-ONLY downstream
+      // (giantReport reads the first body's), so every body SHARES them. They used to be
+      // copied per body, which is quadratic exactly where it hurts: a manual Level 18
+      // stack overflows on almost every letter and holds ~2 letters a body, so 4000
+      // characters built 2000 bodies x 4000-entry arrays (249ms per keystroke), and an
+      // 8800-character paste took 1-2 s. Shared: about 0.1 s.
       function info(ci, n, over, words) {
         return { levels: f.levels, shrink: f.shrink, factor: f.factor, px: f.px, capCm: giantCapCm(f.px),
-                 layout: p.layout, size: p.size, chunkIndex: ci, chunkCount: n, fits: f.fits,
-                 overflow: f.overflow.slice(), overflowText: overflowText.slice(), over: over,
-                 dropped: p.dropped.slice(), cheerWords: words };
+                 layout: p.layout, size: p.size, chunkIndex: ci, chunkCount: n, cheers: f.cheers, fits: f.fits,
+                 overflow: f.overflow, overflowText: overflowText, over: over,
+                 dropped: p.dropped, cheerWords: words };
       }
       if (!f.levels) {
         return [{ html: "", chars: 0, heightPx: 0, leadBr: false, preview: { kind: "html", html: "" },
@@ -3319,7 +3438,7 @@
                preview: { kind: "html", html: '<div class="rw-giant">' + inner + close + "</div>" },
                giant: { ruler: true, levels: GIANT_RULER_LEVELS, shrink: "", factor: 1, px: top,
                         capCm: giantCapCm(top), layout: "lines", size: GIANT_RULER_LEVELS,
-                        chunkIndex: 0, chunkCount: 1, fits: true, overflow: [], overflowText: [],
+                        chunkIndex: 0, chunkCount: 1, cheers: 1, fits: true, overflow: [], overflowText: [],
                         over: false, dropped: [], cheerWords: [] } };
     };
     // What giantClean left out, said for what it is. Emoji (astral code points) print as
@@ -3360,7 +3479,7 @@
       if (g.ruler) return "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.";
       var dropNotes = giantDropNotes(g.dropped);
       if (!g.levels) return dropNotes.length ? dropNotes.join("\n") + " Nothing else is left to print." : "Type something to print it in giant capitals.";
-      var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.chunkCount || 1);
+      var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
       var bits = typeof opts.bits === "number" && opts.bits >= 100 ? opts.bits : 100;
       // An emote is a 1em SQUARE (.emote{height:1em}), so it is the whole font-size tall,
       // not the 0.70em cap height: quoting capitals for it under-sold it by 30%.
@@ -3383,10 +3502,18 @@
       out = out.concat(dropNotes);
       var words = [];
       gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
-      if (words.length) {
-        out.push("Twitch would read " + words.map(function (w) { return "“" + w + "”"; }).join(", ")
-          + " as another cheer and charge for it too. "
-          + (g.layout === "emote" ? "Remove it." : "Remove it, put it on a line of its own, or set Layout to Stack the letters."));
+      // A global cheermote is said flatly; anything else only MIGHT be one of the
+      // channel's own, so it is said as an if (see GIANT_GLOBAL_CHEERS).
+      var q = function (ws, sep) { return ws.map(function (w) { return "“" + w + "”"; }).join(sep); };
+      var fix = g.layout === "emote" ? "remove it." : "remove it, put it on a line of its own, or set Layout to Stack the letters.";
+      var sure = words.filter(giantGlobalCheer), maybe = words.filter(function (w) { return !giantGlobalCheer(w); });
+      if (sure.length) {
+        out.push("Twitch would read " + q(sure, ", ") + " as another cheer and charge for it too. "
+          + fix.charAt(0).toUpperCase() + fix.slice(1));
+      }
+      if (maybe.length) {
+        out.push("If " + q(maybe, " or ") + " is a cheer name on this channel, Twitch would charge it as "
+          + "another cheer too. If it is, " + fix);
       }
       return out.join("\n");
     };
@@ -3588,7 +3715,8 @@
     // there is no gem to hide, the packer ignores it, and turning Cheer-ready back on
     // should bring back the user's choice rather than silently reset it. The cost is
     // COMPUTED from the two real leads, never written down: an earlier draft said "+46"
-    // for what measures 48, and the figure moves with the token's length anyway.
+    // for what measures 48. (It is 48 at every amount: the token's length is in both
+    // leads, so it cancels out. Computed anyway, so a change to either lead can't drift.)
     function syncTuckUi() {
       if (!els || !els.cheerTuck) return;
       var on = !!els.cheer.checked, bits = getBits();
@@ -3850,7 +3978,13 @@
     // we reproduce it here. Approach (validated, no libraries, CSP-safe):
     // serialize the receipt node → SVG <foreignObject> data-URL scaled to the
     // dot width → draw to canvas → Rec.601 luma → Atkinson dither.
-    var THERMAL_W = 560;   // 70mm printable × 8 dots/mm @203dpi = the RP332's real row width
+    // The raster's width in print dots: the 72mm page (.rcpt, 272.1 CSS px) x 8 dots/mm at
+    // 203dpi = 576, so 576 / 272.1 = 2.117 dots per CSS px against the 2.119 measured on
+    // the engine (CLAUDE.md, "the 1:1 rule"). It was 560 ("70mm printable"), sized for a
+    // box that is no longer the one rasterized: 2.06 dots per CSS px, ~3% coarse, so the
+    // dither texture and 1-dot detail were resampled rather than shown 1:1. The physical
+    // RP332 row is not field-measured; 576 is the nominal and bench figure.
+    var THERMAL_W = 576;
     // Page CSS does NOT cascade into a serialized-SVG foreignObject, so the
     // receipt styling must ride along as an embedded <style>. Kept in sync with
     // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
@@ -4226,13 +4360,26 @@
           + "-bit cheer (" + copyableParts + " × " + getBits() + " = " + (copyableParts * getBits()) + " bits total).";
         // Giant type borrows a style printer-bot's author can change any day, and when it
         // goes it fails QUIETLY: the text prints normal-sized and every cheer still spends.
-        // On a multi-cheer run the cheap insurance is to look at the tape after part 1.
-        var giantRun = items.some(function (it) {
-          return it.bodies && it.bodies.some(function (b) { return b.giant && b.giant.levels > 0; });
+        // On a multi-cheer run the cheap insurance is to look at the tape after the first
+        // part that carries it.
+        // It names the FIRST part that carries giant type, which is not always part 1: in a
+        // [Hanzi, Giant] stack part 1 has no .title at all, so "send part 1 and look"
+        // asked for a check that part could not show, and the first part that could test
+        // the style was the last one, after every other cheer had been spent.
+        var firstGiant = -1;
+        items.some(function (it, k) {
+          var has = it.bodies && it.bodies.some(function (b) { return b.giant && b.giant.levels > 0; });
+          if (has) firstGiant = k;
+          return has;
         });
-        if (giantRun) {
+        if (firstGiant === 0) {
           note.textContent += " Send part 1 first and look at the printer. If the letters came out "
             + "normal-sized, stop: printer-bot changed its style, and the rest would print small too.";
+        } else if (firstGiant > 0) {
+          note.textContent += " Part " + (firstGiant + 1) + " is the first with Giant type (the parts before "
+            + "it print normally either way): send up to part " + (firstGiant + 1) + ", then look at the printer. "
+            + "If the giant letters came out normal-sized, stop: printer-bot changed its style, and the rest "
+            + "would print small too.";
         }
         container.appendChild(note);
       }
@@ -4289,7 +4436,8 @@
         pullPt: TAKEOVER_PULL_PT, pullV: TAKEOVER_PULL_V };
       // render defaults to "giant" (since 0.10.0): printer-bot's sanitizer strips `style`
       // but keeps `class`, and its printed receipt carries nutty's whole global.css, so
-      // nested `<b class=title>` prints real capitals up to ~4.6 cm (see PB_CLASSES).
+      // nested `<b class=title>` prints real capitals up to ~5.5 cm (about 3.8 cm for a
+      // five-letter word; see PB_CLASSES).
       // Field-proven by one real cheer. Hanzi tiling (0.9.x's default: pure text, no
       // markup) stays one select away as the backup for the day that style changes, and
       // saved blocks keep whatever render they had: no migration, because a returning
@@ -4456,8 +4604,8 @@
         giant: "Giant type borrows a heading style printer-bot's own page already has: each "
           + "level makes the letters 1.2× bigger, nested as deep as the paper allows. It is "
           + "plain text and a few ordinary tags the sanitizer keeps (bold, with a class), so "
-          + "nothing is disguised from chat or the printer. printer-bot's author can change "
-          + "that style any time; the Print size ruler under the preview checks it for one cheer.",
+          + "none of the markup is disguised from chat or the printer. printer-bot's author can "
+          + "change that style any time; the Print size ruler under the preview checks it for one cheer.",
         hanzi: "Hanzi tiling builds the letters out of Han characters: pure text with no "
           + "markup, so the sanitizer can't touch it. It's the backup if Giant type ever "
           + "prints normal-sized. It needs a CJK font on the printer (the target RP332 has "
@@ -4615,7 +4763,7 @@
       // Layout and Size, every option labelled with what it would PRINT for the text as it
       // stands ("capitals 3.8 cm · 1 cheer"), relabelled on every refresh. A level number
       // or a font-size in px tells nobody what comes off the tape, and "Lines" vs "Stack"
-      // is a 3x difference in letter height for the same cheer ("HAPPY BIRTHDAY": 0.4 cm
+      // is a 3x difference in letter height for the same cheer ("HAPPY BIRTHDAY": 0.5 cm
       // as typed, 1.4 cm stacked), which nobody would guess from the names. The cost in
       // cheers is what people need BEFORE they pick, not after the bits are gone.
       // The values are giantOpts' vocabulary; giantSize is stored as "fit1" | "width" | an
@@ -4658,7 +4806,8 @@
         + "(Kappa, not kappa). printer-bot swaps each name for the emote's picture at this "
         + "size. Only emotes you're allowed to use in that chat get swapped (a channel's sub "
         + "emotes need a sub); anything else prints as the name in giant capitals. BTTV, 7TV "
-        + "and FFZ emotes may not work. The picture is a small image blown up, so expect "
+        + "and FFZ emotes may not work. Emotes with < or > in the name, like <3, can’t be "
+        + "sent this way and print as text. The picture is a small image blown up, so expect "
         + "chunky pixels. Try one cheer before a bigger run.";
       // "Barely bigger than chat text": three .title levels (27.6px type) or less, shrink
       // steps included, which is why it is a size and not a level count.
@@ -4689,7 +4838,7 @@
             if (p.fit.levels) {
               label += " · " + (o.value === "auto" ? (p.layout === "stack" ? "stacked, " : "as lines, ") : "")
                 + heightOf(p.fit.px, p.layout)
-                + (p.fit.chunks > 1 ? " · " + cheersOf(p.fit.chunks) : "") + cutOf(p.fit, p.layout);
+                + (p.fit.cheers > 1 ? " · " + cheersOf(p.fit.cheers) : "") + cutOf(p.fit, p.layout);
             }
           }
           o.textContent = label;
@@ -4701,14 +4850,14 @@
             label = SIZE_LABELS[o.value];
             if (has) {
               p = planFor(go.layout, o.value);
-              if (p.fit.levels) label += " · " + heightOf(p.fit.px, p.layout) + " · " + cheersOf(p.fit.chunks) + cutOf(p.fit, p.layout);
+              if (p.fit.levels) label += " · " + heightOf(p.fit.px, p.layout) + " · " + cheersOf(p.fit.cheers) + cutOf(p.fit, p.layout);
             }
           } else {
             var n = parseInt(o.value, 10);
             label = "Level " + n + " · " + heightOf(GIANT_BASE_PX * Math.pow(GIANT_RATIO, n), go.layout);
             if (has) {
               p = planFor(go.layout, n);
-              label += " · " + cheersOf(p.fit.chunks) + cutOf(p.fit, p.layout);
+              label += " · " + cheersOf(p.fit.cheers) + cutOf(p.fit, p.layout);
             }
           }
           o.textContent = label;
@@ -4748,9 +4897,14 @@
         if (own.length) cheers = inParts.length;
         else {
           own = buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: tuck });
-          cheers = own[0].giant.chunkCount || 1;
+          cheers = own[0].giant.cheers || 1;
         }
         var g = own[0].giant;
+        // A block that prints nothing (emoji or invisible characters only) still has its
+        // empty body in some part, because the packer lets it ride along in whatever part
+        // it lands next to. That part is not "where this text is", and its length is not
+        // this block's problem: say neither. The report says nothing is left to print.
+        if (!g.levels) { inParts = []; over = false; }
         giantNote.textContent = "";
         giantNote.className = "giant-note" + (over ? " over" : "");
         var line = function (t, cls) { giantNote.appendChild(mkEl("div", cls ? { "class": cls } : null, t)); };

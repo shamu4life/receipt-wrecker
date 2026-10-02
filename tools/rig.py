@@ -80,10 +80,20 @@ import re
 import subprocess
 import sys
 
-try:
-    from PIL import Image
-except ImportError:                                             # pragma: no cover
-    sys.exit("This needs Pillow: python3 -m pip install --user Pillow")
+def _pil_image():
+    """Pillow, imported only when a render actually needs it.
+
+    Kept lazy so the parts of this tool that touch no pixels — the --help text, the
+    argument checks, and above all the case-name guard that refuses a stem outside
+    .render/ (a path-safety property, which must not hinge on an image library being
+    installed) — run on a box without Pillow. CI has no Pillow, so test/rig.test.mjs
+    exercises exactly that guard; a top-level import would exit before it ran.
+    """
+    try:
+        from PIL import Image
+    except ImportError:                                         # pragma: no cover
+        sys.exit("This needs Pillow: python3 -m pip install --user Pillow")
+    return Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, ".render")
@@ -199,7 +209,7 @@ def default_avatar(path, px=320):
     """
     if os.path.exists(path):
         return
-    im = Image.new("L", (px, px), 255)
+    im = _pil_image().new("L", (px, px), 255)
     for y in range(px):                       # a diagonal wedge: cheap, and asymmetric
         for x in range(px):                   # so a flipped or rotated draw is obvious
             if (x + y) % 24 < 12:
@@ -241,6 +251,23 @@ def page_css(mode="auto"):
                 "file": os.path.relpath(PRINTED_CSS, REPO)}
         if meta.get("sha256") and meta["sha256"] != info["sha256"]:
             info["edited"] = True                 # no longer what was fetched
+        # WHERE that cache came from, carried into the result. printerbot.mjs records it
+        # (`source`: live, or a repo commit under --ref; each sheet's `from`), and this
+        # used to drop both: after a pinned run, every later template-mode number was
+        # measured against that commit's CSS and reported as plain "cache". printerbot.mjs
+        # now only rewrites the cache from a fully live run, but a file written by an older
+        # copy of it can still be pinned or carry a fallback, so it is said, not assumed.
+        origin = meta.get("source")
+        froms = [st.get("from") for st in meta.get("stylesheets") or []]
+        info["origin"] = origin
+        info["stylesheets_from"] = froms
+        if isinstance(origin, dict) and origin.get("sha"):
+            warn("the cached printer-bot CSS (%s) was read at a PINNED commit, %s, not the "
+                 "live site; run tools/printerbot.mjs once without --ref to measure against "
+                 "what printer-bot loads today" % (info["file"], origin["sha"][:12]))
+        if "cache" in froms:
+            warn("part of the cached printer-bot CSS (%s) came from a stale cached copy "
+                 "after a failed fetch, not from the live site" % info["file"])
         return text, info
     text = PB_CSS + CSS
     return text, {"source": "embedded", "sha256": sha256(text), "fetched_at": None}
@@ -459,7 +486,7 @@ def ink(png, thresh=128):
     point()/load()/getdata(): those are variously deprecated in Pillow 14 or untypeable
     against its stubs, and this is a committed tool that should not start warning.
     """
-    im = Image.open(png).convert("L")
+    im = _pil_image().open(png).convert("L")
     w, h = im.size
     raw = im.tobytes()
     n = 0
@@ -482,6 +509,23 @@ def xobjects(pdf):
     the engine parsed and then never painted — how the multi-foreignObject bug hid."""
     r = subprocess.run(["pdfimages", "-list", pdf], capture_output=True, text=True)
     return [ln for ln in r.stdout.splitlines()[2:] if ln.strip()]
+
+
+def confined(stem):
+    """The stem, refused unless it stays under .render/.
+
+    The stem names files this writes AND deletes: print_pdf clears every <stem>-N.png
+    before rasterizing, so a stale page 2 cannot read as a spill. os.path.join honours an
+    absolute stem or "..", so `rig.py /some/dir/photo` deleted photo-7.png and
+    photo-12.png that were already there. printerbot.mjs only ever passes
+    "printerbot/<basename>", so nothing legitimate is refused."""
+    root = os.path.realpath(OUT)
+    base = os.path.realpath(os.path.join(OUT, stem))
+    if not base.startswith(root + os.sep):
+        sys.exit("case name %r points outside %s; artifacts (and the stale pages this "
+                 "clears) stay under .render/. Use a plain name like my-case or "
+                 "sub/my-case." % (stem, os.path.relpath(OUT, REPO)))
+    return stem
 
 
 def _take(argv, flag):
@@ -532,14 +576,14 @@ def main():
             stem = "document"
         else:
             stem = os.path.splitext(os.path.basename(document))[0]
-        out = render_document(document, stem, paper_mm=paper_mm, fonts=fonts)
+        out = render_document(document, confined(stem), paper_mm=paper_mm, fonts=fonts)
     else:
         if not argv:
             sys.exit("usage: <payload html on stdin> | python3 tools/rig.py <case-name> "
                      "[avatar-attr] [--paper MM] [--fonts DIR] [--embedded-css]\n"
                      "       python3 tools/rig.py [case-name] --document FILE|- "
                      "[--paper MM] [--fonts DIR]")
-        stem = argv[0]
+        stem = confined(argv[0])
         avatar_attr = argv[1] if len(argv) > 1 else None
         out = render(sys.stdin.read(), stem, avatar_attr, paper_mm=paper_mm,
                      fonts=fonts, css=css_mode)

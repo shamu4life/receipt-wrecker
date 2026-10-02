@@ -157,7 +157,8 @@ use for `<img class="emote">`, and `.emote{height:1em}` makes that picture scale
 whatever font-size it sits in, so Giant type's **Emote layout** can print one ~185px
 square (a lone emote: 14 levels inside the ×0.9 wrapper, its pad space counted). That is
 Twitch's picture, picked from Twitch's list by printer-bot. It is not one of ours, no
-carrier is involved, and the padded form it needs has never been sent.)* `anyCarrierLive()` returns false,
+carrier is involved, and the padded form it needs has never been sent.)*
+`anyCarrierLive()` returns false,
 every `EMBEDS` entry is `blocked: true`, and `field` records which gate killed it
 (`"blocked"` = automod ate the token, `"stripped"` = the sanitizer removes the tag).
 The img-class pair still leads the table because it is sanitizer-legal and only
@@ -181,6 +182,9 @@ below is for finding a surface that is *allowed*, never for defeating a filter.
 sanitization." Field evidence overturned that for a couple of years; the sanitizer
 has now vindicated it. Do not build a new feature on a tag outside the allow-list
 above without a fresh field probe proving it survives.
+*(Giant type, 0.10.0, follows this: `b` and `span` are on the allow-list, and a real
+cheer carrying the exact form printed before the feature was built. It is still
+markup, so it still keeps a markup-free path behind it.)*
 
 ## The one file that matters
 
@@ -308,7 +312,24 @@ real page in headless Chromium against a built-in static server, and every case 
 a bug that actually shipped for want of exactly this: add/remove/reorder never calling
 `saveBlocks()` so a rebuilt stack vanished on reload; the expired-upload flag that set
 and never cleared; the cost line that said "Parts 2-2". Mutation-verified: restore the
-persistence bug and two of the eight go red. Anything needing the Worker (`/px`,
+persistence bug and two of the eight go red.
+0.10.0 added the Giant type cases. The one marked **MANDATORY** runs Copy's real
+payload through a *clean-room* DOMParser allow-list walk written from the documented
+behaviour (never nutty's code), with the `PB_CLASSES` rules applied. It then asserts the
+innermost giant text's computed size is 16 × 1.2^levels (× the shrink factor) within
+0.01px at weight 900, that nothing after the giant body is inside a `.title`, and that
+only `class`/`src` attributes survive. Its control first proves it can see the bug it
+exists for: an unquoted tuck class losing `dialog-nav-button`. The others pin the 240px
+preview body, the Thermal preview, the tuck (corner box, Copy, reload), the emote
+layout's "no request leaves the origin", and that saved Hanzi/Type blocks are not
+migrated. Browser tests capture payloads by stubbing `navigator.clipboard.writeText`
+and clicking Copy, because the payload is never in the DOM. Any browser test that
+depends on a default must **pin** the value it needs. When Giant type became the default,
+"the cover surcharge line never says a range of one" quietly stopped splitting and
+passed while testing nothing; it now pins its block to Hanzi and asserts the split.
+In the unit suite, `test/_harness.mjs` exports `scanTags`, an all-occurrences tag and
+attribute scanner. The older first-occurrence `attrsOf` scan missed a stray attribute
+on level 2 of a nest, and read the unquoted two-class span as clean. Anything needing the Worker (`/px`,
 `/upload`) is deliberately NOT faked there; those are still checked against
 `wrangler dev` by hand, and the specs say so. CI runs both suites (see
 `.github/workflows/ci.yml`).
@@ -693,10 +714,38 @@ argued about:
   `height: auto`. Do not test against Receipt Wrecker's own preview CSS by mistake:
   its `.rcpt-body > svg { height: auto }` collapses an SVG carrier to zero height
   and will make you conclude the engine can't render SVG. It can.
+  **That is the receipt template's own CSS, not the whole page (corrected
+  2026-10-01).** The document printed is built by `GetRenderedHTML`, which puts the
+  page's inline `<style>` text and then the fetched text of **every** linked
+  stylesheet, in order (nutty's shared `global.css`, then `contents/style.css`), into
+  one `<style>`, followed by the receipt template's markup. So the real page carries
+  every rule in both sheets. None of them targets `b`, `i`, `span`, `img` or `br` by
+  tag, so markup without a class is unaffected. Markup *with* a class picks up
+  whatever that class does, which is the whole of Giant type (see `PB_CLASSES`). The
+  receipt container's font stack is `-apple-system, BlinkMacSystemFont, Segoe UI,
+  Roboto, Helvetica, Arial, sans-serif`, so the Windows rig prints in **Segoe UI**, at
+  a 16px base that nothing above the message changes. `global.css`'s own `html, body`
+  colour and Inter font are overridden by the receipt, and its background is dropped
+  by `--no-background`.
+- **The pipeline for a cheer, in order** (printer-bot's overlay, `contents/`): the
+  header gets `"<bits> BITS"`, the sender and the avatar; the message goes through
+  `SanitizeHTML`; then the **emote pass** replaces each Twitch emote name listed in the
+  event's `data.emotes` with `<img src=… class="emote"/>` (a regex over the sanitized
+  innerHTML *string*, so it never sees a second sanitize); then the **cheermote pass**
+  replaces the FIRST `Cheer<N>` (case-insensitive) with the gem image plus
+  `<span class="bits">N</span>`. Only then is the document built and handed to
+  wkhtmltopdf. Twitch decides what lands in `data.emotes`, and it only lists a name
+  that is a whitespace-delimited word of the raw message.
 
 **The bench is a committed tool now: `tools/rig.py`.** It reproduces printer-bot's
 page, its CSS and every one of its print flags, renders at 203dpi, and reports ink
-count, ink bbox and the image XObjects in the PDF. **It does NOT reproduce the
+count, ink bbox and the image XObjects in the PDF. *(Amended 0.10.0: "its CSS" was a
+hand-copied subset of the receipt template's rules, with no `global.css` in it at all,
+so a giant payload rendered at 16px there and read as "giant doesn't work". The default
+page now uses the real stylesheets once `tools/printerbot.mjs` has cached them, and
+otherwise the subset plus `PB_CSS`, a hand-synced copy of the `PB_CLASSES` rules. The
+faithful path is `--document`, below. Every result now names which CSS it used.)*
+**It does NOT reproduce the
 greyscale->1-bit step**: wkhtmltopdf and pdftoppm emit continuous tone (a 256-level
 ramp comes back with all 256 levels), so what turns grey into burnt dots happens
 downstream in the printer or its driver where nothing here can observe it. `ink()`
@@ -713,13 +762,79 @@ measures what the app really sends rather than markup you hand-wrote:
 node tools/payload.mjs '{"kind":"takeover","pullPt":240,"items":[...]}' | python3 tools/rig.py my-case
 ```
 
+**For anything that depends on printer-bot's stylesheets or its passes, which since
+0.10.0 means Giant type and the tuck, use the faithful pipeline instead:**
+
+```sh
+node tools/payload.mjs '{"kind":"raw","lead":true,"html":"<br><b class=title>HI</b><br>"}' \
+  | node tools/printerbot.mjs --out - \
+  | python3 tools/rig.py my-case --document - --fonts ~/my-segoe-ui
+```
+
+(Or paste a payload from the app's Copy button: `node tools/printerbot.mjs --message
+'…' --png .render/printerbot/x.png`.) `tools/printerbot.mjs` (`npm run printerbot --
+…`) fetches nutty's **live** settings page (`widgets.nutty.gg/printer-bot/contents/`)
+and takes the stylesheet list, their order and the receipt `<template>` *from that
+page* rather than from anything typed here. It fetches `global.css`, `style.css` and
+`helpers.js` and caches every file under `.render/printerbot/cache/` with its sha256
+and fetch time. In headless Chromium it runs printer-bot's **real** `SanitizeHTML`,
+then mirrors the emote and cheermote passes, and emits the document `GetRenderedHTML`
+would build. Checked on the field payload: byte for byte the document printer-bot's own
+overlay script builds with Streamer.bot stubbed, apart from image paths. **Chromium is
+used only for those string passes**; geometry comes from the real engine via
+`rig.py --document`, and only when there is no wkhtmltopdf at all does `--png` fall
+back to a Chromium render, labelled APPROXIMATE. Flags:
+
+| flag | what it does |
+|---|---|
+| `--message TEXT` | the chat message; otherwise stdin, one trailing newline dropped |
+| `--bits N` | the header's "N BITS"; default is the sum of the message's `Cheer<N>` words (which is also where cheermotes come from: whitespace-delimited `Cheer<N>` words, as Twitch parses them) |
+| `--user NAME` | the header's sender line (default `someviewer`) |
+| `--avatar URL\|PATH` / `--cheer-img URL\|PATH` | header picture / cheer gem; defaults are a 300×300 and a 112×112 stand-in |
+| `--emote NAME=URL\|PATH` | repeatable; applied only where Twitch would recognise it, as a whole whitespace-delimited word, else warned and skipped |
+| `--date ISO` | footer timestamp (default now) |
+| `--out FILE\|-` | default `.render/printerbot/receipt.html` |
+| `--png FILE` | render it: real wkhtmltopdf via `rig.py`, else APPROXIMATE Chromium |
+| `--fonts DIR` / `--paper MM` | passed to `rig.py`; the paper defaults to 80 (page = MM-8) |
+| `--offline` | cache only, never the network |
+| `--check` | the release-checklist canary: exit 1 if any `PB_CLASSES` declaration (read from the app core via `loadCore`) is missing from the live CSS, or the real sanitizer drops one of our classes. **Not in CI**, which stays offline, and no test may import this tool. |
+
+Exit status 0 fine, 1 check or render failed, 2 usage or environment. A file that
+cannot be fetched falls back to its cached copy with a WARNING, except under `--check`,
+which is about the LIVE stylesheets and exits 2 instead (pass `--offline` to check the
+cache deliberately). Behind a proxy, Node's `fetch` ignores `HTTPS_PROXY` unless
+`NODE_USE_ENV_PROXY=1` is set; the error says so. Provenance JSON (URLs, sha256, fetch
+times, warnings) goes to stderr. It needs Playwright's Chromium (`npx playwright install chromium`).
+Images are localised as `file://` under `.render/`, because a Twitch emote URL ends in
+`3.0` and a failed subresource with an unknown extension is a fatal whole-job error.
+
+`rig.py`'s 0.10.0 flags: `--document FILE|-` renders a complete document as-is (the
+PAGE template is skipped, so nothing of ours is in it; stdin is saved to
+`.render/<case>.html`, and the case name is optional). `--fonts DIR` adds **your own**
+copy of Segoe UI (e.g. copied from `C:\Windows\Fonts`) through a `FONTCONFIG_FILE`
+written under `.render/fonts/`, Linux build only; it never downloads a font. `--embedded-css`
+forces the hand-copied subset to reproduce pre-0.10.0 numbers. New JSON keys: `pages`,
+plus `pages_ink` and a WARNING when there is more than one page (the page is 500mm, and
+a message past it prints the rest as another page, which a page-1-only raster never
+showed; `ink`/`bbox` remain page 1); `css` (`{source: cache|embedded|document, sha256,
+fetched_at}`, plus `matches` when a document's CSS equals the cache); and
+`fonts_in_pdf` (from `pdffonts`), with a WARNING when Segoe UI is not among them.
+Without Segoe the bench falls back to Liberation (Arial metrics), and the numbers
+change: the field payload is one page there and two with Segoe. Exit status: 0
+rendered, 1 failed or bad arguments, **3 no wkhtmltopdf at all** (the one case
+`printerbot.mjs` may answer with an APPROXIMATE render).
+
 It needs **wkhtmltopdf 0.12.6 with patched Qt**. The distro QtWebKit 5.212 build behaves
 differently and will mislead you, so `rig.py` checks the version string and warns rather
 than assuming. Get it from the upstream release
 (<https://github.com/wkhtmltopdf/packaging/releases/tag/0.12.6-2>). It needs no admin
 rights: expand the `.pkg` with `pkgutil --expand-full` and untar the `wkhtmltox.tar.gz`
 inside it into `~/.local/opt`, which is one of the three places `rig.py` looks
-(`$WKHTMLTOPDF`, then `PATH`, then there).
+(`$WKHTMLTOPDF`, then `PATH`, then there). *(0.10.0: on Linux, `dpkg -x` the
+`wkhtmltox_0.12.6.1-2.<distro>_amd64.deb` into `~/.local/opt`, which lands in
+`~/.local/opt/usr/local/bin`, also searched. It reports `0.12.6.1 (with patched qt)`,
+the same patched Qt 4.8.7 / QtWebKit 534.34. The old substring test rejected it, and
+the version check now accepts it.)*
 
 **This is the file's own cautionary tale.** The previous copy of the harness lived only in
 gitignored `.render/` scratch with the binary path hardcoded to a throwaway job folder.
@@ -738,7 +853,8 @@ by argument.** The app's Thermal preview assumes Atkinson error diffusion and `r
 `ink()` hard-thresholds; the field (photos print halftoned, not posterised) rules out the
 threshold but names no kernel.
 
-`tools/calibrate.py` (`npm run calibrate`) exists to answer it with one physical print:
+`tools/calibrate.py` (`python3 tools/calibrate.py`; the `npm run calibrate` alias this
+line used to name was dropped from `package.json` in 0.9.0) exists to answer it with one physical print:
 five bands — continuous-tone patches as the actual probe, the same levels pre-dithered
 with Atkinson / Floyd-Steinberg / ordered Bayer as references, and a dot ruler. Whichever
 reference matches the probe's texture is the answer.
@@ -876,6 +992,17 @@ Things already settled this way, so you don't have to re-derive them:
   and `"Papyrus,fantasy"`, which are new literal tokens. The multi-picture takeover
   emits `position:relative` / `position:absolute` in a `style=` attribute for the first
   time. Worth adding to the next free probe round.
+  **0.10.0's tokens, and where each stands.** Already cleared by the one FIELD cheer
+  (2026-10-01): `<b class=title>` (unquoted), `<span class="switch dialog-nav-button">`
+  (quoted, two classes) and `</br>`. Never sent, so put them in the next free probe
+  with a plain control of the same shape: `class=setting-description` and
+  `class=setting-attribute` (Auto emits one whenever a ×0.9 / ×0.8 step wins, so an
+  ordinary word can carry one); a tucked lead followed directly by
+  `<b class=title>` with no `<br>` between; and the padded emote form
+  (` Kappa Kappa <br> Kappa `), for which a free probe also answers the emote question
+  outright: if Twitch chat itself draws the emote, Twitch recognised it, and
+  printer-bot will get it in `data.emotes`. A free probe cannot show whether a class
+  *prints* big. Only a real cheer can, which is what the Print size ruler is for.
 - **All nine offered fonts are legible and distinct at 24px and 58px, at the
   printer's real 203dpi/1-bit dithering.** Checked on the real engine, not just
   in-browser.
@@ -918,6 +1045,72 @@ Things already settled this way, so you don't have to re-derive them:
   the streamer's font stack, cannot honestly) warn about this in the UI; see the
   weight-convention note below for what the code *does* encode.
 
+### Settled for Giant type and the tuck (2026-10-01/02)
+
+BENCH, unless marked otherwise: real wkhtmltopdf 0.12.6.1 (patched Qt, Linux), printer-bot's
+exact flags, the document `tools/printerbot.mjs` builds through printer-bot's own sanitizer,
+and Segoe UI metrics from a local copy that is not, and never will be, in this repo.
+
+- **The rig's face is Segoe UI.** The engine walks the receipt's font stack and lands on
+  it: `pdffonts` shows `SegoeUI-Bold` once Segoe UI is installed, and that is the face
+  `.title`'s weight 900 gets. Without it the bench falls back to Liberation Sans (Arial
+  metrics) and every height changes. On the field payload it changes the page count
+  (one page against two). So treat a run without `--fonts` as the wrong font.
+- **Font-size is rounded to a whole px** (246.512 → 247), and the line pitch is
+  `ceil(1.0791·r) + ceil(0.2510·r)` for `r = round(px)` (Segoe's ascent 2210 and descent
+  514 over 2048, each ceiled). That matched the measured pitch exactly at every level
+  tried, with and without the shrink wrappers: 1.353em at L1, 1.410em at L3, settling to
+  1.333em from L10 up. That is `giantLineH`. A flat 1.33em under-counts the small sizes,
+  and Chromium's 1.338em at L3 is not the engine.
+- **The small line is 23px.** That covers the lead line ("Cheer100 07", ended by the
+  body's leading `<br>`) and the blank line one giant body leaves before another.
+  Chromium says 21.3. A trailing `<br>` at the end of a message adds 0px. Without the
+  leading `<br>`, untucked, "100 07" sits on the giant line's baseline, so it stays.
+- **A blank line at the top of a chunk prints a giant-height blank**: +132px at L10, and
+  396px of nothing above "D" at L16. One at the bottom collapses to a small line, but
+  the old model still counted it a giant line tall. Hence the chunker's edge trimming.
+- **The shrink wrappers work, and their light weight never reaches a glyph.** One
+  `setting-description` / `setting-attribute` *outside* the nest gives innermost text of
+  89.161 / 79.254px in Chromium (89 / 79 on the engine), still weight 900, uppercase.
+  The wrapper's own 14.4px / 100 and 12.8px / 200 apply to no text, `<br>` or blank
+  line. BENCH only: these classes have never been sent.
+- **Width.** An earlier width table (Arial ×1.10, then an Arial/DejaVu average) sat
+  *below* Segoe UI Bold on M, `-`, `'`, `&` and `/`. At its fit, "M&M M&M" wrapped to two
+  lines on the engine (message 139px against a 76px estimate), and "MMMMM" inked to
+  x 260.6, past the 256px body edge. `GIANT_W` = `round(max(Segoe UI Bold, Arial Bold) ×
+  1.03, 3)` gives 0 overflows over every 1-3 character string of its keys in either font.
+  The 3% also covers the whole-px rounding (27.65 → 28 is +1.3%).
+- **The tuck.** The span is pinned at the page's top right, and the only corner ink is
+  x 236.9-259.6, y 14.7-36.4 CSS px: the gem, its bottom 2px clipped. "100" and the
+  nonce are clipped away completely, and the nbsp line has no ink. **Keeping the giant
+  body's leading `<br>` under the tuck saves no tape**: the message stays at 156.1px,
+  because the blank line is exactly as tall as the gem line was. Dropping it gives
+  132.9px (-23.2px) and moves line 1 right 1.9px, because the nbsp (0.276em × 16 = 4.4px)
+  now shares that line. Hence the packer's strip and `GIANT_TUCK_PX` = 5. Chromium gets
+  `position:fixed` wrong for this: in a two-page PDF it repeats the box on page 2, and
+  wkhtmltopdf does not. FIELD: the span rode a real cheer that printed giant letters;
+  whether the gem was clipped was not judged.
+- **Emotes.** Twitch reports an emote only when the name is a whitespace-delimited word
+  of the raw message. Glued to a tag (`class=title>Kappa`, `Kappa<br>`) it is never in
+  `data.emotes`, so the tape prints "KAPPA" in giant capitals sized for a 1em square:
+  383px wide per line at L11, clipped at the page edge. Hence the padding. QtWebKit 534
+  **counts the trailing pad space when centring** a line that still fits, so the line
+  shifts left by half a space (0.138em; -16.1px at L11). Chromium hangs the space
+  instead. `giantLineEm` counts that space, so the fit stays honest. `.emote{height:1em}`
+  draws an emote 16 / 33 / 69 / 143 / 247px square at depth 0 / 4 / 8 / 12 / 15
+  (Chromium), and the model assumes square: a wide BTTV/7TV/FFZ emote is wider.
+- **Page spill.** The field payload (15 levels, P E N I S stacked) is a 1645px message
+  with Segoe. Page 1's ink ends under the I (y 1541.7), and S plus the footer print as
+  page 2. About 1516px of message fits one 500mm page under a 216px avatar, so
+  `HEIGHT_BUDGET` stays 1400 plus the 23px line. That is why `fit1` gives five stacked
+  letters 14 levels (1393px, one page), not 15. Whether the rig printed that S on a
+  second page is not recorded. (A FIELD check if it ever matters: Segoe's 1.33 line
+  height predicts a ~9 cm gap between I and S.)
+- **Don't measure geometry with JavaScript on the engine.** wkhtmltopdf runs scripts
+  during `--javascript-delay` on a 0px-wide layout, which reported widths of 0 and a
+  337px header. Measure from ink. A bench-only `outline` on `#receipt-content>div` takes
+  no layout space, if you need box edges.
+
 ## Global constraints (payload and glyph rules: do not relax without an explicit request)
 
 These come directly from verified, reverse-engineered constraints on the
@@ -938,15 +1131,22 @@ not arbitrary style choices:
   lightest cell and print correctly. Keep the wrapper; that is the load-bearing
   part, not the choice of glyph.
 - **No `<`, `>`, or `&`** may appear in *glyph* output. None of the tier glyph sets
-  include them; don't add a tier or ramp entry that does. (Big type, rotate and real
-  pictures are markup modes and obviously emit tags; everything user-supplied that
-  goes into them runs through `escapeHtml` / `escapeAttr` in the pure core.)
+  include them; don't add a tier or ramp entry that does. (Big type, rotate, real
+  pictures and, since 0.10.0, **Giant type** are markup modes and obviously emit tags;
+  everything user-supplied that goes into them runs through `escapeHtml` /
+  `escapeAttr` in the pure core. Giant type's tests prove it the blunt way: strip the
+  known tags from a hostile body and no `<` or `>` may remain.)
 - **A payload must never *lead* with `<`**: some sends get dropped outright on a
   leading angle bracket. When cheering, the `Cheer<N>` token leads; otherwise
-  `LEAD_GUARD` (a non-breaking space) does.
+  `LEAD_GUARD` (a non-breaking space) does. With the 0.10.0 tuck on, `LEAD_GUARD` leads
+  and the token rides in the corner span right after it, so this still holds.
+  `buildLead` is the only place a lead is built.
 - **No color emoji / astral-plane codepoints.** The target renderer (old
   Qt-WebKit) has zero color-font support; these tofu. Stick to BMP glyphs with
-  broad legacy-font coverage (Block Elements, Braille, curated CJK).
+  broad legacy-font coverage (Block Elements, Braille, curated CJK). Giant type puts
+  the user's own text on the tape, so it enforces this on input: `giantClean` drops
+  astral code points, ZWJ and VS15/VS16, and the card names what was left out. (At
+  giant size a tofu box is the size of a letter.)
 - **The cheer token LEADS the payload.** This file claimed the opposite for a long
   time; the code is right. `packStackBodies` emits `Cheer<bits> <nonce> <html>`, for
   two reasons given in its own comment: the token and nonce survive any
@@ -954,6 +1154,12 @@ not arbitrary style choices:
   guarantees the message doesn't start with `<`, which is the hard rule just above.
   When not cheering, `LEAD_GUARD` (a non-breaking space) leads instead. Don't
   "restore" a trailing token.
+  *(Amended 0.10.0: the token leads, **or**, with the tuck on, it is the first thing
+  inside the corner span right after `LEAD_GUARD`:
+  `\u00A0<span class="switch dialog-nav-button"> Cheer100 07 </span>`. Both reasons
+  above still hold. The token keeps a space on each side, so Twitch still parses a
+  standalone `Cheer100` and charges for it, and printer-bot's cheermote pass still finds
+  it, because it is the first `Cheer<N>` in the message.)*
 - **The nonce is visible, never zero-width.** It exists to defeat a duplicate-
   message filter; an invisible/zero-width character is likely to be stripped by
   the same sanitizing behavior that rules out HTML injection.
@@ -972,6 +1178,13 @@ not arbitrary style choices:
   fake cheer were the standing markup-only exception; under the sanitizer they
   simply have no surviving form, which is why the composer now flags them as
   non-printing rather than pretending otherwise.
+  *(Amended 2026-10-01, two corrections. "All styling" was wrong: the sanitizer strips
+  the `style` **attribute**, but `class` survives and carries every rule in nutty's
+  inlined `global.css` and `contents/style.css` onto the paper (top banner). And "the
+  ones that survive are exactly the markup-free ones" is no longer the whole list:
+  Giant type survives as markup, built only from allow-listed tags plus a class. **The
+  rule itself stands, and Giant type obeys it:** Hanzi tiling is its markup-free path,
+  one select away. The class route fails quietly, so that backup is not optional.)*
 - **Carrier tags: the tag for a real picture is DATA, not a hardcode — and right now
   there is no working one.** The blocked-terms list ate `<object`, then `<image`, then
   `<img`; the 2026-09-15 sanitizer independently stripped
@@ -991,6 +1204,16 @@ not arbitrary style choices:
   which never reaches the printer but still passes the terms filter, and include a
   control of the same shape so a block is attributable. **Swapping to an allowed tag is
   the drill; obfuscating a blocked one is not** — see the banner.
+- **Borrowed classes are DATA too (0.10.0).** `PB_CLASSES` is to printer-bot's
+  stylesheets what `EMBEDS` is to tags: every class Giant type and the tuck use, and the
+  declarations we rely on, live in that one table, and `classAttr` / `pbClass` /
+  `pbPreviewCss` derive everything from it. Do not hardcode a class at a call site. When
+  `npm run printerbot -- --check` (or a ruler print) says a row stopped working, apply
+  THE RULE in the top banner *before* touching the row. An incidental rename is a
+  one-row remap, after a free probe and a ruler print. A deliberate removal, or a
+  channel blocking the form, is a stop: fall back to Hanzi and never cycle
+  tag/quote/case variants. That stop condition is the difference between this table and
+  the carrier drill above.
 
 ## Hard constraints: keep these true
 
@@ -1022,7 +1245,8 @@ These are the project's defining properties (shared with the sibling tools).
 > relay / SSRF gadget. Do not loosen it.**
 >
 > These are the only sanctioned network calls / server-side pieces. **The honest
-> privacy line:** Big Text is fully local, and a picture picked from disk for
+> privacy line:** Big Text is fully local (Giant type included: its emote preview is a
+> labelled placeholder, never a fetch of the emote), and a picture picked from disk for
 > glyph-art is decoded locally. Everything else touches the Worker: pasting an image
 > URL sends it through `/px`, adjusting brightness/contrast re-uploads a baked PNG,
 > and the uploaders POST the file. User-facing docs must say that plainly rather than
@@ -1050,16 +1274,24 @@ These are the project's defining properties (shared with the sibling tools).
   needs no CORS grant, adds no `fetch` call site, and tests the exact condition that
   makes the receipt print blank. If you ever "tidy" it into a `fetch`, you have added
   a seventh call site and a CORS problem in one move.
+  **Nor is anything Giant type does.** The Emote layout invites a preview that loads
+  the named emote from Twitch's CDN: that would be a seventh call site *and* a third
+  party. It draws a dashed 1em square labelled with the name instead, and a browser
+  test asserts no request leaves the page's origin. Fetching nutty's live stylesheets
+  is something only the dev-only bench (`tools/printerbot.mjs`) does, never the app.
 - **Storage:** `localStorage` holds exactly four keys: the control-panel
   settings (`rw_controls_v1`), the nonce sequence counter (`rw_nonce_seq`), the
   block composer's stack (`rw_blocks_v1`), and the saved presets (`rw_presets_v1`,
   added by explicit request in 0.6.0, spec §8). All wrapped in `try/catch` so
   sandboxed previews that block storage still render and run. Don't add a fifth
-  without an explicit request.
+  without an explicit request. (0.10.0 added state without adding a key: the
+  "Hide the cheer gem" checkbox is a `tuck` field inside `rw_controls_v1`, absent
+  meaning off, and a giant block's `giantLayout` / `giantSize` ride in `rw_blocks_v1`
+  and presets like every other block field.)
 - **Vanilla JS**, IIFE-wrapped, `"use strict"`, ES5-ish style (`var`, function
   expressions). Match the surrounding code's idiom when editing.
-- **Privacy: state it accurately.** Big Text and a locally-picked glyph-art
-  picture never leave the device, and there are no analytics, accounts or third
+- **Privacy: state it accurately.** Big Text (Giant type included) and a
+  locally-picked glyph-art picture never leave the device, and there are no analytics, accounts or third
   parties. Uploading a file, pasting an image URL, or dragging an adjustment
   slider *does* send data to our Worker. Preserve the no-third-parties property;
   don't let this drift back to "nothing is ever sent".
@@ -1086,6 +1318,20 @@ These are the project's defining properties (shared with the sibling tools).
   `fmt`). `lineFmt` is the obviously-named helper, so anyone wiring up a new text
   surface will reach for it first. **Never hand `lineFmt`'s output to the Big Text
   path**: it would silently drop every untouched sideways block from 800 to 400.
+  Giant type (0.10.0) uses **neither** convention: it has no weight, italic or font
+  controls at all, because `.title` sets weight 900 and the receipt's font stack picks
+  Segoe UI. The card hides the formatting row and says so. Don't wire `lineFmt` or
+  `block.fmt` into it, and don't add an italic or tag variant. That is THE RULE in the
+  top banner, not a missing feature.
+- **"Giant type" is not "Giant sideways".** Giant type (`render:"giant"`, 0.10.0) is
+  nested `.title`, and it prints. "Giant sideways" was the rotated SVG/HTML Type render,
+  and it has not printed since the sanitizer. Name new things so they can't be confused
+  with the dead ones.
+- **Every reader of a block's render or giant fields goes through `blockRender` /
+  `giantOpts`**, in the card, `applyRender` and `renderBlockBodies` alike. Those fields
+  arrive from presets and imported JSON, which `parsePresets` checks for shape and not
+  for values, and a raw `block.render !== "hanzi"` test is exactly how the card and the
+  payload would come to disagree.
 
 ## Working in this repo (workflow for assistants)
 
@@ -1132,3 +1378,6 @@ a live probe over it.
 - The real-world acceptance test for any change to the glyph engine is a physical
   **Census print** on the target rig (see README → "Tiers & the Census"). Unit
   tests prove the generation logic, not what actually comes off the printer.
+  For Giant type it is the **Print size ruler**: one cheer, 1-13 at every size. Before a
+  release, also run `npm run printerbot -- --check` (live CSS against `PB_CLASSES`).
+  It is a canary, deliberately not in CI.

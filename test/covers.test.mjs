@@ -132,11 +132,13 @@ test("the cover follows the block's own pull, not the default", () => {
 
 test("the cover is still reserved under the 60-character tucked lead", () => {
   // The cover and the tuck stack: a part after the first pays the tucked lead (60, +4 for
-  // the <br> a first body may gain) AND 106 of cover before any body goes in. Reserving
-  // the old 12-character lead here put part 2 well past 500 — rejected, never printed.
+  // the <br> a first body may gain) AND 106 of cover before any body goes in. 170-character
+  // bodies are chosen to discriminate: reserving the old 12-character lead lets two of them
+  // share a covered part at 60 + 106 + 4 + 340 = 510, which Twitch rejects; reserving the
+  // real 64 keeps them apart.
   const opts = Object.assign({}, OPTS, { tuck: true });
   const parts = packStackBodies(
-    [takeoverBody(), body(160), body(160), body(160), body(160), body(160), body(160)], opts);
+    [takeoverBody(), body(170), body(170), body(170), body(170), body(170), body(170)], opts);
   assert.ok(parts.length >= 3, "expected a multi-part split, got " + parts.length);
   parts.forEach((p, i) => {
     assert.equal(p.chars, len(p.payload), "part " + (i + 1) + " miscounted its own payload");

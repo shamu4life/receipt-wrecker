@@ -80,7 +80,8 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
   cheer token in `<span class="switch dialog-nav-button">`, two more of printer-bot's
   own classes, which pin it into a clipped box in the receipt's top-right corner. The
   gem shrinks into the corner, "100" and the nonce are cut off, and with Giant type the
-  line they took is saved (real engine: message 156 → 133px). The lead becomes a
+  line they took is saved (real engine: message 156 → 133px), except in the emote
+  layout, which keeps it so its first row stays centred. The lead becomes a
   non-breaking space plus the span, 60 characters at Cheer100 against 12. The hint
   computes the cost from the two real leads rather than quoting a number. Saved as a
   `tuck` field in `rw_controls_v1`; no new storage key. FIELD: this exact span rode the
@@ -103,6 +104,15 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
   release-checklist step, not CI). Checked on the field payload: its document matched
   the one printer-bot's own overlay script builds, byte for byte apart from image paths.
   Nothing of nutty's is committed. That repo has no licence.
+- **Provenance of printer-bot's files, recorded** (CLAUDE.md banner and "Measuring",
+  README "Where printer-bot's code lives"). The source is
+  `github.com/nuttylmao/nutty.gg`, whose `CNAME` is `widgets.nutty.gg`, so `main` is the
+  live site: verified byte-identical to `main` @ be2972f on 2026-10-02. No licence, so
+  never vendored. The sanitizer arrived in 121c351 (2026-08-27); `.title`'s 1.2em has
+  stood since c5e9890 (2025-09-13); inlining every stylesheet into the printed page since
+  July 2025; `global.css` has had 8 commits ever. `printerbot.mjs --ref` pins the bench
+  to a commit. To get warned of a change: the commits feed for that one stylesheet in
+  any feed reader, then `npm run printerbot -- --check`.
 - **`tools/rig.py`**: `--document FILE|-` renders a complete document untouched;
   `--fonts DIR` adds your own copy of Segoe UI (the rig's font) through fontconfig and
   never downloads one; `--embedded-css` reproduces pre-0.10.0 numbers. Its JSON gains
@@ -165,6 +175,34 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
   stops splitting.
 - Docs: CLAUDE.md's export list was one short (`anyCarrierLive`), and it pointed at an
   `npm run calibrate` script that 0.9.0 removed from `package.json`.
+- **A part after a takeover could still go out over 500 characters** (present at 0.9.1).
+  The continuation cover's 106 characters were reserved, but a single body always gets a
+  part of its own, so one too big for the room left beside the cover (a full Hanzi band:
+  598; a 464-character giant body: 582) had the cover prepended anyway and Twitch
+  rejected the whole message. Such a part now goes out without its cover: a missing
+  cover costs looks, an over-length part costs the cheer, and takeovers no longer print.
+- Found in review before release:
+  - **Invisible characters became giant blank lines.** Copy-paste brings in zero-width
+    spaces, joiners, direction marks, soft hyphens, BOMs and control codes. Giant type
+    kept them, and the stack layout made each one a line of its own ("HI\u200BYOU" lost a
+    whole size to make room for it). They are dropped now, and the card says
+    "Invisible characters … were left out" instead of a puzzling "Emoji … left out"
+    with no emoji named. CR and U+2028/2029 count as line breaks.
+  - **The cm sizes on the card read 0.6-0.8% high**, enough to show 12 of the 51 sizes
+    0.1 cm too big (GG/WP said 2.6 cm and printed 2.54). They now round the font-size to
+    whole px as the engine does and use 25.4/96 mm per px and Segoe UI's exact cap
+    height (1434/2048). Every measured size is within 0.01 cm. `PX_PER_MM` is unchanged.
+  - **Emote names with the gem hidden printed the first row off-centre.** Stripping the
+    emote body's line break put its padded first line right after the hidden gem's
+    non-breaking space, where the pad space no longer collapses: a 27px skew between
+    rows on the real engine. The emote layout now keeps its line break (one, never two),
+    and both rows land where they do untucked.
+  - **The documented bench pipe failed.** `payload.mjs … | printerbot.mjs --out -` threw
+    EAGAIN whenever the writer was slower than printerbot's startup. stdin is now read as
+    a stream to EOF.
+  - The unit test that keeps `rig.py`'s hand-copied `PB_CSS` in step with `PB_CLASSES`
+    now reads the two CSS constants rig.py actually renders with (not the whole file,
+    where a rule in a comment would pass) and checks both directions.
 
 ### Known
 

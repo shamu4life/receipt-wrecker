@@ -175,18 +175,38 @@ test("the preview CSS is built from the table, minus .emote, with fixed turned i
   for (const rule of css.split("}").filter(Boolean)) assert.ok(rule.startsWith(".rcpt ."), rule);
 });
 
-test("tools/rig.py's hand-synced copy of the borrowed rules matches PB_CLASSES", () => {
+test("tools/rig.py's hand-synced copy of the borrowed rules matches PB_CLASSES, both ways", () => {
   // The bench's fallback CSS (used when no cached copy of printer-bot's real CSS exists)
-  // is kept in step BY HAND. A drift there makes a giant payload bench at 16px and read
-  // as "giant type doesn't work". Offline: this reads the file, it runs nothing.
+  // is kept in step BY HAND: Python cannot load the app core. A drift there makes a giant
+  // payload bench at 16px and read as "giant type doesn't work". Offline: this reads the
+  // file as text, it runs nothing.
+  //
+  // Read out of the two string constants rig.py actually renders with, not the whole
+  // file: a rule that survives only in a comment or a usage note prints nothing. And
+  // both ways: a row PB_CLASSES dropped but rig.py still carries is a bench measuring a
+  // class the app no longer emits.
   const here = dirname(fileURLToPath(import.meta.url));
   const rig = readFileSync(join(here, "../tools/rig.py"), "utf8");
-  for (const e of C.PB_CLASSES) {
-    if (e.source === "global.css") {
-      assert.ok(rig.includes("." + e.cls + "{" + e.decl + "}"), "rig.py's PB_CSS lacks ." + e.cls + "{" + e.decl + "}");
-    }
+  const block = (name) => {
+    const m = rig.match(new RegExp("^" + name + ' = """\\\\\n([\\s\\S]*?)"""', "m"));
+    assert.ok(m, "tools/rig.py has no " + name + ' = """\\ ... """ block any more');
+    return m[1];
+  };
+  const pbCss = block("PB_CSS").split("\n").map((l) => l.trim()).filter(Boolean);
+  const styleCss = block("CSS");
+  const fromGlobal = C.PB_CLASSES.filter((e) => e.source === "global.css");
+  assert.ok(fromGlobal.length >= 5, "expected the title, two shrink and two tuck rows from global.css");
+  const want = fromGlobal.map((e) => "." + e.cls + "{" + e.decl + "}");
+  for (const rule of want) assert.ok(pbCss.includes(rule), "rig.py's PB_CSS lacks " + rule);
+  for (const rule of pbCss) assert.ok(want.includes(rule), "rig.py's PB_CSS carries " + rule + ", which is not a PB_CLASSES row");
+  // The rows from printer-bot's own style.css (the emote's height:1em) live in rig.py's
+  // verbatim copy of that file's receipt rules, in its spaced form.
+  const fromStyle = C.PB_CLASSES.filter((e) => e.source === "style.css");
+  assert.ok(fromStyle.some((e) => e.id === "emote"), "the emote row moved out of style.css");
+  for (const e of fromStyle) {
+    const rule = "." + e.cls + " { " + e.decl.split(";").map((d) => d.replace(":", ": ") + ";").join(" ") + " }";
+    assert.ok(styleCss.split("\n").includes(rule), "rig.py's CSS lacks " + rule);
   }
-  assert.ok(/\.emote\s*\{\s*height:\s*1em;?\s*\}/.test(rig), "rig.py's style.css subset lacks .emote{height:1em}");
 });
 
 // ── Widths ──
@@ -547,6 +567,41 @@ test("tucked, a real giant body sheds its leading <br> in every part; a Hanzi ba
   plain.forEach((p, i) => assert.equal(p.payload, p.lead + bodies[i].html));
 });
 
+test("tucked, an EMOTE body keeps its one leading <br>: line 1 starts clean, never doubled", () => {
+  // Every emote line is padded with a space on each side so Twitch sees whole words. At
+  // the start of a line that space collapses; after the tuck's nbsp it does not, and line 1
+  // printed shoved right (real engine, L10x0.9 "Kappa Kappa / Kappa": line 1 centred
+  // 14.4px right of the body centre, line 2 12.3px left, a 27px skew). So the emote body
+  // does not offer its <br> to the packer, and the packer must not add a second one.
+  const opts = { cheer: true, bits: 100, tuck: true };
+  const bodies = C.buildGiantBodies("Kappa Kappa\nKappa", { layout: "emote", tuck: true, budget: budgetFor(opts) });
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].leadBr, false, "an emote body offered its <br> to the tuck");
+  assert.ok(bodies[0].html.startsWith("<br><b class="), bodies[0].html);
+  const parts = C.packStackBodies(bodies, opts);
+  assert.equal(parts[0].payload, parts[0].lead + bodies[0].html, "the packer touched the emote body");
+  assert.ok(/<\/span><br><b class=/.test(parts[0].payload), "line 1 must start right after one <br>: " + parts[0].payload);
+  assert.ok(!parts[0].payload.includes("<br><br>"), "a doubled <br> prints a blank line: " + parts[0].payload);
+  assert.ok(parts[0].chars <= C.MAX_CHARS);
+  // Untucked it is byte-identical to before: the plain lead, then the body.
+  const plain = C.packStackBodies(C.buildGiantBodies("Kappa Kappa\nKappa", { layout: "emote" }), { cheer: true, bits: 100 });
+  assert.match(plain[0].payload, /^Cheer100 \d\d <br><b class=/);
+  // Lines and stack still shed theirs (that is where the tuck saves its 23px).
+  for (const layout of ["lines", "stack", "auto"]) {
+    const b = C.buildGiantBodies("GG", { layout, tuck: true, budget: budgetFor(opts) });
+    assert.equal(b[0].leadBr, true, layout);
+  }
+  // A multi-part emote run: every part keeps exactly one <br> after the tucked lead.
+  const many = C.buildGiantBodies(Array(12).fill("Kappa Kappa Kappa").join("\n"),
+    { layout: "emote", size: 8, tuck: true, budget: budgetFor(opts) });
+  assert.ok(many.length >= 2, "want a multi-cheer emote run, got " + many.length);
+  C.packStackBodies(many, opts).forEach((p, i) => {
+    assert.ok(p.payload.startsWith(p.lead + "<br><b class="), "part " + (i + 1) + ": " + p.payload.slice(0, 90));
+    assert.ok(!p.payload.includes("<br><br>"), "part " + (i + 1) + " doubled a <br>");
+    assert.ok(p.chars <= C.MAX_CHARS, "part " + (i + 1) + ": " + p.chars);
+  });
+});
+
 test("under the tuck the fit narrows by the nbsp that shares line 1", () => {
   // Tucked, the giant body's own <br> is gone, so the 16px nbsp lead (0.276em of Segoe UI,
   // 4.4px) sits on the first giant line and comes off its width.
@@ -562,6 +617,9 @@ test("under the tuck the fit narrows by the nbsp that shares line 1", () => {
     C.giantPlan(t, { layout: "lines", size: "width", tuck: true }).fit.px
       < C.giantPlan(t, { layout: "lines", size: "width" }).fit.px);
   assert.ok(changed, "the tucked fit never differs from the untucked one");
+  // The emote layout keeps its <br> under the tuck, so none of its lines shares the nbsp
+  // and it keeps the whole width.
+  assert.equal(C.giantPlan("Kappa", { layout: "emote", size: "width", tuck: true }).fitPx, C.PAPER_PX);
 });
 
 test("chunks never start or end on a blank line, lose no line, and fit the page by the real-engine height model", () => {
@@ -687,7 +745,7 @@ test("text is cleaned and escaped: emoji dropped and reported, markup inert, cha
 });
 
 test("empty or blank text is ONE empty body in every layout, never a cheer of empty tags", () => {
-  for (const text of ["", "   ", "\n\n", "\t \n ", "🔥", "\u200D\uFE0F", null, undefined]) {
+  for (const text of ["", "   ", "\n\n", "\t \n ", "🔥", "\u200D\uFE0F", "\u200B", "\u00AD\u2060\uFEFF", "\r\u2028", null, undefined]) {
     for (const layout of LAYOUTS) {
       for (const size of ["fit1", "width", 18]) {
         const bodies = C.buildGiantBodies(text, { layout, size });
@@ -777,13 +835,45 @@ test("Print size ruler: 1..13, one level deeper each, balanced, one cheer on one
   assert.match(C.giantReport(ru), /1–13/);
 });
 
+test("the cm sizes on the card match what the real engine printed, to 0.01 cm", () => {
+  // Real wkhtmltopdf 0.12.6.1 + Segoe UI at 203dpi, through printer-bot's own sanitizer
+  // and CSS (tools/payload.mjs | tools/printerbot.mjs | tools/rig.py --document): the
+  // height of flat-topped capitals (H, E, L, P, N, I) at each size, in cm. The old
+  // px x 0.70 / PX_PER_MM (3.75) read 0.6-0.8% high, 3.835 for the first one: it divided by
+  // a rounded px-per-mm and skipped the engine's rounding of font-size to whole px.
+  const MEASURED = [[14, 1, 3.805], [15, 1, 4.580], [16, 0.8, 4.392], [13, 1, 3.164], [13, 0.8, 2.540]];
+  assert.equal(C.GIANT_CAP_EM, 1434 / 2048, "Segoe UI's sCapHeight is 1434 of 2048 units");
+  assert.equal(C.GIANT_MM_PER_PX, 25.4 / 96, "a CSS px is 1/96 in");
+  assert.equal(C.PX_PER_MM, 3.75, "PX_PER_MM is the picture blocks' rounded constant; it must not move");
+  for (const [levels, factor, cm] of MEASURED) {
+    const st = C.giantSteps().find((x) => x.levels === levels && x.factor === factor);
+    assert.ok(st, "no step L" + levels + "x" + factor);
+    assert.ok(Math.abs(C.giantCapCm(st.px) - cm) < 0.01,
+      "L" + levels + "x" + factor + ": the card says " + C.giantCapCm(st.px).toFixed(3)
+      + " cm, the engine printed " + cm);
+  }
+  // The card shows one decimal; GG at L12 works out to 2.65 and must not say 2.7.
+  assert.match(C.giantReport(C.buildGiantBodies("GG", { layout: "lines" })), /^Capitals ≈ 2\.6 cm/);
+  // An emote is the whole 1em square of the whole-px font-size. L10x0.9 (89px) printed a
+  // 189-dot square (2.365 cm): within one 203dpi dot (0.0125 cm) of the prediction.
+  assert.ok(Math.abs(C.giantEmoteCm(89.16) - 189 / 203 * 2.54) < 0.0125, C.giantEmoteCm(89.16));
+  // Every size, both readings, through the one helper each (no second copy of a formula).
+  for (const st of C.giantSteps()) {
+    assert.ok(Math.abs(C.giantEmoteCm(st.px) - Math.round(st.px) * 25.4 / 96 / 10) < 1e-12, st.px);
+    assert.ok(Math.abs(C.giantCapCm(st.px) - Math.round(st.px) * (1434 / 2048) * (25.4 / 96) / 10) < 1e-12, st.px);
+  }
+  // L14 emote: 205px is 5.42 cm. The old px / 3.75 said 5.5.
+  assert.match(C.giantReport(C.buildGiantBodies("Kappa", { layout: "emote", size: 14 })), /^Emotes ≈ 5\.4 cm/);
+});
+
 test("giantReport speaks plain language: capitals in cm, cheers, and every warning", () => {
   const one = C.giantReport(C.buildGiantBodies("HELLO"));
   assert.match(one, /^Capitals ≈ \d+\.\d cm · fits 1 cheer$/);
   const b = C.buildGiantBodies("HELLO");
   assert.equal(one, "Capitals ≈ " + b[0].giant.capCm.toFixed(1) + " cm · fits 1 cheer");
-  // capCm is the cap height (0.70em of Segoe UI), not the font-size nobody can see.
-  assert.ok(Math.abs(b[0].giant.capCm - b[0].giant.px * C.GIANT_CAP_EM / C.PX_PER_MM / 10) < 1e-9);
+  // capCm is the cap height (Segoe UI's 1434/2048 em) of the engine's whole-px font-size,
+  // not the font-size nobody can see.
+  assert.ok(Math.abs(b[0].giant.capCm - C.giantCapCm(b[0].giant.px)) < 1e-12);
   assert.match(C.giantReport(b, { cheers: 3, bits: 500 }), /needs 3 cheers \(1500 bits\)/);
   const reports = [
     C.giantReport(C.buildGiantBodies("WRECK THE RECEIPT COMPLETELY", { layout: "lines" })),
@@ -808,25 +898,67 @@ test("giantReport speaks plain language: capitals in cm, cheers, and every warni
   eq(C.buildGiantBodies("THANKS CHEER100 SO MUCH", { layout: "stack" }).flatMap((x) => x.giant.cheerWords), []);
 });
 
-// KNOWN APP BUG, reported, not fixed here (marked `todo` so the suite stays green; drop
-// the todo flag once giantClean handles it). giantClean drops emoji, ZWJ and the
-// variation selectors, but not the OTHER invisible format characters chat text picks up
-// when it is copy-pasted (zero-width space U+200B, ZWNJ U+200C, word joiner U+2060, soft
-// hyphen U+00AD) or control characters. None of them is whitespace to JS's \s, so the
-// stack layout makes each one its own giant LINE: it prints nothing, costs a full line
-// of height (measured: "HI\u200BYOU" drops from 14 levels to 13 to make room for it,
-// and leaves 228px of blank tape between I and Y), and since it is not "" the chunk-edge
-// rule cannot trim it, so a cheer can open on an invisible giant line.
-test("KNOWN BUG: an invisible format character never becomes a giant line of its own", {
-  todo: "giantClean keeps U+200B/U+200C/U+2060/U+00AD and C0 controls (reported to the coordinator)",
-}, () => {
-  for (const ch of ["\u200B", "\u200C", "\u2060", "\u00AD", "\u0000"]) {
-    for (const layout of ["stack", "lines"]) {
+// giantClean drops emoji, ZWJ and the variation selectors, AND the other invisible
+// format characters chat text picks up when it is copy-pasted (zero-width space U+200B,
+// ZWNJ U+200C, direction marks, word joiner U+2060, the BOM, soft hyphen U+00AD) and
+// control characters. None of them prints, and most are not whitespace to JS's \s, so
+// before 0.10.0 shipped the stack layout made each one its own giant LINE: it printed
+// nothing, cost a full line of height ("HI\u200BYOU" fell from 14 levels to 13 to make
+// room for it, leaving a blank giant line between I and Y), and since it is not "" the
+// chunk-edge rule could not trim it, so a cheer could open on an invisible giant line.
+const INVISIBLE = ["\u200B", "\u200C", "\u200E", "\u200F", "\u2060", "\u2064", "\uFEFF", "\u00AD",
+  "\u0000", "\u0007", "\u000B", "\u001F", "\u007F", "\u0085", "\u009F", "\u202E", "\uFE00"];
+test("an invisible format or control character never becomes a giant line of its own", () => {
+  for (const ch of INVISIBLE) {
+    for (const layout of ["stack", "lines", "emote"]) {
       const lines = C.giantLines("HI" + ch + "YOU\n" + ch + "\nOK", layout);
       for (const l of lines) {
         assert.ok(l === "" || /[^\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2060-\u2064]/.test(l),
           layout + ": " + JSON.stringify(ch) + " became an invisible line of its own: " + JSON.stringify(lines));
+        assert.ok(!l.includes(ch), layout + ": " + JSON.stringify(ch) + " survived into " + JSON.stringify(l));
       }
     }
+    // It costs nothing: the same size and the same lines as the text without it.
+    const a = C.giantPlan("HI" + ch + "YOU", {}), b = C.giantPlan("HIYOU", {});
+    assert.equal(JSON.stringify([a.layout, a.fit.levels, a.fit.shrink, a.lines]),
+      JSON.stringify([b.layout, b.fit.levels, b.fit.shrink, b.lines]), JSON.stringify(ch));
+    eq(C.giantClean("A" + ch + "B"), { text: "AB", dropped: [ch] }, JSON.stringify(ch) + " not dropped and reported");
+    // And alone it is NOTHING to print: one empty body, not a cheer of empty tags.
+    eq(C.buildGiantBodies(ch + ch).map((x) => x.html), [""], JSON.stringify(ch) + " alone built markup");
   }
+  // Tab and newline are whitespace, not debris: kept, and the layouts use them.
+  eq(C.giantClean("A\tB\nC"), { text: "A\tB\nC", dropped: [] });
+  // CR, CRLF and U+2028/U+2029 are line breaks, all of them, in every layout: never a
+  // silent join (a lone CR used to glue two lines) and never a space in the middle of one.
+  for (const br of ["\r", "\r\n", "\n", "\u2028", "\u2029"]) {
+    eq(C.giantClean("GG" + br + "WP"), { text: "GG\nWP", dropped: [] }, JSON.stringify(br));
+    eq(C.giantLines("GG" + br + "WP", "lines"), ["GG", "WP"], JSON.stringify(br));
+    eq(C.giantLines("GG" + br + "WP", "stack"), ["G", "G", "", "W", "P"], JSON.stringify(br));
+  }
+});
+
+test("giantReport names what it left out for what it is: emoji, or invisible characters", () => {
+  const report = (t) => C.giantReport(C.buildGiantBodies(t));
+  // A zero-width space is not an emoji: it used to read "Emoji can't print ... left out."
+  // with nothing named, which sends the user hunting for an emoji that is not there.
+  const zw = report("HI\u200BYOU");
+  assert.match(zw, /Invisible characters/);
+  assert.ok(!/Emoji/.test(zw), zw);
+  assert.match(report("\u200B\u00AD"), /^Invisible characters[^\n]*Nothing else is left to print\.$/);
+  // An emoji is named, and the joiners and selectors glued into its sequence are part of
+  // it, not a second "invisible characters" warning.
+  const em = report("HI 👍🏽\u200D🔥\uFE0F");
+  assert.match(em, /Emoji can’t print on the receipt printer, so they were left out: 👍 🏽 🔥\./);
+  assert.ok(!/Invisible/.test(em), em);
+  assert.match(report("🔥"), /^Emoji[^\n]*: 🔥\. Nothing else is left to print\.$/);
+  // On their own (a selector after a BMP heart, a stray joiner) they ARE invisible.
+  const heart = report("\u2764\uFE0F HI");
+  assert.match(heart, /Invisible characters/);
+  assert.ok(!/Emoji/.test(heart), heart);
+  assert.match(report("\u200D\uFE0F"), /^Invisible characters/);
+  // Both at once: two lines, emoji first.
+  const both = report("OK 🔥 \u200B").split("\n");
+  assert.ok(both.some((l) => /^Emoji/.test(l)) && both.some((l) => /^Invisible/.test(l)), both.join(" | "));
+  // Nothing dropped, nothing said.
+  assert.ok(!/Emoji|Invisible/.test(report("HELLO")));
 });

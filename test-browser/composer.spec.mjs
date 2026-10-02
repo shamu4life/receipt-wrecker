@@ -587,6 +587,21 @@ test("Emote layout previews placeholders and never fetches an emote", async () =
   const payload = await copyPayload(page);
   for (const n of names) assert.match(payload, new RegExp("(^|\\s)" + n + "(?=\\s|$)"), n + " is glued to markup: " + payload);
 
+  // Under the tuck the emote body keeps its ONE leading <br>. Its first line is padded
+  // with a space so Twitch sees a whole word; at a line start that space collapses, but
+  // after the tuck's nbsp it prints (real engine: line 1 shoved 27px out of line with line
+  // 2). So no strip, no second <br>, and the preview does not draw the body inline.
+  await page.locator("#cheerTuck").check();
+  await page.locator(".rcpt .switch.dialog-nav-button").waitFor();
+  const tucked = await copyPayload(page);
+  assert.match(tucked, /^\u00A0<span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><br><b class=/);
+  assert.ok(!tucked.includes("<br><br>"), "a doubled <br> prints a blank line: " + tucked);
+  for (const n of names) assert.match(tucked, new RegExp("(^|\\s)" + n + "(?=\\s|$)"), n + " is glued to markup: " + tucked);
+  assert.equal(await page.locator(".rcpt .rw-giant").count(), 1);
+  assert.equal(await page.locator(".rcpt .rw-giant.rw-inline").count(), 0, "the preview drew the tucked emote body inline");
+  assert.ok(len(tucked) <= C.MAX_CHARS);
+  await page.locator("#cheerTuck").uncheck();
+
   await page.check("#thermalView");
   await page.locator("canvas.rcpt-thermal").waitFor({ timeout: 8000 });
   const origin = new URL(server.url).origin;

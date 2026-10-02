@@ -194,7 +194,10 @@ by hand says so in its label.
 - **Lowercase.** Everything prints in capitals. Your text is sent as you typed it, and
   the printer capitalises it.
 - **Emoji.** The printer's engine can't draw them (they come out as empty boxes, and at
-  this size a very large one), so they are left out, and the card says which.
+  this size a very large one), so they are left out, and the card says which. Invisible
+  characters that copy-paste brings along (zero-width spaces, control codes) are left
+  out too, and the card says so rather than calling them emoji: each one would otherwise
+  cost a whole blank giant line in a stack.
 - **Narrow rolls.** It is sized for **80 mm** printers. On a 58 mm roll the letters
   would be cut off.
 - **Words that look like cheers.** `Kappa50` or `cheer100` on its own in your text is a
@@ -249,12 +252,35 @@ and the cheer is still spent. So:
   disguised or "alternative spelling" version to get past them, and nobody should
   write one.
 
-The style has been in printer-bot's shared stylesheet since September 2025, and that
-stylesheet has changed eight times in its life. It is stable, but it is not a promise.
-To be told when it changes, watch
-[its commit history](https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css)
-(there is an [Atom feed](https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom)
-for feed readers).
+### Where printer-bot's code lives, and how to get warned
+
+printer-bot's pages are published straight from nutty's public GitHub repository,
+[`nuttylmao/nutty.gg`](https://github.com/nuttylmao/nutty.gg). The `widgets.nutty.gg`
+address is that repository's own website, so whatever is on its `main` branch is what
+every streamer's printer-bot loads. (Checked on 2 Oct 2026: the live files were
+identical, byte for byte, to `main` at commit `be2972f`.) That makes its history
+readable, and the history is reassuring:
+
+- the `title` style, at 1.2×, has been in the shared stylesheet since 13 Sep 2025
+  (commit `c5e9890`);
+- copying every stylesheet into the printed page goes back to July 2025;
+- the sanitizer arrived on 27 Aug 2026 (commit `121c351`; this project noticed it on
+  15 Sep), which is the change that stopped the old Type and Takeover modes printing;
+- the shared stylesheet has changed only **eight times** in its life.
+
+Stable, but not a promise. **To be told when it changes**, add this address to any
+feed reader (Feedly, Inoreader, Thunderbird and the like):
+
+<https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom>
+
+It lists every change to that one stylesheet and nothing else, so a new entry is news.
+When one shows up, send the **Print size ruler** before your next real run (or, if you
+have the repo checked out, run `npm run printerbot -- --check`: its last line says
+whether every style Giant type borrows is still there).
+
+That repository has **no licence**, which means all rights are reserved. So this
+project never copies any of nutty's files; the bench below fetches them when it runs
+and keeps them out of git.
 
 ---
 
@@ -338,6 +364,9 @@ and your name, and Twitch still sees, shows and charges an ordinary cheer.
   back. Any other block gets a line break in front of it instead, so a Hanzi grid still
   starts on a clean line.
 - It was made for Giant type. With other blocks it hides the gem, but the line stays.
+  The **Emote names** layout keeps that line on purpose: every emote line starts with a
+  space (Twitch needs it), and right after the hidden gem that space would print and
+  push the first row of emotes sideways, out of line with the rest.
 - How sure: the corner box rode the one real cheer that printed giant letters, so chat
   and the sanitizer accept it. That it clips the gem into the corner is measured on
   printer-bot's print engine, not yet seen on paper. If printer-bot ever changes that
@@ -793,16 +822,20 @@ font, is ever committed. Everything they fetch or render goes to the gitignored
   they were fetched, runs printer-bot's real sanitizer, and repeats its emote and cheer
   steps. `--png FILE` renders the result on the real engine through `rig.py`, and
   `--check` compares the class rules Giant type relies on against the live stylesheet:
-  run it before a release. It needs Playwright's Chromium (`npx playwright install
-  chromium`) and the network, or a cache from an earlier run (`--offline`).
+  run it before a release. `--ref SHA|BRANCH` reads printer-bot's files from
+  [the repository](https://github.com/nuttylmao/nutty.gg) at one commit instead of the
+  live site and records which, so a measurement can be re-run on exactly the
+  stylesheet it was taken on, or on the code from before a change. It needs
+  Playwright's Chromium (`npx playwright install chromium`) and the network, or a cache
+  from an earlier run (`--offline`).
 - **`tools/rig.py`** (`npm run render`) renders a page with the same print engine and
   settings printer-bot uses (wkhtmltopdf 0.12.6 with patched Qt) and reports how much ink
   landed where, how many pages it took, which stylesheet it used, and which fonts were
   embedded. `--document` renders a complete page from `printerbot.mjs` untouched.
   `--fonts DIR` points it at **your own** copy of Segoe UI, the font the real rig prints
   in. Without it the numbers are for a substitute font and can differ by a whole page.
-- **`tools/calibrate.py`** builds the one-print test for how the printer turns grey into
-  dots.
+- **`tools/calibrate.py`** (`python3 tools/calibrate.py`) builds the one-print test for
+  how the printer turns grey into dots.
 
 ```sh
 node tools/payload.mjs '{"kind":"giant","text":"HELLO"}' \

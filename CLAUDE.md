@@ -70,15 +70,31 @@ away as the markup-free backup; and `npm run printerbot -- --check` diffs `PB_CL
 against the live CSS before a release (a release-checklist canary, not CI).
 
 How stable is it? printer-bot's pages are served by GitHub Pages from the public repo
-`nuttylmao/nutty.gg`, so its `main` branch **is** the live site, and its history is
-readable. As of 2026-10-02: `.title { font-size: 1.2em }` has been in `global.css`
-since c5e9890 (2025-09-13); inlining every stylesheet into the printed document dates
-from 0c7b4fc / 7e20a30 (2025-07-29 / 2025-09-06); `global.css` has had eight commits
-ever, the last on 2026-04-28. (The sanitizer arrived upstream in 121c351, dated
-2026-08-27; this repo first noticed it on 2026-09-15.) So the trick rests on code that
-has been stable for over a year, but **it is not a contract**. To watch for a change
-without reading code, subscribe to the commits feed for that one file:
-<https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom>.
+[`github.com/nuttylmao/nutty.gg`](https://github.com/nuttylmao/nutty.gg): its `CNAME`
+is `widgets.nutty.gg`, so its `main` branch **is** the live site, and its history is
+readable. **Verified 2026-10-02:** the five files `tools/printerbot.mjs` fetches
+(settings page, `script.js`, `style.css`, `global.css`, `helpers.js`), as served live
+that day, were byte-identical to `main` @ be2972f (2026-09-13). As of that date:
+`.title { font-size: 1.2em }` has been in `global.css` since c5e9890 (2025-09-13);
+`GetRenderedHTML` inlining every stylesheet into the printed document dates from
+0c7b4fc / 7e20a30 (2025-07-29 / 2025-09-06); `global.css` has had **eight commits
+ever**, the last (9bf1efb) on 2026-04-28. (The sanitizer arrived upstream in 121c351,
+dated 2026-08-27; this repo first noticed it on 2026-09-15.) So the trick rests on code
+that has been stable for over a year, but **it is not a contract**. Two things follow:
+
+- **Pin what you measure.** `tools/printerbot.mjs --ref <sha|branch>` reads the same
+  files from the repo at one commit instead of the live site, resolves a branch to its
+  sha and records it in the provenance, so a bench number can be re-run on exactly the
+  CSS it was taken on (or replayed on the code from before a change, e.g. pre-121c351).
+- **How to get warned, without reading code.** Paste
+  <https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom>
+  into any feed reader (Feedly, Inoreader, Thunderbird and the like). It lists every
+  change to that one stylesheet and nothing else, eight entries in all so far, so a new
+  entry is news. When one appears, run `npm run printerbot -- --check`: its last line
+  says "check passed" or "check FAILED", i.e. whether every `PB_CLASSES` rule is still
+  in the live CSS and still survives the sanitizer. Then send the Print size ruler
+  before the next real run.
+
 That repo has **no licence file, so all rights are reserved**: never vendor or copy
 nutty's code or CSS into this repo. Fetch it at bench time (`tools/printerbot.mjs`
 does), and quote at most the few declarations we rely on, as facts about the target.
@@ -273,7 +289,7 @@ browser-glue split:
 
 An inert `module.exports` hook at the end of the IIFE (guarded by
 `typeof module !== "undefined"`, false in browsers, true under Node) hands the
-test harness the pure-core functions. **108 keys, regenerated at the 0.10.0 cut: 107
+test harness the pure-core functions. **110 keys, regenerated at the 0.10.0 cut: 109
 from the app's `module.exports`, plus `__fontLog`, which `test/_harness.mjs` adds
 itself.** (The 0.6.0 list said 72 and was already one short by 0.9.1: `anyCarrierLive`
 was missing.)
@@ -299,8 +315,9 @@ was missing.)
 `GIANT_CAP_EM`, `GIANT_TUCK_PX`, `GIANT_W`, `GIANT_W_DEFAULT`, `GIANT_LAYOUTS`,
 `GIANT_RULER_LEVELS`, `giantLineH`, `giantSteps`, `giantClean`, `giantLines`,
 `giantLineEm`, `giantOpts`, `blockRender`, `buildLead`, `leadLength`, `TUCK_OPEN`,
-`TUCK_CLOSE`, `bandReserve`, `giantCapCm`, `giantFit`, `giantPlan`,
-`buildGiantBodies`, `buildGiantRuler`, `giantReport`; then the harness's `__fontLog`.
+`TUCK_CLOSE`, `bandReserve`, `giantCapCm`, `giantEmoteCm`, `GIANT_MM_PER_PX`,
+`giantFit`, `giantPlan`, `buildGiantBodies`, `buildGiantRuler`, `giantReport`; then the
+harness's `__fontLog`.
 (That list is easy to let rot, so regenerate it
 with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 rather than trusting it.) The canvas/DOM functions (`rasterizeImage`,
@@ -498,7 +515,16 @@ Pure core (DOM-free, unit-tested):
     for a takeover that landed in part 1 (a takeover in part 3 covers part 3 itself).
     Prepend without reserving and part 2 lands at 598 characters. Twitch **rejects**
     an over-length message rather than truncating it, so the tail of the run silently
-    never sends. Mutation-verified; `test/covers.test.mjs` names the number. Bodies
+    never sends. Mutation-verified; `test/covers.test.mjs` names the number.
+    **And a part that still cannot afford it goes out bare** (0.10.0). The reservation
+    keeps bodies out of a covered part, but a single body always gets a part of its own,
+    so one bigger than the room left after the cover (a full Hanzi band: 598; a
+    464-character giant body: 582) had the cover prepended anyway (present at 0.9.1).
+    `flush()` now drops the cover from a part whose lead + cover + bodies would pass
+    `MAX_CHARS`: a missing cover costs looks, an over-length part costs the cheer, and
+    takeovers no longer print anyway. With that backstop an unreserved cover no longer
+    shows up as 598 but as part 2 going out uncovered, so the reservation test asserts
+    the cover is THERE as well as the part being under 500. Bodies
     carry the cover on themselves (`body.cover`) because only the packer knows which
     part a block ends up in. The preview renders it, for the same reason it renders
     the lead.
@@ -556,8 +582,14 @@ Pure core (DOM-free, unit-tested):
       smallest size. The NaN test (`giantFit(["I"],{size:"width"})` reaches 15+
       levels) guards it.
     - **Lines.** `giantClean` drops what QtWebKit 534 cannot print (astral code
-      points, i.e. emoji, plus ZWJ, VS15/VS16 and lone surrogates) and reports each
-      character it dropped, so the card can say so. `giantLines` splits by CODE POINT:
+      points, i.e. emoji, plus ZWJ, VS15/VS16 and lone surrogates) AND what prints
+      nothing (`GIANT_INVISIBLE`: zero-width spaces and joiners, direction marks and
+      embeddings, U+2060-206F, the BOM, the soft hyphen, every variation selector, C0/C1
+      controls bar tab and newline), and reports each character it dropped. Before that
+      fix each invisible one was a giant LINE of its own in a stack ("HI\u200BYOU" fell
+      from 14 levels to 13). CR, CRLF and U+2028/2029 become `\n`. `giantReport` says
+      which kind went: emoji (named) or invisible characters, never "emoji" for a stray
+      zero-width space. `giantLines` splits by CODE POINT:
       `stack` is one character per line, with each whitespace run becoming ONE blank
       line between words; `lines`/`emote` keep the lines as typed.
     - **Width.** `GIANT_W` is a conservative uppercase advance table,
@@ -597,8 +629,15 @@ Pure core (DOM-free, unit-tested):
       `blockRender` maps an absent or unknown `render` to `"type"`, today's
       fall-through, so the card's select and the payload can never disagree.
     - **The report.** `giantReport` is the card's plain-language text ("Capitals ≈
-      3.8 cm · fits 1 cheer", too wide, over-length, emoji left out, cheer-shaped
-      words). It stays pure so its numbers are tested.
+      3.8 cm · fits 1 cheer", too wide, over-length, emoji or invisible characters
+      left out, cheer-shaped words). It stays pure so its numbers are tested. The cm
+      figures are `giantCapCm` (`round(px)` × 1434/2048 × 25.4/96: the engine rounds
+      font-size to whole px, and Segoe UI's cap height is 1434 of 2048 units) and, for
+      emotes, `giantEmoteCm` (the whole rounded font-size). Both use `GIANT_MM_PER_PX`
+      (25.4/96), **not** `PX_PER_MM`, which is a rounded 3.75 that stays as it is for the
+      picture blocks; dividing by it read 0.6-0.8% high and put 12 of 51 sizes 0.1 cm
+      high on the card. Measured on the engine, every flat-capital height is within
+      0.01 cm of `giantCapCm` (see "Settled for Giant type").
 18. `buildLead(opts, nonce)` / `leadLength(opts)` / `TUCK_OPEN` / `TUCK_CLOSE` /
     `bandReserve(budget)`, and the packer's tuck handling. **`buildLead` is the one
     builder of a message's lead**: `packStackBodies`' `lead`, its per-part overhead
@@ -613,7 +652,12 @@ Pure core (DOM-free, unit-tested):
     `<br>`, which is what makes the tuck save tape (156 → 133px on the engine); kept,
     the tuck hides the gem and saves nothing. Any other body **gains** one, so a Hanzi
     or glyph grid starts on a clean line instead of sharing the nbsp's line and
-    shearing. `bandReserve` replaced the hardcoded `14` in `hanziBodies` /
+    shearing, **unless it already opens with one**: a giant body in the EMOTE layout
+    has `leadBr:false` and keeps its `<br>` as is (never doubled into a blank line),
+    because its first line is padded with a space for Twitch, and after the nbsp that
+    space prints and shoves line 1 right (27px skew between lines on the engine; see
+    "Settled"). The emote layout's fit therefore keeps the full `PAPER_PX` under the
+    tuck (no `GIANT_TUCK_PX`). `bandReserve` replaced the hardcoded `14` in `hanziBodies` /
     `glyphImageBodies` with `max(14, MAX_CHARS - budget)`. The floor is what keeps
     every untucked payload **byte-identical** to 0.9.1 (cheer off, and every bit
     amount up to 99999), and it grows only with the real lead: 64 tucked, which is
@@ -782,6 +826,20 @@ still render, but unsanitized and with the token left as text. `"lead":true` on 
 other kinds now goes through `packStackBodies` too (it honours `"tuck"` and `"bits"`),
 where it used to hand-build `"Cheer100 00 "`. (Or paste a payload from the app's Copy
 button: `node tools/printerbot.mjs --message '…' --png .render/printerbot/x.png`.)
+
+**Where printer-bot's files come from (provenance).** Source:
+`github.com/nuttylmao/nutty.gg` (`printer-bot/contents/{index.html,script.js,style.css}`,
+`.common/styles/global.css`, `.common/utils/helpers.js`). Its `CNAME` is
+`widgets.nutty.gg`, so `main` **is** what every streamer's printer-bot loads; verified
+byte-identical to `main` @ be2972f on 2026-10-02. **No licence file: never vendor**, so
+the bench fetches at run time and caches under the gitignored `.render/`. Dates that
+bound what a measurement can mean: the sanitizer arrived in 121c351 (2026-08-27);
+`.title`'s 1.2em has stood since c5e9890 (2025-09-13); `GetRenderedHTML`'s
+inline-every-stylesheet step since 2025-07 (0c7b4fc, reworked in 7e20a30); `global.css`
+has had only 8 commits ever. A number taken against the live site is a number about
+that day's `main`: the provenance JSON records each file's sha256, and `--ref` pins the
+bench to a commit so the number can be re-run. To be warned of a change, see the feed
+and `--check` routine in the top banner.
 
 `tools/printerbot.mjs` (`npm run printerbot -- …`) fetches nutty's **live** settings
 page (`widgets.nutty.gg/printer-bot/contents/`)
@@ -1074,6 +1132,14 @@ and Segoe UI metrics from a local copy that is not, and never will be, in this r
   tried, with and without the shrink wrappers: 1.353em at L1, 1.410em at L3, settling to
   1.333em from L10 up. That is `giantLineH`. A flat 1.33em under-counts the small sizes,
   and Chromium's 1.338em at L3 is not the engine.
+- **Capitals print at `round(px)` × 1434/2048 CSS px**, Segoe UI's cap height on the
+  rounded font-size. Measured end to end (`payload.mjs | printerbot.mjs | rig.py
+  --document --fonts`), flat-topped capitals: L14 3.805, L15 4.580, L16×0.8 4.392, L13
+  3.164, L13×0.8 2.540 cm, against `giantCapCm`'s 3.798 / 4.576 / 4.391 / 3.168 / 2.538.
+  Every one within 0.01 cm; the first formula (px × 0.70 / `PX_PER_MM` 3.75) said 3.835
+  for L14. Round letters (O, S, G) ink about 3px higher and 3-4% taller, as round
+  glyphs do. An emote at L10×0.9 (89px) inked a 189-dot square, 2.365 cm, one 203dpi
+  dot from `giantEmoteCm`'s 2.355.
 - **The small line is 23px.** That covers the lead line ("Cheer100 07", ended by the
   body's leading `<br>`) and the blank line one giant body leaves before another.
   Chromium says 21.3. A trailing `<br>` at the end of a message adds 0px. Without the
@@ -1098,7 +1164,13 @@ and Segoe UI metrics from a local copy that is not, and never will be, in this r
   body's leading `<br>` under the tuck saves no tape**: the message stays at 156.1px,
   because the blank line is exactly as tall as the gem line was. Dropping it gives
   132.9px (-23.2px) and moves line 1 right 1.9px, because the nbsp (0.276em × 16 = 4.4px)
-  now shares that line. Hence the packer's strip and `GIANT_TUCK_PX` = 5. Chromium gets
+  now shares that line. Hence the packer's strip and `GIANT_TUCK_PX` = 5. **Except the
+  emote layout**, whose lines open with a pad space that collapses only at a line start:
+  stripped, line 1 followed the nbsp and its space printed (L10x0.9 "Kappa Kappa /
+  Kappa": line 1 centred +14.2px from the page centre, line 2 -12.5px, a 26.7px skew).
+  With the `<br>` kept (0.10.0), both rows sit at -12.8 / -12.5px, exactly where the
+  untucked render puts them (the trailing-space shift below), and the gem is still in
+  the corner; the message is then as long as untucked. Chromium gets
   `position:fixed` wrong for this: in a two-page PDF it repeats the box on page 2, and
   wkhtmltopdf does not. FIELD: the span rode a real cheer that printed giant letters;
   whether the gem was clipped was not judged.
@@ -1158,8 +1230,9 @@ not arbitrary style choices:
   Qt-WebKit) has zero color-font support; these tofu. Stick to BMP glyphs with
   broad legacy-font coverage (Block Elements, Braille, curated CJK). Giant type puts
   the user's own text on the tape, so it enforces this on input: `giantClean` drops
-  astral code points, ZWJ and VS15/VS16, and the card names what was left out. (At
-  giant size a tofu box is the size of a letter.)
+  astral code points, ZWJ and the variation selectors (and every other invisible format
+  or control character), and the card names what was left out. (At giant size a tofu
+  box is the size of a letter.)
 - **The cheer token LEADS the payload.** This file claimed the opposite for a long
   time; the code is right. `packStackBodies` emits `Cheer<bits> <nonce> <html>`, for
   two reasons given in its own comment: the token and nonce survive any

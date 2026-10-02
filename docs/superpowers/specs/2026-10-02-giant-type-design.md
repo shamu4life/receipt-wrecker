@@ -308,3 +308,14 @@ stays a true account of what was decided, not a second, divergent description of
   `nuttylmao/nutty.gg`, whose `main` is the live site); and `rig.py --embedded-css`.
   `rig.py` exits 3 (not 1) when there is no wkhtmltopdf, so `printerbot.mjs` falls back
   to an APPROXIMATE render only then. The template page prefers the cached real CSS.
+- **Review fixes (before release).** `giantClean` also drops invisible format and
+  control characters (each was a giant blank line in a stack), and `giantReport` names
+  them as such rather than as emoji. `GIANT_CAP_EM` is the exact 1434/2048 rather than
+  0.70, and `giantCapCm` / the new `giantEmoteCm` round the font-size to whole px and use
+  25.4/96 mm per px (`PX_PER_MM` stays 3.75 for the picture blocks): within 0.01 cm of
+  every measured size. A giant body in the **emote** layout keeps its leading `<br>`
+  under the tuck (`leadBr:false`, and the packer never doubles a `<br>` a body already
+  opens with), because its padded first line printed 27px out of line after the nbsp; so
+  its fit keeps the full width. The packer drops a continuation cover from a part that
+  cannot afford it (a pre-existing over-500 bug). `printerbot.mjs` reads stdin as a
+  stream (the documented pipe threw EAGAIN).

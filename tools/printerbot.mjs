@@ -84,6 +84,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
+import { isatty } from "node:tty";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { deflateSync } from "node:zlib";
 
@@ -697,10 +698,19 @@ if (OPTS.help) {
   process.exit(0);
 }
 
+// stdin is read as a STREAM, and the TTY test asks the fd rather than process.stdin. Merely
+// touching process.stdin.isTTY constructs the stdin stream, which puts fd 0 into
+// non-blocking mode, and readFileSync(0) then throws EAGAIN the moment the pipe is empty
+// because the writer is slower than this script's startup. Measured: the documented
+// `payload.mjs ... | printerbot.mjs --out -` failed 3 runs of 3, and
+// `(sleep 0.5; echo hi) | node tools/printerbot.mjs` 2 of 2; only `echo hi |` and `< file`
+// worked, by winning the race. for-await waits for EOF however slow the writer is.
 let message = OPTS.message;
 if (!OPTS.check && message === undefined) {
-  if (process.stdin.isTTY) fail(2, "pipe a chat message on stdin, or pass --message (see --help)");
-  message = readFileSync(0, "utf8").replace(/\r?\n$/, "");
+  if (isatty(0)) fail(2, "pipe a chat message on stdin, or pass --message (see --help)");
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  message = Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
 }
 
 if (OPTS.ref) {

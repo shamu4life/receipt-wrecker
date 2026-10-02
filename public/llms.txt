@@ -50,7 +50,8 @@ before rendering it. What prints now, as of version 0.10.0 (2026-10-02):
 Glyph output stays inside the Basic Multilingual Plane, with no colour emoji and no
 astral-plane codepoints, because the target renderer is a 2011-era browser engine
 with no colour-font support. Giant type prints the user's own text, so it leaves emoji
-out and says which.
+out and says which, and drops invisible characters (zero-width spaces, control codes)
+too, saying so.
 
 ## Modes
 
@@ -89,7 +90,8 @@ visible rotating nonce, so the message registers as a cheer and a duplicate-mess
 filter doesn't eat a re-send. With it off, a message is a free test: it never reaches
 the printer but still passes the channel's chat filters. An optional **Hide the cheer
 gem** setting wraps the token in a box the bot's own stylesheet pins to the receipt's
-corner, saving the line the cheer gem would print on; the token stays a normal,
+corner, saving the line the cheer gem would print on (except in the emote layout,
+which keeps that line so its first row stays centred); the token stays a normal,
 charged cheer.
 
 ## Privacy

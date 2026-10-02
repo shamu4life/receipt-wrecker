@@ -531,7 +531,9 @@
     // This is why per-part overhead VARIES, and why it belongs in the packer rather than in
     // a wrapper around it. Prepending the cover at emission time would push every part
     // after the first past 500 characters, and Twitch REJECTS an over-length message rather
-    // than truncating it — so the tail of the run would silently never send at all.
+    // than truncating it — so the tail of the run would silently never send at all. The
+    // reservation is what makes the cover FIT; flush() also drops it from any part that
+    // still could not afford it (one oversized body), so a cover never costs the cheer.
     var covers = opts.covers !== false;   // on by default; a stack-level toggle turns it off
     var cover = "", coverChars = 0;
     var parts = [], cur = [], curChars = 0, curH = 0;
@@ -547,6 +549,9 @@
       //  - any other body GAINS one, so a Hanzi or glyph grid starts on a clean line
       //    instead of sharing it with the nbsp, which would shift the first wrap and
       //    shear the grid. leadLength reserves those 4 characters.
+      //  - unless it ALREADY opens with one and must keep it (a giant body in emote
+      //    layout: its padded first line would print off-centre after the nbsp). That one
+      //    is the clean line start already; a second <br> would print a blank line.
       // The first body with any markup: an empty body ahead of it changes nothing on paper.
       var first = -1;
       if (tuck) {
@@ -554,7 +559,8 @@
       }
       var html = cur.map(function (b, k) {
         if (k !== first) return b.html;
-        return b.leadBr ? b.html.replace(/^<br>/, "") : "<br>" + b.html;
+        if (b.leadBr) return b.html.replace(/^<br>/, "");
+        return /^<br>/.test(b.html) ? b.html : "<br>" + b.html;
       }).join("");
       // Cheer token + nonce LEAD the message: they survive any trailing-strip the bot/
       // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
@@ -576,7 +582,16 @@
       var lead = buildLead(leadOpts, nonce);
       // The cover sits between the lead and the bodies. It is a lifted overlay, so it has
       // to be the first thing inside #receipt-content that we control; the lead is not.
-      var pre = (parts.length && cover) ? cover : "";
+      // A part that CANNOT AFFORD it goes out without it. The reservation below keeps
+      // bodies out of a covered part when they don't fit beside the cover, but a single
+      // body always gets a part of its own, so one bigger than the room left after the
+      // cover still landed here and had the cover prepended anyway: a full Hanzi band
+      // after a takeover came to 598 characters, a 464-character giant body to 582.
+      // Twitch rejects those outright, so a stack that merely CONTAINED a takeover (which
+      // no longer prints at all, see the banner in CLAUDE.md) stopped the art after it
+      // from printing. A missing cover costs looks; an over-length part costs the cheer.
+      var pre = (parts.length && cover && payloadLength(lead) + coverChars + payloadLength(html) <= MAX_CHARS)
+        ? cover : "";
       var payload = lead + pre + html;
       parts.push({ payload: payload, lead: lead, cover: pre, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
       // Only the FIRST part's takeover continues, which is what the spec asks for and also
@@ -2805,13 +2820,21 @@
     // line, ended by the body's leading <br>), or the gap one giant body leaves after
     // another. 23px on the real engine; Chromium says 21.3, and Chromium does not print.
     var GIANT_GAP_PX = 23;
-    // Segoe UI's cap height (OS/2 sCapHeight 1434/2048), so the card can say how tall the
-    // CAPITALS print instead of quoting a font-size nobody can see on the tape.
-    var GIANT_CAP_EM = 0.70;
+    // Segoe UI's cap height (OS/2 sCapHeight 1434/2048, the same in every weight, Bold
+    // included), so the card can say how tall the CAPITALS print instead of quoting a
+    // font-size nobody can see on the tape. The exact ratio, not a rounded 0.70.
+    var GIANT_CAP_EM = 1434 / 2048;
+    // Millimetres per CSS px, the unit the engine lays the page out in: 1in / 96px. NOT
+    // PX_PER_MM, a deliberately rounded 3.75 that the picture blocks' mm-to-px box (and
+    // the tests built on it) use, and which stays as it is; the cm sizes on the card used
+    // to divide by it and read 0.8% high.
+    var GIANT_MM_PER_PX = 25.4 / 96;
     // What a tucked lead costs line 1. The packer strips a giant body's own leading <br>
     // under the tuck, so the nbsp (0.276em of 16px Segoe = 4.4px) shares the first giant
     // line and comes off its width. Applied to every line: cheaper than knowing which
-    // part each chunk lands first in, and it only ever errs narrow.
+    // part each chunk lands first in, and it only ever errs narrow. Not to the emote
+    // layout, which keeps its <br> under the tuck (see buildGiantBodies), so no line of it
+    // ever shares the nbsp's.
     var GIANT_TUCK_PX = 5;
     // UPPERCASE ADVANCE WIDTHS in em, CONSERVATIVE: round(max(SegoeUIBold, ArialBold) x 1.03, 3).
     //  - Segoe UI Bold: hmtx advance / 2048 upm, read straight from the font. On the
@@ -2876,12 +2899,24 @@
     // (any astral code point) prints as a tofu box, at giant size a huge one, and the
     // joiners and variation selectors that build emoji sequences are invisible debris once
     // the emoji is gone. Lone surrogates go too (they are not characters at all).
+    // AND what prints nothing at all (GIANT_INVISIBLE): zero-width spaces and joiners,
+    // direction marks and embeddings, the word-joiner block, the BOM, the soft hyphen,
+    // every variation selector, and C0/C1 control codes. Copy-paste brings these in
+    // unseen, and almost none of them is whitespace to JS's \s, so the stack layout made
+    // each one a giant LINE of its own: "HI\u200BYOU" fell from 14 levels to 13 to make
+    // room for it and left a full blank line of tape between I and Y, and the chunk-edge
+    // trim (which only trims "") could open a cheer on one. Tab and newline
+    // are kept: they are whitespace, and every layout already knows what to do with them.
+    // CR, CRLF and the Unicode line/paragraph separators (U+2028/2029) all become "\n":
+    // they ARE line breaks, so a lines layout breaks there and a stack makes its one word
+    // gap, rather than CR silently gluing two lines together as it used to.
     // `dropped` lists what went, each once, so the card can SAY so: never silent.
+    var GIANT_INVISIBLE = /^[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFE00-\uFE0F\uFEFF]$/;
     var giantClean = function (text) {
-      var s = String(text == null ? "" : text).replace(/\r/g, ""), out = "", dropped = [];
+      var s = String(text == null ? "" : text).replace(/\r\n?|[\u2028\u2029]/g, "\n"), out = "", dropped = [];
       Array.from(s).forEach(function (ch) {
         var cp = ch.codePointAt(0);
-        if (cp >= 0x10000 || (cp >= 0xD800 && cp <= 0xDFFF) || cp === 0x200D || cp === 0xFE0E || cp === 0xFE0F) {
+        if (cp >= 0x10000 || (cp >= 0xD800 && cp <= 0xDFFF) || GIANT_INVISIBLE.test(ch)) {
           if (dropped.indexOf(ch) < 0) dropped.push(ch);
           return;
         }
@@ -3007,7 +3042,18 @@
       return MAX_CHARS - leadLength({ cheer: true, tuck: !!tuck });
     };
     // How tall the CAPITALS print, in cm. Exact; whoever displays it rounds (to 0.1 cm).
-    var giantCapCm = function (px) { return px * GIANT_CAP_EM / PX_PER_MM / 10; };
+    // The engine rounds font-size to whole px before it lays a glyph out (giantLineH does
+    // the same), so this does too. Real engine, Segoe UI, 203dpi, flat-topped capitals:
+    // L14 3.805, L15 4.580, L16x0.8 4.392, L13 3.164, L13x0.8 2.540 cm measured, and this
+    // gives 3.798 / 4.576 / 4.391 / 3.168 / 2.538, every one within 0.01 cm. The old
+    // px x 0.70 / PX_PER_MM read 0.6-0.8% high (3.835 for L14), which put 12 of the 51
+    // sizes 0.1 cm high on the card: GG/WP at L13x0.8 said 2.6 cm and printed 2.54.
+    var giantCapCm = function (px) { return Math.round(px) * GIANT_CAP_EM * GIANT_MM_PER_PX / 10; };
+    // How tall an EMOTE prints, in cm: printer-bot's .emote is height:1em and a Twitch
+    // emote is square, so it is the whole (rounded) font-size, not the cap height. The old
+    // px / PX_PER_MM put 18 of the 51 sizes 0.1 cm high. Real engine: L10x0.9 (89px)
+    // printed a 189-dot square, 2.365 cm, within one 203dpi dot of this 2.355.
+    var giantEmoteCm = function (px) { return Math.round(px) * GIANT_MM_PER_PX / 10; };
     var giantStepTags = function (st) {
       var t = "<b " + classAttr(pbClass("title").cls) + ">";
       var open = (st.shrink ? "<b " + classAttr(st.shrink) + ">" : "") + new Array(st.levels + 1).join(t);
@@ -3180,7 +3226,7 @@
       opts = opts || {};
       var go = giantOpts({ giantLayout: opts.layout, giantSize: opts.size });
       var tuck = !!opts.tuck, budget = giantBudget(opts.budget, tuck);
-      var fitPx = PAPER_PX - (tuck ? GIANT_TUCK_PX : 0);
+      var fitPx = PAPER_PX - (tuck && go.layout !== "emote" ? GIANT_TUCK_PX : 0);
       var cleaned = giantClean(text);
       function one(layout) {
         var lines = giantLines(cleaned.text, layout);
@@ -3219,6 +3265,16 @@
     // The leading <br> ends the lead line (without it "100 07" sits on the giant baseline);
     // the trailing one adds 0px at the end of a message and starts the next body on a
     // fresh line. `leadBr` tells the packer it may strip the leading one under the tuck.
+    // EXCEPT IN EMOTE LAYOUT, which keeps it. Every emote line is padded with a space on
+    // each side (Twitch only recognises a name as a whole whitespace-delimited word), and
+    // a space at the start of a line collapses, which is why the padding is free. With the
+    // <br> stripped the first line is no longer the start of a line: it follows the tuck's
+    // nbsp, so its leading space survives as a giant-sized space and shoves line 1 right.
+    // Real engine (L10x0.9, "Kappa Kappa / Kappa", tucked): line 1 centred 14.4px right of
+    // the body centre, line 2 12.3px left, a 27px skew between two lines meant to stack.
+    // Kept, line 1 starts clean on the line after the nbsp, exactly as it does untucked.
+    // So here the tuck hides the gem and saves no tape: the 23px it saves in the other
+    // layouts is not worth a picture whose rows don't line up.
     // No italic, no quote/case/tag variants: one literal form, the one that printed.
     var buildGiantBodies = function (text, opts) {
       var p = giantPlan(text, opts), f = p.fit;
@@ -3240,7 +3296,7 @@
           + tags.close + "<br>";
         var pv = '<div class="rw-giant">' + tags.open
           + ls.map(function (l) { return giantLinePreview(l, p.layout); }).join("<br>") + tags.close + "</div>";
-        return { html: html, chars: payloadLength(html), heightPx: r.heightPx, leadBr: true,
+        return { html: html, chars: payloadLength(html), heightPx: r.heightPx, leadBr: p.layout !== "emote",
                  preview: { kind: "html", html: pv },
                  giant: info(ci, p.ranges.length, r.over, p.layout === "stack" ? [] : giantCheerWords(html)) };
       });
@@ -3266,12 +3322,34 @@
                         chunkIndex: 0, chunkCount: 1, fits: true, overflow: [], overflowText: [],
                         over: false, dropped: [], cheerWords: [] } };
     };
+    // What giantClean left out, said for what it is. Emoji (astral code points) print as
+    // tofu, so they are named. Everything else in `dropped` prints NOTHING, and calling it
+    // emoji is the wrong reason: a stray zero-width space used to read "Emoji can't print
+    // ... left out." with no emoji named at all. The joiners and variation selectors
+    // inside an emoji sequence are part of the emoji they were glued to when one was
+    // dropped; on their own (a lone U+FE0F after a BMP heart) they are invisible.
+    var GIANT_EMOJI_GLUE = /^[\u200D\uFE0E\uFE0F]$/;
+    var giantDropNotes = function (dropped) {
+      var emoji = [], hidden = [];
+      (dropped || []).forEach(function (ch) {
+        if (ch.codePointAt(0) >= 0x10000) emoji.push(ch);
+        else hidden.push(ch);
+      });
+      if (emoji.length) hidden = hidden.filter(function (ch) { return !GIANT_EMOJI_GLUE.test(ch); });
+      var out = [];
+      if (emoji.length) out.push("Emoji can’t print on the receipt printer, so they were left out: " + emoji.join(" ") + ".");
+      if (hidden.length) {
+        out.push("Invisible characters (zero-width spaces, control codes and the like, usually from copy-paste) "
+          + "were left out: they print nothing.");
+      }
+      return out;
+    };
     // Plain-language report for a giant block: the card's text. Pass one body or all of a
     // block's bodies; opts = {cheers, bits}, where `cheers` is the number of parts the
     // block REALLY landed in (the packer may share a part with a neighbour, so the card
     // reads the packed parts; it defaults to the chunk count). One line per point, joined
     // with "\n": the summary first, then the warnings (too wide, over-length line, emoji
-    // left out, cheer-shaped words). The card adds its own hints (emote, small-size nudge,
+    // or invisible characters left out, cheer-shaped words). The card adds its own hints (emote, small-size nudge,
     // fragility); they are not repeated here. No "px" or "level" jargon.
     var giantReport = function (b, opts) {
       opts = opts || {};
@@ -3280,15 +3358,13 @@
       if (!gs.length) return "";
       var g = gs[0], out = [];
       if (g.ruler) return "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.";
-      var emoji = g.dropped.filter(function (ch) { return ch.codePointAt(0) >= 0x10000; });
-      var emojiNote = "Emoji can’t print on the receipt printer, so they were left out"
-        + (emoji.length ? ": " + emoji.join(" ") : "") + ".";
-      if (!g.levels) return g.dropped.length ? emojiNote + " Nothing else is left to print." : "Type something to print it in giant capitals.";
+      var dropNotes = giantDropNotes(g.dropped);
+      if (!g.levels) return dropNotes.length ? dropNotes.join("\n") + " Nothing else is left to print." : "Type something to print it in giant capitals.";
       var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.chunkCount || 1);
       var bits = typeof opts.bits === "number" && opts.bits >= 100 ? opts.bits : 100;
       // An emote is a 1em SQUARE (.emote{height:1em}), so it is the whole font-size tall,
       // not the 0.70em cap height: quoting capitals for it under-sold it by 30%.
-      out.push((g.layout === "emote" ? "Emotes ≈ " + (g.px / PX_PER_MM / 10).toFixed(1)
+      out.push((g.layout === "emote" ? "Emotes ≈ " + giantEmoteCm(g.px).toFixed(1)
                                      : "Capitals ≈ " + g.capCm.toFixed(1))
         + " cm · " + (cheers === 1 ? "fits 1 cheer"
         : "needs " + cheers + " cheers (" + cheers * bits + " bits) — printer-bot’s header prints between the pieces"));
@@ -3304,7 +3380,7 @@
       if (gs.some(function (x) { return x.over; })) {
         out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
       }
-      if (g.dropped.length) out.push(emojiNote);
+      out = out.concat(dropNotes);
       var words = [];
       gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
       if (words.length) {
@@ -3527,8 +3603,8 @@
         + "Made for Giant type; with other blocks it starts them on a fresh line. Uses " + extra
         + " of the " + MAX_CHARS + " characters in each cheer (a cheer that starts with Giant "
         + "type gives 4 back by dropping its own line break; anything else needs 4 more for that "
-        + "fresh line). If printer-bot changes its style, the gem just prints normally and "
-        + "nothing else breaks.";
+        + "fresh line). Emote names keep that line, so their first row stays centred. If "
+        + "printer-bot changes its style, the gem just prints normally and nothing else breaks.";
     }
     function cheerOptsFor(i) {
       return { cheer: els.cheer.checked, cheerToken: "Cheer" + getBits(), nonce: nonceForPart(i) };
@@ -4246,7 +4322,8 @@
                              b.anchor, PAPER_PX).length > 0;
       }
       if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
-      // Giant type drops what the printer can't draw (emoji, joiners), so text can be
+      // Giant type drops what the printer can't draw (emoji, joiners, zero-width and
+      // control characters: giantClean), so text can be
       // non-blank and still print NOTHING: "🔥" alone used to count as content and send a
       // whole cheer whose only ink was the cheer gem. Ask the same line-splitter the
       // builder uses. Emptiness doesn't depend on the layout (every layout is empty
@@ -4591,7 +4668,7 @@
       // What one size prints, in words: capital height (Segoe UI cap height, via
       // giantCapCm), or for emotes the square's own height, which is the whole 1em.
       var heightOf = function (px, layout) {
-        return layout === "emote" ? "emotes " + cm(px / PX_PER_MM / 10) : "capitals " + cm(giantCapCm(px));
+        return layout === "emote" ? "emotes " + cm(giantEmoteCm(px)) : "capitals " + cm(giantCapCm(px));
       };
       var cutOf = function (fit, layout) { return fit.fits ? "" : (layout === "emote" ? " · cut off" : " · letters cut off"); };
       // The labels are ~24 plans: 2-8ms for a word, ~40ms for a 480-character paragraph
@@ -6022,7 +6099,7 @@
       giantLineH: giantLineH, giantSteps: giantSteps, giantClean: giantClean, giantLines: giantLines,
       giantLineEm: giantLineEm, giantOpts: giantOpts, blockRender: blockRender,
       buildLead: buildLead, leadLength: leadLength, TUCK_OPEN: TUCK_OPEN, TUCK_CLOSE: TUCK_CLOSE,
-      bandReserve: bandReserve, giantCapCm: giantCapCm,
+      bandReserve: bandReserve, giantCapCm: giantCapCm, giantEmoteCm: giantEmoteCm, GIANT_MM_PER_PX: GIANT_MM_PER_PX,
       giantFit: giantFit, giantPlan: giantPlan, buildGiantBodies: buildGiantBodies,
       buildGiantRuler: buildGiantRuler, giantReport: giantReport,
     };

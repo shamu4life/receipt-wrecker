@@ -201,6 +201,13 @@ test("tucked, the FIRST body of every part is fixed up: a leadBr body loses its 
   assert.equal(e[0].payload, e[0].lead + "<br>" + "丶".repeat(100));
   const eg = C.packStackBodies([empty, giant(100)], opts);
   assert.equal(eg[0].payload, eg[0].lead + giant(100).html.slice(4));
+  // A body that opens with its own <br> but does NOT offer it (leadBr false: a giant body
+  // in emote layout) already starts on a clean line. Adding the usual <br> would double
+  // it into a blank line; stripping it would print its padded first line off-centre.
+  const kept = body(200, 600, "<br><b class=title> Kappa </b><br>" + "x".repeat(200 - 34));
+  const k = C.packStackBodies([kept], opts);
+  assert.equal(k[0].payload, k[0].lead + kept.html);
+  assert.ok(!k[0].payload.includes("<br><br>"), k[0].payload);
 });
 
 test("a full 15-column Hanzi band is resized for the tuck instead of going out over 500", () => {

@@ -44,8 +44,11 @@
 // default this tool reads the live site, because that is what a streamer's printer-bot
 // loads today. --ref reads the same paths from the repo at a commit instead, resolved to a
 // full sha and recorded, so a measurement can be re-run against exactly the CSS it was
-// taken on, and so a past commit (say, before the sanitizer arrived in 121c351) can be
-// replayed.
+// taken on. It replays commits from 121c351 (2026-08-27, where the sanitizer arrived)
+// onward. EARLIER COMMITS ARE REFUSED (exit 2): the pipeline runs printer-bot's own
+// SanitizeHTML, which they do not have, and before it printer-bot inserted the message as
+// raw innerHTML, a path this tool does not implement. A --ref run never rewrites the
+// printed.css cache tools/rig.py reads; that stays the last LIVE set.
 // Images are localized (file:// in .render/) because a failed subresource with an
 // extension outside wkhtmltopdf's media list is a FATAL whole-job error, and a Twitch
 // emote URL ends in "3.0".
@@ -75,11 +78,17 @@
 //                        commit instead of the live site (a branch or tag is resolved to
 //                        its sha with git ls-remote and recorded in the provenance)
 //   --check             exit 1 if any PB_CLASSES declaration (read from the app core) is
-//                        missing from the live CSS, or the real sanitizer drops one of the
-//                        classes. A release-checklist canary: NOT in CI, which stays
-//                        offline, and no test may import this file.
+//                        missing from the live CSS, the real sanitizer drops one of the
+//                        classes, a linked stylesheet answers 404 (printer-bot would inline
+//                        it empty), or the printed CASCADE does not size nested .title, the
+//                        shrink steps and the tuck the way the app assumes (an override of
+//                        any selector or !important). Exit 2 if any of nutty's files could
+//                        only come from the cache. The verdict is the LAST line of stderr.
+//                        A release-checklist canary: NOT in CI, which stays offline, and no
+//                        test may import this file.
 //
 // Exit status: 0 fine; 1 --check failed or the render failed; 2 usage or environment.
+// The last line of stderr says which: the --check verdict, or the reason for an exit 2.
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -116,10 +125,12 @@ function warn(msg) {
 function note(msg) {
   console.error("[printerbot] " + msg);
 }
+// The provenance JSON first and the reason LAST, so the last line of stderr always says
+// what happened (`2>&1 | tail -1`); see the verdict at the end of main for --check.
 function fail(code, msg) {
-  console.error("[printerbot] " + msg);
   prov.error = msg;
   console.error(JSON.stringify(prov, null, 1));
+  console.error("[printerbot] " + msg);
   process.exit(code);
 }
 
@@ -216,19 +227,31 @@ let REF_SHA = null;
 
 // A branch or tag -> its commit, with git ls-remote (no API token, no rate limit). Offline,
 // only a full sha can be honoured: anything else names a commit we cannot pin.
+// EXACT ref names only, never "the first line ls-remote prints". ls-remote matches each
+// pattern against the TAIL of every ref name, so a bare `--ref head` matched 36
+// refs/pull/N/head lines and resolved to a contributor's unmerged PR (f7ed56cb), recorded
+// in the provenance as if it were a branch. And an annotated tag's own line is the tag
+// OBJECT, which raw.githubusercontent.com answers 404 for; its peeled `^{}` line is the
+// commit, so that is preferred over it. A full sha is accepted in either case.
 function resolveRef(ref) {
-  if (/^[0-9a-f]{40}$/.test(ref)) return ref;
+  if (/^[0-9a-f]{40}$/i.test(ref)) return ref.toLowerCase();
   if (OPTS.offline) fail(2, "--ref " + ref + " needs the network to resolve; pass the full 40-character sha with --offline");
-  const r = spawnSync("git", ["ls-remote", REPO_GIT, ref, "refs/heads/" + ref, "refs/tags/" + ref], { encoding: "utf8" });
+  const want = ["refs/heads/" + ref, "refs/tags/" + ref + "^{}", "refs/tags/" + ref].concat(ref === "HEAD" ? ["HEAD"] : []);
+  const r = spawnSync("git", ["ls-remote", REPO_GIT].concat(want), { encoding: "utf8" });
   if (r.error) fail(2, "--ref needs git to resolve " + JSON.stringify(ref) + ": " + r.error.message);
-  const line = (r.stdout || "").split("\n").find((l) => /^[0-9a-f]{40}\t/.test(l));
-  if (r.status !== 0 || !line) {
+  const shaOf = {};
+  for (const l of (r.stdout || "").split("\n")) {
+    const m = /^([0-9a-f]{40})\t(\S+)$/.exec(l);
+    if (m) shaOf[m[2]] = m[1];
+  }
+  const name = want.find((n) => shaOf[n]);
+  if (r.status !== 0 || !name) {
     // Not a branch or tag. An abbreviated sha cannot be expanded without cloning, and a
     // raw URL at a short sha does not resolve, so say exactly what is needed.
     fail(2, "--ref " + JSON.stringify(ref) + " is not a branch or tag of " + REPO_GIT
       + "; pass a branch, a tag, or a FULL 40-character commit sha");
   }
-  return line.slice(0, 40);
+  return shaOf[name];
 }
 
 // Where a site URL's bytes actually come from: the live site, or the same path in the repo
@@ -242,12 +265,26 @@ function sourceFor(url) {
   return REPO_RAW + REF_SHA + p;
 }
 
+// A 4xx is the SERVER'S ANSWER about that URL, and printer-bot gets the same answer:
+// GetRenderedHTML throws on !res.ok and inlines "" for that sheet, so a global.css that is
+// still linked but gone prints giant type at 16px. Falling back to the cache there (as
+// this did for every failure) kept rendering the stale CSS, rewrote printed.css as a
+// "complete" set, and turned --check's verdict into "could not be fetched, retry". Only a
+// failure to get an answer (network, timeout, 5xx, or 408/429, which are about the
+// request rather than the resource) may fall back to the cache.
+const definitiveStatus = (status) => status >= 400 && status < 500 && status !== 408 && status !== 429;
+
 async function fetchOne(url) {
   const src = sourceFor(url);
   if (!OPTS.offline) {
     try {
       const res = await fetch(src, { signal: AbortSignal.timeout(20000), redirect: "follow" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (!res.ok) {
+        const e = new Error("HTTP " + res.status);
+        e.status = res.status;
+        e.definitive = definitiveStatus(res.status);
+        throw e;
+      }
       const buf = Buffer.from(await res.arrayBuffer());
       // raw.githubusercontent.com labels .css/.js/.html text/plain with nosniff, and Chromium
       // then refuses the stylesheet and the script outright: printer-bot's page would load
@@ -267,6 +304,13 @@ async function fetchOne(url) {
       writeFileSync(MANIFEST, JSON.stringify(manifest, null, 1));
       return { ...entry, buf, from: src !== url ? "ref" : "live" };
     } catch (e) {
+      if (e.definitive) {
+        const err = new Error("could not fetch " + src + ": " + e.message + " (the server's answer, not a "
+          + "network failure, so the cached copy is NOT used: printer-bot gets the same answer)");
+        err.status = e.status;
+        err.definitive = true;
+        throw err;
+      }
       const hint = process.env.HTTPS_PROXY && !process.env.NODE_USE_ENV_PROXY
         ? " (behind a proxy? Node's fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY=1)" : "";
       if (!manifest[src]) throw new Error("could not fetch " + src + ": " + e.message + hint + ", and it is not cached");
@@ -335,7 +379,15 @@ function standin(name) {
 async function image(spec, fallback) {
   if (!spec) return standin(fallback);
   if (/^https?:\/\//i.test(spec)) {
-    const r = await get(spec);
+    // An unreachable picture is a usage or environment problem (exit 2) like a missing
+    // path below, never an uncaught throw: that exited 1 ("the check or the render
+    // failed") with a stack trace and no provenance on stderr.
+    let r;
+    try {
+      r = await get(spec);
+    } catch (e) {
+      fail(2, "could not load image " + spec + ": " + e.message);
+    }
     return { src: pathToFileURL(join(REPO, r.file)).href, from: r.from, url: spec, sha256: r.sha256 };
   }
   const file = spec.startsWith("file:") ? fileURLToPath(spec) : resolve(spec);
@@ -455,7 +507,8 @@ async function printedCss(info) {
     } catch (e) {
       warn("stylesheet " + href + " could not be loaded (" + e.message + "); GetRenderedHTML would inline \"\" for it");
       parts.push("");
-      sources.push({ url: href, name: basename(new URL(href).pathname), css: "", failed: true });
+      sources.push({ url: href, name: basename(new URL(href).pathname), css: "", failed: true,
+        status: e.status || null, definitive: !!e.definitive });
     }
   }
   return { css: info.inline.join("\n") + "\n" + parts.join("\n"), sources };
@@ -577,15 +630,31 @@ async function check(browser, settings, cssInfo) {
       + "public/index.html does not export it (yet). Nothing was checked.");
   }
   const entries = C.PB_CLASSES.map((e) => ({ id: e.id, cls: e.cls, decl: e.decl, role: e.role, source: e.source }));
+  // Fresh means fetched this run: from the live site, or from the repo at --ref's sha.
+  const fresh = REF_SHA ? "ref" : "live";
+  const ours = prov.fetched.filter((f) => new URL(f.url).origin === ORIGIN);
   if (!OPTS.offline) {
-    // Fresh means fetched this run: from the live site, or from the repo at --ref's sha.
-    const fresh = REF_SHA ? "ref" : "live";
-    const stale = cssInfo.sources.filter((s) => s.from !== fresh);
+    // EVERY file of nutty's the check depends on, not only the stylesheets: the settings
+    // page (template + stylesheet list), helpers.js (the SanitizeHTML step 2 probes) and
+    // the overlay script (step 3's markers). Any of them silently served from the cache
+    // after a network failure used to pass as "live": a sanitizer change made today was
+    // checked against yesterday's sanitizer and reported live. A sheet that failed with no
+    // cached copy to fall back on is the same environment problem.
+    const stale = ours.filter((f) => f.from !== fresh).map((f) => f.url)
+      .concat(cssInfo.sources.filter((s) => s.failed && !s.definitive).map((s) => s.url));
     if (stale.length) {
-      fail(2, "--check is about the " + (REF_SHA ? "stylesheets at " + REF_SHA.slice(0, 12) : "LIVE stylesheets")
-        + ", and " + stale.map((s) => s.url).join(", ")
-        + " could not be fetched. Retry, or pass --offline to check the cached copy.");
+      fail(2, "--check is about " + (REF_SHA ? "nutty's files at " + REF_SHA.slice(0, 12) : "nutty's LIVE files")
+        + ", and " + stale.join(", ")
+        + " could not be fetched. Retry, or pass --offline to check the cached copies.");
     }
+  }
+  // A sheet that is still LINKED but that the server says is gone (404, 410...) is not an
+  // environment problem to retry: it is exactly what printer-bot gets, and GetRenderedHTML
+  // then inlines "" for it. That is a check FAILURE.
+  const gone = cssInfo.sources.filter((s) => s.failed && s.definitive);
+  for (const s of gone) {
+    note("check stylesheet " + s.name + " FAILED: " + s.url + " answered HTTP " + s.status
+      + ", so printer-bot would inline an empty " + s.name + " (giant type would print at 16px)");
   }
 
   // 1. Every declaration, against the stylesheet printer-bot really prints with, parsed by
@@ -675,7 +744,67 @@ async function check(browser, settings, cssInfo) {
   }
   if (!settings.ownScripts.length) warn("the settings page loaded no overlay script under contents/; cannot check the pipeline markers");
 
-  const ok = classes.every((c) => c.ok) && sanitizer.every((s) => s.ok);
+  // 4. THE CASCADE, as computed. Step 1 only compares rules whose selector is exactly
+  //    ".cls", so a higher-specificity or !important rule anywhere in the printed CSS that
+  //    neutralises the borrowed classes was invisible to it: with
+  //    `#receipt-content .title{font-size:1em}` or `b{font-size:inherit!important}`
+  //    appended to global.css, --check said "passed" while the real engine printed the
+  //    giant letters at body size. So this builds a real message (nested .title, each
+  //    shrink step, the tuck span) from the app's own strings, puts it through the real
+  //    sanitizer and the template the way printer-bot does, loads the document
+  //    GetRenderedHTML would emit, and asks the browser what it computed. Whatever the
+  //    selector or priority of an override, it shows up here. Text markers, not ids or
+  //    attributes, find the elements, because the sanitizer strips everything but class.
+  const base = typeof C.GIANT_BASE_PX === "number" ? C.GIANT_BASE_PX : 16;
+  const tagFor = (cls) => "<b " + (typeof C.classAttr === "function" ? C.classAttr(cls) : 'class="' + cls + '"') + ">";
+  const grow = entries.find((e) => e.role === "grow");
+  const growFactor = (C.PB_CLASSES.find((e) => e.id === (grow || {}).id) || {}).factor;
+  const DEPTH = 6;
+  const cases = [];
+  let probeMsg = "";
+  if (grow && growFactor) {
+    cases.push({ id: "." + grow.cls + " x" + DEPTH, marker: "RWPROBEA", want: base * Math.pow(growFactor, DEPTH) });
+    probeMsg += "<br>" + tagFor(grow.cls).repeat(DEPTH) + "RWPROBEA" + "</b>".repeat(DEPTH);
+    C.PB_CLASSES.filter((e) => e.role === "shrink").forEach((e, i) => {
+      const marker = "RWPROBE" + String.fromCharCode(66 + i);
+      cases.push({ id: "." + e.cls + " around ." + grow.cls + " x3", marker,
+        want: base * Math.pow(growFactor, 3) * e.factor });
+      probeMsg += "<br>" + tagFor(e.cls) + tagFor(grow.cls).repeat(3) + marker + "</b>".repeat(4);
+    });
+  }
+  if (tuck.length) {
+    const open = typeof C.TUCK_OPEN === "string" ? C.TUCK_OPEN : '<span class="' + tuck.join(" ") + '">';
+    cases.push({ id: "tuck", marker: "RWPROBET", position: "fixed" });
+    probeMsg = open + " RWPROBET </span>" + probeMsg;
+  }
+  let cascade = [];
+  if (cases.length) {
+    const filled = await passes(settings.page, { message: probeMsg, bits: 100, user: "probe",
+      avatar: standin("avatar").src, cheerImg: standin("cheer").src, emotes: [], cheers: [],
+      icon: standin("icon").src, date: "probe" });
+    const cctx = await browser.newContext();
+    await cctx.route(/^https?:/, (route) => route.abort());
+    const cpage = await cctx.newPage();
+    await cpage.setContent(documentFor(cssInfo.css, filled.body), { waitUntil: "load" });
+    cascade = await cpage.evaluate((cases) => {
+      const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const at = {};
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        for (const c of cases) if (!at[c.marker] && n.nodeValue.includes(c.marker)) at[c.marker] = n.parentElement;
+      }
+      return cases.map((c) => {
+        const el = at[c.marker];
+        if (!el) return Object.assign({}, c, { ok: false, got: "not in the printed document" });
+        const cs = getComputedStyle(el);
+        if (c.position) return Object.assign({}, c, { ok: cs.position === c.position, got: "position:" + cs.position });
+        const px = parseFloat(cs.fontSize);
+        return Object.assign({}, c, { ok: Math.abs(px - c.want) <= 0.5, got: px });
+      });
+    }, cases);
+    await cctx.close();
+  }
+
+  const ok = classes.every((c) => c.ok) && sanitizer.every((s) => s.ok) && cascade.every((c) => c.ok) && !gone.length;
   for (const c of classes) {
     const src = (entries.find((e) => e.id === c.id) || {}).source;
     note("check ." + c.cls + (c.ok ? " ok" : " FAILED " + c.problems.map((p) =>
@@ -684,9 +813,17 @@ async function check(browser, settings, cssInfo) {
     if (c.ok && src && !c.found_in.includes(src)) warn("." + c.cls + " is defined in " + c.found_in.join(", ") + ", not " + src + " as PB_CLASSES records");
   }
   for (const s of sanitizer) note("check sanitizer " + s.id + (s.ok ? " ok" : " FAILED: " + JSON.stringify(s.sent) + " came back " + JSON.stringify(s.kept)));
-  note(ok ? "check passed" + (OPTS.offline ? " (against the CACHED stylesheets, --offline)" : "")
-    : "check FAILED: printer-bot's CSS or sanitizer no longer matches PB_CLASSES. If nutty removed or scoped the stylesheet on purpose, that is the bot author saying no: fall back to Hanzi. Only an incidental rename justifies remapping PB_CLASSES, after a free probe.");
-  return { ok, live: !OPTS.offline && !REF_SHA, ref: REF_SHA, classes, sanitizer, markers };
+  for (const c of cascade) {
+    note("check cascade " + c.id + (c.ok ? " ok" : " FAILED: computed " + JSON.stringify(c.got)
+      + (c.position ? ", want position:" + c.position : ", want " + c.want.toFixed(2) + "px")
+      + " (the printed CSS no longer sizes it the way the app assumes; the rules above say whether the class itself changed)"));
+  }
+  const verdict = ok ? "check passed" + (OPTS.offline ? " (against the CACHED stylesheets, --offline)" : "")
+    : "check FAILED: printer-bot's CSS or sanitizer no longer matches PB_CLASSES. If nutty removed or scoped the stylesheet on purpose, that is the bot author saying no: fall back to Hanzi. Only an incidental rename justifies remapping PB_CLASSES, after a free probe.";
+  note(verdict);
+  // `live` from where the files really came from, not from the flags.
+  const live = !REF_SHA && ours.length > 0 && ours.every((f) => f.from === "live");
+  return { ok, verdict, live, ref: REF_SHA, classes, sanitizer, cascade, markers };
 }
 
 // ---------------------------------------------------------------------------------- main
@@ -738,9 +875,20 @@ try {
 
   // The cache tools/rig.py reads for its own page (and to name a --document's CSS). Only
   // a COMPLETE set is written: a cache missing global.css would quietly measure 16px giants.
+  // And only a LIVE one, every sheet fetched live this run. rig.py's template mode reads
+  // this file by default as "the CSS printer-bot really prints with", so a --ref run used
+  // to replace it with a pinned commit's CSS (and a network fallback with yesterday's),
+  // and every later measurement silently ran against that.
   const fetchedAt = cssInfo.sources.map((s) => s.fetched_at).filter(Boolean).sort()[0] || null;
   prov.css = { sha256: sha(cssInfo.css), bytes: Buffer.byteLength(cssInfo.css), fetched_at: fetchedAt };
-  if (cssInfo.sources.length && !cssInfo.sources.some((s) => s.failed)) {
+  const liveSet = !OPTS.offline && !REF_SHA && cssInfo.sources.length
+    && cssInfo.sources.every((s) => !s.failed && s.from === "live");
+  if (!liveSet) {
+    prov.css.not_cached = REF_SHA ? "pinned with --ref" : OPTS.offline ? "--offline"
+      : "not every stylesheet was fetched live this run";
+    note("not rewriting " + rel(join(OUT, "printed.css")) + " (" + prov.css.not_cached
+      + "): tools/rig.py keeps the last LIVE set");
+  } else {
     mkdirSync(OUT, { recursive: true });
     writeFileSync(join(OUT, "printed.css"), cssInfo.css);
     writeFileSync(join(OUT, "printed.css.json"), JSON.stringify({
@@ -815,8 +963,14 @@ try {
         : real;
     }
   }
+} catch (e) {
+  // Nothing escapes without the documented exit code and the provenance dump.
+  fail(2, "unexpected error: " + (e && e.message ? e.message : String(e)));
 } finally {
   await browser.close();
 }
 console.error(JSON.stringify(prov, null, 1));
+// The verdict again, LAST: the provenance above runs to ~160 lines, and "the last line
+// says check passed / check FAILED" is what the README tells people to look for.
+if (prov.check) note(prov.check.verdict);
 process.exit(exitCode);

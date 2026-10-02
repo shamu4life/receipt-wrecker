@@ -241,6 +241,23 @@ def page_css(mode="auto"):
                 "file": os.path.relpath(PRINTED_CSS, REPO)}
         if meta.get("sha256") and meta["sha256"] != info["sha256"]:
             info["edited"] = True                 # no longer what was fetched
+        # WHERE that cache came from, carried into the result. printerbot.mjs records it
+        # (`source`: live, or a repo commit under --ref; each sheet's `from`), and this
+        # used to drop both: after a pinned run, every later template-mode number was
+        # measured against that commit's CSS and reported as plain "cache". printerbot.mjs
+        # now only rewrites the cache from a fully live run, but a file written by an older
+        # copy of it can still be pinned or carry a fallback, so it is said, not assumed.
+        origin = meta.get("source")
+        froms = [st.get("from") for st in meta.get("stylesheets") or []]
+        info["origin"] = origin
+        info["stylesheets_from"] = froms
+        if isinstance(origin, dict) and origin.get("sha"):
+            warn("the cached printer-bot CSS (%s) was read at a PINNED commit, %s, not the "
+                 "live site; run tools/printerbot.mjs once without --ref to measure against "
+                 "what printer-bot loads today" % (info["file"], origin["sha"][:12]))
+        if "cache" in froms:
+            warn("part of the cached printer-bot CSS (%s) came from a stale cached copy "
+                 "after a failed fetch, not from the live site" % info["file"])
         return text, info
     text = PB_CSS + CSS
     return text, {"source": "embedded", "sha256": sha256(text), "fetched_at": None}
@@ -484,6 +501,23 @@ def xobjects(pdf):
     return [ln for ln in r.stdout.splitlines()[2:] if ln.strip()]
 
 
+def confined(stem):
+    """The stem, refused unless it stays under .render/.
+
+    The stem names files this writes AND deletes: print_pdf clears every <stem>-N.png
+    before rasterizing, so a stale page 2 cannot read as a spill. os.path.join honours an
+    absolute stem or "..", so `rig.py /some/dir/photo` deleted photo-7.png and
+    photo-12.png that were already there. printerbot.mjs only ever passes
+    "printerbot/<basename>", so nothing legitimate is refused."""
+    root = os.path.realpath(OUT)
+    base = os.path.realpath(os.path.join(OUT, stem))
+    if not base.startswith(root + os.sep):
+        sys.exit("case name %r points outside %s; artifacts (and the stale pages this "
+                 "clears) stay under .render/. Use a plain name like my-case or "
+                 "sub/my-case." % (stem, os.path.relpath(OUT, REPO)))
+    return stem
+
+
 def _take(argv, flag):
     """Pull `flag VALUE` out of argv (flags come out before the positionals, so every
     existing invocation keeps working unchanged)."""
@@ -532,14 +566,14 @@ def main():
             stem = "document"
         else:
             stem = os.path.splitext(os.path.basename(document))[0]
-        out = render_document(document, stem, paper_mm=paper_mm, fonts=fonts)
+        out = render_document(document, confined(stem), paper_mm=paper_mm, fonts=fonts)
     else:
         if not argv:
             sys.exit("usage: <payload html on stdin> | python3 tools/rig.py <case-name> "
                      "[avatar-attr] [--paper MM] [--fonts DIR] [--embedded-css]\n"
                      "       python3 tools/rig.py [case-name] --document FILE|- "
                      "[--paper MM] [--fonts DIR]")
-        stem = argv[0]
+        stem = confined(argv[0])
         avatar_attr = argv[1] if len(argv) > 1 else None
         out = render(sys.stdin.read(), stem, avatar_attr, paper_mm=paper_mm,
                      fonts=fonts, css=css_mode)

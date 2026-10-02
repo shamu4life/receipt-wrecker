@@ -24,15 +24,17 @@ and `em` is relative to the parent, so nesting it multiplies: N nested
 
 That is **Giant type**, now the default render of a Text block. A five-letter word
 stacked one letter per line prints with capitals about **3.8 cm** tall in one 100-bit
-cheer, and two or three letters about 5.5 cm. Every token is sent literally and is on
-the sanitizer's own allow-list. Nothing is disguised from automod, the sanitizer or
-Twitch's bits ledger.
+cheer, and two or three letters about 5.5 cm. Every markup token is sent literally and
+is on the sanitizer's own allow-list: nothing in the markup is disguised from automod, the
+sanitizer or Twitch's bits ledger. (The words are another matter: Stack sends a word one
+letter per line, so a word filter never sees it whole, as with Hanzi tiling. That is how
+it fits the paper, not a feature; see THE RULE in CLAUDE.md.)
 
 How sure: **one real cheer** carrying 15 nested titles, a two-class `<span>` and `</br>`
 passed the channel's automod and printed giant stacked letters on 1 Oct 2026. Everything
 else (sizes, line heights, page fit, the corner tuck, the in-between sizes) is measured on
-printer-bot's real print engine (wkhtmltopdf 0.12.6.1, patched Qt, Segoe UI metrics), not
-on paper. It is also **fragile by construction**: it borrows someone else's style, which
+printer-bot's engine version (wkhtmltopdf 0.12.6.1 Linux build, patched Qt, Segoe UI
+metrics; the rig runs the Windows build), not on paper. It is also **fragile by construction**: it borrows someone else's style, which
 can change any day, and when it does the text quietly prints at normal size. So this
 release ships a one-cheer **Print size ruler** to check it, keeps Hanzi tiling one click
 away as the backup, and records the rule for when to stop (CLAUDE.md, top banner).
@@ -52,7 +54,7 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
     earlier Arial-based table let "MMMMM" ink past the body edge on the real engine.
     Height uses the engine's measured line pitch. Characters were the one budget the
     first design forgot: height alone let 26 lines of "ROSES nnn" become a single
-    487-character body, 499 with the lead and 547 tucked, which Twitch rejects outright.
+    487-character body, 499 with the lead and 543 tucked, which Twitch rejects outright.
     A split prefers the gap between two words and never starts a piece with a blank
     line. (A blank at the top printed 396px of nothing above a "D" on the bench.)
   - In-between sizes: one `setting-description` (×0.9) or `setting-attribute` (×0.8)
@@ -61,7 +63,9 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
   - The **card** says how tall the capitals print and how many cheers the block really
     costs once the stack is packed. It warns about a line too wide for the paper, a line
     too long for one message, emoji it had to leave out (the engine can't draw them),
-    and words Twitch would charge as another cheer (`Kappa50`, `cheer100`). It also
+    and words Twitch would charge as another cheer (`Kappa50`, `4Head100`, `cheer100`;
+    hedged with "if" for a word like `PS5` that is a cheer only if the channel made it
+    one). It also
     carries a date stamp ("Confirmed printing big on 1 Oct 2026"), a note that chat sees
     the raw tags and a mod bot may object (send it free first), and "Sized for 80 mm
     printers". The font, weight and I/U/S row is hidden: the style is printer-bot's.
@@ -109,8 +113,9 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
   `github.com/nuttylmao/nutty.gg`, whose `CNAME` is `widgets.nutty.gg`, so `main` is the
   live site: verified byte-identical to `main` @ be2972f on 2026-10-02. No licence, so
   never vendored. The sanitizer arrived in 121c351 (2026-08-27); `.title`'s 1.2em has
-  stood since c5e9890 (2025-09-13); inlining every stylesheet into the printed page since
-  July 2025; `global.css` has had 8 commits ever. `printerbot.mjs --ref` pins the bench
+  stood since 6 Sep 2025 (commit af65fcf; c5e9890 on 13 Sep only re-indented it);
+  inlining every stylesheet into the printed page since July 2025 (20a0e59, before the
+  0c7b4fc rename); `global.css` has had 8 commits ever. `printerbot.mjs --ref` pins the bench
   to a commit. To get warned of a change: the commits feed for that one stylesheet in
   any feed reader, then `npm run printerbot -- --check`.
 - **`tools/rig.py`**: `--document FILE|-` renders a complete document untouched;
@@ -187,8 +192,14 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
     kept them, and the stack layout made each one a line of its own ("HI\u200BYOU" lost a
     whole size to make room for it). They are dropped now, and the card says
     "Invisible characters … were left out" instead of a puzzling "Emoji … left out"
-    with no emoji named. CR and U+2028/2029 count as line breaks.
-  - **The cm sizes on the card read 0.6-0.8% high**, enough to show 12 of the 51 sizes
+    with no emoji named. CR and U+2028/2029 count as line breaks. A second pass extended
+    the list to the whole BMP Default_Ignorable set: the first missed U+3164, the HANGUL
+    FILLER people paste on Twitch as an "invisible character" ("HI\u3164YOU" still lost a
+    size and printed a blank giant line on the real engine), the other Hangul fillers,
+    U+034F, the Mongolian selectors and U+FFF0-FFFB. A braille blank (U+2800) becomes a
+    space instead: it is a deliberate blank, not debris.
+  - **The cm sizes on the card read up to ~1.8% high** (0.8% from `PX_PER_MM` alone, the
+    rest from not rounding the font-size to whole px), enough to show 12 of the 51 sizes
     0.1 cm too big (GG/WP said 2.6 cm and printed 2.54). They now round the font-size to
     whole px as the engine does and use 25.4/96 mm per px and Segoe UI's exact cap
     height (1434/2048). Every measured size is within 0.01 cm. `PX_PER_MM` is unchanged.
@@ -203,12 +214,58 @@ away as the backup, and records the rule for when to stop (CLAUDE.md, top banner
   - The unit test that keeps `rig.py`'s hand-copied `PB_CSS` in step with `PB_CLASSES`
     now reads the two CSS constants rig.py actually renders with (not the whole file,
     where a rule in a comment would pass) and checks both directions.
+  - **The cheer counts were chunk counts.** The chunker breaks a stack at a word gap
+    and drops the blank edge line, which often lets the packer put both halves back into
+    one part. "HELLO WORLD" at Level 10 is two chunks and one part, yet the Size select
+    said "2 cheers" above a note saying "fits 1 cheer", and Auto settled for L10×0.9
+    (1.65 cm) when full L10 (1.83 cm) is one cheer (12 of 60 common phrases undershot).
+    Every label, Auto's lines-vs-stack choice and "biggest that fits one cheer" now count
+    cheers with the packer's own test (`fit.cheers`); the words are then separated by the
+    small gap between bodies rather than a giant blank line.
+  - **Auto could choose a size that cannot send.** A single line too long for one message
+    counted as a valid one-cheer fit, and a shrink step carries one tag more than the
+    plain step below it: 240 × "A" as one emote picked a 549-character L14×0.9 while L12
+    sends in 478. Such a step now ranks below every step that sends, in both Auto sizes.
+  - **A block of only emoji could cost a cheer.** It builds an empty body, and next to an
+    over-tall neighbour the packer gave it a part of its own: "Cheer100 03 ", 100 bits for
+    a receipt with only the gem (after a takeover with the gem hidden, the lead plus a
+    cover the sanitizer strips). A body that prints nothing now never opens or closes a
+    part, and its card no longer says which part "its text" is in.
+  - **"Send part 1 first and look"** was said even when part 1 had no giant type (a
+    Hanzi block first). The note now names the first part that carries giant type.
+  - **Cheer-shaped words**: `4Head100` (a digit-led global cheermote) was never flagged,
+    and `PS5`, `MP3` or `TOP10` were flatly called a charged cheer, with advice to delete
+    them. Digit-led prefixes are caught now, and a word whose prefix is not a global
+    cheermote gets "If “PS5” is a cheer name on this channel…" instead.
+  - **Emote names with `<` or `>`** (Twitch's `<3`) are sent escaped, so Twitch never
+    recognises them and they print as text; the preview showed an emote placeholder. It
+    now shows text, and the emote hint says so.
+  - **A long text at a manual size froze the composer**: every body carried its own copy
+    of the block-wide overflow lists, quadratic in the text (an 8,800-character Level 18
+    stack took 1-2 s per keystroke). They are shared now (~80 ms).
+  - **The Thermal preview was ~3% coarse**: 560 dots across the 72mm box is 2.06 dots per
+    CSS px against the engine's 2.119. It is 576 now (72mm × 8 dots/mm).
+  - **Bench tools.** `printerbot.mjs`: a 404 from nutty's site no longer falls back to the
+    cached copy (printer-bot gets the same 404 and inlines an empty stylesheet), and under
+    `--check` it is a check failure, not "retry"; `--check` now refuses (exit 2) any of
+    nutty's files that came from the cache, not only the stylesheets, reports `live` from
+    where the files came from, and adds a computed-cascade probe that catches an override
+    of any selector or `!important` (the per-rule comparison passed both); its verdict is
+    now the last line of stderr, as the README says; `--ref` resolves exact branch and tag
+    names only (a bare `head` used to resolve to a contributor's pull request) and peels
+    annotated tags; an unreachable image exits 2 with the provenance instead of a stack
+    trace; and only a fully live run rewrites `printed.css`. `rig.py`: the CSS
+    provenance carries the cache's origin and warns when it was pinned or partly stale,
+    and a case name may no longer point outside `.render/`, where the stale-page cleanup
+    deleted other files.
 
 ### Known
 
 - **Never sent, so first in line for a free probe** (Cheer-ready off): the two shrink
   classes, which Auto uses whenever an in-between size is the best fit; the padded emote
-  form; and a tucked lead followed by giant text with no line break between.
+  form; and the app's exact tucked lead (a leading non-breaking space and the two-digit
+  nonce inside the span). The span directly followed by giant text with no line break
+  between already rode the field cheer, without those two.
 - **It can stop working without warning.** If nutty renames `.title` by accident, the
   class table gets a one-row update after a probe. If nutty removes or scopes the
   stylesheet on purpose, or a channel's mods block the form, that is a no. Use Hanzi,

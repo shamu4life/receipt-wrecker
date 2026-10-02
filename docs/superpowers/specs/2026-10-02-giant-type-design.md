@@ -25,12 +25,16 @@ printer-bot's sanitizer strips the `style` attribute but keeps `class`. printer-
 `GetRenderedHTML`, which copies every stylesheet on its settings page — including nutty's shared UI stylesheet `global.css`
 — into the document wkhtmltopdf prints. So any class defined there styles our markup on paper. `.title` is
 `font-size:1.2em; font-weight:900; text-transform:uppercase`. `em` is relative to the parent, so N nested `.title`
-elements multiply: 16px × 1.2^N (15 → ~247px). Every token is sent literally and is on the sanitizer's own allow-list
-(tag `b`, attribute `class`); nothing is disguised from automod, the sanitizer or the bits ledger. It is fragile: nutty
+elements multiply: 16px × 1.2^N (15 → ~247px). Every markup token is sent literally and is on the sanitizer's own
+allow-list (tag `b`, attribute `class`); nothing in the markup is disguised from automod, the sanitizer or the bits
+ledger. *(Amended in review: that is about the tags, not the words. Stack sends a word one letter per `<br>`, so a word
+filter never sees it whole, as with Hanzi tiling; a side effect of fitting the width, not a feature.)* It is fragile: nutty
 can change the shared stylesheet any time. Evidence levels: FIELD — one real cheer carrying the tuck span, 15×
 `<b class=title>` and `</br>` passed automod and printed giant stacked letters. BENCH (real wkhtmltopdf 0.12.6.1 + Segoe
 metrics) — sizes, line heights, tuck clipping, shrink wrappers. NEVER SENT — `class=setting-description/attribute`, the
-padded emote form, the tucked lead with a following giant body without `<br>`.
+padded emote form, the tucked lead with a following giant body without `<br>`. *(Amended in review: the field cheer was
+already the tuck span directly followed by `<b class=title>`; only the app's exact lead, with a leading nbsp and the
+nonce inside the span, is unsent.)*
 
 ## A. Pure core (DOM-free, exported). PLACEMENT TRAP: PAPER_PX (L2315) and LEAD_GUARD (L2286) live INSIDE the
 `if (typeof document !== "undefined" && document.getElementById)` guard (opens ~L1976). Put the new code as

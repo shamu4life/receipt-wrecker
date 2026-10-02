@@ -505,8 +505,72 @@ test("the Thermal preview draws giant type too (its own copy of the class rules)
     return { last: last / cv.height, mid };
   });
   assert.ok(ink.last > 0.9, "the raster's ink ends at " + (ink.last * 100).toFixed(0) + "% of the receipt");
+  // And it is rasterized at the TAPE's resolution: 2.119 print dots per CSS px, measured on
+  // the engine (CLAUDE.md, "the 1:1 rule"). A 560-dot raster of the 72mm box was 2.06, ~3%
+  // coarse, so dither texture and 1-dot detail were resampled rather than shown 1:1.
+  // (The live .rcpt is REPLACED by the canvas, so a scratch one is measured.)
+  const ratio = await page.evaluate(() => {
+    const box = document.createElement("div");
+    box.className = "rcpt";
+    document.body.appendChild(box);
+    const w = box.getBoundingClientRect().width;
+    box.remove();
+    return document.querySelector("canvas.rcpt-thermal").width / w;
+  });
+  near(ratio, 2.119, 0.01, "thermal dots per CSS px");
   assert.ok(ink.mid > 60, "no giant strokes in the middle of the raster (widest row " + ink.mid + " dots)");
   await ctx.close();
+});
+
+// Three ways the card and the parts note used to disagree with what Copy sends.
+//  - The cheer count: "HELLO WORLD" at Level 10 is two chunks the packer sends as ONE part,
+//    yet the Size select said "2 cheers" right above a note saying "fits 1 cheer".
+//  - A Giant block of only emoji builds an empty body, which used to get a part of its own
+//    when its neighbour was over-tall: a cheer that printed only the gem.
+//  - "Send part 1 first and look at the printer" when part 1 carried no giant type at all.
+const GIANT_SEED = { type: "text", render: "giant", giantLayout: "auto", giantSize: "fit1",
+  orient: 0, size: 90, rotateLen: 800, cols: 15 };
+test("cheer counts, empty blocks and the parts note all match the parts Copy sends", async () => {
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [{ ...GIANT_SEED, id: 1, text: "HELLO WORLD", giantSize: 10 }] });
+    const card = cards(page).first();
+    assert.equal(await page.locator("#parts .part").count(), 1, "fixture: L10 HELLO WORLD packs into one part");
+    assert.match(await card.locator(SIZE_SEL + ' option[value="10"]').textContent(), / · 1 cheer$/);
+    await card.locator(SIZE_SEL).selectOption("fit1");
+    const fit1 = C.giantPlan("HELLO WORLD", { budget: budgetFor({ cheer: true, bits: 100 }) }).fit;
+    assert.deepEqual([fit1.levels, fit1.shrink], [10, ""], "fit1 should take full Level 10, which is one cheer");
+    assert.match(await card.locator(SIZE_SEL + ' option[value="fit1"]').textContent(),
+      new RegExp("capitals " + C.giantCapCm(fit1.px).toFixed(1) + " cm · 1 cheer$"));
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [
+      { ...GIANT_SEED, id: 1, text: "THANK YOU SO MUCH", giantLayout: "lines", giantSize: 14 },
+      { ...GIANT_SEED, id: 2, text: "🔥🔥" }] });
+    const payloads = await copyAll(page);
+    assert.equal(payloads.length, 1, "the emoji-only block got a cheer of its own: " + JSON.stringify(payloads));
+    assert.ok(payloads[0].includes("class=title"));
+    const note = await cards(page).nth(1).locator(".giant-note").innerText();
+    assert.match(note, /Nothing else is left to print/);
+    assert.ok(!/this text is in part|over 500/.test(note), note);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [
+      { id: 1, type: "text", render: "hanzi", orient: 0, text: "HELLO", size: 90, rotateLen: 800, cols: 15 },
+      { ...GIANT_SEED, id: 2, text: "GG" }] });
+    const payloads = await copyAll(page);
+    const first = payloads.findIndex((p) => p.includes("class=title"));
+    assert.ok(payloads.length > 1 && first > 0, "fixture: a run whose first giant part is not part 1");
+    const note = await page.locator("#parts .parts-note", { hasText: /Paste the parts/ }).innerText();
+    assert.match(note, new RegExp("Part " + (first + 1) + " is the first with Giant type"), note);
+    assert.match(note, new RegExp("send up to part " + (first + 1) + ", then look at the printer"), note);
+    assert.ok(!/Send part 1 first/.test(note), note);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
 });
 
 test("the cheer-gem tuck: a corner box in the preview, the tucked lead on Copy, kept across a reload", async () => {

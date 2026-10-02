@@ -32,9 +32,11 @@ picks it up. One of them belongs to a settings-page heading: `.title` is
 **16px × 1.2^N** (14 levels ≈ 205px type, capitals ≈ 3.8 cm; 15 ≈ 247px).
 
 That is **Giant type**, the default Text render as of 0.10.0. Do not confuse it with
-"Giant sideways", the dead SVG/rotate Type render. Every token is sent literally and is
-on the sanitizer's own allow-list (tag `b`, and `span` for the tuck; attribute `class`).
-Nothing is disguised from automod, from the sanitizer or from the bits ledger. The same
+"Giant sideways", the dead SVG/rotate Type render. Every markup token is sent literally
+and is on the sanitizer's own allow-list (tag `b`, and `span` for the tuck; attribute
+`class`): nothing in the markup is disguised from automod, from the sanitizer or from the
+bits ledger. (That is a claim about the tags, not the user's words: Stack splits a word one
+letter per line, so a word filter never sees it. See the note under THE RULE.) The same
 mechanism gives the **cheer-gem tuck**: `.switch` (a 3em × 1.5em `overflow:hidden` box)
 plus `.dialog-nav-button` (`position:fixed`, top right) pin the cheermote printer-bot
 draws into a clipped box in the page's top-right corner. See arch items 16-19.
@@ -55,16 +57,19 @@ sample up as a mechanism.**
   the shrink wrappers, emote sizing and page spill. See "Settled for Giant type" below.
 - **NEVER SENT**: `class=setting-description` / `class=setting-attribute` (the ×0.9 /
   ×0.8 shrink wrappers, which Auto emits whenever such a step is the best fit, so they
-  are far from exotic), the padded emote form, and a tucked lead followed by a giant
-  body with its leading `<br>` stripped (what Copy sends with the tuck on). These are the
-  first things to put in a free probe (see the probe list under "Measuring").
+  are far from exotic), the padded emote form, and the app's EXACT tucked lead: a leading
+  nbsp and the two-digit nonce inside the span. The field cheer had the span with no
+  nonce, directly followed by `<b class=title>` with no `<br>` between, so that adjacency
+  itself has printed; only the nbsp and the nonce have not. These are the first things to
+  put in a free probe (see the probe list under "Measuring").
 
 **It is fragile by construction.** This is a borrowed style on someone else's page.
 nutty can rename `.title`, retune it, scope `global.css` away from the receipt, or stop
 inlining linked stylesheets, any day, and the failure is **quiet**: the text prints at
 normal size and the cheer still spends. The app's defences: the class names and
 declarations are data (`PB_CLASSES`); the card is date-stamped ("Confirmed printing big
-on 1 Oct 2026"); a multi-part giant run says "send part 1 first and look"; the **Print
+on 1 Oct 2026"); a multi-part giant run names the first part that carries giant type
+and says to look at the printer after it (part 1 when it has some); the **Print
 size ruler** proves the trick on the rig for one cheer; Hanzi tiling stays one select
 away as the markup-free backup; and `npm run printerbot -- --check` diffs `PB_CLASSES`
 against the live CSS before a release (a release-checklist canary, not CI).
@@ -75,9 +80,11 @@ is `widgets.nutty.gg`, so its `main` branch **is** the live site, and its histor
 readable. **Verified 2026-10-02:** the five files `tools/printerbot.mjs` fetches
 (settings page, `script.js`, `style.css`, `global.css`, `helpers.js`), as served live
 that day, were byte-identical to `main` @ be2972f (2026-09-13). As of that date:
-`.title { font-size: 1.2em }` has been in `global.css` since c5e9890 (2025-09-13);
-`GetRenderedHTML` inlining every stylesheet into the printed document dates from
-0c7b4fc / 7e20a30 (2025-07-29 / 2025-09-06); `global.css` has had **eight commits
+`.title`'s `font-size: 1.2em` has stood since af65fcf (2025-09-06; it was 1.5em in 7e20a30
+earlier that day, and c5e9890, 2025-09-13, only re-indented the rule, so it is what a blame
+shows, not the origin); `GetRenderedHTML`'s inline-every-stylesheet step dates from
+20a0e59 (2025-07-27, under `receipt-printer/`, before the 0c7b4fc rename to printer-bot);
+`global.css` has had **eight commits
 ever**, the last (9bf1efb) on 2026-04-28. (The sanitizer arrived upstream in 121c351,
 dated 2026-08-27; this repo first noticed it on 2026-09-15.) So the trick rests on code
 that has been stable for over a year, but **it is not a contract**. Two things follow:
@@ -85,15 +92,21 @@ that has been stable for over a year, but **it is not a contract**. Two things f
 - **Pin what you measure.** `tools/printerbot.mjs --ref <sha|branch>` reads the same
   files from the repo at one commit instead of the live site, resolves a branch to its
   sha and records it in the provenance, so a bench number can be re-run on exactly the
-  CSS it was taken on (or replayed on the code from before a change, e.g. pre-121c351).
+  CSS it was taken on. It replays commits from 121c351 (2026-08-27) onward; EARLIER ONES
+  ARE REFUSED (exit 2), because the pipeline runs printer-bot's own `SanitizeHTML`, which
+  they do not have (before it, printer-bot inserted raw innerHTML, a path the tool does not
+  implement). A `--ref` run never rewrites the `printed.css` cache `tools/rig.py` reads.
 - **How to get warned, without reading code.** Paste
   <https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom>
   into any feed reader (Feedly, Inoreader, Thunderbird and the like). It lists every
   change to that one stylesheet and nothing else, eight entries in all so far, so a new
   entry is news. When one appears, run `npm run printerbot -- --check`: its last line
-  says "check passed" or "check FAILED", i.e. whether every `PB_CLASSES` rule is still
-  in the live CSS and still survives the sanitizer. Then send the Print size ruler
-  before the next real run.
+  says "check passed" or "check FAILED" (exit status 0 or 1), i.e. whether every
+  `PB_CLASSES` rule is still in the live CSS, still survives the sanitizer, and still
+  computes the sizes the app assumes once the whole printed cascade applies (an override
+  of any selector or `!important` fails it). Exit 2 means it could not check (a file only
+  available from the cache, say), and the last line says why. Then send the Print size
+  ruler before the next real run.
 
 That repo has **no licence file, so all rights are reserved**: never vendor or copy
 nutty's code or CSS into this repo. Fetch it at bench time (`tools/printerbot.mjs`
@@ -115,6 +128,17 @@ sender. It stays that way only under three conditions:
   *incidental* rename (a UI redesign moved `.title` to another name) justifies remapping
   a `PB_CLASSES` row, and only after a free probe and a ruler print show the new name
   prints.
+
+**What THE RULE does not cover: the words.** "Literal" and "nothing is disguised" are
+claims about the MARKUP. Stack, which Auto picks for short words by default, sends each
+word one letter per `<br>` (`H<br>E<br>L<br>L<br>O`), so a channel's blocked-terms list
+never sees the word as typed, exactly as with Hanzi tiling (whose code comment already
+calls it filter-proof); the one field cheer was this shape. That is a side effect of
+fitting the paper's width, not a feature: never describe or advertise it as a way past a
+filter. And a passing free probe tests the markup tokens, not whether the words would
+pass. If chat holds or blocks a message for its WORDS, that is the channel's moderation
+working: do not respace, split, re-layout or otherwise rework the words to get them
+through, do not build anything that does, and the app must never suggest it.
 
 **⚠ 2026-09-15 — printer-bot added an HTML sanitizer, and it changes everything
 below. READ THIS FIRST.** For a long time printer-bot rendered the chat message
@@ -139,9 +163,10 @@ the sanitizer keeps is `<img class="emote">` or `<img class="bits">`, and only i
 markup). **ASCII glyph-art shears**, because it depended on a `white-space:pre`
 monospace `<span>` (that styling is in `style`, now stripped) — its spaces collapse.
 *(Checked 2026-10-01: the class route does not rescue any of these. No rule in
-`global.css` or `contents/style.css` gives `white-space:pre`, a monospace face,
-rotation, `display:none` or white text, and none targets `b`, `i`, `span`, `img` or
-`br` by tag.)*
+`global.css` or `contents/style.css` that an allow-listed tag plus a class can reach gives
+`white-space:pre`, a monospace face, rotation, `display:none` or white text (the
+`display:none` and white-text rules there target `html`/`body`, form controls, ids or
+descendants of ids), and none targets `b`, `i`, `span`, `img` or `br` by tag.)*
 
 So the durable paths, and the app's new backbone, are the ones that were always
 markup-free: **Hanzi tiling for text and the CJK glyph tier for pictures** (pure
@@ -225,7 +250,7 @@ Everything else in the repo is documentation, tests, or deploy config.
 | `src/worker.js` | The Cloudflare Worker: serves `public/` as assets, plus `POST /upload`, the image-serving routes (`/<hex>.png` and legacy `/i/<hex>`), and the `/px` image proxy. `main` in `wrangler.jsonc`. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, and the `RW_IMG` KV binding. |
 | `package.json` | Dev-only metadata: `npm test` (Node's `node:test`), `npm run test:browser`, the Wrangler dev/deploy scripts, and the bench scripts (`render` = `tools/rig.py`, `payload`, `printerbot`). No runtime deps. |
-| `test/` | Node `node:test` suite. Extracts the inline script from `public/index.html` and unit-tests the pure glyph engine. |
+| `test/` | Node `node:test` suite. Extracts the inline script from `public/index.html` and unit-tests the pure glyph engine. `test/rig.test.mjs` is the one tool test: it runs `tools/rig.py`'s case-name guard (python3, no engine needed; skipped without python3). |
 | `test-browser/` | Playwright smoke tests for the browser glue the null-DOM harness cannot reach. NOT part of `npm test`; run `npm run test:browser` (needs `npx playwright install chromium` once). |
 | `tools/` | The print-engine bench. `rig.py` renders a payload the way printer-bot really does and measures the ink; `payload.mjs` builds that payload from the app's own core; `printerbot.mjs` (0.10.0) builds the exact document printer-bot prints, from nutty's live files and printer-bot's own sanitizer, and `--check`s `PB_CLASSES` against the live CSS; `calibrate.py` builds the dither test print. This is where "does it print?" gets answered; see "Measuring against the real engine". Nothing of nutty's, and no font, is ever committed here: `printerbot.mjs` fetches and caches under `.render/`. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, then `wrangler deploy --dry-run` on push/PR to `main`. |
@@ -384,9 +409,11 @@ All functions live inside the one IIFE in `public/index.html`.
 Pure core (DOM-free, unit-tested):
 
 1. `TIERS` / `getTier(id)`: the glyph tier table. **Six tiers, in this order:**
-   `ascii` (letter ramp, *the glyph-art default*), `asciifull` (denser ASCII ramp),
+   `ascii` (letter ramp, *the glyph-art default* until 0.9.0), `asciifull` (denser ASCII ramp),
    `safe` (`░▒▓█` blocks), `cjk` (curated Han density ramp), `braille` (2×4 dot
-   packing), `text` (binary `█`/`░`, used by big type). The ASCII ramps lead because
+   packing), `text` (binary `█`/`░`, used by big type). *(Amended 0.9.0: `newBlock`'s
+   default is `cjk`; under the sanitizer ASCII's `white-space:pre` wrapper is stripped and
+   its rows shear. See the ⚠ banner.)* The ASCII ramps lead because
    they need no particular font to be installed; the app's own selector labels the
    block tier "often blank on printer", so do NOT call blocks the safe choice. Both
    ASCII ramps start with a literal space as their lightest cell; see the
@@ -583,11 +610,16 @@ Pure core (DOM-free, unit-tested):
       levels) guards it.
     - **Lines.** `giantClean` drops what QtWebKit 534 cannot print (astral code
       points, i.e. emoji, plus ZWJ, VS15/VS16 and lone surrogates) AND what prints
-      nothing (`GIANT_INVISIBLE`: zero-width spaces and joiners, direction marks and
-      embeddings, U+2060-206F, the BOM, the soft hyphen, every variation selector, C0/C1
-      controls bar tab and newline), and reports each character it dropped. Before that
-      fix each invisible one was a giant LINE of its own in a stack ("HI\u200BYOU" fell
-      from 14 levels to 13). CR, CRLF and U+2028/2029 become `\n`. `giantReport` says
+      nothing (`GIANT_INVISIBLE`: the BMP part of Unicode's Default_Ignorable_Code_Point
+      set, i.e. zero-width spaces and joiners, direction marks and embeddings,
+      U+2060-206F, the BOM, the soft hyphen, U+034F, the Hangul fillers U+115F/1160/3164/
+      FFA0, U+17B4/5, the Mongolian selectors U+180B-180F, U+FE00-FE0F, U+FFF0-FFF8;
+      plus U+FFF9-FFFB and C0/C1 controls bar tab and newline), and reports each
+      character it dropped. Before that fix each invisible one was a giant LINE of its
+      own in a stack ("HI\u200BYOU" fell from 14 levels to 13; the first fix missed
+      U+3164, the "invisible character" people actually paste on Twitch). CR, CRLF and
+      U+2028/2029 become `\n`, and U+2800 (braille blank, pasted on purpose as a blank)
+      becomes a space. `giantReport` says
       which kind went: emoji (named) or invisible characters, never "emoji" for a stray
       zero-width space. `giantLines` splits by CODE POINT:
       `stack` is one character per line, with each whitespace run becoming ONE blank
@@ -599,17 +631,30 @@ Pure core (DOM-free, unit-tested):
     - **Steps.** `giantSteps` lists 51 sizes: 1-18 levels × {1, 0.9, 0.8}, nothing
       below one level (19.2px). `giantLineH` is the real engine's line pitch.
     - **Fit.** `giantFit`/`giantPlan` pick the step. `fit1`, the default "biggest that
-      fits ONE cheer", takes the largest step that fits the paper in one chunk; failing
-      that, the FEWEST chunks, then the largest. It never takes the biggest width fit,
+      fits ONE cheer", takes the largest step that fits the paper in one CHEER; failing
+      that, the FEWEST cheers, then the largest. It never takes the biggest width fit,
       which is the most cheers: an 80-character stack once fell back to 20 cheers.
       `width` is the largest that fits the paper at any cost, and an integer `n` means
-      exactly `n` levels with `fits`/`overflow` reported honestly. Layout `auto` tries
-      `lines` and `stack`: a layout whose letters would be cut off never wins, then the
-      bigger type when both fit one cheer, else the fewer cheers, ties to `lines`.
+      exactly `n` levels with `fits`/`overflow`/`over` reported honestly. Layout `auto`
+      tries `lines` and `stack`: a layout whose letters would be cut off never wins, then
+      the bigger type when both fit one cheer, else the fewer cheers, ties to `lines`.
+      **A cheer is not a chunk.** `fit.chunks` is how many bodies the block makes;
+      `fit.cheers` (`giantCheerCount`) is how many parts the packer puts them in, by the
+      packer's own greedy test, and it is the number every label, `auto` and `fit1` use.
+      They differ because the chunker breaks a stack at a word gap and drops the blank
+      edge line, which often lets the packer merge both halves: "HELLO WORLD" at L10 is
+      two chunks and one part, and counting chunks said "2 cheers" over a one-part preview
+      and made fit1 settle for L10×0.9. Merged, the words are separated by the small
+      inter-body gap, not a giant blank line (bench: one page, full L10).
+      `giantChunkFloor` is a lower bound on both, so pruning with it stays safe.
+      **A step with a line too long to send even alone (`over`) ranks below every step
+      without one** (`giantStepOver`, O(1)): it used to count as a valid one-chunk fit,
+      and a shrink step carries one tag more than the plain step below it, so Auto could
+      pick a 549-character L14×0.9 that Twitch rejects while L12 sent in 478.
     - **Chunking is on height AND characters.** The height is `GIANT_GAP_PX + Σ
       giantLineH ≤ HEIGHT_BUDGET`. The characters are `≤ budget`, which is `MAX_CHARS -
       leadLength`. Height alone once let 26 lines of "ROSES nnn" become a 487-character
-      body: 499 with the plain lead, 547 tucked, and Twitch rejects that outright. The
+      body: 499 with the plain lead, 543 tucked, and Twitch rejects that outright. The
       chunker prefers to break at a blank line and trims blanks at both edges of every
       chunk, because a chunk that starts with one prints a giant-height blank. A single
       line over budget on its own is emitted with `giant.over` and warned about, never
@@ -619,10 +664,20 @@ Pure core (DOM-free, unit-tested):
       packer concatenates raw and an unclosed `.title` would make everything after it
       giant. In the emote layout every name gets a space on BOTH sides, because Twitch
       only reports an emote that is a whitespace-delimited word. `giant.cheerWords`
-      flags standalone `Kappa50`-shaped tokens, which Twitch would charge as extra
-      cheers. Empty input gives one empty body with `levels:0`, never 18 levels of
-      empty tags. There is one literal form only: no italic, no quote/case/tag
-      variants (THE RULE).
+      flags standalone `Kappa50`- and `4Head100`-shaped tokens (a letter/digit prefix
+      ending in a letter, then the amount), which Twitch MAY charge as extra cheers. The
+      report says so flatly only for a global cheermote prefix (`GIANT_GLOBAL_CHEERS`)
+      and hedges for anything else ("If “PS5” is a cheer name on this channel…"): a
+      channel's own prefixes are unknowable here, and telling a user to delete "PS5" on a
+      guess was a bug. In the emote layout a name with `<`, `>` or `&` (Twitch's `<3`) is
+      escaped like every user character, so Twitch never reports it and it prints as
+      text; the preview shows it as text, not as an emote placeholder. Empty input
+      gives one empty body with `levels:0`, never 18 levels of
+      empty tags, and `packStackBodies` never lets a body that prints nothing open or
+      close a part: it rides along in whatever part it lands next to. (It used to get a
+      part of its own beside an over-tall neighbour: "Cheer100 03 ", 100 bits for a
+      receipt with only the gem.) There is one literal form only: no italic, no
+      quote/case/tag variants (THE RULE).
     - **Untrusted fields.** `giantOpts` sanitizes `giantLayout`/`giantSize`, which
       arrive from presets and imported JSON, and from a `<select>` as strings, so
       everything reads them through it: `1e6` becomes 18, junk becomes `"fit1"`.
@@ -635,7 +690,8 @@ Pure core (DOM-free, unit-tested):
       font-size to whole px, and Segoe UI's cap height is 1434 of 2048 units) and, for
       emotes, `giantEmoteCm` (the whole rounded font-size). Both use `GIANT_MM_PER_PX`
       (25.4/96), **not** `PX_PER_MM`, which is a rounded 3.75 that stays as it is for the
-      picture blocks; dividing by it read 0.6-0.8% high and put 12 of 51 sizes 0.1 cm
+      picture blocks; dividing by it (and not rounding the font-size to whole px) read up
+      to ~1.8% high (0.8% from `PX_PER_MM` alone) and put 12 of 51 sizes 0.1 cm
       high on the card. Measured on the engine, every flat-capital height is within
       0.01 cm of `giantCapCm` (see "Settled for Giant type").
 18. `buildLead(opts, nonce)` / `leadLength(opts)` / `TUCK_OPEN` / `TUCK_CLOSE` /
@@ -834,8 +890,10 @@ button: `node tools/printerbot.mjs --message '…' --png .render/printerbot/x.pn
 byte-identical to `main` @ be2972f on 2026-10-02. **No licence file: never vendor**, so
 the bench fetches at run time and caches under the gitignored `.render/`. Dates that
 bound what a measurement can mean: the sanitizer arrived in 121c351 (2026-08-27);
-`.title`'s 1.2em has stood since c5e9890 (2025-09-13); `GetRenderedHTML`'s
-inline-every-stylesheet step since 2025-07 (0c7b4fc, reworked in 7e20a30); `global.css`
+`.title`'s 1.2em has stood since af65fcf (2025-09-06; 1.5em in 7e20a30 earlier that day;
+c5e9890 only re-indented it); `GetRenderedHTML`'s inline-every-stylesheet step since
+20a0e59 (2025-07-27, under `receipt-printer/`, before the 0c7b4fc rename; reworked in
+7e20a30); `global.css`
 has had only 8 commits ever. A number taken against the live site is a number about
 that day's `main`: the provenance JSON records each file's sha256, and `--ref` pins the
 bench to a commit so the number can be re-run. To be warned of a change, see the feed
@@ -866,13 +924,18 @@ back to a Chromium render, labelled APPROXIMATE. Flags:
 | `--png FILE` | render it: real wkhtmltopdf via `rig.py`, else APPROXIMATE Chromium |
 | `--fonts DIR` / `--paper MM` | passed to `rig.py`; the paper defaults to 80 (page = MM-8) |
 | `--offline` | cache only, never the network |
-| `--ref SHA\|BRANCH` | read nutty's files from `github.com/nuttylmao/nutty.gg` at that commit instead of the live site (a branch or tag is resolved to its sha and recorded), so a measurement can be re-run against exactly the CSS it was taken on, or replayed against a past commit. The live site **is** that repo's `main` (GitHub Pages): checked 2026-10-02, all five files byte-identical to `main` @ be2972f |
-| `--check` | the release-checklist canary: exit 1 if any `PB_CLASSES` declaration (read from the app core via `loadCore`) is missing from the live CSS, or the real sanitizer drops one of our classes. **Not in CI**, which stays offline, and no test may import this tool. |
+| `--ref SHA\|BRANCH` | read nutty's files from `github.com/nuttylmao/nutty.gg` at that commit instead of the live site (an EXACT branch or tag name is resolved to its sha, an annotated tag to the commit it points at, and recorded), so a measurement can be re-run against exactly the CSS it was taken on. Commits before 121c351 (the sanitizer) are refused: the pipeline needs `SanitizeHTML`. A `--ref` run never rewrites the `printed.css` cache `rig.py` reads. The live site **is** that repo's `main` (GitHub Pages): checked 2026-10-02, all five files byte-identical to `main` @ be2972f |
+| `--check` | the release-checklist canary: exit 1 if any `PB_CLASSES` declaration (read from the app core via `loadCore`) is missing from the live CSS, the real sanitizer drops one of our classes, a linked stylesheet answers 404 (printer-bot would inline it empty), or the printed CASCADE does not compute the sizes the app assumes (nested `.title`, each shrink step, the tuck's `position:fixed`: an override of any selector or `!important` fails it, which the per-rule comparison alone could not see). The verdict is the last line of stderr. **Not in CI**, which stays offline, and no test may import this tool. |
 
-Exit status 0 fine, 1 check or render failed, 2 usage or environment. A file that
-cannot be fetched falls back to its cached copy with a WARNING, except under `--check`,
-which is about the LIVE stylesheets and exits 2 instead (pass `--offline` to check the
-cache deliberately). Behind a proxy, Node's `fetch` ignores `HTTPS_PROXY` unless
+Exit status 0 fine, 1 check or render failed, 2 usage or environment; the last line of
+stderr says which. A file that cannot be fetched falls back to its cached copy with a
+WARNING, but only on a network failure, a timeout, a 5xx, 408 or 429: a 404 or other 4xx
+is the server's answer, which printer-bot gets too, so it is never papered over with the
+cache. Under `--check`, any of nutty's files (settings page, stylesheets, `helpers.js`,
+the overlay script) that came from the cache exits 2 instead (pass `--offline` to check
+the cache deliberately). `printed.css` is only rewritten by a run that fetched every
+stylesheet live. An unreachable `--emote`/`--avatar`/`--cheer-img` URL exits 2.
+Behind a proxy, Node's `fetch` ignores `HTTPS_PROXY` unless
 `NODE_USE_ENV_PROXY=1` is set; the error says so. Provenance JSON (URLs, sha256, fetch
 times, warnings) goes to stderr. It needs Playwright's Chromium (`npx playwright install chromium`).
 Images are localised as `file://` under `.render/`, because a Twitch emote URL ends in
@@ -887,12 +950,16 @@ forces the hand-copied subset to reproduce pre-0.10.0 numbers. New JSON keys: `p
 plus `pages_ink` and a WARNING when there is more than one page (the page is 500mm, and
 a message past it prints the rest as another page, which a page-1-only raster never
 showed; `ink`/`bbox` remain page 1); `css` (`{source: cache|embedded|document, sha256,
-fetched_at}`, plus `matches` when a document's CSS equals the cache); and
+fetched_at}`, plus `matches` when a document's CSS equals the cache, and for the cache its
+`origin` and `stylesheets_from` from `printed.css.json`, with a WARNING when it was pinned
+by `--ref` or carries a cache fallback, written by an older `printerbot.mjs`); and
 `fonts_in_pdf` (from `pdffonts`), with a WARNING when Segoe UI is not among them.
 Without Segoe the bench falls back to Liberation (Arial metrics), and the numbers
 change: the field payload is one page there and two with Segoe. Exit status: 0
 rendered, 1 failed or bad arguments, **3 no wkhtmltopdf at all** (the one case
-`printerbot.mjs` may answer with an APPROXIMATE render).
+`printerbot.mjs` may answer with an APPROXIMATE render). The case name must stay under
+`.render/` (an absolute path or a `..` escape exits 1 before anything renders), because
+the stale-page cleanup deletes `<case>-N.png` wherever the name points.
 
 It needs **wkhtmltopdf 0.12.6 with patched Qt**. The distro QtWebKit 5.212 build behaves
 differently and will mislead you, so `rig.py` checks the version string and warns rather
@@ -1067,8 +1134,10 @@ Things already settled this way, so you don't have to re-derive them:
   (quoted, two classes) and `</br>`. Never sent, so put them in the next free probe
   with a plain control of the same shape: `class=setting-description` and
   `class=setting-attribute` (Auto emits one whenever a ×0.9 / ×0.8 step wins, so an
-  ordinary word can carry one); a tucked lead followed directly by
-  `<b class=title>` with no `<br>` between; and the padded emote form
+  ordinary word can carry one); the app's exact tucked lead, i.e. a leading nbsp and
+  the two-digit nonce inside the span (the span directly followed by `<b class=title>`
+  with no `<br>` between already rode the field cheer, without the nbsp or a nonce); and
+  the padded emote form
   (` Kappa Kappa <br> Kappa `), for which a free probe also answers the emote question
   outright: if Twitch chat itself draws the emote, Twitch recognised it, and
   printer-bot will get it in `data.emotes`. A free probe cannot show whether a class
@@ -1215,6 +1284,9 @@ not arbitrary style choices:
   The two ASCII tiers, now the glyph-art default, use a literal space as their
   lightest cell and print correctly. Keep the wrapper; that is the load-bearing
   part, not the choice of glyph.
+  *(Amended 0.9.0: under the 2026-09-15 sanitizer the `style` is stripped, so ASCII's
+  spaces collapse and the grid shears; the default tier is `cjk` since 0.9.0, whose
+  uniform-width glyphs need no wrapper. The wrapper is still emitted and does no harm.)*
 - **No `<`, `>`, or `&`** may appear in *glyph* output. None of the tier glyph sets
   include them; don't add a tier or ramp entry that does. (Big type, rotate, real
   pictures and, since 0.10.0, **Giant type** are markup modes and obviously emit tags;
@@ -1230,9 +1302,10 @@ not arbitrary style choices:
   Qt-WebKit) has zero color-font support; these tofu. Stick to BMP glyphs with
   broad legacy-font coverage (Block Elements, Braille, curated CJK). Giant type puts
   the user's own text on the tape, so it enforces this on input: `giantClean` drops
-  astral code points, ZWJ and the variation selectors (and every other invisible format
-  or control character), and the card names what was left out. (At giant size a tofu
-  box is the size of a letter.)
+  astral code points, ZWJ and the variation selectors, and the rest of the BMP
+  Default_Ignorable set plus U+FFF9-FFFB and the control characters (the list is
+  `GIANT_INVISIBLE`; arch item 17 spells it out), and the card names what was left out.
+  (At giant size a tofu box is the size of a letter.)
 - **The cheer token LEADS the payload.** This file claimed the opposite for a long
   time; the code is right. `packStackBodies` emits `Cheer<bits> <nonce> <html>`, for
   two reasons given in its own comment: the token and nonce survive any

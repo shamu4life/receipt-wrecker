@@ -36,12 +36,14 @@ Unicode has to stand in for a picture or a poster-sized word.
 > overtaken on 2026-10-01 by Giant type, above, which rides the `class` attribute the
 > sanitizer keeps. Hanzi is its backup now. For pictures it still stands.)*
 >
-> **Real pictures cannot be sent at all.** The sanitizer allows only an `<img>` tag, and
-> the channel's automod blocks `<img` — field-confirmed the same day, with a control, so
-> the two gates leave nothing in between. **Big Text "Type"/sideways, ASCII glyph-art,
+> **Arbitrary pictures cannot be sent at all.** The sanitizer allows only an `<img>` tag,
+> and the channel's automod blocks `<img` — field-confirmed the same day, with a control,
+> so the two gates leave nothing in between. **Big Text "Type"/sideways, ASCII glyph-art,
 > the Takeover and the fake cheer no longer print either**, and the app flags all of
 > them rather than letting you spend bits on blank paper. Full detail in the
-> [changelog](docs/CHANGELOG.md#090---2026-09-15).
+> [changelog](docs/CHANGELOG.md#090---2026-09-15). *(Amended 0.10.0: a Twitch emote the
+> sender may use is the exception. printer-bot draws it itself, and Giant type's Emote
+> names layout prints it giant. See [Emote names](#emote-names-needs-one-test-print).)*
 
 Receipt Wrecker is a single-file, dependency-free web tool. You build a stack of
 blocks and it packs them into as few chat messages as possible:
@@ -138,9 +140,10 @@ printer-bot turns a chat message into paper.
 5. **The app does the arithmetic.** It knows how wide every capital letter is, how tall
    every line comes out on printer-bot's engine, and how many characters a Twitch
    message may hold (500). It picks the biggest nesting that fits across the paper and
-   inside one cheer, and it splits across several cheers only if you ask for something
-   bigger. What it sends is plain text: the cheer, `<b class=title>` repeated, your
-   words, and the matching closing tags.
+   inside one cheer. If your text is too long for one cheer at any size, it uses as few
+   cheers as possible, and the card says how many before you copy. What it sends is
+   plain text: the cheer, `<b class=title>` repeated, your words, and the matching
+   closing tags.
 
 Here is the whole payload for `HELLO`, with the 14 repeated tags shortened:
 
@@ -148,8 +151,11 @@ Here is the whole payload for `HELLO`, with the 14 repeated tags shortened:
 Cheer100 07 <br><b class=title>…14 times…H<br>E<br>L<br>L<br>O</b>…14 times…<br>
 ```
 
-That is 307 of the 500 characters. **Nothing in it is disguised.** Every tag is one the
-sanitizer openly allows, written out plainly. Twitch still sees an ordinary cheer and
+That is 307 of the 500 characters. **Nothing in the markup is disguised.** Every tag is
+one the sanitizer openly allows, written out plainly. (Your words are another matter: a
+stacked word goes out one letter per line, as above, so a channel's word filter never
+sees it whole. That is how the letters fit the paper, not a way around a channel's
+rules; see "If it stops working".) Twitch still sees an ordinary cheer and
 charges it, the receipt's header still prints your name and the bits, and chat sees
 exactly what you sent. (Chat shows the raw tags, the same one repeated. If a channel's
 mod bot removes repeated text, send it once with **Cheer-ready** off first: that is free,
@@ -177,7 +183,7 @@ real picks land between these rows.
 | levels | type size | capitals | what Auto gives it |
 |---|---|---|---|
 | 5 | 40 px | ≈ 0.7 cm | `WRECK THE RECEIPT COMPLETELY`, stacked (just under this row) |
-| 8 | 69 px | ≈ 1.3 cm | `HAPPY BIRTHDAY`, stacked |
+| 8 | 69 px | ≈ 1.3 cm | `HAPPY BIRTHDAY`, stacked (just above this row) |
 | 10 | 99 px | ≈ 1.8 cm | a ten-letter word, stacked |
 | 14 | 205 px | ≈ 3.8 cm | a five-letter word, stacked (`HELLO`) |
 | 16 | 296 px | ≈ 5.5 cm | two or three letters (`GG`, `LOL`) |
@@ -195,13 +201,16 @@ by hand says so in its label.
   the printer capitalises it.
 - **Emoji.** The printer's engine can't draw them (they come out as empty boxes, and at
   this size a very large one), so they are left out, and the card says which. Invisible
-  characters that copy-paste brings along (zero-width spaces, control codes) are left
-  out too, and the card says so rather than calling them emoji: each one would otherwise
-  cost a whole blank giant line in a stack.
+  characters that copy-paste brings along (zero-width spaces, control codes, the Hangul
+  filler people paste on Twitch as an "invisible character") are left out too, and the
+  card says so rather than calling them emoji: each one would otherwise cost a whole
+  blank giant line in a stack. A braille blank (`⠀`) counts as an ordinary space.
 - **Narrow rolls.** It is sized for **80 mm** printers. On a 58 mm roll the letters
   would be cut off.
-- **Words that look like cheers.** `Kappa50` or `cheer100` on its own in your text is a
-  second cheer to Twitch, and it charges for it. The card warns you.
+- **Words that look like cheers.** `Kappa50`, `4Head100` or `cheer100` on its own in
+  your text is a second cheer to Twitch, and it charges for it. The card warns you. A
+  word that only looks like one (`PS5`, `TOP10`) is a cheer only if the channel made it
+  one, so for those the card says "if".
 
 ### Emote names (needs one test print)
 
@@ -218,6 +227,9 @@ the text around it. So a giant-sized emote prints giant: a single emote comes ou
 - The app separates every name with spaces on both sides, because Twitch only
   recognises an emote that is a word on its own. The preview draws each emote as a
   dashed box labelled with the name. It never downloads the emote.
+- Emotes with `<` or `>` in the name, like `<3`, can't be sent this way: those
+  characters have to be sent escaped, so Twitch never sees the emote's name and the
+  printer prints the characters instead. The preview shows them as text.
 - **This exact form has never been sent.** Try one cheer before a bigger run, or send it
   free first (Cheer-ready off): if Twitch chat shows the emote picture, Twitch recognised
   it.
@@ -228,11 +240,13 @@ the text around it. So a giant-sized emote prints giant: a single emote comes ou
   `P E N I S` went through the channel's automod and printed giant letters, on 1 Oct 2026.
 - **Measured on printer-bot's own print engine, not on paper:** every size, every line
   height, the cheer-gem tuck, the in-between sizes, emote sizes, and when a message
-  runs past one 500 mm page. (These came from the same wkhtmltopdf build printer-bot
-  uses, fed the exact page printer-bot builds.)
+  runs past one 500 mm page. (These came from the same wkhtmltopdf version printer-bot
+  uses, 0.12.6 with patched Qt, in its Linux build with Segoe UI installed, fed the exact
+  page printer-bot builds. Font rendering on the Windows rig can differ slightly.)
 - **Never sent:** the two "in-between size" styles Auto sometimes uses
   (`setting-description` and `setting-attribute`, ×0.9 and ×0.8), the emote form, and
-  the tucked cheer directly followed by giant text.
+  the app's exact hidden-gem cheer (a leading space and the two digits inside the corner
+  box). The corner box itself, directly followed by giant text, rode the real cheer above.
 
 ### If it stops working
 
@@ -244,13 +258,18 @@ and the cheer is still spent. So:
   next to *Print test strip*). It is one cheer that prints the numbers 1 to 13, each a
   size bigger than the last. If the numbers grow, Giant type works on that printer
   today, and you can see every size on real paper.
-- **On a run of several cheers**, send part 1 first and look at the printer. If the
-  letters came out normal-sized, stop.
+- **On a run of several cheers**, send up to the first part with Giant type in it (the
+  note under the parts names it; usually part 1) and look at the printer. If the letters
+  came out normal-sized, stop.
 - **If it has stopped**, switch the block's Render to **Hanzi tiling**, which needs no
   borrowed style at all.
 - **If a channel's mods block it**, that is their call. The app will never offer a
   disguised or "alternative spelling" version to get past them, and nobody should
-  write one.
+  write one. The same goes for your words: Stack (which Auto picks for short words)
+  puts one letter per line, so a channel's word filter never sees the word, just as with
+  Hanzi tiling. That is a side effect of fitting the paper, not a way to post what a
+  channel has banned, and the free Cheer-ready-off test only shows whether the tags get
+  through, not whether the words are welcome.
 
 ### Where printer-bot's code lives, and how to get warned
 
@@ -261,9 +280,10 @@ every streamer's printer-bot loads. (Checked on 2 Oct 2026: the live files were
 identical, byte for byte, to `main` at commit `be2972f`.) That makes its history
 readable, and the history is reassuring:
 
-- the `title` style, at 1.2×, has been in the shared stylesheet since 13 Sep 2025
-  (commit `c5e9890`);
-- copying every stylesheet into the printed page goes back to July 2025;
+- the `title` style, at 1.2×, has been in the shared stylesheet since 6 Sep 2025
+  (commit `af65fcf`);
+- copying every stylesheet into the printed page goes back to July 2025 (commit
+  `20a0e59`);
 - the sanitizer arrived on 27 Aug 2026 (commit `121c351`; this project noticed it on
   15 Sep), which is the change that stopped the old Type and Takeover modes printing;
 - the shared stylesheet has changed only **eight times** in its life.
@@ -276,7 +296,8 @@ feed reader (Feedly, Inoreader, Thunderbird and the like):
 It lists every change to that one stylesheet and nothing else, so a new entry is news.
 When one shows up, send the **Print size ruler** before your next real run (or, if you
 have the repo checked out, run `npm run printerbot -- --check`: its last line says
-whether every style Giant type borrows is still there).
+"check passed" or "check FAILED", i.e. whether every style Giant type borrows is still
+there and still makes the letters the size the app expects).
 
 That repository has **no licence**, which means all rights are reserved. So this
 project never copies any of nutty's files; the bench below fetches them when it runs
@@ -359,7 +380,7 @@ is squeezed into a tiny corner box, "100" and the nonce are cut off, and with Gi
 the line they used is saved for your art. printer-bot's header still prints the bits
 and your name, and Twitch still sees, shows and charges an ordinary cheer.
 
-- It costs **48 of the 500 characters** at 100 bits, a little more for bigger amounts.
+- It costs **48 of the 500 characters**, whatever the amount.
   The hint under the checkbox computes it. A cheer that starts with Giant type gets 4
   back. Any other block gets a line break in front of it instead, so a Hanzi grid still
   starts on a clean line.
@@ -825,7 +846,9 @@ font, is ever committed. Everything they fetch or render goes to the gitignored
   run it before a release. `--ref SHA|BRANCH` reads printer-bot's files from
   [the repository](https://github.com/nuttylmao/nutty.gg) at one commit instead of the
   live site and records which, so a measurement can be re-run on exactly the
-  stylesheet it was taken on, or on the code from before a change. It needs
+  stylesheet it was taken on. It replays commits from `121c351` (27 Aug 2026, the
+  sanitizer) onward; earlier ones are refused, because it runs printer-bot's own
+  sanitizer. It needs
   Playwright's Chromium (`npx playwright install chromium`) and the network, or a cache
   from an earlier run (`--offline`).
 - **`tools/rig.py`** (`npm run render`) renders a page with the same print engine and

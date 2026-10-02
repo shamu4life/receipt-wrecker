@@ -367,7 +367,7 @@ test("fit sizes: the integer is exact, an empty list is 'none', and too-wide is 
   assert.equal(C.giantFit(["HI"], { size: "9" }).levels, 9, "a <select> hands the size over as a string");
   // Nothing to print is size "none", never 18 levels of empty tags spent on blank paper.
   for (const lines of [[], [""], ["", ""]]) {
-    eq(C.giantFit(lines, { size: "fit1" }), { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0 });
+    eq(C.giantFit(lines, { size: "fit1" }), { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0, cheers: 0, over: false });
     assert.equal(C.giantFit(lines, { size: 12 }).levels, 0);
   }
   // ~21em: wider than the paper even at the smallest step. The result says so.
@@ -398,12 +398,12 @@ test("fit1 is the biggest size in ONE cheer, and never costs more cheers than th
   for (const [text, layout] of [["PENIS", "stack"], ["HELLO", "lines"], ["HELLO", "stack"], ["GG", "lines"], ["LOL", "stack"]]) {
     const lines = C.giantLines(text, layout);
     const f = C.giantFit(lines, { layout, size: "fit1" });
-    assert.equal(f.chunks, 1, text);
+    assert.equal(f.cheers, 1, text);
     assert.ok(f.fits, text);
     // No bigger whole level is also one cheer that fits the paper.
     for (let n = f.levels + 1; n <= C.GIANT_MAX_LEVELS; n++) {
       const g = C.giantFit(lines, { layout, size: n });
-      assert.ok(!(g.fits && g.chunks === 1 && g.px > f.px), text + ": L" + n + " also fits one cheer, bigger than the pick " + JSON.stringify(f));
+      assert.ok(!(g.fits && g.cheers === 1 && !g.over && g.px > f.px), text + ": L" + n + " also fits one cheer, bigger than the pick " + JSON.stringify(f));
     }
   }
   // Fewest cheers first: the fallback when nothing fits one cheer is NOT the biggest
@@ -418,9 +418,18 @@ test("fit1 is the biggest size in ONE cheer, and never costs more cheers than th
         const lines = C.giantLines(text, layout);
         const fit1 = C.giantFit(lines, { layout, size: "fit1", budget, fitPx });
         const smallest = C.giantFit(lines, { layout, size: 1, budget, fitPx });
-        assert.ok(fit1.chunks <= smallest.chunks,
-          JSON.stringify(text) + " " + layout + ": fit1 costs " + fit1.chunks + " cheers, the smallest size " + smallest.chunks);
-        if (smallest.chunks === 1) assert.equal(fit1.chunks, 1, JSON.stringify(text) + " " + layout);
+        assert.ok(fit1.cheers <= smallest.cheers,
+          JSON.stringify(text) + " " + layout + ": fit1 costs " + fit1.cheers + " cheers, the smallest size " + smallest.cheers);
+        if (smallest.cheers === 1) assert.equal(fit1.cheers, 1, JSON.stringify(text) + " " + layout);
+        // And the pruning (giantChunkFloor, a floor on CHUNKS used against a count of
+        // merged CHEERS) never skipped a bigger whole level that sends in one cheer.
+        if (fit1.cheers === 1 && !fit1.over) {
+          for (let n = fit1.levels + 1; n <= C.GIANT_MAX_LEVELS; n++) {
+            const g = C.giantFit(lines, { layout, size: n, budget, fitPx });
+            assert.ok(!(g.fits && g.cheers === 1 && !g.over && g.px > fit1.px),
+              JSON.stringify(text) + " " + layout + ": L" + n + " sends in one cheer, bigger than the pick " + JSON.stringify(fit1));
+          }
+        }
       }
     }
   }
@@ -436,8 +445,8 @@ test("auto layout: a layout that fits beats one that doesn't; both in one cheer,
       const a = C.giantPlan(text, { layout: "lines", size }), s = C.giantPlan(text, { layout: "stack", size });
       let want;
       if (a.fit.fits !== s.fit.fits) want = s.fit.fits ? "stack" : "lines";
-      else if (size === "width" || (a.fit.chunks === 1 && s.fit.chunks === 1)) want = s.fit.px > a.fit.px ? "stack" : "lines";
-      else want = s.fit.chunks < a.fit.chunks ? "stack" : "lines";
+      else if (size === "width" || (a.fit.cheers === 1 && s.fit.cheers === 1)) want = s.fit.px > a.fit.px ? "stack" : "lines";
+      else want = s.fit.cheers < a.fit.cheers ? "stack" : "lines";
       assert.equal(plan.layout, want, JSON.stringify(text) + " at " + size);
       assert.notEqual(plan.layout, "emote", "emote is never picked automatically");
     }
@@ -448,9 +457,119 @@ test("auto layout: a layout that fits beats one that doesn't; both in one cheer,
   // The random texts above never produce one, so it is built by hand.
   const tie = "A\nB\nC\nD\nE\nF";
   const tl = C.giantPlan(tie, { layout: "lines", size: 14 }), ts = C.giantPlan(tie, { layout: "stack", size: 14 });
-  assert.ok(tl.fit.fits && ts.fit.fits && tl.fit.chunks === 2 && ts.fit.chunks === 2,
-    "the tie fixture stopped being a tie: " + tl.fit.chunks + " vs " + ts.fit.chunks);
+  assert.ok(tl.fit.fits && ts.fit.fits && tl.fit.cheers === 2 && ts.fit.cheers === 2,
+    "the tie fixture stopped being a tie: " + tl.fit.cheers + " vs " + ts.fit.cheers);
   assert.equal(C.giantPlan(tie, { layout: "auto", size: 14 }).layout, "lines");
+});
+
+// The cheer count every label quotes is the PACKER's, not the chunk count. giantChunks
+// breaks a stack at a word gap and drops the blank edge line, and that saving is often
+// exactly what lets packStackBodies put both halves back into ONE part. Counted as
+// chunks, "HELLO WORLD" at Level 10 read "2 cheers" over a preview showing one part, and
+// fit1 settled for L10x0.9 (1.65 cm) when full L10 (1.83 cm) is one cheer.
+test("the cheer count is the packer's: fit, report and packed parts agree, and fit1 uses it", () => {
+  const b10 = C.buildGiantBodies("HELLO WORLD", { size: 10 });
+  const p10 = C.giantPlan("HELLO WORLD", { size: 10 });
+  assert.equal(p10.layout, "stack");
+  assert.equal(p10.fit.chunks, 2, "fixture: L10 stacked is two chunks (the word gap is the break)");
+  assert.equal(b10.length, 2);
+  assert.equal(C.packStackBodies(b10, { cheer: true, bits: 100 }).length, 1, "fixture: the packer merges them");
+  assert.equal(p10.fit.cheers, 1, "the label must say what the packer does");
+  assert.match(C.giantReport(b10), /fits 1 cheer/);
+  const fit1 = C.giantPlan("HELLO WORLD", {});
+  eq([fit1.layout, fit1.fit.levels, fit1.fit.shrink, fit1.fit.cheers], ["stack", 10, "", 1],
+    "fit1 must take full L10, which IS one cheer");
+  assert.equal(C.giantCapCm(fit1.fit.px).toFixed(1), "1.8");
+  // And for anything: the count a body carries is the number of parts the packer makes of
+  // the block's bodies on their own, in every layout, size and lead.
+  const r = rng(23);
+  for (let i = 0; i < 80; i++) {
+    const text = randomText(r);
+    for (const layout of LAYOUTS) {
+      for (const tuck of [false, true]) {
+        for (const size of ["fit1", "width", 4, 11, 17]) {
+          const bodies = C.buildGiantBodies(text, { layout, size, tuck });
+          if (!bodies[0].giant.levels) continue;
+          const parts = C.packStackBodies(bodies, { cheer: true, bits: 100, tuck });
+          assert.equal(bodies[0].giant.cheers, parts.length,
+            JSON.stringify(text) + " " + layout + " " + size + (tuck ? " tucked" : "") + ": the card would say "
+            + bodies[0].giant.cheers + " cheers for " + parts.length + " parts");
+          assert.equal(C.giantPlan(text, { layout, size, tuck }).fit.cheers, parts.length);
+        }
+      }
+    }
+  }
+});
+
+// A step whose line is too long for one message even ON ITS OWN is a part Twitch rejects.
+// It used to count as a valid one-chunk fit: 240 x "A" as one emote token picked L14x0.9
+// at 549 characters (561 with the lead) while L12 sends in 478. A shrink step carries one
+// tag more than the plain step below it, which is how a SMALLER step can be the over one.
+test("a line too long to send on its own ranks below every step that sends, in fit1 and width", () => {
+  for (const size of ["fit1", "width"]) {
+    for (const tuck of [false, true]) {
+      const b = C.buildGiantBodies("A".repeat(240), { layout: "emote", size, tuck });
+      assert.ok(!b.some((x) => x.giant.over),
+        size + (tuck ? " tucked" : "") + " picked an over step: " + JSON.stringify(b.map((x) => [x.chars, x.giant.levels, x.giant.shrink])));
+      for (const p of C.packStackBodies(b, { cheer: true, bits: 100, tuck })) {
+        assert.ok(p.chars <= C.MAX_CHARS, size + ": a " + p.chars + "-character part");
+      }
+    }
+  }
+  // Long tokens, seeded: an over pick is only allowed when EVERY width-fitting whole level
+  // is over too (the integer sizes are the ones giantFit can be asked for directly).
+  const r = rng(31);
+  const toks = ["A", "&", "Kappa", "W", "I"];
+  for (let i = 0; i < 120; i++) {
+    const words = [];
+    for (let w = 1 + Math.floor(r() * 3); w > 0; w--) {
+      words.push(toks[Math.floor(r() * toks.length)].repeat(1 + Math.floor(r() * 90)));
+    }
+    const text = words.join(r() < 0.5 ? " " : "\n");
+    for (const tuck of [false, true]) {
+      const budget = budgetFor({ cheer: true, bits: 100, tuck });
+      const lines = C.giantLines(text, "emote");
+      for (const size of ["fit1", "width"]) {
+        const pick = C.giantFit(lines, { layout: "emote", size, budget });
+        if (!pick.over) continue;
+        for (let n = 1; n <= C.GIANT_MAX_LEVELS; n++) {
+          const g = C.giantFit(lines, { layout: "emote", size: n, budget });
+          assert.ok(!g.fits || g.over, JSON.stringify(text) + " " + size + ": picked an over step while L" + n + " fits and sends");
+        }
+      }
+    }
+  }
+});
+
+// A giant block of only emoji or invisible characters builds ONE body that prints nothing
+// (html "", 0 characters, 0px). The packer's "does it fit" test could still fail for it
+// (0 added to a part that is already over-tall, or the cover's reservation), and flush()
+// then sent a cheer holding the lead and nothing else: "Cheer100 03 ", 100 bits for a
+// receipt with only the gem. After a takeover with the tuck on it was the lead plus a
+// cover the sanitizer strips.
+test("a body that prints nothing never opens or closes a part of its own", () => {
+  const big = C.buildGiantBodies("THANK YOU SO MUCH", { layout: "lines", size: 14 });
+  const none = C.buildGiantBodies("🔥🔥");
+  assert.ok(big.length === 1 && big[0].heightPx > C.HEIGHT_BUDGET, "fixture: one over-tall body, alone in its part");
+  eq(none.map((b) => [b.html, b.chars, b.heightPx]), [["", 0, 0]], "fixture: the empty body");
+  for (const bodies of [[...big, ...none], [...none, ...big], [...none, ...big, ...none]]) {
+    const parts = C.packStackBodies(bodies, { cheer: true, bits: 100 });
+    assert.equal(parts.length, 1, "an empty body got a cheer of its own: " + JSON.stringify(parts.map((p) => p.payload)));
+  }
+  // After a takeover, tucked: every giant chunk is bigger than the room the cover leaves.
+  const cover = C.buildStackCover({ pullPt: C.TAKEOVER_PULL_PT, w: C.PAPER_PX });
+  const takeover = { html: cover, chars: len(cover), heightPx: 0, cover };
+  for (const tuck of [false, true]) {
+    const budget = budgetFor({ cheer: true, bits: 100, tuck });
+    const bodies = [takeover,
+      ...C.buildGiantBodies("HAPPY BIRTHDAY SHAMU", { layout: "stack", size: "width", budget, tuck }),
+      ...C.buildGiantBodies("🎉", { budget, tuck })];
+    const parts = C.packStackBodies(bodies, { cheer: true, bits: 100, tuck });
+    assert.ok(parts.length > 1, "fixture: the run splits");
+    for (const p of parts) {
+      assert.ok(p.bodies.some((b) => b.html), (tuck ? "tucked: " : "") + "a part prints nothing of ours: " + p.payload);
+    }
+  }
 });
 
 // ── Bodies: characters, height, chunk edges ──
@@ -898,6 +1017,66 @@ test("giantReport speaks plain language: capitals in cm, cheers, and every warni
   eq(C.buildGiantBodies("THANKS CHEER100 SO MUCH", { layout: "stack" }).flatMap((x) => x.giant.cheerWords), []);
 });
 
+// 4Head is a GLOBAL cheermote whose prefix starts with a digit (Twitch's own docs use
+// "4Head100" as their example), and the old /^[a-z]+\d+$/ never flagged it: 100 bits
+// charged with no warning. And a word that merely LOOKS like a cheer (PS5, MP3, TOP10) is
+// not one unless the channel made it one, so the card must not tell the user, flatly, to
+// delete it.
+test("cheer-shaped words: digit-led prefixes are caught, and only global cheermotes are called cheers outright", () => {
+  eq(C.buildGiantBodies("HI 4HEAD100 YOU", { layout: "lines" })[0].giant.cheerWords, ["4HEAD100"]);
+  eq(C.buildGiantBodies("Kappa 4Head100", { layout: "emote" })[0].giant.cheerWords, ["4Head100"]);
+  assert.match(C.giantReport(C.buildGiantBodies("HI 4HEAD100 YOU", { layout: "lines" })),
+    /Twitch would read “4HEAD100” as another cheer and charge for it too\./);
+  // Still conservative: unknown prefixes are flagged, but hedged.
+  const ps5 = C.giantReport(C.buildGiantBodies("MY PS5 RULES", { layout: "lines" }));
+  assert.match(ps5, /If “PS5” is a cheer name on this channel, Twitch would charge it as another cheer too\./);
+  assert.ok(!/Twitch would read “PS5”/.test(ps5), ps5);
+  const mixed = C.giantReport(C.buildGiantBodies("GG CHEER100 MP3 TOP10 OK", { layout: "lines" }));
+  assert.match(mixed, /Twitch would read “CHEER100” as another cheer/);
+  assert.match(mixed, /If “MP3” or “TOP10” is a cheer name on this channel/);
+  // Case-insensitive, as Twitch matches.
+  assert.match(C.giantReport(C.buildGiantBodies("A kappa50 B", { layout: "lines" })), /Twitch would read “kappa50”/);
+  // Never a bare number, never a word with no amount, and still never an edge word or a stack.
+  for (const t of ["HI 100 YOU", "HI ABC YOU", "HI 4HEAD YOU", "4HEAD100 YOU", "HI 4HEAD100"]) {
+    eq(C.buildGiantBodies(t, { layout: "lines" })[0].giant.cheerWords, [], t);
+  }
+  eq(C.buildGiantBodies("HI 4HEAD100 YOU", { layout: "stack" }).flatMap((x) => x.giant.cheerWords), []);
+});
+
+// Twitch's "<3" and ">(" have < or > in the name. giantLineHtml escapes them (every user
+// character is escaped), so chat carries "&lt;3", Twitch never reports the emote, and the
+// tape prints the characters. The preview used to draw an emote placeholder for them.
+test("emote layout: a name with < > or & is sent escaped and previewed as the text it prints as", () => {
+  const b = C.buildGiantBodies("<3 Kappa R&D", { layout: "emote" })[0];
+  assert.ok(b.html.includes(" &lt;3 Kappa R&amp;D "), b.html);
+  assert.ok(!/<3/.test(b.html.replace(/<\/?b[ >][^>]*>?|<br>/g, "")), "a raw < reached the payload: " + b.html);
+  const pv = b.preview.html;
+  assert.ok(pv.includes('<span class="rw-emote-ph">Kappa</span>'), pv);
+  assert.ok(!pv.includes('rw-emote-ph">&lt;3'), "<3 cannot be swapped, so it must not preview as an emote: " + pv);
+  assert.ok(!pv.includes('rw-emote-ph">R&amp;D'), pv);
+  assert.ok(pv.includes(" &lt;3 ") && pv.includes(" R&amp;D "), pv);
+});
+
+// overflow, overflowText and dropped are block-wide and read-only, so the bodies SHARE
+// them. Copied per body they were quadratic: a manual Level 18 stack holds ~2 letters a
+// body and overflows on almost every one, so an 8800-character paste built 4200 bodies x
+// 6800-entry arrays and took 1-2 s per keystroke (about 0.1 s shared).
+test("a long text at a manual size builds in linear time: per-block arrays are shared, not copied", () => {
+  const fox = "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG ".repeat(200);
+  C.buildGiantBodies("warm", {});
+  let best = Infinity, bodies;
+  for (let k = 0; k < 2; k++) {
+    const t0 = performance.now();
+    bodies = C.buildGiantBodies(fox, { layout: "stack", size: 18 });
+    best = Math.min(best, performance.now() - t0);
+  }
+  assert.ok(bodies.length > 1000 && bodies[0].giant.overflow.length > 1000, "fixture: thousands of bodies, all overflowing");
+  assert.ok(best < 500, "took " + best.toFixed(0) + "ms");
+  for (const key of ["overflow", "overflowText", "dropped"]) {
+    assert.equal(bodies[0].giant[key], bodies[bodies.length - 1].giant[key], key + " is copied per body");
+  }
+});
+
 // giantClean drops emoji, ZWJ and the variation selectors, AND the other invisible
 // format characters chat text picks up when it is copy-pasted (zero-width space U+200B,
 // ZWNJ U+200C, direction marks, word joiner U+2060, the BOM, soft hyphen U+00AD) and
@@ -906,14 +1085,23 @@ test("giantReport speaks plain language: capitals in cm, cheers, and every warni
 // nothing, cost a full line of height ("HI\u200BYOU" fell from 14 levels to 13 to make
 // room for it, leaving a blank giant line between I and Y), and since it is not "" the
 // chunk-edge rule could not trim it, so a cheer could open on an invisible giant line.
+// The second row is the rest of the BMP Default_Ignorable set the first version missed,
+// led by U+3164 HANGUL FILLER, the "invisible character" people actually paste on Twitch:
+// "HI\u3164YOU" still fell to 13 levels with a blank giant line on the real engine. U+034F
+// (the combining grapheme joiner) is in the combining-mark range, so it glued onto the
+// letter before it and widened that line instead. U+FFF9-FFFB print nothing either.
 const INVISIBLE = ["\u200B", "\u200C", "\u200E", "\u200F", "\u2060", "\u2064", "\uFEFF", "\u00AD",
-  "\u0000", "\u0007", "\u000B", "\u001F", "\u007F", "\u0085", "\u009F", "\u202E", "\uFE00"];
+  "\u0000", "\u0007", "\u000B", "\u001F", "\u007F", "\u0085", "\u009F", "\u202E", "\uFE00",
+  "\u3164", "\uFFA0", "\u115F", "\u1160", "\u17B4", "\u17B5", "\u180B", "\u180C", "\u180D", "\u180F",
+  "\u034F", "\uFFF0", "\uFFF8", "\uFFF9", "\uFFFA", "\uFFFB"];
+const INVISIBLE_CLASS = "\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F"
+  + "\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFFB";
 test("an invisible format or control character never becomes a giant line of its own", () => {
   for (const ch of INVISIBLE) {
     for (const layout of ["stack", "lines", "emote"]) {
       const lines = C.giantLines("HI" + ch + "YOU\n" + ch + "\nOK", layout);
       for (const l of lines) {
-        assert.ok(l === "" || /[^\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2060-\u2064]/.test(l),
+        assert.ok(l === "" || new RegExp("[^" + INVISIBLE_CLASS + "]").test(l),
           layout + ": " + JSON.stringify(ch) + " became an invisible line of its own: " + JSON.stringify(lines));
         assert.ok(!l.includes(ch), layout + ": " + JSON.stringify(ch) + " survived into " + JSON.stringify(l));
       }
@@ -928,6 +1116,12 @@ test("an invisible format or control character never becomes a giant line of its
   }
   // Tab and newline are whitespace, not debris: kept, and the layouts use them.
   eq(C.giantClean("A\tB\nC"), { text: "A\tB\nC", dropped: [] });
+  // U+2800 (braille blank) has width and is pasted on purpose as a blank Twitch won't
+  // trim: it is a SPACE here, not a dropped character and not a giant "letter" line.
+  eq(C.giantClean("A\u2800B"), { text: "A B", dropped: [] });
+  eq(C.giantLines("HI\u2800\u2800YOU", "stack"), ["H", "I", "", "Y", "O", "U"]);
+  eq(C.giantLines("HI\u2800\u2800YOU", "lines"), ["HI YOU"]);
+  eq(C.buildGiantBodies("\u2800\u2800").map((x) => x.html), [""]);
   // CR, CRLF and U+2028/U+2029 are line breaks, all of them, in every layout: never a
   // silent join (a lone CR used to glue two lines) and never a space in the middle of one.
   for (const br of ["\r", "\r\n", "\n", "\u2028", "\u2029"]) {

@@ -184,7 +184,10 @@ test("tucked, the FIRST body of every part is fixed up: a leadBr body loses its 
   // tall as the gem line it hid (real engine: 156px either way); dropping it saves the
   // line (133px). A Hanzi/glyph grid has no <br>, and would share line 1 with the nbsp,
   // shifting its wrap and shearing the grid, so it gains one instead.
-  const opts = { cheer: true, bits: 100, tuck: true, nonceFn: (i) => C.makeNonce(i) };
+  // Pinned to one 500mm page (heightPx): this test is about the leadBr fix-up and CHARACTER
+  // packing, so it uses a page long enough that two 600px bodies share a part by height and
+  // only the character budget decides the split — not the A4 receipt-length default.
+  const opts = { cheer: true, bits: 100, tuck: true, nonceFn: (i) => C.makeNonce(i), heightPx: C.heightBudget(500) };
   const giant = (n) => Object.assign(body(n, 600, "<br><b class=title>" + "G".repeat(n - 27) + "</b><br>"), { leadBr: true });
   const hanzi = (n) => body(n, 600, "丶".repeat(n));
   const g1 = giant(200), h1 = hanzi(200), g2 = giant(200), h2 = hanzi(200);

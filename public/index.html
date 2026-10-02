@@ -270,6 +270,9 @@
       <label><input type="checkbox" id="stackCovers" checked> Cover every receipt</label>
       <div class="hint">When a takeover splits across several cheers, repaints the header on every part after the first, so the run reads as one piece instead of artwork followed by ordinary receipts. That costs 106 characters per extra part. Turn it off to spend them on content.</div>
 
+      <label>Receipt length: <input type="number" id="receiptLen" min="100" max="500" step="1" value="297" style="width:6em">mm</label>
+      <div class="hint">How long one receipt prints before it is cut. Most 80&nbsp;mm thermal printers stop at the <strong>Windows driver's paper length</strong>, often <strong>A4 (297&nbsp;mm)</strong> — a tall stack is simply cut off there, not shrunk. Tall content is split across several receipts so none is lost (each is its own cheer, with printer-bot's header between them). If yours prints longer, or you set the driver to <strong>Roll Paper / continuous</strong>, raise this; the <strong>Print size ruler</strong> below shows where each number lands so you can read your real length off the tape.</div>
+
       <div id="textControls">
         <label>Text
           <textarea id="textInput" rows="3">HELLO</textarea>
@@ -494,13 +497,55 @@
     var nonce = opts.nonce || "";
     return body + " " + token + (nonce ? " " + nonce : "");
   }
-  // Physical page ceiling for one receipt, in CSS px. The 80mm x 500mm page fits ~1552px
-  // of content with a typical header — but the header height VARIES with the streamer's
-  // avatar (up to 15em) which we can't measure, and our per-body height estimates aren't
-  // exact, so a strip near the true edge still occasionally gouged. 1400 leaves a safety
-  // margin against both. A rotate strip is few CHARS but ~this many px tall, so packing
-  // must honour height, not just the ~490-char Twitch limit.
-  var HEIGHT_BUDGET = 1400;
+  // ── PER-RECEIPT HEIGHT BUDGET (length-derived; replaces the old 1400 literal) ──
+  // printer-bot lays the page out at --page-height 500mm, so the app used to pack up to a
+  // fixed ~1400px (~37cm) per receipt. FIELD FIX (0.10.0): the real printer stops far
+  // before 500mm. Its Windows driver has a fixed paper LENGTH — commonly A4 (297mm) — and
+  // SumatraPDF prints `noscale`, which CLIPS the overflow rather than shrinking it. A
+  // stacked Giant cheer printed only its first ~4 lines and was cut at ~29.7cm. So the
+  // budget is now DERIVED from a user-set receipt length, not hardcoded.
+  //
+  // page(mm)  = mm · LEN_PX_PER_MM                         (the physical page, in CSS px)
+  // budget    = floor(page − HEIGHT_RESERVE_PX)            (what's left for the giant body)
+  //
+  // HEIGHT_RESERVE_PX is the furniture a cheer always spends OUTSIDE the body: the bot's
+  // header (avatar + "<n> BITS" + sender), the lead line in #receipt-content, and the
+  // footer (icon + date). MEASURED on the real engine (wkhtmltopdf 0.12.6.1, Segoe UI,
+  // 203dpi): the inked page = the app's per-body height estimate + 351px, flat across
+  // levels L6..L14 (see CLAUDE.md "page-length"). A4 → budget 771px (~204mm of body).
+  // The 351 assumes a SQUARE avatar — Twitch (and the other platforms this bot draws)
+  // serve square profile pictures, which the #receipt-avatar CSS draws at 216px (90% of
+  // the 240px body, the width cap biting before the 15em height cap). A hypothetical
+  // PORTRAIT avatar would draw up to 240px tall (+24px header) and could push the footer
+  // past A4 on a near-full body; that input isn't reachable through a real cheer, and the
+  // Receipt length control is the escape hatch if a future platform serves tall avatars.
+  var RECEIPT_MM_DEFAULT = 297;        // A4: the common Windows-driver cut for 80mm rolls
+  var RECEIPT_MM_MIN = 100;            // below this a giant line barely fits; still emits >=1
+  var RECEIPT_MM_MAX = 500;            // the wkhtmltopdf --page-height ceiling; beyond it the PDF itself pages
+  // CSS px per mm for PAGE LENGTH: 1in / 96px, exactly. NOT PX_PER_MM (a rounded 3.75 that
+  // the picture blocks' WIDTH box uses); length must use 96/25.4 = 3.77953 or the budget
+  // drifts ~0.8% — enough to mis-place a page break near the cut.
+  var LEN_PX_PER_MM = 96 / 25.4;
+  var HEIGHT_RESERVE_PX = 351;
+  function clampReceiptMm(mm) {
+    var n = typeof mm === "number" ? mm : parseFloat(mm);
+    if (!isFinite(n)) return RECEIPT_MM_DEFAULT;
+    return Math.max(RECEIPT_MM_MIN, Math.min(RECEIPT_MM_MAX, n));
+  }
+  // The per-receipt body height budget in CSS px for a receipt `mm` long. FLOORED (not
+  // rounded): the body must stay at or under page − reserve, never 0.48px over it. Clamped
+  // to >=1 so an absurdly short receipt still yields a positive budget; the chunkers then
+  // guarantee at least one line per chunk regardless.
+  function heightBudget(mm) {
+    return Math.max(1, Math.floor(clampReceiptMm(mm) * LEN_PX_PER_MM - HEIGHT_RESERVE_PX));
+  }
+  // The default budget, for callers (and tests) that don't name a length.
+  var DEFAULT_HEIGHT_BUDGET = heightBudget(RECEIPT_MM_DEFAULT);
+  // A caller-supplied height budget, validated; falls back to the default. Mirrors
+  // giantBudget for the character budget.
+  function giantHeight(h) {
+    return (typeof h === "number" && isFinite(h) && h > 0) ? Math.floor(h) : DEFAULT_HEIGHT_BUDGET;
+  }
   // Pack an ordered list of Body objects into receipts. Body = {html, chars, heightPx}.
   // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
   // cheer overhead) and the height budget hold; else start a new receipt. A single body
@@ -521,6 +566,10 @@
     var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, tuck: tuck };
     var overhead = leadLength(leadOpts);
     var maxBody = MAX_CHARS - overhead;
+    // The per-receipt height ceiling, from the user's receipt length (opts.heightPx), or the
+    // default (A4) when unset. A single body always still gets its own part, so one taller
+    // than this is warned, never dropped (giantReport/the card say "cut off").
+    var hb = giantHeight(opts.heightPx);
     // CONTINUATION COVERS. A takeover paints over printer-bot's header on the receipt it
     // rides on, and only that one. When a stack splits across cheers, part 1 comes off the
     // tape covered and parts 2..N come off with the bot's header intact — the run reads as
@@ -619,7 +668,7 @@
       // tuck on, the lead plus a cover the sanitizer strips. It costs nothing to join any
       // part, and flush() already skips html-less bodies when it picks the tuck's first.
       var empty = !b.html && !bChars && !bH;
-      var fits = !curInk || empty || ((curChars + bChars <= room) && (curH + bH <= HEIGHT_BUDGET));
+      var fits = !curInk || empty || ((curChars + bChars <= room) && (curH + bH <= hb));
       if (!fits) flush();
       cur.push(b); curChars += bChars; curH += bH;
       if (!empty) curInk = true;
@@ -3134,8 +3183,8 @@
     };
     // CHUNKING: which lines go into which body. A body becomes (at least) one cheer, and
     // the packer never splits one, so each chunk has to hold on BOTH budgets by itself:
-    //  - height: GIANT_GAP_PX + the sum of giantLineH <= HEIGHT_BUDGET, the same page
-    //    ceiling every other body packs against. A lines/emote line too wide for the paper
+    //  - height: GIANT_GAP_PX + the sum of giantLineH <= hb (the per-receipt height budget,
+    //    heightBudget(mm)), the same ceiling every other body packs against. A lines/emote line too wide for the paper
     //    wraps there, so it counts ceil(width / fitPx) lines; a stack letter cannot wrap.
     //  - characters: open + close + the two outer <br>s + the escaped lines + a <br>
     //    between each <= budget, which is exactly payloadLength(body.html). Height alone
@@ -3147,24 +3196,53 @@
     // nothing above "D" at L16), and one that ends with "" is counted a giant line tall
     // but collapses to a small one. A single line over the character budget on its own is
     // emitted anyway and flagged `over`: the card warns, nothing is truncated.
-    var giantChunks = function (m, st, budget, fitPx) {
+    // `hb` is the per-receipt height budget (heightBudget(mm)); `gap` is the stack word-gap
+    // style, "blank" (the old giant-height blank line) or "small" (a base-height ~GIANT_GAP_PX
+    // break, which needs per-word nests, costs more characters and is only used for stack —
+    // see buildGiantBodies and giantPick). lines/emote always use "blank".
+    // A chunk is `over` when its characters exceed the budget (Twitch rejects it) and `tall`
+    // when its height exceeds hb (it prints but is cut off at the receipt's length). A single
+    // line is always emitted even if it is over or tall; the card warns, nothing is dropped.
+    var giantChunks = function (m, st, budget, fitPx, hb, gap) {
       var tags = giantStepTags(st);
-      var base = payloadLength(tags.open) + payloadLength(tags.close) + 8;
+      var openL = payloadLength(tags.open), closeL = payloadLength(tags.close);
+      var small = m.layout === "stack" && gap === "small";
+      var base = small ? 8 : openL + closeL + 8;   // small: just the outer <br><br>; each word has its own nest
       var lh = giantLineH(st.px), lines = m.lines, n = lines.length, out = [], i = 0;
       function hOf(k) {
-        if (m.layout === "stack" || !lines[k]) return lh;
+        if (lines[k] === "") return small ? GIANT_GAP_PX : lh;   // stack word gap: base line vs giant blank line
+        if (m.layout === "stack") return lh;
         var w = m.ems[k] * st.px;
         return w > fitPx ? lh * Math.ceil(w / fitPx) : lh;
+      }
+      // Characters of [s, e). For "small" the running total already carries the open word's
+      // closing tag, so each line is a clean delta and the total is a complete, sendable count
+      // at every point; `open` tracks whether a word nest is currently open.
+      function measure(s, e) {
+        var hh = GIANT_GAP_PX, cc = base, open = false, k;
+        for (k = s; k < e; k++) {
+          if (small) {
+            if (lines[k] === "") { cc += 8; open = false; }                 // close already in cc; add <br><br>
+            else { cc += open ? (4 + m.lens[k]) : (openL + m.lens[k] + closeL); open = true; }
+          } else {
+            cc += m.lens[k] + (k > s ? 4 : 0);
+          }
+          hh += hOf(k);
+        }
+        return { heightPx: hh, chars: cc };
       }
       while (i < n) {
         while (i < n && lines[i] === "") i++;
         if (i >= n) break;
-        var start = i, h = GIANT_GAP_PX, c = base, j = i, lastBlank = -1;
+        var start = i, h = GIANT_GAP_PX, c = base, j = i, lastBlank = -1, open = false;
         while (j < n) {
-          var addH = hOf(j), addC = m.lens[j] + (j > start ? 4 : 0);
-          if (j > start && (h + addH > HEIGHT_BUDGET || c + addC > budget)) break;
+          var isBlank = lines[j] === "", addH = hOf(j), addC;
+          if (small) addC = isBlank ? 8 : (open ? (4 + m.lens[j]) : (openL + m.lens[j] + closeL));
+          else addC = m.lens[j] + (j > start ? 4 : 0);
+          if (j > start && (h + addH > hb || c + addC > budget)) break;
           h += addH; c += addC;
-          if (lines[j] === "") lastBlank = j;
+          if (small) open = !isBlank;
+          if (isBlank) lastBlank = j;
           j++;
         }
         // Stopped early, mid-word: step back to the last gap rather than split the word
@@ -3172,16 +3250,16 @@
         var end = (j < n && lines[j] !== "" && lastBlank > start) ? lastBlank : j;
         var e = end;
         while (e > start && lines[e - 1] === "") e--;
-        var hh = GIANT_GAP_PX, cc = base;
-        for (var k = start; k < e; k++) { hh += hOf(k); cc += m.lens[k] + (k > start ? 4 : 0); }
-        out.push({ start: start, end: e, heightPx: hh, chars: cc, over: cc > budget });
+        var mm = measure(start, e);
+        out.push({ start: start, end: e, heightPx: mm.heightPx, chars: mm.chars,
+                   over: mm.chars > budget, tall: mm.heightPx > hb });
         i = end;
       }
       return out;
     };
     // How many CHEERS a step's chunks need on their own, counted the way the packer packs
     // them: packStackBodies' own greedy test (characters <= budget AND height <=
-    // HEIGHT_BUDGET), run over the chunks. NOT the chunk count, which is what the labels
+    // hb, the per-receipt height budget), run over the chunks. NOT the chunk count, which is what the labels
     // and the fit used to read. giantChunks prefers to break a stack at a word gap and
     // drops the blank line at the edge, and that saving is often exactly what lets the
     // packer put both halves back into ONE part: "HELLO WORLD" at L10 is two chunks of
@@ -3194,11 +3272,11 @@
     // the merged L10 part printed on one page with HELLO / WORLD at full L10. A
     // continuation cover's reservation is left out: only the packer knows which part a
     // block lands in, and the card reads the packed parts for that.
-    var giantCheerCount = function (ranges, budget) {
+    var giantCheerCount = function (ranges, budget, hb) {
       var n = 0, c = 0, h = 0;
       for (var i = 0; i < ranges.length; i++) {
         var r = ranges[i];
-        if (n && c + r.chars <= budget && h + r.heightPx <= HEIGHT_BUDGET) { c += r.chars; h += r.heightPx; continue; }
+        if (n && c + r.chars <= budget && h + r.heightPx <= hb) { c += r.chars; h += r.heightPx; continue; }
         n++; c = r.chars; h = r.heightPx;
       }
       return n;
@@ -3220,20 +3298,35 @@
     // fit can skip steps that cannot beat the best it already has without chunking them.
     // Without it a 480-character stack chunked all ~50 steps per call (~7ms), and the
     // card asks for a dozen sizes per keystroke. Valid for ANY split, greedy or not: a
-    // multi-line chunk holds at most HEIGHT_BUDGET - GIANT_GAP_PX of line height and
+    // multi-line chunk holds at most hb - GIANT_GAP_PX of line height and
     // budget - base + 4 of (line + <br>) characters, and a single-line chunk holds one line
     // however big, which is why each line's share is capped at one chunk's worth. Wrapping
     // only adds height, so one unwrapped line per non-blank line stays a floor.
     // It is ALSO a floor on giantCheerCount, which is what the fit compares, so pruning
     // with it never skips the winner: a part merged from k chunks pays k gaps and k sets
-    // of tags, so it holds no MORE line height (HEIGHT_BUDGET - k x GIANT_GAP_PX) and no
+    // of tags, so it holds no MORE line height (hb - k x GIANT_GAP_PX) and no
     // more (line + <br>) characters (budget - k x (base - 4)) than one chunk can.
-    var giantChunkFloor = function (m, st, budget) {
+    // Valid for both gap styles: "small" costs MORE characters (so its true floor is higher,
+    // and underestimating it only prunes less), and LESS height (its gaps are smaller, so the
+    // blank-style height term is still a lower bound). So this blank-based floor never skips
+    // the winner for either style.
+    var giantChunkFloor = function (m, st, budget, hb) {
       if (!m.ink) return 0;
-      var room = HEIGHT_BUDGET - GIANT_GAP_PX, lh = Math.min(giantLineH(st.px), room);
+      var room = Math.max(1, hb - GIANT_GAP_PX), lh = Math.min(giantLineH(st.px), room);
       var tags = giantStepTags(st), cap = budget - payloadLength(tags.open) - payloadLength(tags.close) - 8 + 4;
       var byChars = cap <= 0 ? m.ink : (m.maxLen4 <= cap ? Math.ceil(m.len4 / cap) : 1);
       return Math.max(Math.ceil(m.ink * lh / room), byChars);
+    };
+    // Whether every split at step `st` must leave at least one chunk TALLER than one receipt
+    // (hb): true exactly when the tallest single line, as its own chunk, already exceeds hb.
+    // O(1), and exact against `ranges.some(r.tall)` — giantChunks only makes a chunk tall when
+    // it is one unavoidable line, so if the tallest line fits, no chunk is tall. A stack letter
+    // never wraps (height lh); a lines/emote line wraps to ceil(width/fitPx) sub-lines.
+    var giantStepTall = function (m, st, fitPx, hb) {
+      if (!m.ink) return false;
+      var lh = giantLineH(st.px);
+      var wrap = m.layout === "stack" ? 1 : Math.max(1, Math.ceil((m.maxEm * st.px) / fitPx));
+      return GIANT_GAP_PX + lh * wrap > hb;
     };
     // Pick the step. Returns {fit, ranges}; fit is giantFit's public shape. "Cheers" below
     // is giantCheerCount (what the packer makes of the chunks), never the chunk count.
@@ -3248,55 +3341,76 @@
     // below EVERY step without one: it used to count as a valid one-cheer chunk, so Auto
     // could choose a part Twitch rejects while a smaller step sent fine. An over step is
     // only ever the answer when every width-fitting step has one.
-    var giantPick = function (m, size, budget, fitPx) {
-      var none = { fit: { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0, cheers: 0, over: false },
-                   ranges: [] };
+    var giantPick = function (m, size, budget, fitPx, hb) {
+      var none = { fit: { levels: 0, shrink: "", factor: 1, px: 0, fits: true, overflow: [], chunks: 0,
+                          cheers: 0, over: false, tall: false, gap: "blank" }, ranges: [] };
       if (!m.lines.length || !m.lines.some(function (l) { return l !== ""; })) return none;
-      function wrap(st, ranges) {
+      // The chunks for a step, picking the cheaper of the two stack gap styles. Fewer cheers
+      // wins; a tie goes to "blank" (cheaper in characters, and byte-identical to the old
+      // single-nest form — so a spaceless word like "HELLO" is unchanged). The "small" gap
+      // lets a SPACED phrase hold bigger letters in one cheer by shrinking its word gaps to a
+      // base line, but it closes and reopens the nest per word, so a run of single-letter
+      // words ("C O C K") blows the character budget and "blank" rightly wins. lines/emote
+      // have only the "blank" style. This is where the field fix's "small gap for phrases,
+      // not a worse size for C O C K" trade is actually decided.
+      function chunksFor(st) {
+        var rb = giantChunks(m, st, budget, fitPx, hb, "blank");
+        if (m.layout !== "stack") return { ranges: rb, gap: "blank", cheers: giantCheerCount(rb, budget, hb) };
+        var nb = giantCheerCount(rb, budget, hb);
+        var rs = giantChunks(m, st, budget, fitPx, hb, "small"), ns = giantCheerCount(rs, budget, hb);
+        return ns < nb ? { ranges: rs, gap: "small", cheers: ns } : { ranges: rb, gap: "blank", cheers: nb };
+      }
+      function wrap(st, pick) {
         var overflow = [];
         for (var i = 0; i < m.ems.length; i++) if (m.ems[i] * st.px > fitPx) overflow.push(i);
         return { fit: { levels: st.levels, shrink: st.shrink, factor: st.factor, px: st.px,
-                        fits: overflow.length === 0, overflow: overflow, chunks: ranges.length,
-                        cheers: giantCheerCount(ranges, budget),
-                        over: ranges.some(function (r) { return r.over; }) },
-                 ranges: ranges };
+                        fits: overflow.length === 0, overflow: overflow, chunks: pick.ranges.length,
+                        cheers: pick.cheers,
+                        over: pick.ranges.some(function (r) { return r.over; }),
+                        tall: pick.ranges.some(function (r) { return r.tall; }),
+                        gap: pick.gap },
+                 ranges: pick.ranges };
       }
       if (typeof size === "number") {
         var fixed = { levels: size, shrink: "", factor: 1, px: GIANT_BASE_PX * Math.pow(GIANT_RATIO, size) };
-        return wrap(fixed, giantChunks(m, fixed, budget, fitPx));
+        return wrap(fixed, chunksFor(fixed));
       }
       var steps = giantSteps(), k, st;
       // Width only shrinks with the step, so if the smallest is too wide, every one is.
-      if (m.maxEm * steps[0].px > fitPx) return wrap(steps[0], giantChunks(m, steps[0], budget, fitPx));
+      if (m.maxEm * steps[0].px > fitPx) return wrap(steps[0], chunksFor(steps[0]));
       if (size === "width") {
         var widest = -1;
         for (k = steps.length - 1; k >= 0; k--) {
           if (m.maxEm * steps[k].px > fitPx) continue;
           if (widest < 0) widest = k;
-          if (!giantStepOver(m, steps[k], budget)) return wrap(steps[k], giantChunks(m, steps[k], budget, fitPx));
+          if (!giantStepOver(m, steps[k], budget)) return wrap(steps[k], chunksFor(steps[k]));
         }
-        return wrap(steps[widest], giantChunks(m, steps[widest], budget, fitPx));
+        return wrap(steps[widest], chunksFor(steps[widest]));
       }
-      // fit1. Seed with the smallest step (the cheapest in height AND characters, so in
-      // practice the fewest cheers, and the fewest tags, so over only if every step is),
-      // then walk down from the largest: the first step that fits one cheer with no over
-      // line wins outright; otherwise rank on (over, cheers, larger). A step that cannot
-      // beat the best (over where the best is not, or a floor above the best count) is
-      // skipped without chunking.
-      var best = steps[0], bestRanges = giantChunks(m, best, budget, fitPx);
-      var bestOver = giantStepOver(m, best, budget), bestN = giantCheerCount(bestRanges, budget);
+      // fit1. Rank badness ascending: (over, tall, cheers, -px). `over` = Twitch rejects the
+      // message (nothing prints); `tall` = it prints but is cut off at the receipt's length;
+      // both rank below a clean fit, over first. The first step that is not over, not tall and
+      // one cheer wins outright. A step that is worse on over, worse on tall, or (equal on
+      // both) cannot beat the best cheer count is skipped without chunking — giantStepOver and
+      // giantStepTall are O(1), and giantChunkFloor is a valid lower bound for both gap styles.
+      var best = steps[0], bestPick = chunksFor(best);
+      var bestOver = giantStepOver(m, best, budget), bestTall = giantStepTall(m, best, fitPx, hb);
+      var bestN = bestPick.cheers;
       for (k = steps.length - 1; k >= 1; k--) {
         st = steps[k];
         if (m.maxEm * st.px > fitPx) continue;
-        var over = giantStepOver(m, st, budget);
-        if ((over && !bestOver) || (over === bestOver && giantChunkFloor(m, st, budget) > bestN)) continue;
-        var ranges = giantChunks(m, st, budget, fitPx), n = giantCheerCount(ranges, budget);
-        if (n === 1 && !over) return wrap(st, ranges);
-        if (over !== bestOver || n < bestN || (n === bestN && st.px > best.px)) {
-          best = st; bestRanges = ranges; bestOver = over; bestN = n;
-        }
+        var over = giantStepOver(m, st, budget), tall = giantStepTall(m, st, fitPx, hb);
+        if (over && !bestOver) continue;
+        if (over === bestOver && tall && !bestTall) continue;
+        if (over === bestOver && tall === bestTall && giantChunkFloor(m, st, budget, hb) > bestN) continue;
+        var pick = chunksFor(st), n = pick.cheers;
+        if (n === 1 && !over && !tall) return wrap(st, pick);
+        var better = (!over && bestOver)
+          || (over === bestOver && !tall && bestTall)
+          || (over === bestOver && tall === bestTall && (n < bestN || (n === bestN && st.px > best.px)));
+        if (better) { best = st; bestPick = pick; bestOver = over; bestTall = tall; bestN = n; }
       }
-      return wrap(best, bestRanges);
+      return wrap(best, bestPick);
     };
     // giantFit(lines, {layout, size, budget, fitPx}) -> {levels, shrink, factor, px, fits,
     // overflow:[lineIdx], chunks, cheers, over}. `chunks` is how many bodies
@@ -3309,7 +3423,8 @@
       var layout = opts.layout === "stack" || opts.layout === "emote" ? opts.layout : "lines";
       var fitPx = (typeof opts.fitPx === "number" && isFinite(opts.fitPx) && opts.fitPx > 0) ? opts.fitPx : PAPER_PX;
       var ls = Array.isArray(lines) ? lines.map(function (l) { return String(l == null ? "" : l); }) : [];
-      return giantPick(giantPrep(ls, layout), giantSizeOf(opts.size), giantBudget(opts.budget), fitPx).fit;
+      return giantPick(giantPrep(ls, layout), giantSizeOf(opts.size), giantBudget(opts.budget), fitPx,
+        giantHeight(opts.heightPx)).fit;
     };
     // The whole decision for one block, without building markup: the card's size labels
     // read it, and buildGiantBodies builds from it. opts = {layout, size, budget, tuck}.
@@ -3320,12 +3435,12 @@
     var giantPlan = function (text, opts) {
       opts = opts || {};
       var go = giantOpts({ giantLayout: opts.layout, giantSize: opts.size });
-      var tuck = !!opts.tuck, budget = giantBudget(opts.budget, tuck);
+      var tuck = !!opts.tuck, budget = giantBudget(opts.budget, tuck), hb = giantHeight(opts.heightPx);
       var fitPx = PAPER_PX - (tuck && go.layout !== "emote" ? GIANT_TUCK_PX : 0);
       var cleaned = giantClean(text);
       function one(layout) {
         var lines = giantLines(cleaned.text, layout);
-        var pick = giantPick(giantPrep(lines, layout), go.size, budget, fitPx);
+        var pick = giantPick(giantPrep(lines, layout), go.size, budget, fitPx, hb);
         return { layout: layout, lines: lines, fit: pick.fit, ranges: pick.ranges };
       }
       var p;
@@ -3398,27 +3513,45 @@
       // stack overflows on almost every letter and holds ~2 letters a body, so 4000
       // characters built 2000 bodies x 4000-entry arrays (249ms per keystroke), and an
       // 8800-character paste took 1-2 s. Shared: about 0.1 s.
-      function info(ci, n, over, words) {
+      function info(ci, n, over, tall, words) {
         return { levels: f.levels, shrink: f.shrink, factor: f.factor, px: f.px, capCm: giantCapCm(f.px),
-                 layout: p.layout, size: p.size, chunkIndex: ci, chunkCount: n, cheers: f.cheers, fits: f.fits,
-                 overflow: f.overflow, overflowText: overflowText, over: over,
+                 layout: p.layout, size: p.size, gap: f.gap, chunkIndex: ci, chunkCount: n, cheers: f.cheers, fits: f.fits,
+                 overflow: f.overflow, overflowText: overflowText, over: over, tall: tall,
                  dropped: p.dropped, cheerWords: words };
       }
       if (!f.levels) {
         return [{ html: "", chars: 0, heightPx: 0, leadBr: false, preview: { kind: "html", html: "" },
-                  giant: info(0, 0, false, []) }];
+                  giant: info(0, 0, false, false, []) }];
       }
       var tags = giantStepTags(f);
+      var small = p.layout === "stack" && f.gap === "small";
       return p.ranges.map(function (r, ci) {
         var ls = p.lines.slice(r.start, r.end);
-        var html = "<br>" + tags.open + ls.map(function (l) { return giantLineHtml(l, p.layout); }).join("<br>")
-          + tags.close + "<br>";
-        var pv = '<div class="rw-giant">' + tags.open
-          + ls.map(function (l) { return giantLinePreview(l, p.layout); }).join("<br>") + tags.close + "</div>";
+        var html = "<br>" + giantChunkMarkup(ls, p.layout, tags, small, giantLineHtml) + "<br>";
+        var pv = '<div class="rw-giant">' + giantChunkMarkup(ls, p.layout, tags, small, giantLinePreview) + "</div>";
         return { html: html, chars: payloadLength(html), heightPx: r.heightPx, leadBr: p.layout !== "emote",
                  preview: { kind: "html", html: pv },
-                 giant: info(ci, p.ranges.length, r.over, p.layout === "stack" ? [] : giantCheerWords(html)) };
+                 giant: info(ci, p.ranges.length, r.over, r.tall, p.layout === "stack" ? [] : giantCheerWords(html)) };
       });
+    };
+    // One chunk's inner markup (no outer <br>/<div>). `render` is giantLineHtml (payload) or
+    // giantLinePreview (preview). The "blank" form is one nest with every line joined by a
+    // giant <br>, so a blank line prints a giant-height gap. The "small" form (stack word gaps
+    // only) gives each WORD its own nest and joins words with a base-height double <br>: the
+    // first ends the previous word's line, the second is a base line (~GIANT_GAP_PX) — measured
+    // on the real engine at +24 CSS px of pitch vs the ~132px a giant blank line costs at L10.
+    // A spaceless word has one nest, so its markup is byte-identical to the "blank" form.
+    var giantChunkMarkup = function (ls, layout, tags, small, render) {
+      if (!small) {
+        return tags.open + ls.map(function (l) { return render(l, layout); }).join("<br>") + tags.close;
+      }
+      var out = "", open = false;
+      for (var k = 0; k < ls.length; k++) {
+        if (ls[k] === "") { if (open) { out += tags.close; open = false; } out += "<br><br>"; }
+        else { out += (open ? "<br>" : tags.open) + render(ls[k], layout); open = true; }
+      }
+      if (open) out += tags.close;
+      return out;
     };
     // The "Print size ruler": 1..13, each number one .title level deeper than the last,
     // in ONE cheer (~328 characters with the plain lead, 1275px, one 500mm page on the real
@@ -3426,20 +3559,27 @@
     // once, which is the answer to "will it print big?" for the price of one cheer. Never
     // tucked: it is a diagnostic, and it should look like every other cheer.
     var buildGiantRuler = function () {
-      var t = "<b " + classAttr(pbClass("title").cls) + ">", inner = "", close = "", h = GIANT_GAP_PX;
+      var t = "<b " + classAttr(pbClass("title").cls) + ">", inner = "", close = "", h = GIANT_GAP_PX, rungs = [];
       for (var n = 1; n <= GIANT_RULER_LEVELS; n++) {
         inner += t + n + (n < GIANT_RULER_LEVELS ? "<br>" : "");
         close += "</b>";
         h += giantLineH(GIANT_BASE_PX * Math.pow(GIANT_RATIO, n));
+        // `atPx` is this number's BOTTOM measured from the top of the giant body, the same way
+        // packStackBodies measures a body against the height budget. So a number prints in full
+        // on a receipt whose budget >= atPx — which is what the length gauge reads (giantReport).
+        // No cm "mark" is carried: a body-distance figure omits the header/lead/footer the page
+        // spends OUTSIDE the body (HEIGHT_RESERVE_PX, ~93mm), so it was never the Receipt length
+        // to set. giantReport tells the user to measure the real cut tape instead.
+        rungs.push({ n: n, atPx: h });
       }
       var html = "<br>" + inner + close;
       var top = GIANT_BASE_PX * Math.pow(GIANT_RATIO, GIANT_RULER_LEVELS);
       return { html: html, chars: payloadLength(html), heightPx: h, leadBr: true,
                preview: { kind: "html", html: '<div class="rw-giant">' + inner + close + "</div>" },
-               giant: { ruler: true, levels: GIANT_RULER_LEVELS, shrink: "", factor: 1, px: top,
+               giant: { ruler: true, rungs: rungs, levels: GIANT_RULER_LEVELS, shrink: "", factor: 1, px: top,
                         capCm: giantCapCm(top), layout: "lines", size: GIANT_RULER_LEVELS,
                         chunkIndex: 0, chunkCount: 1, cheers: 1, fits: true, overflow: [], overflowText: [],
-                        over: false, dropped: [], cheerWords: [] } };
+                        over: false, tall: false, dropped: [], cheerWords: [] } };
     };
     // What giantClean left out, said for what it is. Emoji (astral code points) print as
     // tofu, so they are named. Everything else in `dropped` prints NOTHING, and calling it
@@ -3476,7 +3616,30 @@
         .map(function (x) { return x.giant; });
       if (!gs.length) return "";
       var g = gs[0], out = [];
-      if (g.ruler) return "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.";
+      if (g.ruler) {
+        var base = "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.";
+        if (!g.rungs || !g.rungs.length || typeof opts.receiptMm !== "number") return base;
+        // Length gauge: for the CURRENT receipt length, which numbers the app EXPECTS to print
+        // in full before the cut (same height model as the packer: a number fits when its bottom,
+        // atPx, is within the receipt's budget). To CALIBRATE, the user measures the real cut
+        // tape and enters that — NOT a ruler number's position. Two reasons it is measured, not
+        // read off a number: (1) a number's distance down the GIANT BODY omits the header/lead/
+        // footer the page spends outside the body (HEIGHT_RESERVE_PX, ~93mm), so feeding it back
+        // as Receipt length undershoots by that constant; (2) this prediction is deliberately
+        // conservative — a mid-body cut frees the footer's reserved space, so a touch more
+        // actually prints than it counts — so a number read off the tape would OVER-set the
+        // length and re-create the overrun. The physical tape length is the exact quantity the
+        // budget is calibrated against, so measuring it sidesteps both.
+        var rmm = Math.round(clampReceiptMm(opts.receiptMm)), rhb = heightBudget(opts.receiptMm), last = 0, i;
+        for (i = 0; i < g.rungs.length; i++) if (g.rungs[i].atPx <= rhb) last = g.rungs[i].n;
+        var measure = "To match the printer, measure your printed tape from the top edge to the cut and set Receipt length to that many mm.";
+        var gauge;
+        if (last >= g.rungs.length) gauge = "At " + rmm + " mm all " + g.rungs.length
+          + " should print. If your tape cuts off sooner, measure it from the top edge to the cut and set Receipt length to that many mm.";
+        else if (last === 0) gauge = "At " + rmm + " mm even number 1 runs past the cut — raise Receipt length, or set your printer to Roll Paper.";
+        else gauge = "At " + rmm + " mm numbers up to " + last + " should print in full; higher ones are cut off. " + measure;
+        return base + " " + gauge;
+      }
       var dropNotes = giantDropNotes(g.dropped);
       if (!g.levels) return dropNotes.length ? dropNotes.join("\n") + " Nothing else is left to print." : "Type something to print it in giant capitals.";
       var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
@@ -3498,6 +3661,11 @@
       }
       if (gs.some(function (x) { return x.over; })) {
         out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
+      }
+      if (gs.some(function (x) { return x.tall; })) {
+        out.push("One line is taller than " + (typeof opts.receiptMm === "number"
+          ? "a " + Math.round(clampReceiptMm(opts.receiptMm)) + " mm" : "one") + " receipt, so its bottom is cut off. "
+          + "Pick a smaller size, or raise Receipt length and set your printer to Roll Paper.");
       }
       out = out.concat(dropNotes);
       var words = [];
@@ -3608,7 +3776,7 @@
     // the banded and giant builders size against it, because the packer never splits a
     // single body. `tuck` narrows the giant fit (see GIANT_TUCK_PX). Both optional: absent
     // means the untucked Cheer100 lead, which is what every caller assumed before.
-    function renderBlockBodies(block, budget, tuck) {
+    function renderBlockBodies(block, budget, tuck, heightPx) {
       if (block.type === "takeover") {
         // ONE PATH NOW: text or picture, any number, in any order. Both of the old
         // styles are just item lists — migrateTakeoverItems converted every saved block
@@ -3642,7 +3810,7 @@
       var render = blockRender(block);
       if (render === "giant") {
         var go = giantOpts(block);
-        return buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: !!tuck });
+        return buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: !!tuck, heightPx: heightPx });
       }
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
       if (render === "hanzi") return hanziBodies(text, block.cols, factor, block.hanziWeight, budget);
@@ -3660,8 +3828,12 @@
       // against it, so a longer lead (the tuck, a 5-digit bit amount) shrinks them rather
       // than pushing a whole part over 500.
       var budget = MAX_CHARS - leadLength(opts), tuck = !!(opts.cheer && opts.tuck);
+      // The per-receipt height ceiling, from the user's receipt length. Threaded to the body
+      // builders (so a giant chunk sizes against the real page) and carried on opts to
+      // packStackBodies (so the packer splits at it too). Both read the SAME value.
+      var heightPx = giantHeight(opts.heightPx);
       for (i = 0; i < blocks.length; i++) {
-        bs = renderBlockBodies(blocks[i], budget, tuck);
+        bs = renderBlockBodies(blocks[i], budget, tuck, heightPx);
         // Stamp the source block on every body. The packer decides which part a block
         // lands in, and a card that wants to say "you're in part 2 of 3" has no other
         // way to find itself in the result.
@@ -3711,6 +3883,13 @@
     function getTuck() {
       return !!(els && els.cheerTuck && els.cheerTuck.checked);
     }
+    // The receipt length (mm) the stack packs against, clamped to the control's range. Feeds
+    // heightBudget() — the per-receipt height ceiling — so every size label, cheer count and
+    // split reflects the user's real page, not the 500mm wkhtmltopdf sheet.
+    function getReceiptMm() {
+      return clampReceiptMm(els && els.receiptLen ? parseFloat(els.receiptLen.value) : RECEIPT_MM_DEFAULT);
+    }
+    function getHeightPx() { return heightBudget(getReceiptMm()); }
     // The tuck checkbox's state and hint. Disabled (not unchecked) without Cheer-ready:
     // there is no gem to hide, the packer ignores it, and turning Cheer-ready back on
     // should bring back the user's choice rather than silently reset it. The cost is
@@ -3884,6 +4063,8 @@
           contrast: els.contrast.value, invert: els.invert.checked,
           cheer: els.cheer.checked, bits: els.bitsAmount.value, text: els.textInput.value,
           covers: els.stackCovers.checked,
+          // A field of rw_controls_v1, not a new storage key.
+          receiptLen: els.receiptLen ? els.receiptLen.value : "",
           // Guarded: this is ONE try block, so a missing element would throw and silently
           // stop persisting every other control along with it. A field of rw_controls_v1,
           // not a new storage key.
@@ -3921,6 +4102,11 @@
       // Default ON for anyone whose settings predate the toggle: an uncovered tail is the
       // bug this fixes, so absent must mean covered.
       els.stackCovers.checked = saved.covers !== false;
+      // Receipt length: absent (every settings blob older than 0.11.0) falls back to the
+      // default (A4). Validated against the same min/max the control enforces.
+      if (els.receiptLen && saved.receiptLen != null && isFinite(parseFloat(saved.receiptLen))) {
+        els.receiptLen.value = clampReceiptMm(parseFloat(saved.receiptLen));
+      }
       // The opposite default to covers: the tuck is cosmetic and costs characters, so
       // absent (every settings blob older than 0.10.0) means OFF, and only an explicit
       // true turns it on.
@@ -4870,11 +5056,14 @@
         // the packer's answer and not a second opinion that can disagree with it.
         var cheer = !!els.cheer.checked, tuck = cheer && getTuck(), bits = getBits();
         var budget = MAX_CHARS - leadLength({ cheer: cheer, bits: bits, tuck: tuck });
-        var key = [text, go.layout, go.size, budget, tuck].join("\u0000");
+        var heightPx = getHeightPx(), receiptMm = getReceiptMm();
+        // The receipt length is in the key: changing it re-plans every label (the cheer
+        // counts and cut-off flags move with the page).
+        var key = [text, go.layout, go.size, budget, tuck, heightPx].join("\u0000");
         if (key !== labelKey) {
           labelKey = key;
           relabel(function (layout, size) {
-            return giantPlan(text, { layout: layout, size: size, budget: budget, tuck: tuck });
+            return giantPlan(text, { layout: layout, size: size, budget: budget, tuck: tuck, heightPx: heightPx });
           }, go, giantLines(text, "lines").length > 0);
         }
         // THE NOTE reads the PACKED parts, like the takeover card's price does: the packer
@@ -4896,7 +5085,7 @@
         var cheers;
         if (own.length) cheers = inParts.length;
         else {
-          own = buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: tuck });
+          own = buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: tuck, heightPx: heightPx });
           cheers = own[0].giant.cheers || 1;
         }
         var g = own[0].giant;
@@ -4908,7 +5097,7 @@
         giantNote.textContent = "";
         giantNote.className = "giant-note" + (over ? " over" : "");
         var line = function (t, cls) { giantNote.appendChild(mkEl("div", cls ? { "class": cls } : null, t)); };
-        var rep = giantReport(own, { cheers: cheers, bits: bits });
+        var rep = giantReport(own, { cheers: cheers, bits: bits, receiptMm: receiptMm });
         (rep ? rep.split("\n") : []).forEach(function (t, k) { line(t, k === 0 ? "giant-sum" : "giant-warn"); });
         if (over) {
           line((inParts.length === 1 ? "Its part is" : "One of its parts is") + " over " + MAX_CHARS
@@ -5876,7 +6065,7 @@
         return [{ payload: "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
       var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, tuck: getTuck(), nonceFn: nonceForPart,
-                                      covers: !els.stackCovers || els.stackCovers.checked });
+                                      covers: !els.stackCovers || els.stackCovers.checked, heightPx: getHeightPx() });
       return parts.map(function (p) {
         return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead, cover: p.cover };
       });
@@ -5925,10 +6114,14 @@
     // draws it in the receipt the way it will print.
     function rulerParts() {
       var body = buildGiantRuler();
+      // The ruler is ONE body and packStackBodies never splits a single body, so it stays one
+      // cheer even when it overruns a short receipt — which is the point: it is the length
+      // gauge. giantReport turns the current Receipt length into "numbers up to N print" plus
+      // where each lands, so the user can read their real length off the tape.
       return packStackBodies([body], { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart })
         .map(function (p) {
           return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
-                   cover: p.cover, note: giantReport(body) };
+                   cover: p.cover, note: giantReport(body, { receiptMm: getReceiptMm() }) };
         });
     }
     // Cards showing a live character cost register a callback here. refresh() runs them
@@ -6033,6 +6226,7 @@
         cheerTuckHint: document.getElementById("cheerTuckHint"),
         bitsAmount: document.getElementById("bitsAmount"),
         stackCovers: document.getElementById("stackCovers"),
+        receiptLen: document.getElementById("receiptLen"),
         presetName: document.getElementById("presetName"),
         presetSave: document.getElementById("presetSave"),
         presetList: document.getElementById("presetList"),
@@ -6084,7 +6278,7 @@
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.cheerTuck, els.bitsAmount, els.stackCovers, els.textInput, els.textSize, els.rotateLen,
+       els.invert, els.cheer, els.cheerTuck, els.bitsAmount, els.stackCovers, els.receiptLen, els.textInput, els.textSize, els.rotateLen,
        els.imgUrl, els.imgWidth].forEach(function (el) {
         if (!el) return;
         el.addEventListener("input", function () {
@@ -6218,7 +6412,11 @@
       lumaToDots: lumaToDots, packBraille: packBraille,
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
-      packStackBodies: packStackBodies, HEIGHT_BUDGET: HEIGHT_BUDGET,
+      packStackBodies: packStackBodies,
+      heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
+      DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
+      LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,
+      RECEIPT_MM_MIN: RECEIPT_MM_MIN, RECEIPT_MM_MAX: RECEIPT_MM_MAX,
       escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
       EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed, anyCarrierLive: anyCarrierLive,
       FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,

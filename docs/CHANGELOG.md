@@ -10,6 +10,68 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.11.0] - 2026-10-02
+
+### The short version
+
+**Fixes a field cut-off in 0.10.0's Giant type.** A stacked Giant cheer
+(`HELLO`, `C O C K`) came off the real printer with only its first ~4 lines and the
+top of the 5th, cut at roughly A4 length (~29.7 cm). The cause: the app packed up to a
+fixed **1400 px (~37 cm)** of content per receipt, because printer-bot lays the page out
+at `--page-height 500mm`. But the real printer stops far short of 500 mm — its Windows
+driver has a fixed paper **length**, commonly **A4 (297 mm)**, and SumatraPDF prints
+`noscale`, which **clips** the overflow instead of shrinking it. So 297–463 mm of
+over-A4 content was silently lost.
+
+### Added — Receipt length
+
+A **Receipt length (mm)** control (default **297**, A4). It feeds a per-receipt height
+budget, `heightBudget(mm) = floor(mm × 96/25.4 − 351)` CSS px (A4 → **771 px**), which
+replaces the old fixed 1400. The `351` px reserve is the header + lead line + footer a
+cheer always spends outside the body, **measured on the real engine** (inked page = the
+app's per-body height estimate + 351, flat across levels L6–L14). A tall stack now
+**splits into several cheers that each fit the page** instead of being cut off; the card
+says how many receipts it needs and that each is its own cheer with printer-bot's header
+between them. Most 80 mm thermal drivers cut at A4; set the driver to **Roll Paper /
+continuous** and raise this to print longer. Persisted as a field of `rw_controls_v1` (no
+new storage key).
+
+### Added — the Print size ruler is now a length gauge
+
+For the current Receipt length the ruler's note says which of its numbers 1–13 the app
+expects to print in full before the cut. To calibrate, **measure the printed tape** from its
+top edge to the cut and set Receipt length to that length in mm — not to a ruler number,
+whose position is measured down the giant letters and so leaves out the header and footer
+the receipt also spends (and the count is deliberately conservative besides). The ruler
+itself still rides the full 500 mm page (it is the gauge, so it may run past a short receipt
+on purpose).
+
+### Changed — smaller word gaps in Stack layout (for phrases)
+
+A space in a stacked phrase used to cost a **full giant blank line**. Stack layout can now
+render a word gap as a **base-height break** (~23 px, a `<br><br>` between per-word nests)
+instead, **measured on the real engine** (`I RAID RAID` at L7: within-word pitch 77 px,
+between-word 100 px — a +23 px gap). `fit1` always picks the **fewer-cheer** gap (tie →
+blank), so a spaceless word (`HELLO`) stays the one-nest `blank` form at every length. A run
+of single-letter words (`C O C K`) also stays `blank` — hence byte-identical to before — at
+the A4 default and typical lengths, where per-word nests either still exceed the
+500-character budget or do not cut the cheer count; at a **short** Receipt length (e.g.
+150 mm) `fit1` shrinks the letters until per-word nests both fit under 500 and save a cheer,
+so `small` correctly wins there. A single line taller than the whole receipt is now
+**warned** on the card, never silently cut.
+
+### How sure
+
+Verified on printer-bot's real engine (wkhtmltopdf 0.12.6.1, patched Qt, Segoe UI,
+203 dpi) via `tools/payload.mjs | tools/printerbot.mjs | tools/rig.py --document`:
+`C O C K` → one A4 receipt (295 mm), `HELLO`/`PENIS` → one A4 receipt (288 mm), a 13-letter
+word at a fixed L12 → five receipts that each fit A4 (≤ 251 mm), none spilling to a second
+page. `tools/payload.mjs` takes an optional `"mm"` to bench other lengths. The one thing
+the bench cannot see — the driver's exact paper length and the `noscale` clip — is what the
+Receipt length control exists to let each user dial in.
+
+---
+
 ## [0.10.0] - 2026-10-02
 
 ### The short version

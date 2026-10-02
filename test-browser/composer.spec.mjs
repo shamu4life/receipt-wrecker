@@ -282,7 +282,10 @@ test("a new Text block is Giant type, and Copy sends exactly what the core build
   assert.equal(await first.locator(RENDER_SEL).inputValue(), "giant", "the first-run seed should be Giant type");
 
   const payload = await copyPayload(page);
-  assert.match(payload, /^Cheer100 \d\d <br><b class=title>/);
+  // The lead, then the giant body. On an A4 receipt HELLO fits one cheer at L11x0.9, so the
+  // body opens with a shrink wrapper (<b class=setting-description>) before the .title nest;
+  // the byte-for-byte check below is the real assertion.
+  assert.match(payload, /^Cheer100 \d\d <br><b class=\S/);
   // Byte for byte the pure core's answer for the same text and defaults. The glue
   // (card -> block fields -> giantOpts -> budget -> packer -> nonce) is the half the unit
   // tests can't see, so this is where a field that never reaches the builder shows up.
@@ -435,12 +438,13 @@ test("MANDATORY: Copy's payload survives a clean-room printer-bot sanitizer and 
   //    cheermote gem and the nonce with it, and the giant line follows with no <br>.
   {
     const { page, ctx } = await freshPage({ blocks: [{ id: 1, type: "text", render: "giant",
-      giantLayout: "auto", giantSize: "fit1", text: "WRECK IT" }] });
+      giantLayout: "auto", giantSize: "fit1", text: "HELLO" }] });
     await page.locator("#cheerTuck").check();
     const payload = await copyPayload(page, 0);
     await ctx.close();
     assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=/);
-    const want = giantOf("WRECK IT", "auto", "fit1", true);
+    // On an A4 receipt HELLO fits one cheer at L11x0.9, so this exercises a shrink wrapper.
+    const want = giantOf("HELLO", "auto", "fit1", true);
     assert.ok(want.shrink, "this case is meant to exercise a shrink wrapper; pick another text");
     const pr = await printThroughPrinterBot(payload);
     assert.deepEqual(pr.removed, []);
@@ -534,11 +538,15 @@ test("cheer counts, empty blocks and the parts note all match the parts Copy sen
   {
     const { page, ctx, errors } = await freshPage({ blocks: [{ ...GIANT_SEED, id: 1, text: "HELLO WORLD", giantSize: 10 }] });
     const card = cards(page).first();
-    assert.equal(await page.locator("#parts .part").count(), 1, "fixture: L10 HELLO WORLD packs into one part");
-    assert.match(await card.locator(SIZE_SEL + ' option[value="10"]').textContent(), / · 1 cheer$/);
+    // On an A4 receipt (the default), L10 HELLO WORLD needs two receipts; the size label and
+    // the rendered parts agree on that. (At the old fixed 1400px budget this was one part —
+    // the budget is now the A4 page the real driver cuts at, see the 0.10.0 field cut-off fix.)
+    assert.equal(await page.locator("#parts .part").count(), 2, "fixture: L10 HELLO WORLD needs two A4 receipts");
+    assert.match(await card.locator(SIZE_SEL + ' option[value="10"]').textContent(), / · 2 cheers/);
     await card.locator(SIZE_SEL).selectOption("fit1");
     const fit1 = C.giantPlan("HELLO WORLD", { budget: budgetFor({ cheer: true, bits: 100 }) }).fit;
-    assert.deepEqual([fit1.levels, fit1.shrink], [10, ""], "fit1 should take full Level 10, which is one cheer");
+    assert.deepEqual([fit1.levels, fit1.shrink], [7, "setting-description"], "fit1 is the biggest one-cheer size on A4");
+    assert.equal(await page.locator("#parts .part").count(), 1, "fit1 fits one A4 receipt");
     assert.match(await card.locator(SIZE_SEL + ' option[value="fit1"]').textContent(),
       new RegExp("capitals " + C.giantCapCm(fit1.px).toFixed(1) + " cm · 1 cheer$"));
     assert.deepEqual(errors, []);
@@ -597,7 +605,7 @@ test("the cheer-gem tuck: a corner box in the preview, the tucked lead on Copy, 
 
   // Copy: the tucked lead, and the giant body's leading <br> gone (it would cost a line).
   const payload = await copyPayload(page);
-  assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=title>/);
+  assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=\S/);
   assert.ok(len(payload) <= C.MAX_CHARS);
 
   // A field of rw_controls_v1, so it survives a reload.
@@ -725,6 +733,31 @@ test("saved Hanzi and Type blocks are not migrated: same render, same payload af
   assert.equal(await cards(page).nth(0).locator(RENDER_SEL).inputValue(), "giant");
   assert.equal((await stored())[0].render, "giant");
   assert.ok((await copyPayload(page, 0)).includes("<b class=title>"));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("Receipt length: a field of rw_controls_v1 that re-splits the stack and survives a reload", async () => {
+  // 0.11.0: the per-receipt height budget is derived from this control, so a tall stack is
+  // split into receipts that each fit the printer's real page (the 0.10.0 field cut-off fix).
+  const { page, ctx, errors } = await freshPage({ blocks: [{ ...GIANT_SEED, id: 1, text: "RECEIPT", giantSize: 12 }] });
+  assert.equal(await page.locator("#receiptLen").inputValue(), "297", "defaults to A4");
+  // RECEIPT at a fixed L12 overflows A4 and comes out as three cheers...
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 3);
+  assert.equal(await page.locator("#parts .part").count(), 3, "RECEIPT L12 needs three A4 receipts");
+  // ...but one 500mm roll holds it in a single cheer. (fill() dispatches the input event the
+  // app listens to, so the parts recompute without a reload.)
+  await page.fill("#receiptLen", "500");
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 1);
+  assert.equal(await page.locator("#parts .part").count(), 1, "a 500mm receipt holds RECEIPT L12 in one cheer");
+  // The setting survives a reload (a field of rw_controls_v1, no new storage key).
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("rw_")));
+  assert.ok(!keys.includes("rw_receipt_len") && keys.includes("rw_controls_v1"), "no new storage key: " + keys.join(","));
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.equal(await page.locator("#receiptLen").inputValue(), "500", "the length did not survive the reload");
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 1);
+  assert.equal(await page.locator("#parts .part").count(), 1, "the re-split survived the reload");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

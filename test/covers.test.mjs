@@ -129,3 +129,39 @@ test("the cover follows the block's own pull, not the default", () => {
     "the continuation must repaint at the SAME lift as the takeover it continues, "
     + "or the run steps sideways mid-tape");
 });
+
+test("the cover is still reserved under the 60-character tucked lead", () => {
+  // The cover and the tuck stack: a part after the first pays the tucked lead (60, +4 for
+  // the <br> a first body may gain) AND 106 of cover before any body goes in. Reserving
+  // the old 12-character lead here put part 2 well past 500 — rejected, never printed.
+  const opts = Object.assign({}, OPTS, { tuck: true });
+  const parts = packStackBodies(
+    [takeoverBody(), body(160), body(160), body(160), body(160), body(160), body(160)], opts);
+  assert.ok(parts.length >= 3, "expected a multi-part split, got " + parts.length);
+  parts.forEach((p, i) => {
+    assert.equal(p.chars, len(p.payload), "part " + (i + 1) + " miscounted its own payload");
+    assert.ok(p.chars <= MAX_CHARS, "part " + (i + 1) + " is " + p.chars + " chars under the tuck");
+    if (i) {
+      assert.equal(p.cover, COVER, "part " + (i + 1) + " lost its cover under the tuck");
+      assert.ok(p.payload.startsWith(p.lead + COVER), "part " + (i + 1) + ": the cover must follow the lead");
+    }
+  });
+});
+
+// KNOWN APP BUG, PRE-EXISTING (present at 0.9.1 too), reported, not fixed here; marked
+// `todo` so the suite stays green. A body bigger than (maxBody - cover) still "fits" an
+// EMPTY part (a single body always gets its own receipt), and the cover is then prepended
+// anyway. A full 15-column Hanzi band after a takeover lands at 598 characters; a 464-
+// character giant body at 582. Twitch rejects both outright, so a stack that merely
+// CONTAINS a (no longer printing) takeover can stop the art after it from printing at all.
+// Likely fix: in flush(), drop the cover from a part whose lead + cover + bodies would
+// exceed MAX_CHARS (a missing cover costs looks; an over-length part costs the cheer).
+test("KNOWN BUG: a part that cannot afford its cover goes out without it, never over 500", {
+  todo: "packStackBodies prepends the cover to a lone oversized body (reported to the coordinator)",
+}, () => {
+  const band = "丶".repeat(480);
+  const parts = packStackBodies([takeoverBody(), { html: band, chars: 480, heightPx: 576 }], OPTS);
+  parts.forEach((p, i) => {
+    assert.ok(p.chars <= MAX_CHARS, "part " + (i + 1) + " is " + p.chars + " characters: " + p.payload.slice(0, 40) + "…");
+  });
+});

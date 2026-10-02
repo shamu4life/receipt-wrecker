@@ -17,6 +17,75 @@ is framed neutrally, like its siblings `cheer-splitter-9k` (chunking) and
 `transliterate-me` (phonetic transliteration). The cheer use is one application
 of a general glyph-art generator.
 
+**⚠⚠⚠ 2026-10-01: `class` survives, and printer-bot inlines nutty's whole `global.css`.
+READ THIS FIRST. It amends both banners below; they are kept as written, with
+amendments marked in place, because this file records what was believed and why it
+changed.** The 2026-09-15 sanitizer strips the `style` attribute, but it keeps `class`.
+And printer-bot does not print the bare message. `GetRenderedHTML` builds the document
+wkhtmltopdf prints by copying the text of **every stylesheet linked from printer-bot's
+settings page** into one `<style>`: first nutty's shared UI stylesheet, `global.css`,
+which every nutty widget uses, then printer-bot's own `contents/style.css`. So every
+class rule in those two sheets is live on the receipt, and a class in the chat message
+picks it up. One of them belongs to a settings-page heading: `.title` is
+`font-weight:900; font-size:1.2em; text-transform:uppercase`. `em` is relative to the
+*parent*, so nesting multiplies: N nested `<b class=title>` print at
+**16px × 1.2^N** (14 levels ≈ 205px type, capitals ≈ 3.8 cm; 15 ≈ 247px).
+
+That is **Giant type**, the default Text render as of 0.10.0. Do not confuse it with
+"Giant sideways", the dead SVG/rotate Type render. Every token is sent literally and is
+on the sanitizer's own allow-list (tag `b`, and `span` for the tuck; attribute `class`).
+Nothing is disguised from automod, from the sanitizer or from the bits ledger. The same
+mechanism gives the **cheer-gem tuck**: `.switch` (a 3em × 1.5em `overflow:hidden` box)
+plus `.dialog-nav-button` (`position:fixed`, top right) pin the cheermote printer-bot
+draws into a clipped box in the page's top-right corner. See arch items 16-19.
+
+**Evidence levels. Keep them apart; this file has been burned before by writing one
+sample up as a mechanism.**
+
+- **FIELD (one sample).** One real cheer carrying
+  `<span class="switch dialog-nav-button"> Cheer100 </span>`, then 15 × `<b class=title>`,
+  then `P</br>E</br>N</br>I</br>S`, passed the channel's automod and printed giant
+  stacked letters on the real rig (owner's report, 2026-10-01). That clears
+  `<b class=title>`, the quoted two-class `<span>` and `</br>` against that channel's terms
+  list on that day. Nothing more was judged on paper, and in particular whether the
+  corner box clipped the gem was not.
+- **BENCH**: real wkhtmltopdf 0.12.6.1 (patched Qt) with Segoe UI metrics, fed the
+  document `tools/printerbot.mjs` builds with printer-bot's own sanitizer. It covers the
+  sizes, line pitch, the 23px lead/gap line, the tuck's clipping and the line it saves,
+  the shrink wrappers, emote sizing and page spill. See "Settled for Giant type" below.
+- **NEVER SENT**: `class=setting-description` / `class=setting-attribute` (the ×0.9 /
+  ×0.8 shrink wrappers, which Auto emits whenever such a step is the best fit, so they
+  are far from exotic), the padded emote form, and a tucked lead followed by a giant
+  body with its leading `<br>` stripped (what Copy sends with the tuck on). These are the
+  first things to put in a free probe (see the probe list under "Measuring").
+
+**It is fragile by construction.** This is a borrowed style on someone else's page.
+nutty can rename `.title`, retune it, scope `global.css` away from the receipt, or stop
+inlining linked stylesheets, any day, and the failure is **quiet**: the text prints at
+normal size and the cheer still spends. The app's defences: the class names and
+declarations are data (`PB_CLASSES`); the card is date-stamped ("Confirmed printing big
+on 1 Oct 2026"); a multi-part giant run says "send part 1 first and look"; the **Print
+size ruler** proves the trick on the rig for one cheer; Hanzi tiling stays one select
+away as the markup-free backup; and `npm run printerbot -- --check` diffs `PB_CLASSES`
+against the live CSS before a release (a release-checklist canary, not CI).
+
+**THE RULE, with its stop conditions.** Borrowing an allow-listed class is not
+obfuscation. Every token is literal, both gates see exactly what they act on, Twitch
+still charges and shows the cheer in chat, and the header still prints the bits and the
+sender. It stays that way only under three conditions:
+
+- **(a) Literal tokens only.** Never case, quote, entity, padding or zero-width tricks to
+  get any token past either gate.
+- **(b) If a channel blocks the giant form** (say `<b class` or `class=title` lands on
+  its terms list), that is the mods saying no to giant text. Do **not** cycle tag
+  (`<strong>`, `<i>`, `<em>`), quote (`class="title"`) or case (`CLASS=title`) variants
+  of the same feature, and the UI must never suggest one. Fall back to Hanzi.
+- **(c) If nutty removes `global.css` from `GetRenderedHTML`, or scopes it away from the
+  receipt, on purpose,** that is the bot author saying no. Fall back to Hanzi. Only an
+  *incidental* rename (a UI redesign moved `.title` to another name) justifies remapping
+  a `PB_CLASSES` row, and only after a free probe and a ruler print show the new name
+  prints.
+
 **⚠ 2026-09-15 — printer-bot added an HTML sanitizer, and it changes everything
 below. READ THIS FIRST.** For a long time printer-bot rendered the chat message
 as raw, unsanitised HTML, and the whole app was built on that: big type, sideways
@@ -39,6 +108,10 @@ the sanitizer keeps is `<img class="emote">` or `<img class="bits">`, and only i
 `src`/`class` survive (so sizing has to come from the uploaded PNG's pixels, not
 markup). **ASCII glyph-art shears**, because it depended on a `white-space:pre`
 monospace `<span>` (that styling is in `style`, now stripped) — its spaces collapse.
+*(Checked 2026-10-01: the class route does not rescue any of these. No rule in
+`global.css` or `contents/style.css` gives `white-space:pre`, a monospace face,
+rotation, `display:none` or white text, and none targets `b`, `i`, `span`, `img` or
+`br` by tag.)*
 
 So the durable paths, and the app's new backbone, are the ones that were always
 markup-free: **Hanzi tiling for text and the CJK glyph tier for pictures** (pure
@@ -46,6 +119,11 @@ text, or `<br>`-separated rows of uniform-width Han glyphs — no `style` needed
 Everything in the sections below that assumes raw-HTML rendering is now historical;
 it is kept (not deleted) as the record of how the app got here and in case the
 sanitizer is ever rolled back.
+*(Amended 2026-10-01: "markup-free" turned out to be too strong a criterion. The
+sanitizer strips `style`, not `class`, and `class` carries `global.css` onto the paper
+(banner above). For **text** the backbone is now Giant type, which is markup but only
+allow-listed tags plus a class. Hanzi tiling is its markup-free backup, one select away.
+For **pictures** CJK glyph-art is still the backbone.)*
 
 **⚠⚠ AND THEN THE PICTURE DIED COMPLETELY — FIELD-CONFIRMED 2026-09-15.** The
 `<img class="emote">` carrier shipped as a probe-me candidate. The probe came back
@@ -59,13 +137,21 @@ sanitizer is ever rolled back.
   `bits` forms were both eaten, while a control carrying the same link with no tag
   went through. So the tag is what is blocked, not the link or the host.
 
-**No carrier can put a real picture on the tape.** `anyCarrierLive()` returns false,
+**No carrier can put an arbitrary picture on the tape.** *(This said "a real picture"
+until 2026-10-01. printer-bot's own emote pass still swaps a Twitch emote the sender may
+use for `<img class="emote">`, and `.emote{height:1em}` makes that picture scale with
+whatever font-size it sits in, so Giant type's **Emote layout** can print one ~185px
+square (a lone emote: 14 levels inside the ×0.9 wrapper, its pad space counted). That is
+Twitch's picture, picked from Twitch's list by printer-bot. It is not one of ours, no
+carrier is involved, and the padded form it needs has never been sent.)* `anyCarrierLive()` returns false,
 every `EMBEDS` entry is `blocked: true`, and `field` records which gate killed it
 (`"blocked"` = automod ate the token, `"stripped"` = the sanitizer removes the tag).
 The img-class pair still leads the table because it is sanitizer-legal and only
 chat-blocked — it is the pair to re-probe first if the terms list is ever pruned.
 The Image block warns rather than offering a pick that silently spends bits on blank
-paper. **Glyph-art is unaffected and is the whole picture story now.**
+paper. **Glyph-art is unaffected and is the whole arbitrary-picture story now.**
+*(Amended 2026-10-01: "arbitrary" added. The emote layout above is the one exception,
+and it only prints emotes Twitch itself recognises.)*
 
 **Do NOT "fix" this by obfuscating the tag** (case-mangling `<IMG`, padding,
 entities, zero-width splitting). The terms list has now eaten `<object`, then
@@ -104,17 +190,17 @@ Everything else in the repo is documentation, tests, or deploy config.
 | `public/index.html` | The app. Edit this. |
 | `src/worker.js` | The Cloudflare Worker: serves `public/` as assets, plus `POST /upload`, the image-serving routes (`/<hex>.png` and legacy `/i/<hex>`), and the `/px` image proxy. `main` in `wrangler.jsonc`. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, and the `RW_IMG` KV binding. |
-| `package.json` | Dev-only metadata: `npm test` (Node's `node:test`) and the Wrangler dev/deploy scripts. No runtime deps. |
+| `package.json` | Dev-only metadata: `npm test` (Node's `node:test`), `npm run test:browser`, the Wrangler dev/deploy scripts, and the bench scripts (`render` = `tools/rig.py`, `payload`, `printerbot`). No runtime deps. |
 | `test/` | Node `node:test` suite. Extracts the inline script from `public/index.html` and unit-tests the pure glyph engine. |
 | `test-browser/` | Playwright smoke tests for the browser glue the null-DOM harness cannot reach. NOT part of `npm test`; run `npm run test:browser` (needs `npx playwright install chromium` once). |
-| `tools/` | The print-engine bench. `rig.py` renders a payload the way printer-bot really does and measures the ink; `payload.mjs` builds that payload from the app's own core; `calibrate.py` builds the dither test print. This is where "does it print?" gets answered; see "Measuring against the real engine". |
+| `tools/` | The print-engine bench. `rig.py` renders a payload the way printer-bot really does and measures the ink; `payload.mjs` builds that payload from the app's own core; `printerbot.mjs` (0.10.0) builds the exact document printer-bot prints, from nutty's live files and printer-bot's own sanitizer, and `--check`s `PB_CLASSES` against the live CSS; `calibrate.py` builds the dither test print. This is where "does it print?" gets answered; see "Measuring against the real engine". Nothing of nutty's, and no font, is ever committed here: `printerbot.mjs` fetches and caches under `.render/`. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, then `wrangler deploy --dry-run` on push/PR to `main`. |
 | `.github/` | Community-health files (CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue/PR templates, dependabot). |
 | `docs/CHANGELOG.md` | Release notes / change history. |
 | `docs/superpowers/` | Design spec, plan, and SDD task briefs this build was implemented from. Historical reference, not shipped. |
 | `README.md` | Human-facing overview, feature spec, deploy notes. |
 | `CLAUDE.md` | This file: assistant-facing guidance. |
-| `.gitignore` | Ignores wrangler/env artifacts (`.wrangler`, `.dev.vars*`, `.env*`) plus `node_modules/` and `package-lock.json`. |
+| `.gitignore` | Ignores wrangler/env artifacts (`.wrangler`, `.dev.vars*`, `.env*`), `node_modules/`, `package-lock.json`, `.DS_Store`, `.claude/`, `.playwright-mcp/`, `__pycache__/`, and **`.render/`**, where every bench artifact goes, including `printerbot.mjs`'s cache of nutty's files and `rig.py --fonts`' fontconfig. |
 
 ## How to run / develop
 
@@ -152,9 +238,12 @@ That null-DOM sandbox exists because of the app's internal pure-core /
 browser-glue split:
 
 - The pure core (tier tables, luminance quantization, dithering, Braille dot
-  packing, render/budget helpers, cheer packaging, the Census builder) is plain
-  functions with no DOM dependency at all: inputs and outputs are arrays/strings.
-  These are fully unit-testable.
+  packing, render/budget helpers, cheer packaging, the Census builder, and since
+  0.10.0 the Giant type builder, its borrowed-class table and the lead/tuck builder)
+  is plain functions with no DOM dependency at all: inputs and outputs are
+  arrays/strings. These are fully unit-testable. (Some of it is *defined* inside the
+  DOM guard, after `PAPER_PX`/`LEAD_GUARD`, as `var name = function` expressions; it is
+  still pure, and still exported. See arch item 17 for why it lives there.)
 - The browser glue (canvas rasterization of text/images, DOM wiring, event
   handlers, clipboard, `localStorage`) is guarded by
   `if (typeof document !== "undefined" && document.getElementById)` and only ever
@@ -166,13 +255,16 @@ browser-glue split:
 
 An inert `module.exports` hook at the end of the IIFE (guarded by
 `typeof module !== "undefined"`, false in browsers, true under Node) hands the
-test harness the pure-core functions (72 of them, regenerated at the 0.6.0 cut):
+test harness the pure-core functions. **108 keys, regenerated at the 0.10.0 cut: 107
+from the app's `module.exports`, plus `__fontLog`, which `test/_harness.mjs` adds
+itself.** (The 0.6.0 list said 72 and was already one short by 0.9.1: `anyCarrierLive`
+was missing.)
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `quantizeBinary`,
 `ditherFloydSteinberg`, `lumaToDots`, `packBraille`, `render`,
 `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`, `packageCheer`,
 `buildCensus`, `CHEER_TOKEN`, `packStackBodies`, `HEIGHT_BUDGET`,
 `escapeHtml`, `escapeAttr`, `urlHasImageExt`, `EMBEDS`, `EMBED_DEFAULT`,
-`getEmbed`, `FONTS`, `getFont`, `fmtAttrs`, `buildImageEmbed`,
+`getEmbed`, `anyCarrierLive`, `FONTS`, `getFont`, `fmtAttrs`, `buildImageEmbed`,
 `buildEmbedProbe`, `buildTakeover`, `takeoverBox`, `TAKEOVER_PULL_PT`,
 `buildStackCover`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`,
@@ -183,7 +275,14 @@ test harness the pure-core functions (72 of them, regenerated at the 0.6.0 cut):
 `migrateTakeoverPull`, `TAKEOVER_ITEMS_V`, `TAKEOVER_PULL_V`,
 `CHEER_MIN_PIC_PX`, `takeoverReport`, `bigFontFor`, `BIG_FONT`,
 `buildBigTextSvg`, `bigWeightFor`, `bigItalicFor`, `rotateBodies`,
-`bigFitBasis`, `PAPER_PX`, `BIG_FIT_PX`, `BIG_WEIGHT`, `__fontLog`.
+`bigFitBasis`, `PAPER_PX`, `BIG_FIT_PX`, `BIG_WEIGHT`, and, new in 0.10.0:
+`LEAD_GUARD`, `PX_PER_MM`, `PB_CLASSES`, `pbClass`, `classAttr`, `pbPreviewCss`,
+`GIANT_BASE_PX`, `GIANT_RATIO`, `GIANT_MAX_LEVELS`, `GIANT_MIN_PX`, `GIANT_GAP_PX`,
+`GIANT_CAP_EM`, `GIANT_TUCK_PX`, `GIANT_W`, `GIANT_W_DEFAULT`, `GIANT_LAYOUTS`,
+`GIANT_RULER_LEVELS`, `giantLineH`, `giantSteps`, `giantClean`, `giantLines`,
+`giantLineEm`, `giantOpts`, `blockRender`, `buildLead`, `leadLength`, `TUCK_OPEN`,
+`TUCK_CLOSE`, `bandReserve`, `giantCapCm`, `giantFit`, `giantPlan`,
+`buildGiantBodies`, `buildGiantRuler`, `giantReport`; then the harness's `__fontLog`.
 (That list is easy to let rot, so regenerate it
 with `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 rather than trusting it.) The canvas/DOM functions (`rasterizeImage`,

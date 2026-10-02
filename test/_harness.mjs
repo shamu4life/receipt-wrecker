@@ -78,3 +78,31 @@ export function loadCore(metrics) {
 // Structural (prototype-agnostic) compare across the vm realm boundary.
 export const eq = (a, b, msg) =>
   assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b, msg);
+
+// Every tag in a blob, EVERY occurrence, with its attributes split the way an HTML
+// parser splits them: name, then an optional value that is double-quoted, single-quoted
+// or bare. Returns [{tag, closing, attrs:[{name, value, quoted}]}].
+//
+// Shared by the sanitizer and giant-type tests because the scan it replaces had two
+// blind spots, and giant type walks straight into both. It read attributes off only the
+// FIRST occurrence of each tag, so a stray attribute on level 2 of an 18-deep `.title`
+// nest passed. And it only knew `name=`, so the unquoted tuck span,
+// `<span class=switch dialog-nav-button>`, read as one clean class attribute, when a real
+// parser makes `dialog-nav-button` a separate boolean attribute that printer-bot's
+// sanitizer then strips, taking the corner tuck with it. A bare name here comes back as
+// its own attribute with value null, which is what makes that mistake visible.
+// Our markup never puts ">" inside an attribute value (escapeAttr), so a token scan is
+// faithful to what a parser would see.
+export function scanTags(html) {
+  const out = [];
+  for (const m of String(html).matchAll(/<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g)) {
+    const body = m[3].replace(/\/\s*$/, "");
+    const attrs = [];
+    for (const a of body.matchAll(/([^\s"'=<>\/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g)) {
+      const quoted = a[2] !== undefined || a[3] !== undefined;
+      attrs.push({ name: a[1].toLowerCase(), value: a[2] ?? a[3] ?? a[4] ?? null, quoted });
+    }
+    out.push({ tag: m[2].toLowerCase(), closing: m[1] === "/", attrs });
+  }
+  return out;
+}

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadCore } from "./_harness.mjs";
+import { loadCore, scanTags } from "./_harness.mjs";
 const C = loadCore();
 
 // THE SANITIZER CONTRACT (printer-bot, confirmed live 2026-09-15).
@@ -20,22 +20,23 @@ const IMG_CLASSES = new Set(["emote", "bits"]);
 // Every tag name that appears in a blob (opening tags only; our output never nests
 // unusually, so a token scan is faithful here).
 const tagsIn = (html) => [...html.matchAll(/<([a-zA-Z][\w-]*)/g)].map((m) => m[1].toLowerCase());
-// The attribute names on the first occurrence of a given tag.
-function attrsOf(html, tag) {
-  const m = html.match(new RegExp("<" + tag + "\\b([^>]*)>", "i"));
-  if (!m) return [];
-  return [...m[1].matchAll(/([a-zA-Z][\w-]*)=/g)].map((a) => a[1].toLowerCase());
-}
-// Does a blob survive the allow-list intact — every tag kept, every attr kept, every
-// <img> carrying an emote/bits class?
+// The attribute names on EVERY occurrence of a given tag. This used to read only the
+// first occurrence and only `name=` pairs, which let a stray attribute on level 2 of a
+// giant `.title` nest through, and read the unquoted tuck span as clean; see scanTags.
+const attrsOf = (html, tag) => scanTags(html)
+  .filter((t) => t.tag === tag && !t.closing)
+  .flatMap((t) => t.attrs.map((a) => a.name));
+// Does a blob survive the allow-list intact — every tag kept, every attr (on every
+// occurrence) kept, every <img> carrying an emote/bits class?
 function survivesWhole(html) {
-  for (const t of tagsIn(html)) if (!ALLOWED_TAGS.has(t)) return false;
-  for (const t of new Set(tagsIn(html))) {
-    for (const a of attrsOf(html, t)) if (!ALLOWED_ATTRS.has(a)) return false;
-  }
-  for (const m of html.matchAll(/<img\b([^>]*)>/gi)) {
-    const cls = (m[1].match(/class="([^"]*)"/) || [])[1] || "";
-    if (!cls.split(/\s+/).some((c) => IMG_CLASSES.has(c))) return false;
+  for (const t of scanTags(html)) {
+    if (!ALLOWED_TAGS.has(t.tag)) return false;
+    if (t.closing) continue;
+    for (const a of t.attrs) if (!ALLOWED_ATTRS.has(a.name)) return false;
+    if (t.tag === "img") {
+      const cls = (t.attrs.find((a) => a.name === "class") || {}).value || "";
+      if (!cls.split(/\s+/).some((c) => IMG_CLASSES.has(c))) return false;
+    }
   }
   return true;
 }
@@ -71,9 +72,12 @@ test("the two gates are independent: exactly the img-class pair clears the sanit
 });
 
 test("a CJK/Hanzi glyph grid is pure text — nothing for the sanitizer to strip", () => {
-  // The backbone's survival property: render() of a tone-tier grid is one string with
+  // The markup-free survival property: render() of a tone-tier grid is one string with
   // no markup at all, so the allow-list is a no-op on it. (Hanzi tiling ships exactly
   // this; the CJK picture path adds only <br> row breaks, which are on the allow-list.)
+  // Hanzi is no longer the only text path that prints (Giant type, below, borrows
+  // printer-bot's own classes), but it is still the one that needs no class at all,
+  // which is why it is the fallback if nutty ever changes global.css.
   const ramp = C.getTier("cjk").ramp;
   const grid = [ramp.slice(0, 4), ramp.slice(4, 8), ramp.slice(8, 12)];
   const out = C.render(grid);
@@ -97,4 +101,55 @@ test("the SVG modes are correctly known-dead — they emit tags the sanitizer st
   assert.ok(tagsIn(tk).includes("svg") && tagsIn(tk).includes("rect"),
     "buildTakeover should still emit <svg>/<rect>: " + tk);
   assert.ok(!survivesWhole(tk), "the takeover overlay must be known-dead under the sanitizer");
+});
+
+test("the attribute scan reads EVERY occurrence and splits bare names the way a parser does", () => {
+  // Both blind spots of the old first-occurrence `name=` scan, pinned so a "simpler"
+  // scanner can't quietly come back. Each of these blobs is something giant type could
+  // plausibly emit by mistake, and each loses its effect at printer-bot's sanitizer.
+  //  - a stray attribute on the SECOND level of a nest (level 1 is clean);
+  assert.ok(!survivesWhole("<b class=title>A<b class=title style=\"x\">B</b></b>"),
+    "a style= on level 2 of a .title nest must be seen");
+  //  - the unquoted multi-class tuck span: a parser reads class="switch" plus a boolean
+  //    attribute named dialog-nav-button, which the sanitizer strips, and the corner
+  //    tuck with it.
+  assert.ok(!survivesWhole("<span class=switch dialog-nav-button> Cheer100 07 </span>"),
+    "the unquoted multi-class span must read as a stripped boolean attribute");
+  assert.ok(survivesWhole("<span class=\"switch dialog-nav-button\"> Cheer100 07 </span>"),
+    "the quoted form is one class attribute and survives");
+});
+
+test("Giant type and the cheer-gem tuck survive the allow-list whole: b/br/span, class only", () => {
+  // Giant type works ONLY because the sanitizer keeps `class` and printer-bot's printed
+  // page carries nutty's global.css (see PB_CLASSES). So the whole feature lives or dies
+  // on this scan: a tag outside b/br/span, or any attribute but class, and the size or
+  // the tuck silently falls off on paper. Checked on the CONCATENATED payload the packer
+  // emits, every size class and every layout, tuck on and off, plus the ruler.
+  const texts = ["HELLO", "PENIS", "A&B <i>x</i> \"Q\"", "HAPPY\nBIRTHDAY\nCHAT", "Kappa KEKW\nPogChamp"];
+  const blobs = [C.buildGiantRuler().html];
+  for (const text of texts) {
+    for (const layout of ["auto", "lines", "stack", "emote"]) {
+      for (const size of ["fit1", "width", 1, 9, 18]) {
+        for (const tuck of [false, true]) {
+          const opts = { cheer: true, bits: 100, tuck };
+          const bodies = C.buildGiantBodies(text, {
+            layout, size, tuck, budget: C.MAX_CHARS - C.leadLength(opts) });
+          for (const p of C.packStackBodies(bodies, opts)) blobs.push(p.payload);
+        }
+      }
+    }
+  }
+  // Both shrink wrappers really appear, or this proves nothing about them.
+  const all = blobs.join("");
+  for (const e of C.PB_CLASSES.filter((x) => x.role === "shrink")) {
+    assert.ok(all.includes("class=" + e.cls), "no payload exercised the " + e.cls + " wrapper");
+  }
+  assert.ok(all.includes(C.TUCK_OPEN), "no payload exercised the tuck span");
+  for (const html of blobs) {
+    assert.ok(survivesWhole(html), "giant payload loses markup at the sanitizer: " + html);
+    for (const t of scanTags(html)) {
+      assert.ok(["b", "br", "span"].includes(t.tag), "giant type emitted <" + t.tag + ">: " + html);
+      for (const a of t.attrs) assert.equal(a.name, "class", "giant type emitted a " + a.name + " attribute: " + html);
+    }
+  }
 });

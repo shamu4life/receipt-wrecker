@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.11.0" src="https://img.shields.io/badge/version-0.11.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -116,8 +116,9 @@ cheer on a new printer, send the **Print size ruler** once (see below).
 ## Giant type: how and why it works
 
 **Giant type** prints your text as huge bold capitals. A five-letter word stacked one
-letter per line comes out with capitals about **3.8 cm** tall on an 80 mm roll, for one
-100-bit cheer. It is the default render of a Text block.
+letter per line comes out with capitals about **2 cm** tall on a default **A4 (297 mm)**
+receipt, for one 100-bit cheer — and bigger on a longer one (raise **Receipt length**). It
+is the default render of a Text block.
 
 ### Why it works, step by step
 
@@ -195,7 +196,7 @@ tall stack fit in fewer cheers).
 | levels | type size | capitals | what Auto gives, on A4 |
 |---|---|---|---|
 | 5 | 40 px | ≈ 0.7 cm | `HAPPY BIRTHDAY`, stacked |
-| 8 | 69 px | ≈ 1.3 cm | a nine- or ten-letter word, stacked |
+| 8 | 69 px | ≈ 1.3 cm | an eight-letter word, stacked |
 | 11 | 119 px | ≈ 2.0 cm | a five-letter word, stacked (`HELLO`) |
 | 14 | 205 px | ≈ 3.4 cm | three letters (`LOL`) |
 | 16 | 296 px | ≈ 4.9 cm | two letters (`GG`) |
@@ -220,10 +221,12 @@ silently cut.
 
 To get longer receipts, set your printer's driver to **Roll Paper / continuous** (the
 RP332 and most 80 mm printers can, but often ship set to a fixed size like A4), then raise
-Receipt length. To find your real length, send the **Print size ruler**: its note says
-which of its numbers 1–13 should print at the current setting and roughly where each lands
-(cm down the tape). Read the **last whole number** off the paper and set Receipt length to
-about its mark.
+Receipt length. To find your real length, send the **Print size ruler** once, then
+**measure the printed tape** from its top edge to the cut and enter that length (in mm) as
+Receipt length. (The ruler's note also says which of its numbers 1–13 the app expects to
+print at the current setting, as a sanity check — but set the length from the measured
+tape, not from a number: a ruler number marks its distance down the giant letters, which
+leaves out the header and footer the receipt also spends, so it is not the paper length.)
 
 ### Things it can't do
 

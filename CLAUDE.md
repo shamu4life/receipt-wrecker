@@ -685,12 +685,17 @@ Pure core (DOM-free, unit-tested):
       `giantChunks` takes a `gap` style; `"small"` (stack only) gives each WORD its own nest
       joined by a base-level `<br><br>` (~GIANT_GAP_PX, measured: `I RAID RAID` at L7, pitch
       77 px within a word vs 100 px between), `"blank"` is the old single nest. `giantPick`
-      picks whichever gives FEWER cheers, tie to `blank` — so a spaceless word (`HELLO`) and
-      a run of single-letter words (`C O C K`, where per-word nests would blow the character
-      budget) stay byte-identical to pre-0.11, and `small` only wins when it buys a bigger
-      one-cheer size for a spaced PHRASE (e.g. `I RAID RAID`). `fit.gap` / `giant.gap`
-      records the choice. Note the packer's split-and-merge ALSO renders a word gap small
-      (two bodies meet at a base `<br><br>`), which is why `blank` is usually enough.
+      picks whichever gives FEWER cheers, tie to `blank` — so a spaceless word (`HELLO`) stays
+      byte-identical to pre-0.11 at EVERY length. A run of single-letter words (`C O C K`) also
+      stays `blank` at the A4 default and typical lengths — there per-word nests still blow the
+      character budget or don't cut the cheer count — but at a SHORT receipt (e.g. 150 mm)
+      `fit1` shrinks the letters until per-word nests both fit under 500 AND save a cheer, so
+      `small` correctly wins (verified: gap `small`, 388 chars, 1 cheer at 150 mm). The
+      invariant is only "fewer cheers, tie to blank", NOT unconditional byte-identity. `small`
+      wins for a spaced PHRASE whenever it buys a bigger one-cheer size (e.g. `I RAID RAID`).
+      `fit.gap` / `giant.gap` records the choice. Note the packer's split-and-merge ALSO
+      renders a word gap small (two bodies meet at a base `<br><br>`), which is why `blank` is
+      usually enough.
     - **Payload rules.** The payload is never uppercased: `text-transform` is visual,
       and emote names are case-sensitive. Every body closes every tag, because the
       packer concatenates raw and an unclosed `.title` would make everything after it
@@ -759,12 +764,18 @@ Pure core (DOM-free, unit-tested):
     316 characters (328 with the plain lead), 1275px, one cheer on one 500mm page. It
     proves the trick on THIS rig today and shows every size at once. It is never
     tucked, because it is a diagnostic and should look like every other cheer. **It is
-    also the length gauge (0.11.0):** it carries `giant.rungs` (each number's bottom in px
-    and cm, measured the way the packer measures a body), and `giantReport(ruler,
-    {receiptMm})` turns that into "at N mm, numbers up to K print, higher ones are cut off,
-    each lands at … cm down the tape". It is ONE body, so `packStackBodies` never splits it
-    — it rides the full 500mm page and may run past a short receipt on purpose, which is how
-    the user reads their real length off it. Do NOT make it honour `heightPx`.
+    also the length gauge (0.11.0):** it carries `giant.rungs` (each number's bottom in px,
+    measured the way the packer measures a body), and `giantReport(ruler, {receiptMm})` turns
+    that into "at N mm, numbers up to K should print, higher ones are cut off — measure your
+    printed tape and set Receipt length to its length in mm". It names NO per-number length
+    "mark" (and the rung carries no cm): a number's position is DOWN THE GIANT BODY, which
+    omits the ~93mm of header/lead/footer (`HEIGHT_RESERVE_PX`) the page spends OUTSIDE the
+    body, so feeding it back undershoots by that constant; and the count is deliberately
+    conservative (a mid-body cut frees the footer's reserve, so a touch more prints than it
+    counts), so a number read off the tape would OVER-set the length. Only the physically
+    measured tape — the exact quantity the budget is calibrated against — sets it right. It is
+    ONE body, so `packStackBodies` never splits it — it rides the full 500mm page and may run
+    past a short receipt on purpose. Do NOT make it honour `heightPx`.
 
 Browser glue (canvas + DOM, guarded, browser-verified rather than
 unit-tested):
@@ -1325,7 +1336,10 @@ and Segoe UI metrics from a local copy that is not, and never will be, in this r
   giant blank line's full 77px. The packer's split-and-merge already produces this (two
   bodies meet at a base `<br><br>`), so the explicit `small` gap only wins where it packs a
   spaced phrase into one cheer at a bigger size; `giantPick` prefers `blank` on a tie, which
-  keeps a spaceless or single-letter-word stack (`C O C K`) byte-identical and character-cheap.
+  keeps a spaceless word (`HELLO`) byte-identical at every length. A single-letter-word stack
+  (`C O C K`) stays `blank` and character-cheap too at A4/typical lengths, but at a SHORT
+  receipt (e.g. 150 mm) `small` correctly wins once the shrunk per-word nests both fit under
+  500 AND save a cheer — the guarantee is "fewer cheers, tie to blank", not byte-identity.
   (The old reasoning, kept as the cautionary note it is: "about 1516px fits one 500mm page,
   so `HEIGHT_BUDGET` stays 1400" — true for the 500mm PAGE, but the printer never reaches
   500mm, which is the whole bug. The field payload P E N I S at 15 levels is a 1645px

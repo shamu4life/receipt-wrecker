@@ -21,13 +21,14 @@ Key facts:
 
 As of 2026-09-15 the receipt printer's bot runs the chat message through an HTML
 sanitizer (an allow-list keeping only a few tags and the src/class attributes)
-before rendering it. What prints now, as of version 0.10.0 (2026-10-02):
+before rendering it. What prints now, as of version 0.11.0 (2026-10-02):
 
 - Giant type, for text. The sanitizer removes the style attribute but keeps the
   class attribute, and the printed page includes the bot author's shared stylesheet,
   in which the class "title" means bold, uppercase and 1.2 times the parent's size.
   Nesting it multiplies, so N nested <b class=title> tags print at 16px x 1.2^N:
-  capitals about 3.8 cm tall for a five-letter stacked word in one cheer. Every tag is
+  capitals about 2 cm tall for a five-letter stacked word in one cheer on a default A4
+  (297 mm) receipt, and bigger on a longer one (raise Receipt length). Every tag is
   one the sanitizer allows, sent as written; nothing in the markup is disguised. (A
   stacked word goes out one letter per line, so a word filter never sees it whole;
   that is how it fits the paper, not a way around a channel's rules.) One real cheer
@@ -92,9 +93,10 @@ The app now packs each cheer to fit this length, splitting a tall stack across r
 that each fit (each its own cheer, with the bot's header between them) so nothing is
 lost; the card says how many it needs, and warns if a single line is taller than one
 receipt. In a stacked phrase a space is a small gap, not a full giant blank line. The
-**Print size ruler** doubles as a length gauge: its note says which of its numbers print
-at the current setting and roughly where each lands, so you can read your real length off
-the tape (set the printer to Roll Paper / continuous for longer receipts).
+**Print size ruler** doubles as a length gauge: its note says which of its numbers the app
+expects to print at the current setting; to calibrate, measure the printed tape from its top
+edge to the cut and enter that length in mm (set the printer to Roll Paper / continuous for
+longer receipts).
 
 **Presets** save the whole block stack under a name and export it as JSON. An
 uploaded picture's link expires after 15 minutes, so a preset that used one loads

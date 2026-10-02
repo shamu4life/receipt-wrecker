@@ -1273,7 +1273,7 @@ test("the receipt length changes only the split, never a non-giant body's markup
   assert.equal(ru.length, 1, "the ruler stays one cheer even on a short receipt");
 });
 
-test("the ruler doubles as a length gauge: which numbers print at the current length, and where", () => {
+test("the ruler doubles as a length gauge: which numbers print at the current length, calibrate by measuring the tape", () => {
   const ru = C.buildGiantRuler();
   assert.ok(Array.isArray(ru.giant.rungs) && ru.giant.rungs.length === C.GIANT_RULER_LEVELS);
   // Each rung's bottom is monotic and measured the way the packer measures a body.
@@ -1282,13 +1282,45 @@ test("the ruler doubles as a length gauge: which numbers print at the current le
   assert.equal(C.giantReport(ru), "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.");
   const a4 = C.giantReport(ru, { receiptMm: 297 });
   assert.match(a4, /At 297 mm/);
-  assert.match(a4, /cm down the tape/);
   // The last number that fits A4 is the biggest rung within A4's budget.
   const hb = C.heightBudget(297);
   let last = 0;
   for (const r of ru.giant.rungs) if (r.atPx <= hb) last = r.n;
-  if (last < ru.giant.rungs.length && last > 0) assert.match(a4, new RegExp("numbers up to " + last + " print"));
+  if (last < ru.giant.rungs.length && last > 0) assert.match(a4, new RegExp("numbers up to " + last + " (?:print|should print)"));
   // A tiny receipt: even number 1 may run past the cut.
   const tiny = C.giantReport(ru, { receiptMm: 100 });
   assert.match(tiny, /At 100 mm/);
+});
+
+// REGRESSION (ruler-mark-omits-reserve): the gauge must NOT tell the user to set Receipt
+// length to a ruler number's "mark". A number's position is measured DOWN THE GIANT BODY, so
+// it omits the ~93mm of header/lead/footer the page spends outside the body; feeding it back
+// as Receipt length undershoots by that constant, and the gauge is also deliberately
+// conservative (a mid-body cut frees the footer reserve), so a number read off the tape would
+// over-set the length. The only calibration it offers is to MEASURE the physical cut tape.
+test("the length gauge calibrates by measuring the tape, never by a ruler number's mark", () => {
+  const ru = C.buildGiantRuler();
+  const a4 = C.giantReport(ru, { receiptMm: 297 });
+  // It must instruct measuring the physical tape...
+  assert.match(a4, /measure (?:your printed tape|it) from the top edge to the cut/i);
+  assert.match(a4, /set Receipt length to that many mm/i);
+  // ...and must NOT present a body-distance "mark" as the Receipt length target (the bug).
+  assert.doesNotMatch(a4, /its mark|the last whole number's mark|down the tape/i);
+  // The rungs carry no cm "mark" to be mis-fed as a length (atCm removed).
+  assert.ok(ru.giant.rungs.every((r) => typeof r.atCm === "undefined"));
+  // Fixed-point sanity: the one length value the gauge DOES name (the physical tape length a
+  // user would measure) must reproduce the same count when fed back. Measuring a tape that fit
+  // exactly to "last" means its real length ≈ (atPx + reserve)/px-per-mm; round-tripping it
+  // must report "last" again — the old body-distance mark (atCm ≈ atPx only) did not.
+  const hb = C.heightBudget(297);
+  let last = 0;
+  for (const r of ru.giant.rungs) if (r.atPx <= hb) last = r.n;
+  if (last > 0 && last < ru.giant.rungs.length) {
+    const measuredMm = (ru.giant.rungs[last - 1].atPx + C.HEIGHT_RESERVE_PX) / C.LEN_PX_PER_MM;
+    const roundTrip = C.giantReport(ru, { receiptMm: measuredMm });
+    assert.match(roundTrip, new RegExp("numbers up to " + last + " (?:print|should print)"));
+    // The old atCm mark (body distance, no reserve) would instead land far short.
+    const oldMark = ru.giant.rungs[last - 1].atPx * C.GIANT_MM_PER_PX; // mm, == old atCm*10
+    assert.ok(oldMark < measuredMm - 80, "the old mark undershot the real length by ~93mm");
+  }
 });

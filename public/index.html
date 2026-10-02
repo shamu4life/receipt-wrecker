@@ -513,6 +513,12 @@
   // footer (icon + date). MEASURED on the real engine (wkhtmltopdf 0.12.6.1, Segoe UI,
   // 203dpi): the inked page = the app's per-body height estimate + 351px, flat across
   // levels L6..L14 (see CLAUDE.md "page-length"). A4 → budget 771px (~204mm of body).
+  // The 351 assumes a SQUARE avatar — Twitch (and the other platforms this bot draws)
+  // serve square profile pictures, which the #receipt-avatar CSS draws at 216px (90% of
+  // the 240px body, the width cap biting before the 15em height cap). A hypothetical
+  // PORTRAIT avatar would draw up to 240px tall (+24px header) and could push the footer
+  // past A4 on a near-full body; that input isn't reachable through a real cheer, and the
+  // Receipt length control is the escape hatch if a future platform serves tall avatars.
   var RECEIPT_MM_DEFAULT = 297;        // A4: the common Windows-driver cut for 80mm rolls
   var RECEIPT_MM_MIN = 100;            // below this a giant line barely fits; still emits >=1
   var RECEIPT_MM_MAX = 500;            // the wkhtmltopdf --page-height ceiling; beyond it the PDF itself pages
@@ -3561,7 +3567,10 @@
         // `atPx` is this number's BOTTOM measured from the top of the giant body, the same way
         // packStackBodies measures a body against the height budget. So a number prints in full
         // on a receipt whose budget >= atPx — which is what the length gauge reads (giantReport).
-        rungs.push({ n: n, atPx: h, atCm: h * GIANT_MM_PER_PX / 10 });
+        // No cm "mark" is carried: a body-distance figure omits the header/lead/footer the page
+        // spends OUTSIDE the body (HEIGHT_RESERVE_PX, ~93mm), so it was never the Receipt length
+        // to set. giantReport tells the user to measure the real cut tape instead.
+        rungs.push({ n: n, atPx: h });
       }
       var html = "<br>" + inner + close;
       var top = GIANT_BASE_PX * Math.pow(GIANT_RATIO, GIANT_RULER_LEVELS);
@@ -3610,20 +3619,26 @@
       if (g.ruler) {
         var base = "One cheer: prints 1–13 at every size. If the numbers grow, Giant type works on this printer.";
         if (!g.rungs || !g.rungs.length || typeof opts.receiptMm !== "number") return base;
-        // Length gauge: for the CURRENT receipt length, which numbers print in full before the
-        // tape is cut, and how far down each lands, so the user can read the last whole number
-        // off real paper and set Receipt length to its mark. Same height model as the packer:
-        // a number fits when its bottom (atPx) is within the receipt's budget.
+        // Length gauge: for the CURRENT receipt length, which numbers the app EXPECTS to print
+        // in full before the cut (same height model as the packer: a number fits when its bottom,
+        // atPx, is within the receipt's budget). To CALIBRATE, the user measures the real cut
+        // tape and enters that — NOT a ruler number's position. Two reasons it is measured, not
+        // read off a number: (1) a number's distance down the GIANT BODY omits the header/lead/
+        // footer the page spends outside the body (HEIGHT_RESERVE_PX, ~93mm), so feeding it back
+        // as Receipt length undershoots by that constant; (2) this prediction is deliberately
+        // conservative — a mid-body cut frees the footer's reserved space, so a touch more
+        // actually prints than it counts — so a number read off the tape would OVER-set the
+        // length and re-create the overrun. The physical tape length is the exact quantity the
+        // budget is calibrated against, so measuring it sidesteps both.
         var rmm = Math.round(clampReceiptMm(opts.receiptMm)), rhb = heightBudget(opts.receiptMm), last = 0, i;
         for (i = 0; i < g.rungs.length; i++) if (g.rungs[i].atPx <= rhb) last = g.rungs[i].n;
+        var measure = "To match the printer, measure your printed tape from the top edge to the cut and set Receipt length to that many mm.";
         var gauge;
         if (last >= g.rungs.length) gauge = "At " + rmm + " mm all " + g.rungs.length
-          + " fit; if your tape cuts off sooner, set Receipt length to the last whole number's mark.";
+          + " should print. If your tape cuts off sooner, measure it from the top edge to the cut and set Receipt length to that many mm.";
         else if (last === 0) gauge = "At " + rmm + " mm even number 1 runs past the cut — raise Receipt length, or set your printer to Roll Paper.";
-        else gauge = "At " + rmm + " mm numbers up to " + last + " print in full; higher ones are cut off. "
-          + "Read the last whole number off your tape and set Receipt length to its mark.";
-        var marks = g.rungs.map(function (r) { return r.n + "≈" + r.atCm.toFixed(1); }).join(", ");
-        return base + " " + gauge + " (cm down the tape: " + marks + ".)";
+        else gauge = "At " + rmm + " mm numbers up to " + last + " should print in full; higher ones are cut off. " + measure;
+        return base + " " + gauge;
       }
       var dropNotes = giantDropNotes(g.dropped);
       if (!g.levels) return dropNotes.length ? dropNotes.join("\n") + " Nothing else is left to print." : "Type something to print it in giant capitals.";

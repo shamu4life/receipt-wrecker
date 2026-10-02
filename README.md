@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.9.1" src="https://img.shields.io/badge/version-0.9.1-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -19,11 +19,22 @@ Unicode has to stand in for a picture or a poster-sized word.
   <a href="https://developers.cloudflare.com/workers/static-assets/"><img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" /></a>
 </p>
 
+> **Giant type (0.10.0): big letters print again.** printer-bot's sanitizer strips
+> styling, but it keeps the `class` attribute, and the page it prints carries nutty's
+> whole shared stylesheet. One class in it, `title`, makes text 1.2× bigger, and
+> nesting it multiplies. So a Text block now prints **real bold capitals up to about
+> 4 cm tall** (5.5 cm for two or three letters) in one cheer. It borrows someone else's
+> style, so it can stop working any day without warning: the **Print size ruler**
+> checks it for the price of one cheer, and Hanzi tiling is one click away as the
+> backup. [How and why it works](#giant-type-how-and-why-it-works).
+
 > **⚠ printer-bot added an HTML sanitizer (2026-09-15), and it changed what prints.**
 > The chat message is no longer rendered as raw HTML — it passes through an allow-list
 > that keeps only a few tags and the `src`/`class` attributes. What that means in
 > practice: **Hanzi tiling (text) and CJK glyph-art (pictures) are the reliable paths
-> now**, because they are plain text and nothing can filter them.
+> now**, because they are plain text and nothing can filter them. *(For text this was
+> overtaken on 2026-10-01 by Giant type, above, which rides the `class` attribute the
+> sanitizer keeps. Hanzi is its backup now. For pictures it still stands.)*
 >
 > **Real pictures cannot be sent at all.** The sanitizer allows only an `<img>` tag, and
 > the channel's automod blocks `<img` — field-confirmed the same day, with a control, so
@@ -35,10 +46,13 @@ Unicode has to stand in for a picture or a poster-sized word.
 Receipt Wrecker is a single-file, dependency-free web tool. You build a stack of
 blocks and it packs them into as few chat messages as possible:
 
-- **Text** blocks tile a word or phrase out of **Hanzi** — a markup-free grid of Han
-  glyphs that survives the sanitizer and prints on the target RP332. (An older
-  oversized-Type render, straight or sideways, is still selectable but is stripped by
-  the sanitizer and no longer prints.)
+- **Text** blocks print in **Giant type** by default: real bold capitals, sized to
+  the biggest that fits across the paper and inside one cheer, as typed or stacked one
+  letter per line. A Text block can instead tile its words out of **Hanzi**, a
+  markup-free grid of Han glyphs that survives the sanitizer and prints on the target
+  RP332. That is the backup if Giant type ever comes out normal-sized. (The older
+  oversized "Type" render, straight or sideways, is stripped by the sanitizer and no
+  longer prints. It only appears on blocks that already use it.)
 - **Image** blocks make **glyph-art** — the picture tiled into characters, which
   nothing can filter. The **real picture** mode is currently non-functional: the only
   carrier the sanitizer allows is `<img class="emote">`, and automod blocks `<img`, so
@@ -84,8 +98,10 @@ No install, no build, no account. Pick whichever is easiest:
   npx wrangler deploy
   ```
 
-Then: choose **Big Text** or **Image** → set the **tier** and **columns** → copy the
-preview → paste it wherever a single line of text is accepted.
+Then: type into the **Text** block (it starts as Giant type, showing `HELLO`) and watch
+the receipt preview → press **Copy** on each part → paste it into chat. Add **Image**
+blocks for glyph-art, and set the **tier** and **columns** there. Before your first real
+cheer on a new printer, send the **Print size ruler** once (see below).
 
 ---
 

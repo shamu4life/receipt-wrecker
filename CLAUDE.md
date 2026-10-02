@@ -627,7 +627,35 @@ unit-tested):
 - `copyToClipboard(text)`: `navigator.clipboard.writeText()` with an
   `execCommand('copy')` fallback (`fallbackCopy()`).
 - `saveControls()` / `restoreControls()` / `loadSavedControls()`: persist/restore
-  the control panel (tier, columns, mode, toggles, text) to `localStorage`.
+  the control panel (tier, columns, mode, toggles, text) to `localStorage`. Since
+  0.10.0 that includes `tuck` (the "Hide the cheer gem" checkbox) as a FIELD of
+  `rw_controls_v1`; absent reads as off. No new key.
+- `getTuck()` / `syncTuckUi()`: the tuck checkbox. It is *disabled*, not unchecked,
+  without Cheer-ready, so turning Cheer-ready back on restores the user's choice, and
+  its hint computes the cost from the two real leads (`buildLead`) rather than writing
+  a number down: an earlier draft said "+46" for what measures 48.
+- `packStack(blocks, opts)` computes `budget = MAX_CHARS - leadLength(opts)` once and
+  passes it (and `tuck`) to `renderBlockBodies(block, budget, tuck)`, which routes
+  through `blockRender`: giant first, then hanzi, and everything else falls through to
+  Type as it always has. `composeParts` / `probeParts` pass the tuck. The Census and
+  the ruler are never tucked.
+- The Giant type card (in `textCard`): Layout and Size selects whose every option is
+  labelled with what it would print for the current text ("Level 14 · capitals 3.8 cm
+  · 1 cheer", "… · letters cut off"), computed by `giantPlan` with the packer's own
+  budget and tuck and cached per (text, layout, size, budget, tuck). The card's note
+  uses class `giant-note`, **not** `cost-note`: two browser tests find the takeover's
+  price as `.cost-note.first()`. It is driven by a `costSyncs` callback reading the
+  PACKED parts (`parts[i].bodies[j].blockId`), so its cheer count is the real one after
+  the packer has shared parts between blocks. Hanzi and Type cards carry a one-click
+  "Switch this block" nudge, because saved blocks are deliberately not migrated.
+- `renderParts` renders the lead with `insertAdjacentHTML`. It used to be a text node,
+  which would have shown the tucked lead as literal `<span…>`. Only our own markup is
+  in it (constants, digits, an nbsp). The preview's CSS (`pbPreviewCss(".rcpt")` plus
+  `GIANT_PREVIEW_CSS` for `.rw-giant` / `.rw-emote-ph`) is injected into the page and
+  appended to `RCPT_CSS`, so the Thermal preview draws giant type too. An emote is
+  previewed as a dashed 1em square labelled with the exact name: no `<img>`, no fetch.
+- `rulerParts()` / `#rulerBtn`: the Print size ruler as a one-part stack through the
+  normal packer, with the plain lead.
 - `nextNonce()`: advances a `localStorage`-backed counter (falling back to an
   in-session counter if storage is unavailable) and feeds it through `makeNonce`.
 - `init()`: wires all DOM elements and event listeners; only runs on

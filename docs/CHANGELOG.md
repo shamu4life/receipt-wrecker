@@ -10,6 +10,219 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.10.0] - 2026-10-02
+
+### The short version
+
+Big letters print again. printer-bot's sanitizer (0.9.0) strips the `style` attribute
+but keeps `class`, and the page printer-bot hands its print engine is built by copying
+every stylesheet from its settings page into the document, including nutty's shared UI
+stylesheet, `global.css`. So any class defined there styles the chat message on paper.
+One of them, `.title`, is `font-weight:900; font-size:1.2em; text-transform:uppercase`,
+and `em` is relative to the parent, so nesting it multiplies: N nested
+`<b class=title>` print at 16px × 1.2^N.
+
+That is **Giant type**, now the default render of a Text block. A five-letter word
+stacked one letter per line prints with capitals about **3.8 cm** tall in one 100-bit
+cheer, and two or three letters about 5.5 cm. Every token is sent literally and is on
+the sanitizer's own allow-list. Nothing is disguised from automod, the sanitizer or
+Twitch's bits ledger.
+
+How sure: **one real cheer** carrying 15 nested titles, a two-class `<span>` and `</br>`
+passed the channel's automod and printed giant stacked letters on 1 Oct 2026. Everything
+else (sizes, line heights, page fit, the corner tuck, the in-between sizes) is measured on
+printer-bot's real print engine (wkhtmltopdf 0.12.6.1, patched Qt, Segoe UI metrics), not
+on paper. It is also **fragile by construction**: it borrows someone else's style, which
+can change any day, and when it does the text quietly prints at normal size. So this
+release ships a one-cheer **Print size ruler** to check it, keeps Hanzi tiling one click
+away as the backup, and records the rule for when to stop (CLAUDE.md, top banner).
+
+### Added
+
+- **Giant type** (`render:"giant"`), the new default for new Text blocks and the
+  first-run seed (`HELLO`). Saved blocks keep their render; nothing is migrated.
+  - **Layout**: Auto (as typed or stacked, whichever prints bigger in one cheer), Lines
+    as you typed them, Stack the letters one per line, and Emote names. **Size**: Auto,
+    biggest that fits one cheer (the default); Auto, fill the paper width (may cost more
+    cheers); or levels 1 to 18 by hand. Every option in both menus is labelled with what
+    it prints for the current text, e.g. `Level 14 · capitals 3.8 cm · 1 cheer` or
+    `… · letters cut off`.
+  - The fit is on **width, height and characters at once**. Width uses a conservative
+    capital-letter table, `round(max(Segoe UI Bold, Arial Bold) × 1.03, 3)`, because an
+    earlier Arial-based table let "MMMMM" ink past the body edge on the real engine.
+    Height uses the engine's measured line pitch. Characters were the one budget the
+    first design forgot: height alone let 26 lines of "ROSES nnn" become a single
+    487-character body, 499 with the lead and 547 tucked, which Twitch rejects outright.
+    A split prefers the gap between two words and never starts a piece with a blank
+    line. (A blank at the top printed 396px of nothing above a "D" on the bench.)
+  - In-between sizes: one `setting-description` (×0.9) or `setting-attribute` (×0.8)
+    wrapper outside the nest fills the gaps between ×1.2 steps. Its own light weight
+    never reaches a letter. These two classes have **never been sent**.
+  - The **card** says how tall the capitals print and how many cheers the block really
+    costs once the stack is packed. It warns about a line too wide for the paper, a line
+    too long for one message, emoji it had to leave out (the engine can't draw them),
+    and words Twitch would charge as another cheer (`Kappa50`, `cheer100`). It also
+    carries a date stamp ("Confirmed printing big on 1 Oct 2026"), a note that chat sees
+    the raw tags and a mod bot may object (send it free first), and "Sized for 80 mm
+    printers". The font, weight and I/U/S row is hidden: the style is printer-bot's.
+  - **Emote names**: type Twitch emote names and printer-bot's own emote pass swaps
+    each one for its picture, which printer-bot's `.emote{height:1em}` scales to the
+    giant font-size. A lone emote prints about 4.9 cm square. Every name is padded with
+    a space on both sides, because Twitch only recognises an emote that is a word on its
+    own. Glued to a tag, the tape prints the NAME in giant capitals instead (measured).
+    The preview draws a dashed box labelled with the exact name and never downloads the
+    emote. **This form has never been sent.**
+  - Hanzi and Type cards get a one-line nudge with a **Switch this block** button,
+    because returning users' blocks are not migrated.
+  - A multi-part stack with Giant type in it says "Send part 1 first and look at the
+    printer. If the letters came out normal-sized, stop."
+- **Hide the cheer gem in the corner** (off by default; needs Cheer-ready). It wraps the
+  cheer token in `<span class="switch dialog-nav-button">`, two more of printer-bot's
+  own classes, which pin it into a clipped box in the receipt's top-right corner. The
+  gem shrinks into the corner, "100" and the nonce are cut off, and with Giant type the
+  line they took is saved (real engine: message 156 → 133px), except in the emote
+  layout, which keeps it so its first row stays centred. The lead becomes a
+  non-breaking space plus the span, 60 characters at Cheer100 against 12. The hint
+  computes the cost from the two real leads rather than quoting a number. Saved as a
+  `tuck` field in `rw_controls_v1`; no new storage key. FIELD: this exact span rode the
+  real cheer above. BENCH only: that it clips the gem.
+- **Print size ruler**, next to *Print test strip*. One cheer prints the numbers 1 to
+  13, each one size bigger than the last: 328 characters, 1275px, one 500mm page. If the
+  numbers grow, Giant type works on that printer today. Never tucked.
+- **`PB_CLASSES`**, a data table of every printer-bot class we borrow and what it does,
+  in the same spirit as the `EMBEDS` carrier table. The giant sizes, the shrink steps,
+  the tuck span and the preview's CSS all derive from it, so an incidental rename on
+  nutty's side is a one-row edit.
+- **`tools/printerbot.mjs`** (`npm run printerbot`). It builds the exact document
+  printer-bot prints for a chat message. It reads nutty's live settings page and takes
+  the stylesheet list, its order and the receipt template from that page. It runs
+  printer-bot's real `SanitizeHTML` in headless Chromium, mirrors the emote and
+  cheermote passes, and caches every file with its sha256 and fetch time under
+  `.render/`. `--png` renders on the real engine through `rig.py` (APPROXIMATE Chromium
+  only when there is no engine); `--ref` reads a pinned commit of `nuttylmao/nutty.gg`
+  instead of the live site; `--check` compares `PB_CLASSES` with the live CSS (a
+  release-checklist step, not CI). Checked on the field payload: its document matched
+  the one printer-bot's own overlay script builds, byte for byte apart from image paths.
+  Nothing of nutty's is committed. That repo has no licence.
+- **Provenance of printer-bot's files, recorded** (CLAUDE.md banner and "Measuring",
+  README "Where printer-bot's code lives"). The source is
+  `github.com/nuttylmao/nutty.gg`, whose `CNAME` is `widgets.nutty.gg`, so `main` is the
+  live site: verified byte-identical to `main` @ be2972f on 2026-10-02. No licence, so
+  never vendored. The sanitizer arrived in 121c351 (2026-08-27); `.title`'s 1.2em has
+  stood since c5e9890 (2025-09-13); inlining every stylesheet into the printed page since
+  July 2025; `global.css` has had 8 commits ever. `printerbot.mjs --ref` pins the bench
+  to a commit. To get warned of a change: the commits feed for that one stylesheet in
+  any feed reader, then `npm run printerbot -- --check`.
+- **`tools/rig.py`**: `--document FILE|-` renders a complete document untouched;
+  `--fonts DIR` adds your own copy of Segoe UI (the rig's font) through fontconfig and
+  never downloads one; `--embedded-css` reproduces pre-0.10.0 numbers. Its JSON gains
+  `pages` (with a WARNING and `pages_ink` past one page), `css` (which stylesheet, its
+  sha256 and when it was fetched) and `fonts_in_pdf` (with a WARNING when Segoe UI is
+  missing).
+- **`tools/payload.mjs`**: `{"kind":"giant",…}` and `{"kind":"ruler"}`, built through
+  `buildGiantBodies` / `packStackBodies` exactly as the app builds them.
+- Tests: `test/giant.test.mjs`, and browser cases for Giant type, the tuck, the 240px
+  preview, the Thermal preview, the emote layout's no-fetch rule and un-migrated saved
+  blocks. One browser case is **mandatory**: it runs Copy's real payload through a
+  clean-room sanitizer written from printer-bot's documented behaviour, and checks the
+  printed font-size to 0.01px.
+
+### Changed
+
+- **Render select**: "Giant type — big bold capitals (prints)", "Hanzi tiling —
+  backup if Giant type prints small", and "Type (crisp) — no longer prints" shown only
+  on a block that already is one.
+- **The cheer lead has one builder**, `buildLead`. The packer's per-part overhead used
+  to be `token.length + 4`, a second description of the lead that agreed with it only
+  until the tuck: tucked, it would have reserved 12 characters for a 60-character lead
+  and let two 230-character bodies share a 524-character part.
+- **The Hanzi and glyph-art band slack** was a hardcoded 14 (the 12-character lead plus
+  2). It is now `bandReserve`, `max(14, 500 - budget)`, which stays 14, so every untucked
+  payload is **byte-identical** to 0.9.1. It grows only with the real lead (64 tucked),
+  because the packer never splits a band and an over-length band is a rejected cheer.
+- **Cheer-ready's hint** now says it *starts* each message (it always did) and explains
+  the free test: a message with no cheer never reaches the printer but still passes the
+  chat filters.
+- `rig.py`'s default page uses printer-bot's real stylesheets once `printerbot.mjs` has
+  cached them, and otherwise its hand-copied subset **plus** the `PB_CLASSES` rules. It
+  finds wkhtmltopdf in `~/.local/opt/usr/local/bin` too (the Linux `.deb` unpacked with
+  `dpkg -x`), and its version check accepts that build's `0.12.6.1 (with patched qt)`,
+  which the old substring test rejected. It exits 3 when there is no wkhtmltopdf at all.
+- The preview avatar follows printer-bot's own rule, 90% of the body (216px), instead of
+  a fixed 15em. A side effect: the (non-printing) takeover overlay previews 24px higher.
+
+### Fixed
+
+- **The receipt preview was 28px wider than the paper.** Its content box was 268px
+  (an 80mm box with 1em padding). The tape's body is 240px (a 72mm page minus printer-bot's
+  1em margins), so a line could sit whole in the preview and come off the tape cut or
+  wrapped. `.rcpt` is now 72mm in both the page CSS and the Thermal preview's copy, and
+  the frame is an outline rather than a border, because a border inside `border-box` left
+  238px and made the two previews disagree by 2px.
+- **The lead was drawn as text.** `renderParts` appended it as a text node, so a tucked
+  lead would have shown literal `<span class=…>` on the preview receipt. It is now
+  rendered as markup. It is only ever our own constants, digits and a non-breaking space.
+- **The bench could not see a second page.** `rig.py` rasterized page 1 only, so a
+  message that ran past the 500mm page looked like a clean print. Giant type's real
+  failure mode is exactly that: on the bench with Segoe UI, the field payload itself
+  (15 levels, five stacked letters) prints "S" and the footer as a second page. That is
+  why Auto gives five stacked letters 14 levels, not 15.
+- **The bench rendered giant type at 16px**, because its CSS was a subset of the receipt
+  template's rules with nothing from `global.css` in it.
+- A browser test, "the cover surcharge line never says a range of one", had quietly
+  stopped testing anything. Under Giant type its text no longer split the stack, and the
+  assertions sat behind an `if`. It now pins its block to Hanzi and fails if the stack
+  stops splitting.
+- Docs: CLAUDE.md's export list was one short (`anyCarrierLive`), and it pointed at an
+  `npm run calibrate` script that 0.9.0 removed from `package.json`.
+- **A part after a takeover could still go out over 500 characters** (present at 0.9.1).
+  The continuation cover's 106 characters were reserved, but a single body always gets a
+  part of its own, so one too big for the room left beside the cover (a full Hanzi band:
+  598; a 464-character giant body: 582) had the cover prepended anyway and Twitch
+  rejected the whole message. Such a part now goes out without its cover: a missing
+  cover costs looks, an over-length part costs the cheer, and takeovers no longer print.
+- Found in review before release:
+  - **Invisible characters became giant blank lines.** Copy-paste brings in zero-width
+    spaces, joiners, direction marks, soft hyphens, BOMs and control codes. Giant type
+    kept them, and the stack layout made each one a line of its own ("HI\u200BYOU" lost a
+    whole size to make room for it). They are dropped now, and the card says
+    "Invisible characters … were left out" instead of a puzzling "Emoji … left out"
+    with no emoji named. CR and U+2028/2029 count as line breaks.
+  - **The cm sizes on the card read 0.6-0.8% high**, enough to show 12 of the 51 sizes
+    0.1 cm too big (GG/WP said 2.6 cm and printed 2.54). They now round the font-size to
+    whole px as the engine does and use 25.4/96 mm per px and Segoe UI's exact cap
+    height (1434/2048). Every measured size is within 0.01 cm. `PX_PER_MM` is unchanged.
+  - **Emote names with the gem hidden printed the first row off-centre.** Stripping the
+    emote body's line break put its padded first line right after the hidden gem's
+    non-breaking space, where the pad space no longer collapses: a 27px skew between
+    rows on the real engine. The emote layout now keeps its line break (one, never two),
+    and both rows land where they do untucked.
+  - **The documented bench pipe failed.** `payload.mjs … | printerbot.mjs --out -` threw
+    EAGAIN whenever the writer was slower than printerbot's startup. stdin is now read as
+    a stream to EOF.
+  - The unit test that keeps `rig.py`'s hand-copied `PB_CSS` in step with `PB_CLASSES`
+    now reads the two CSS constants rig.py actually renders with (not the whole file,
+    where a rule in a comment would pass) and checks both directions.
+
+### Known
+
+- **Never sent, so first in line for a free probe** (Cheer-ready off): the two shrink
+  classes, which Auto uses whenever an in-between size is the best fit; the padded emote
+  form; and a tucked lead followed by giant text with no line break between.
+- **It can stop working without warning.** If nutty renames `.title` by accident, the
+  class table gets a one-row update after a probe. If nutty removes or scopes the
+  stylesheet on purpose, or a channel's mods block the form, that is a no. Use Hanzi,
+  and never a disguised variant.
+- Sized for **80 mm** rolls only. On 58 mm the letters would be cut off.
+- Emotes are assumed square; a wide BTTV/7TV/FFZ emote is wider than the fit allows.
+  The real engine centres a padded emote line half a space left of centre (0.138em); the
+  preview does not show this.
+- The preview draws with the viewer's fonts. Most viewers have no Segoe UI, so letter
+  widths in the preview differ from the tape. Heights follow the tape, via a preview-only
+  1.33 line height.
+- Chat shows the raw tags, the same one repeated up to 18 times per line, which some
+  channels' mod bots treat as spam.
+
 ## [0.9.1] - 2026-09-15
 
 ### Fixed

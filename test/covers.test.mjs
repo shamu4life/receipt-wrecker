@@ -78,6 +78,10 @@ test("the cover's characters are RESERVED, so no part overflows Twitch's limit",
   // 160-char bodies are chosen so three fit a part's raw 488-char body budget but only
   // two fit once 106 characters of cover are taken out. Prepend without reserving and
   // part 2 lands at 598 characters — over 500, and Twitch drops the whole message.
+  // Since the packer also DROPS a cover a part cannot afford (the backstop below), an
+  // unreserved cover no longer shows up as 598: it shows up as part 2 going out bare.
+  // So this asserts both halves: under 500 AND covered. Remove the reservation and the
+  // second one goes red.
   const parts = packStackBodies(
     [takeoverBody(), body(160), body(160), body(160), body(160), body(160), body(160)],
     OPTS);
@@ -87,6 +91,11 @@ test("the cover's characters are RESERVED, so no part overflows Twitch's limit",
     assert.ok(p.chars <= MAX_CHARS,
       "part " + (i + 1) + " is " + p.chars + " chars — over " + MAX_CHARS
       + ", so Twitch rejects it outright. The cover was prepended without being reserved.");
+    if (i) {
+      assert.equal(p.cover, COVER,
+        "part " + (i + 1) + " went out without its cover: the packer filled it as if the 106 "
+        + "characters were free (" + p.bodies.length + " bodies), so the backstop had to drop it");
+    }
   });
 });
 
@@ -128,4 +137,55 @@ test("the cover follows the block's own pull, not the default", () => {
   assert.equal(parts[1].cover, odd,
     "the continuation must repaint at the SAME lift as the takeover it continues, "
     + "or the run steps sideways mid-tape");
+});
+
+test("the cover is still reserved under the 60-character tucked lead", () => {
+  // The cover and the tuck stack: a part after the first pays the tucked lead (60, +4 for
+  // the <br> a first body may gain) AND 106 of cover before any body goes in. 170-character
+  // bodies are chosen to discriminate: reserving the old 12-character lead lets two of them
+  // share a covered part at 60 + 106 + 4 + 340 = 510, which Twitch rejects; reserving the
+  // real 64 keeps them apart.
+  const opts = Object.assign({}, OPTS, { tuck: true });
+  const parts = packStackBodies(
+    [takeoverBody(), body(170), body(170), body(170), body(170), body(170), body(170)], opts);
+  assert.ok(parts.length >= 3, "expected a multi-part split, got " + parts.length);
+  parts.forEach((p, i) => {
+    assert.equal(p.chars, len(p.payload), "part " + (i + 1) + " miscounted its own payload");
+    assert.ok(p.chars <= MAX_CHARS, "part " + (i + 1) + " is " + p.chars + " chars under the tuck");
+    if (i) {
+      assert.equal(p.cover, COVER, "part " + (i + 1) + " lost its cover under the tuck");
+      assert.ok(p.payload.startsWith(p.lead + COVER), "part " + (i + 1) + ": the cover must follow the lead");
+    }
+  });
+});
+
+// A body bigger than (maxBody - cover) still "fits" an EMPTY part (a single body always
+// gets its own receipt), and before 0.10.0 the cover was then prepended anyway: a full
+// 15-column Hanzi band after a takeover landed at 598 characters, a 464-character giant
+// body at 582. Twitch rejects both outright, so a stack that merely CONTAINED a (no
+// longer printing) takeover could stop the art after it from printing at all. That bug
+// was present at 0.9.1 too. A missing cover costs looks; an over-length part costs the
+// cheer, so such a part now goes out bare.
+test("a part that cannot afford its cover goes out without it, never over 500", () => {
+  const band = "丶".repeat(480);
+  const parts = packStackBodies([takeoverBody(), { html: band, chars: 480, heightPx: 576 }], OPTS);
+  assert.equal(parts.length, 2);
+  parts.forEach((p, i) => {
+    assert.ok(p.chars <= MAX_CHARS, "part " + (i + 1) + " is " + p.chars + " characters: " + p.payload.slice(0, 40) + "…");
+    assert.equal(p.chars, len(p.payload));
+  });
+  assert.equal(parts[1].cover, "", "the part that cannot afford the cover still claims one");
+  assert.equal(parts[1].payload, parts[1].lead + band, "the bare part must be exactly lead + body");
+  // The same for a giant body sized to the whole tucked budget (500 - 64 = 436): its <br>
+  // stripped, it lands at exactly 60 + 432 = 492, with no room for 106 of cover.
+  const giant = { html: "<br>" + "x".repeat(432), chars: 436, heightPx: 600, leadBr: true };
+  const tucked = packStackBodies([takeoverBody(), giant], Object.assign({}, OPTS, { tuck: true }));
+  assert.equal(tucked[1].cover, "");
+  assert.ok(tucked[1].chars <= MAX_CHARS, tucked[1].chars);
+  // Only the part that cannot afford it loses it: the NEXT part, which can, is covered.
+  const after = packStackBodies([takeoverBody(), { html: band, chars: 480, heightPx: 576 }, body(200)], OPTS);
+  assert.equal(after.length, 3);
+  assert.equal(after[1].cover, "");
+  assert.equal(after[2].cover, COVER, "dropping one part's cover must not stop the run's later covers");
+  after.forEach((p) => assert.ok(p.chars <= MAX_CHARS, p.chars));
 });

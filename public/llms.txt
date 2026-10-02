@@ -1,9 +1,9 @@
 # Receipt Wrecker
 
 > A single-file web tool that turns text or a picture into a paste-ready payload for
-> a character-limited chat box. Its headline use is making oversized text, a real
-> picture, or a fake receipt header print on a Twitch streamer's thermal receipt
-> printer, by pasting the output into chat as a `Cheer100`.
+> a character-limited chat box. Its headline use is making oversized text or a
+> recognisable picture print on a Twitch streamer's thermal receipt printer, by pasting
+> the output into chat as a `Cheer100`.
 
 AI crawlers and LLM agents are welcome to read, index, and cite this site. The tool
 is open source under the MIT license and everything below is public.
@@ -21,40 +21,56 @@ Key facts:
 
 As of 2026-09-15 the receipt printer's bot runs the chat message through an HTML
 sanitizer (an allow-list keeping only a few tags and the src/class attributes)
-before rendering it. That inverted which path is primary:
+before rendering it. What prints now, as of version 0.10.0 (2026-10-02):
 
-- Plain Unicode glyphs — now the primary, reliable path. Glyph-art tiles a picture
-  into characters and Hanzi-tiled big text does the same for words. There is no
-  markup at all, so the sanitizer can't touch it. The Hanzi/CJK forms are the
-  backbone because their uniform-width glyphs line up without any styling.
-- HTML markup — now stripped, and real pictures cannot be sent at all. The
-  sanitizer removes SVG (so big "Type", sideways type and the Takeover/fake-cheer
-  overlays no longer render) and every picture carrier except an <img> whose class
-  is "emote" or "bits" — and the channel's separate blocked-terms filter blocks
-  "<img", which was confirmed by a test message the same day. The two filters leave
-  no tag that can carry a picture, so the app warns instead of sending one. ASCII
-  glyph-art also breaks, because it depended on styling the sanitizer strips;
-  Hanzi/CJK is used instead.
+- Giant type, for text. The sanitizer removes the style attribute but keeps the
+  class attribute, and the printed page includes the bot author's shared stylesheet,
+  in which the class "title" means bold, uppercase and 1.2 times the parent's size.
+  Nesting it multiplies, so N nested <b class=title> tags print at 16px x 1.2^N:
+  capitals about 3.8 cm tall for a five-letter stacked word in one cheer. Every tag is
+  one the sanitizer allows, sent as written; nothing is disguised. One real cheer
+  confirmed it prints (2026-10-01); sizes are measured on the bot's own print engine.
+  It depends on a stylesheet the bot's author can change at any time, so the app
+  offers a one-cheer "Print size ruler" to check it, and keeps Hanzi tiling as the
+  backup.
+- Plain Unicode glyphs, the markup-free path. Glyph-art tiles a picture into
+  characters, and Hanzi tiling does the same for words. There is no markup at all, so
+  the sanitizer can't touch it. The Hanzi/CJK forms are used because their
+  uniform-width glyphs line up without any styling. For pictures this is the only path.
+- Other HTML markup is stripped, and an arbitrary picture cannot be sent at all. The
+  sanitizer removes SVG (so the old "Type" render, sideways type and the
+  Takeover/fake-cheer overlays no longer render) and every picture carrier except an
+  <img> whose class is "emote" or "bits", and the channel's separate blocked-terms
+  filter blocks "<img", which was confirmed by a test message the same day. The two
+  filters leave no tag that can carry a picture of ours, so the app warns instead of
+  sending one. (A Twitch emote the sender can use is the exception: the bot itself
+  draws it, and Giant type's emote layout makes it giant.) ASCII glyph-art also breaks,
+  because it depended on styling the sanitizer strips.
 
 Glyph output stays inside the Basic Multilingual Plane, with no colour emoji and no
 astral-plane codepoints, because the target renderer is a 2011-era browser engine
-with no colour-font support.
+with no colour-font support. Giant type prints the user's own text, so it leaves emoji
+out and says which, and drops invisible characters (zero-width spaces, control codes)
+too, saying so.
 
 ## Modes
 
 You compose a stack of blocks, and the app packs them into as few messages as
 possible.
 
-- A Text block sets a word or phrase as oversized type, straight or rotated, or
-  tiled out of Hanzi.
-- An Image block carries a real picture from a link or an upload, or glyph-art made
-  from either.
-- A Takeover block paints over the printer bot's own header. It holds an ordered
-  list of items, text or picture, any number of them in any order, each with its own
-  font, size, formatting, alignment and nudge, under one block-level anchor (top /
-  centre / bottom) and a calibration "reach up". The **Seed fake donation** button
-  fills an empty one with the four-item arrangement of a real header: picture,
-  amount, name, italic note. After that they are ordinary items you can edit,
+- A Text block prints a word or phrase in Giant type (as typed, stacked one letter
+  per line, or as Twitch emote names), or tiles it out of Hanzi. The older straight or
+  rotated "Type" render no longer prints and is only shown on blocks that already use
+  it.
+- An Image block makes glyph-art from a link or an upload. Its real-picture mode is
+  kept but cannot currently be sent (see above), and the block says so.
+- A Takeover block paints over the printer bot's own header. It is built from SVG,
+  which the sanitizer strips, so it no longer prints; it stays in the app, flagged, in
+  case that changes. It holds an ordered list of items, text or picture, any number of
+  them in any order, each with its own font, size, formatting, alignment and nudge,
+  under one block-level anchor (top / centre / bottom) and a calibration "reach up".
+  The **Seed fake donation** button fills an empty one with the four-item arrangement
+  of a real header: picture, amount, name, italic note. After that they are ordinary items you can edit,
   reorder or delete. The amount is free text, because the same printer bot runs on
   YouTube and Kick, and their headers say neither "BITS" nor anything like it. It is
   a visual gag printed on till roll. It creates no record of anything, and the chat
@@ -71,7 +87,12 @@ with that block flagged for re-upload rather than printing blank.
 
 A **Cheer-ready** toggle prefixes the payload with a `Cheer<N>` token plus a small
 visible rotating nonce, so the message registers as a cheer and a duplicate-message
-filter doesn't eat a re-send.
+filter doesn't eat a re-send. With it off, a message is a free test: it never reaches
+the printer but still passes the channel's chat filters. An optional **Hide the cheer
+gem** setting wraps the token in a box the bot's own stylesheet pins to the receipt's
+corner, saving the line the cheer gem would print on (except in the emote layout,
+which keeps that line so its first row stays centred); the token stays a normal,
+charged cheer.
 
 ## Privacy
 
@@ -84,8 +105,9 @@ call this project's own Cloudflare Worker and nothing else:
   **Thermal preview** fetches that picture through an image proxy, because a browser
   canvas cannot read cross-origin pixels directly.
 
-Big Text, and any picture you pick from your own disk for glyph-art, never leave the
-device. Settings and your block stack are kept in `localStorage`.
+Big Text (Giant type included; its emote preview never downloads an emote), and any
+picture you pick from your own disk for glyph-art, never leave the device. Settings,
+your block stack and saved presets are kept in `localStorage`.
 
 ## Docs
 

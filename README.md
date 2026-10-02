@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.9.1" src="https://img.shields.io/badge/version-0.9.1-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -19,11 +19,22 @@ Unicode has to stand in for a picture or a poster-sized word.
   <a href="https://developers.cloudflare.com/workers/static-assets/"><img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white" /></a>
 </p>
 
+> **Giant type (0.10.0): big letters print again.** printer-bot's sanitizer strips
+> styling, but it keeps the `class` attribute, and the page it prints carries nutty's
+> whole shared stylesheet. One class in it, `title`, makes text 1.2× bigger, and
+> nesting it multiplies. So a Text block now prints **real bold capitals up to about
+> 4 cm tall** (5.5 cm for two or three letters) in one cheer. It borrows someone else's
+> style, so it can stop working any day without warning: the **Print size ruler**
+> checks it for the price of one cheer, and Hanzi tiling is one click away as the
+> backup. [How and why it works](#giant-type-how-and-why-it-works).
+
 > **⚠ printer-bot added an HTML sanitizer (2026-09-15), and it changed what prints.**
 > The chat message is no longer rendered as raw HTML — it passes through an allow-list
 > that keeps only a few tags and the `src`/`class` attributes. What that means in
 > practice: **Hanzi tiling (text) and CJK glyph-art (pictures) are the reliable paths
-> now**, because they are plain text and nothing can filter them.
+> now**, because they are plain text and nothing can filter them. *(For text this was
+> overtaken on 2026-10-01 by Giant type, above, which rides the `class` attribute the
+> sanitizer keeps. Hanzi is its backup now. For pictures it still stands.)*
 >
 > **Real pictures cannot be sent at all.** The sanitizer allows only an `<img>` tag, and
 > the channel's automod blocks `<img` — field-confirmed the same day, with a control, so
@@ -35,10 +46,13 @@ Unicode has to stand in for a picture or a poster-sized word.
 Receipt Wrecker is a single-file, dependency-free web tool. You build a stack of
 blocks and it packs them into as few chat messages as possible:
 
-- **Text** blocks tile a word or phrase out of **Hanzi** — a markup-free grid of Han
-  glyphs that survives the sanitizer and prints on the target RP332. (An older
-  oversized-Type render, straight or sideways, is still selectable but is stripped by
-  the sanitizer and no longer prints.)
+- **Text** blocks print in **Giant type** by default: real bold capitals, sized to
+  the biggest that fits across the paper and inside one cheer, as typed or stacked one
+  letter per line. A Text block can instead tile its words out of **Hanzi**, a
+  markup-free grid of Han glyphs that survives the sanitizer and prints on the target
+  RP332. That is the backup if Giant type ever comes out normal-sized. (The older
+  oversized "Type" render, straight or sideways, is stripped by the sanitizer and no
+  longer prints. It only appears on blocks that already use it.)
 - **Image** blocks make **glyph-art** — the picture tiled into characters, which
   nothing can filter. The **real picture** mode is currently non-functional: the only
   carrier the sanitizer allows is `<img class="emote">`, and automod blocks `<img`, so
@@ -84,8 +98,189 @@ No install, no build, no account. Pick whichever is easiest:
   npx wrangler deploy
   ```
 
-Then: choose **Big Text** or **Image** → set the **tier** and **columns** → copy the
-preview → paste it wherever a single line of text is accepted.
+Then: type into the **Text** block (it starts as Giant type, showing `HELLO`) and watch
+the receipt preview → press **Copy** on each part → paste it into chat. Add **Image**
+blocks for glyph-art, and set the **tier** and **columns** there. Before your first real
+cheer on a new printer, send the **Print size ruler** once (see below).
+
+---
+
+## Giant type: how and why it works
+
+**Giant type** prints your text as huge bold capitals. A five-letter word stacked one
+letter per line comes out with capitals about **3.8 cm** tall on an 80 mm roll, for one
+100-bit cheer. It is the default render of a Text block.
+
+### Why it works, step by step
+
+You don't need to read code to follow this. Each step is one fact about how
+printer-bot turns a chat message into paper.
+
+1. **printer-bot cleans your message, but keeps one useful thing.** Before printing, it
+   runs the message through a filter (a "sanitizer") that throws away almost all
+   formatting. It keeps a handful of plain tags, like `<b>` for bold, and exactly one
+   attribute that matters here: `class`. A class is a label that means "style me the
+   way the stylesheet says things called *this* should look".
+2. **The printed page brings a stylesheet that already defines labels.** printer-bot
+   doesn't print your message on a bare page. It builds a little web page for the
+   receipt (its code calls this step `GetRenderedHTML`), and into that page it copies
+   every stylesheet from its own settings screen. One of them is `global.css`, the
+   shared stylesheet nutty uses for all of their widgets. So any label defined there
+   works on your message too.
+3. **One of those labels is a heading style.** In `global.css`, `title` means "bold,
+   in capitals, and **1.2 times the size of whatever it sits inside**". On printer-bot's
+   settings screen it is what makes headings stand out.
+4. **A title inside a title multiplies.** "1.2 times the size of whatever it sits
+   inside" compounds. One title is 1.2 × the normal 16-pixel text. A title inside a
+   title is 1.2 × 1.2 = 1.44 ×. Fourteen of them nested is 1.2 multiplied by itself 14
+   times, about 12.8 ×, which is **205 pixels**. In general, N nested titles print at
+   16 × 1.2^N pixels.
+5. **The app does the arithmetic.** It knows how wide every capital letter is, how tall
+   every line comes out on printer-bot's engine, and how many characters a Twitch
+   message may hold (500). It picks the biggest nesting that fits across the paper and
+   inside one cheer, and it splits across several cheers only if you ask for something
+   bigger. What it sends is plain text: the cheer, `<b class=title>` repeated, your
+   words, and the matching closing tags.
+
+Here is the whole payload for `HELLO`, with the 14 repeated tags shortened:
+
+```
+Cheer100 07 <br><b class=title>…14 times…H<br>E<br>L<br>L<br>O</b>…14 times…<br>
+```
+
+That is 307 of the 500 characters. **Nothing in it is disguised.** Every tag is one the
+sanitizer openly allows, written out plainly. Twitch still sees an ordinary cheer and
+charges it, the receipt's header still prints your name and the bits, and chat sees
+exactly what you sent. (Chat shows the raw tags, the same one repeated. If a channel's
+mod bot removes repeated text, send it once with **Cheer-ready** off first: that is free,
+and it shows whether the message gets through.)
+
+### What you control
+
+- **Layout.** **Auto** (the default) tries your text as typed and stacked, and picks
+  whichever prints bigger in one cheer. **Lines as you typed them** keeps your line
+  breaks. **Stack the letters, one per line** is what makes a short word huge. **Emote
+  names** is described below.
+- **Size.** **Auto: biggest that fits one cheer** is the default and the one to use.
+  **Auto: fill the paper width** goes as big as the paper allows, even if that costs
+  more cheers. Then every size by hand. Each option in both menus is labelled with what
+  it would actually print for your text, for example `Level 14 · capitals 3.8 cm · 1
+  cheer`, or `… · letters cut off` when a size is too wide for the paper.
+- The card under the text says how tall the capitals will print and how many cheers the
+  block really costs once the stack is packed. It also warns when a line is too wide,
+  when emoji were left out, and when a word would be charged as another cheer.
+
+Rough sizes, all for one cheer. Capitals are about 70% of the type size, and a level is
+one more nested title. Auto also uses in-between sizes (0.9 × and 0.8 × a level), so
+real picks land between these rows.
+
+| levels | type size | capitals | what Auto gives it |
+|---|---|---|---|
+| 5 | 40 px | ≈ 0.7 cm | `WRECK THE RECEIPT COMPLETELY`, stacked (just under this row) |
+| 8 | 69 px | ≈ 1.3 cm | `HAPPY BIRTHDAY`, stacked |
+| 10 | 99 px | ≈ 1.8 cm | a ten-letter word, stacked |
+| 14 | 205 px | ≈ 3.8 cm | a five-letter word, stacked (`HELLO`) |
+| 16 | 296 px | ≈ 5.5 cm | two or three letters (`GG`, `LOL`) |
+
+From about 15 levels up, wide capitals like M and W no longer fit across the paper.
+Auto knows each letter's width and never picks a size that cuts one off. A size you pick
+by hand says so in its label.
+
+### Things it can't do
+
+- **Fonts, weight and italics.** The style comes from printer-bot (bold Segoe UI on a
+  Windows rig), so the formatting row is hidden for Giant type. On purpose, there will
+  never be an italic or "other tag" variant: see [the rule](#if-it-stops-working).
+- **Lowercase.** Everything prints in capitals. Your text is sent as you typed it, and
+  the printer capitalises it.
+- **Emoji.** The printer's engine can't draw them (they come out as empty boxes, and at
+  this size a very large one), so they are left out, and the card says which. Invisible
+  characters that copy-paste brings along (zero-width spaces, control codes) are left
+  out too, and the card says so rather than calling them emoji: each one would otherwise
+  cost a whole blank giant line in a stack.
+- **Narrow rolls.** It is sized for **80 mm** printers. On a 58 mm roll the letters
+  would be cut off.
+- **Words that look like cheers.** `Kappa50` or `cheer100` on its own in your text is a
+  second cheer to Twitch, and it charges for it. The card warns you.
+
+### Emote names (needs one test print)
+
+Pick **Layout → Emote names** and type Twitch emote names, separated by spaces, with
+their exact capitals (`Kappa`, not `kappa`). printer-bot swaps each name it recognises
+for the emote's picture, and printer-bot's own style makes an emote exactly as tall as
+the text around it. So a giant-sized emote prints giant: a single emote comes out about
+4.9 cm square. Some caveats:
+
+- Only emotes you are allowed to use in that chat get swapped. A channel's sub emotes
+  need a sub. Anything else prints as the name, in giant capitals.
+- BTTV, 7TV and FFZ emotes may not work. The picture is a small image blown up, so
+  expect chunky pixels.
+- The app separates every name with spaces on both sides, because Twitch only
+  recognises an emote that is a word on its own. The preview draws each emote as a
+  dashed box labelled with the name. It never downloads the emote.
+- **This exact form has never been sent.** Try one cheer before a bigger run, or send it
+  free first (Cheer-ready off): if Twitch chat shows the emote picture, Twitch recognised
+  it.
+
+### How sure are we?
+
+- **Seen on real paper:** one real cheer carrying 15 nested titles and a stacked
+  `P E N I S` went through the channel's automod and printed giant letters, on 1 Oct 2026.
+- **Measured on printer-bot's own print engine, not on paper:** every size, every line
+  height, the cheer-gem tuck, the in-between sizes, emote sizes, and when a message
+  runs past one 500 mm page. (These came from the same wkhtmltopdf build printer-bot
+  uses, fed the exact page printer-bot builds.)
+- **Never sent:** the two "in-between size" styles Auto sometimes uses
+  (`setting-description` and `setting-attribute`, ×0.9 and ×0.8), the emote form, and
+  the tucked cheer directly followed by giant text.
+
+### If it stops working
+
+Giant type borrows a style from someone else's page. Its author can change or remove it
+on any day, and if that happens **nothing errors**: your text just prints at normal size,
+and the cheer is still spent. So:
+
+- **Before your first real run on a printer**, send the **Print size ruler** (the button
+  next to *Print test strip*). It is one cheer that prints the numbers 1 to 13, each a
+  size bigger than the last. If the numbers grow, Giant type works on that printer
+  today, and you can see every size on real paper.
+- **On a run of several cheers**, send part 1 first and look at the printer. If the
+  letters came out normal-sized, stop.
+- **If it has stopped**, switch the block's Render to **Hanzi tiling**, which needs no
+  borrowed style at all.
+- **If a channel's mods block it**, that is their call. The app will never offer a
+  disguised or "alternative spelling" version to get past them, and nobody should
+  write one.
+
+### Where printer-bot's code lives, and how to get warned
+
+printer-bot's pages are published straight from nutty's public GitHub repository,
+[`nuttylmao/nutty.gg`](https://github.com/nuttylmao/nutty.gg). The `widgets.nutty.gg`
+address is that repository's own website, so whatever is on its `main` branch is what
+every streamer's printer-bot loads. (Checked on 2 Oct 2026: the live files were
+identical, byte for byte, to `main` at commit `be2972f`.) That makes its history
+readable, and the history is reassuring:
+
+- the `title` style, at 1.2×, has been in the shared stylesheet since 13 Sep 2025
+  (commit `c5e9890`);
+- copying every stylesheet into the printed page goes back to July 2025;
+- the sanitizer arrived on 27 Aug 2026 (commit `121c351`; this project noticed it on
+  15 Sep), which is the change that stopped the old Type and Takeover modes printing;
+- the shared stylesheet has changed only **eight times** in its life.
+
+Stable, but not a promise. **To be told when it changes**, add this address to any
+feed reader (Feedly, Inoreader, Thunderbird and the like):
+
+<https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom>
+
+It lists every change to that one stylesheet and nothing else, so a new entry is news.
+When one shows up, send the **Print size ruler** before your next real run (or, if you
+have the repo checked out, run `npm run printerbot -- --check`: its last line says
+whether every style Giant type borrows is still there).
+
+That repository has **no licence**, which means all rights are reserved. So this
+project never copies any of nutty's files; the bench below fetches them when it runs
+and keeps them out of git.
 
 ---
 
@@ -139,13 +334,43 @@ measured fact, with a single throwaway print and no access to the other side.
 
 ## Cheer-ready output & the AutoMod caveat
 
-For the Twitch-cheer use case there's a **Cheer-ready** toggle (on by default):
-it adds a space-delimited `Cheer100` token plus a small visible rotating nonce
-to the payload, so Twitch registers the message as a cheer and a duplicate-message
-filter doesn't eat a re-send. Turn it off to get the raw glyph block only, either
-for other destinations or when you're composing with a chunking tool like
-[`cheer-splitter-9k`](https://github.com/shamu4life/cheer-splitter-9k) that adds
-its own prefix.
+For the Twitch-cheer use case there's a **Cheer-ready** toggle (on by default). Every
+message then **starts with** a `Cheer100` token (`Cheer<your bits>` if you set more) and
+a small visible rotating two-digit nonce, so Twitch registers the message as a cheer and
+a duplicate-message filter doesn't eat a re-send. The token goes first so it survives
+anything that trims a long message, and so the message never starts with `<`, which
+some sends are dropped for. Turn it off to get the blocks only, for three reasons:
+
+- other destinations;
+- composing with a chunking tool like
+  [`cheer-splitter-9k`](https://github.com/shamu4life/cheer-splitter-9k) that adds its
+  own prefix;
+- a **free test**. A message with no cheer never reaches the printer, but it does go
+  through the channel's chat filters, so sending it shows whether the channel lets that
+  text through before you spend bits on it.
+
+### Hide the cheer gem (optional)
+
+printer-bot turns your `Cheer100` into a small cheer gem plus "100", and with the
+nonce that takes a line of its own above your art. **Hide the cheer gem in the
+corner** (off by default, needs Cheer-ready) wraps the token in a box that
+printer-bot's own stylesheet pins to the receipt's top-right corner and clips. The gem
+is squeezed into a tiny corner box, "100" and the nonce are cut off, and with Giant type
+the line they used is saved for your art. printer-bot's header still prints the bits
+and your name, and Twitch still sees, shows and charges an ordinary cheer.
+
+- It costs **48 of the 500 characters** at 100 bits, a little more for bigger amounts.
+  The hint under the checkbox computes it. A cheer that starts with Giant type gets 4
+  back. Any other block gets a line break in front of it instead, so a Hanzi grid still
+  starts on a clean line.
+- It was made for Giant type. With other blocks it hides the gem, but the line stays.
+  The **Emote names** layout keeps that line on purpose: every emote line starts with a
+  space (Twitch needs it), and right after the hidden gem that space would print and
+  push the first row of emotes sideways, out of line with the rest.
+- How sure: the corner box rode the one real cheer that printed giant letters, so chat
+  and the sanitizer accept it. That it clips the gem into the corner is measured on
+  printer-bot's print engine, not yet seen on paper. If printer-bot ever changes that
+  style, the gem just prints normally and nothing else breaks.
 
 One caveat: a channel's AutoMod or blocked-terms list can hold or drop a message
 before it ever reaches chat. That's a per-channel moderation setting on Twitch's
@@ -156,6 +381,12 @@ before assuming the tool is broken.
 ---
 
 ## Big Text formatting, and why the font matters more sideways
+
+*This section is about the old **Type** render (straight or sideways), which the
+sanitizer stopped from printing in September 2026. It is kept as a record, and for any
+destination that still renders markup. **Giant type has no formatting row**: its weight
+and font come from printer-bot's own style (bold Segoe UI on a Windows rig), so the
+card hides the font, weight and I/U/S controls and says so.*
 
 A **Text** block rendered as Big Text (straight or sideways) carries the same
 formatting row as a takeover line: the nine-font select, a weight select, and
@@ -205,6 +436,10 @@ render is tiled glyphs, not type, and there is nothing to format.
 ---
 
 ## Takeover: make the tape your artwork, not a receipt
+
+*A takeover is an SVG, and since printer-bot's sanitizer arrived (September 2026) it no
+longer prints, because the sanitizer removes SVG. The block stays in the app, flagged,
+in case that changes. This section is the record of how it worked.*
 
 printer-bot draws its own header above your message: the avatar, a `<N> BITS` line,
 and the cheerer's name. A **Takeover** block paints over it. The block is an opaque
@@ -332,6 +567,11 @@ it. The paper is the gag; everyone watching knows it's lying, which is the joke.
 
 ## Carrier tags: how a real picture gets there, and what to do when it stops
 
+*Since September 2026 none of these carriers can be sent: the sanitizer keeps only
+`<img class="emote">` or `<img class="bits">`, and the channel's automod blocks `<img`
+(see the banner at the top). The table below is the record from before that, and the
+list to re-check if either filter ever changes. Glyph-art is the picture path now.*
+
 Glyph art is just text, so nothing can really stop it. A **real picture** is
 different: printer-bot drops the chat message into its page as markup, so the photo
 rides on an HTML tag pointing at a URL. Which tag that is has turned into a moving
@@ -393,6 +633,10 @@ photo, and it always prints.
 
 ## How it works / first-print Census
 
+This describes the glyph-art pipeline (Hanzi tiling and Image glyph-art). Giant type
+skips steps 1 to 3: it sends your text as text, wrapped in nested titles, and the
+printer draws the letters. See [Giant type](#giant-type-how-and-why-it-works).
+
 1. **Rasterize.** Big Text mode draws your word(s) onto an off-screen `<canvas>`,
    scaled to fill the target width; Image mode draws your picked image onto a
    canvas at the sampled resolution. Either way you get a luminance grid.
@@ -408,12 +652,15 @@ photo, and it always prints.
    cell.
 4. **Package.** If **Cheer-ready** is on, the payload is *prefixed* with
    `Cheer<N>` plus a visible rotating nonce, leading so that they survive any
-   trailing-strip and the message never starts with `<`. A live character counter
+   trailing-strip and the message never starts with `<`. (With **Hide the cheer gem**
+   on, a non-breaking space leads and the token sits in the corner box right after it,
+   so the message still never starts with `<`.) A live character counter
    (budget: 500, Twitch's per-message cap, leaving headroom) turns red if you go
    over instead of silently truncating.
 5. **Census.** The **Print test strip** button runs the same pipeline over a
    fixed diagnostic string instead of your input. That is the blind-first-print
-   calibration described above.
+   calibration described above. Its Giant type counterpart is the **Print size
+   ruler**: one cheer, the numbers 1 to 13 at every size.
 
 The glyph pipeline itself runs synchronously in the page. That is not the same as
 "nothing is sent": pasting an image URL fetches it through our `/px` proxy, dragging
@@ -460,7 +707,8 @@ is no longer true, and the honest breakdown matters more than the slogan:
 
 **Stays on your device:**
 
-- **Big Text** in every style. Nothing is sent.
+- **Big Text** in every style, Giant type included. Nothing is sent. The Emote layout's
+  preview draws a labelled box for each emote and never downloads the emote.
 - **A picture you pick from disk for glyph-art**, decoded locally in a canvas.
 - No analytics, no accounts, no third parties. Every request below goes to this
   project's own Cloudflare Worker and nowhere else.
@@ -478,9 +726,9 @@ Two of those fire without a dedicated button (typing a URL, and dragging a slide
 so "I never clicked upload" is not the same as "nothing left the device".
 
 **Storage:** four `localStorage` keys, all wrapped in `try/catch` so locked-down
-contexts still work: control settings (`rw_controls_v1`), the nonce counter
-(`rw_nonce_seq`), your block stack (`rw_blocks_v1`) and your saved presets
-(`rw_presets_v1`).
+contexts still work: control settings (`rw_controls_v1`, which also holds the "Hide the
+cheer gem" choice), the nonce counter (`rw_nonce_seq`), your block stack
+(`rw_blocks_v1`) and your saved presets (`rw_presets_v1`).
 
 The app is still one auditable file, and it still runs offline if you only use Big
 Text and locally-picked pictures.
@@ -541,8 +789,12 @@ image URL for glyph-art, and the image adjustment bake.
 |---|---|
 | [`public/`](public) | **The deployed site.** Cloudflare serves *only* this directory. |
 | [`public/index.html`](public/index.html) | **The entire app.** Inline CSS + vanilla JS, no assets. |
+| [`src/worker.js`](src/worker.js) | The Cloudflare Worker: serves `public/`, plus `/upload`, the short image links and the `/px` proxy. |
 | [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers config (serves `public/`). |
 | [`test/`](test) | Node `node:test` suite. Extracts the inline script and unit-tests the pure glyph engine. |
+| [`test-browser/`](test-browser) | Playwright tests that drive the real page in headless Chromium (`npm run test:browser`). |
+| [`tools/`](tools) | The print bench, for contributors: see [below](#the-print-bench-for-contributors). Dev-only, never shipped. |
+| [`docs/`](docs) | The changelog and the design specs each feature was built from. |
 | [`README.md`](README.md) | This file. |
 | [`CLAUDE.md`](CLAUDE.md) | Guidance for AI assistants and contributors. |
 | [`LICENSE`](LICENSE) | MIT. |
@@ -551,8 +803,48 @@ image URL for glyph-art, and the image adjustment bake.
 IIFE (`"use strict"`). No build step, no framework, no dependencies, no external
 resources: system font stacks only, with no web fonts, no CDN and no external images.
 Browser APIs used: Canvas 2D (rasterizing text/images), Clipboard (with
-`execCommand` fallback), and `localStorage` (control settings + nonce counter
-only).
+`execCommand` fallback), and `localStorage` (the four keys listed under
+[Privacy](#privacy-what-stays-local-and-what-doesnt)). The only network calls go to
+this project's own Worker, and only for the picture flows described there.
+
+### The print bench (for contributors)
+
+"Does it print?" is answered by measuring, not by arguing, and the tools for it live in
+[`tools/`](tools). They are dev-only: nothing here ships, and nothing of nutty's, and no
+font, is ever committed. Everything they fetch or render goes to the gitignored
+`.render/` folder.
+
+- **`tools/payload.mjs`** builds a payload with the app's own code, so the bench measures
+  what the app really sends rather than markup someone typed by hand.
+- **`tools/printerbot.mjs`** (`npm run printerbot`, new in 0.10.0) builds the *exact* page
+  printer-bot would print for a chat message. It fetches printer-bot's live settings page
+  and the stylesheets and sanitizer it uses, caches them with a checksum and the time
+  they were fetched, runs printer-bot's real sanitizer, and repeats its emote and cheer
+  steps. `--png FILE` renders the result on the real engine through `rig.py`, and
+  `--check` compares the class rules Giant type relies on against the live stylesheet:
+  run it before a release. `--ref SHA|BRANCH` reads printer-bot's files from
+  [the repository](https://github.com/nuttylmao/nutty.gg) at one commit instead of the
+  live site and records which, so a measurement can be re-run on exactly the
+  stylesheet it was taken on, or on the code from before a change. It needs
+  Playwright's Chromium (`npx playwright install chromium`) and the network, or a cache
+  from an earlier run (`--offline`).
+- **`tools/rig.py`** (`npm run render`) renders a page with the same print engine and
+  settings printer-bot uses (wkhtmltopdf 0.12.6 with patched Qt) and reports how much ink
+  landed where, how many pages it took, which stylesheet it used, and which fonts were
+  embedded. `--document` renders a complete page from `printerbot.mjs` untouched.
+  `--fonts DIR` points it at **your own** copy of Segoe UI, the font the real rig prints
+  in. Without it the numbers are for a substitute font and can differ by a whole page.
+- **`tools/calibrate.py`** (`python3 tools/calibrate.py`) builds the one-print test for
+  how the printer turns grey into dots.
+
+```sh
+node tools/payload.mjs '{"kind":"giant","text":"HELLO"}' \
+  | node tools/printerbot.mjs --out - \
+  | python3 tools/rig.py hello --document - --fonts ~/my-segoe-ui
+```
+
+The details (every flag, what the bench can and can't see, and the measurements it has
+settled) are in [CLAUDE.md](CLAUDE.md), under "Measuring against the real engine".
 
 ---
 
@@ -576,8 +868,13 @@ Run the tests before sending a change:
 
 ```sh
 npm test                       # Node's built-in test runner; zero deps to install
+npm run test:browser           # the real page in headless Chromium (npx playwright install chromium, once)
 npx wrangler deploy --dry-run  # validates config + assets
 ```
+
+Before a release, also run `npm run printerbot -- --check`. It compares the printer-bot
+styles Giant type borrows against the live stylesheet. It needs the network, so it is a
+checklist step, not part of CI.
 
 ---
 

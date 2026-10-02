@@ -35,6 +35,17 @@
 // Nothing of nutty's is vendored. Every fetched file is cached under the gitignored
 // .render/printerbot/cache/ with its sha256 and fetch time, and every run reports that
 // provenance as JSON on stderr. Do not copy those files, or any font, into the repo.
+// That is not just tidiness: the source is public at github.com/nuttylmao/nutty.gg but
+// carries NO licence, so it is all rights reserved. Fetching it to measure against is fine;
+// committing a copy is not.
+//
+// Live or pinned. widgets.nutty.gg is GitHub Pages for that repo (its CNAME), so the live
+// site IS main: checked 2026-10-02, all five files byte-identical to main @ be2972f. By
+// default this tool reads the live site, because that is what a streamer's printer-bot
+// loads today. --ref reads the same paths from the repo at a commit instead, resolved to a
+// full sha and recorded, so a measurement can be re-run against exactly the CSS it was
+// taken on, and so a past commit (say, before the sanitizer arrived in 121c351) can be
+// replayed.
 // Images are localized (file:// in .render/) because a failed subresource with an
 // extension outside wkhtmltopdf's media list is a FATAL whole-job error, and a Twitch
 // emote URL ends in "3.0".
@@ -60,7 +71,10 @@
 //   --fonts DIR          passed to rig.py: YOUR copy of Segoe UI (never downloaded)
 //   --paper MM           roll width in mm (default 80, the rig's); the page is MM-8
 //   --offline            use the cache only; never touch the network
-//   --check              exit 1 if any PB_CLASSES declaration (read from the app core) is
+//   --ref SHA|BRANCH     read nutty's files from github.com/nuttylmao/nutty.gg at that
+//                        commit instead of the live site (a branch or tag is resolved to
+//                        its sha with git ls-remote and recorded in the provenance)
+//   --check             exit 1 if any PB_CLASSES declaration (read from the app core) is
 //                        missing from the live CSS, or the real sanitizer drops one of the
 //                        classes. A release-checklist canary: NOT in CI, which stays
 //                        offline, and no test may import this file.
@@ -83,6 +97,9 @@ const MANIFEST = join(CACHE, "manifest.json");
 // nutty's side shows up as a different list in the provenance instead of a silent miss.
 const CONTENTS_URL = "https://widgets.nutty.gg/printer-bot/contents/";
 const ORIGIN = new URL(CONTENTS_URL).origin;
+// The same site's source, for --ref. A path on ORIGIN maps to the same path in the repo.
+const REPO_GIT = "https://github.com/nuttylmao/nutty.gg";
+const REPO_RAW = "https://raw.githubusercontent.com/nuttylmao/nutty.gg/";
 // Text markers of the overlay pipeline this tool MIRRORS rather than runs (contents/
 // script.js). A miss is a WARNING under --check: the mirror in passes() may be stale.
 const PIPELINE_MARKERS = ["GetRenderedHTML", 'link[rel="stylesheet"]', "SanitizeHTML(data.message)"];
@@ -126,6 +143,12 @@ function parseArgs(argv) {
       case "--out": o.out = need(i, a); i++; break;
       case "--png": o.png = need(i, a); i++; break;
       case "--fonts": o.fonts = need(i, a); i++; break;
+      case "--ref": {
+        const v = need(i, a); i++;
+        if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/.test(v)) fail(2, "--ref needs a commit sha, branch or tag, got " + JSON.stringify(v));
+        o.ref = v;
+        break;
+      }
       case "--date": {
         const d = new Date(need(i, a)); i++;
         if (isNaN(d)) fail(2, "--date needs a date, e.g. 2026-10-01T13:50:00");
@@ -187,36 +210,75 @@ function get(url) {
   return memo.get(url);
 }
 
+// --ref: the commit every nutty URL is read at, as a full sha (resolved once in main).
+let REF_SHA = null;
+
+// A branch or tag -> its commit, with git ls-remote (no API token, no rate limit). Offline,
+// only a full sha can be honoured: anything else names a commit we cannot pin.
+function resolveRef(ref) {
+  if (/^[0-9a-f]{40}$/.test(ref)) return ref;
+  if (OPTS.offline) fail(2, "--ref " + ref + " needs the network to resolve; pass the full 40-character sha with --offline");
+  const r = spawnSync("git", ["ls-remote", REPO_GIT, ref, "refs/heads/" + ref, "refs/tags/" + ref], { encoding: "utf8" });
+  if (r.error) fail(2, "--ref needs git to resolve " + JSON.stringify(ref) + ": " + r.error.message);
+  const line = (r.stdout || "").split("\n").find((l) => /^[0-9a-f]{40}\t/.test(l));
+  if (r.status !== 0 || !line) {
+    // Not a branch or tag. An abbreviated sha cannot be expanded without cloning, and a
+    // raw URL at a short sha does not resolve, so say exactly what is needed.
+    fail(2, "--ref " + JSON.stringify(ref) + " is not a branch or tag of " + REPO_GIT
+      + "; pass a branch, a tag, or a FULL 40-character commit sha");
+  }
+  return line.slice(0, 40);
+}
+
+// Where a site URL's bytes actually come from: the live site, or the same path in the repo
+// at REF_SHA. Only nutty's own origin maps; images and anything else are fetched as given.
+function sourceFor(url) {
+  if (!REF_SHA) return url;
+  const u = new URL(url);
+  if (u.origin !== ORIGIN) return url;
+  let p = u.pathname.replace(/\/{2,}/g, "/");          // the overlay's "contents//icons" double slash
+  if (p.endsWith("/")) p += "index.html";              // GitHub Pages serves a folder's index.html
+  return REPO_RAW + REF_SHA + p;
+}
+
 async function fetchOne(url) {
+  const src = sourceFor(url);
   if (!OPTS.offline) {
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(20000), redirect: "follow" });
+      const res = await fetch(src, { signal: AbortSignal.timeout(20000), redirect: "follow" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const buf = Buffer.from(await res.arrayBuffer());
-      const contentType = res.headers.get("content-type") || "";
-      const file = cachePath(url, contentType);
+      // raw.githubusercontent.com labels .css/.js/.html text/plain with nosniff, and Chromium
+      // then refuses the stylesheet and the script outright: printer-bot's page would load
+      // with no SanitizeHTML and no CSS. So a pinned file is typed by its extension, the way
+      // GitHub Pages types it for the live site.
+      const contentType = src !== url
+        ? SCRIPT_TYPES[extname(new URL(src).pathname)] || res.headers.get("content-type") || ""
+        : res.headers.get("content-type") || "";
+      const file = cachePath(src, contentType);
       mkdirSync(dirname(file), { recursive: true });
       writeFileSync(file, buf);
       const entry = { url, file: rel(file), sha256: sha(buf), bytes: buf.length,
         fetched_at: new Date().toISOString(), content_type: contentType };
-      manifest[url] = entry;
+      if (src !== url) entry.source = src;
+      manifest[src] = entry;
       mkdirSync(CACHE, { recursive: true });
       writeFileSync(MANIFEST, JSON.stringify(manifest, null, 1));
-      return { ...entry, buf, from: "live" };
+      return { ...entry, buf, from: src !== url ? "ref" : "live" };
     } catch (e) {
       const hint = process.env.HTTPS_PROXY && !process.env.NODE_USE_ENV_PROXY
         ? " (behind a proxy? Node's fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY=1)" : "";
-      if (!manifest[url]) throw new Error("could not fetch " + url + ": " + e.message + hint + ", and it is not cached");
-      warn("could not fetch " + url + ": " + e.message + hint + "; using the copy cached "
-        + manifest[url].fetched_at);
+      if (!manifest[src]) throw new Error("could not fetch " + src + ": " + e.message + hint + ", and it is not cached");
+      warn("could not fetch " + src + ": " + e.message + hint + "; using the copy cached "
+        + manifest[src].fetched_at);
     }
   }
-  const entry = manifest[url];
+  const entry = manifest[src];
   if (!entry || !existsSync(join(REPO, entry.file))) {
-    throw new Error(url + " is not cached under " + rel(CACHE) + "; run once without --offline");
+    throw new Error(src + " is not cached under " + rel(CACHE) + "; run once without --offline");
   }
   const buf = readFileSync(join(REPO, entry.file));
-  if (sha(buf) !== entry.sha256) warn("the cached copy of " + url + " no longer matches its recorded sha256");
+  if (sha(buf) !== entry.sha256) warn("the cached copy of " + src + " no longer matches its recorded sha256");
   return { ...entry, sha256: sha(buf), buf, from: "cache" };
 }
 
@@ -366,6 +428,8 @@ async function openSettingsPage(browser) {
   if (!info.template) fail(2, "printer-bot changed: the settings page has no #receipt-template");
   if (!info.sanitizer) {
     fail(2, "printer-bot changed: SanitizeHTML is not defined once the settings page has loaded"
+      + (REF_SHA ? ". At a pinned commit this is expected before 121c351 (2026-08-27), where the"
+        + " sanitizer arrived; before it, printer-bot inserted the message as raw innerHTML" : "")
       + (errors.length ? " (page errors: " + errors.join(" | ") + ")" : ""));
   }
   return { ctx, page, info, ownScripts };
@@ -513,9 +577,12 @@ async function check(browser, settings, cssInfo) {
   }
   const entries = C.PB_CLASSES.map((e) => ({ id: e.id, cls: e.cls, decl: e.decl, role: e.role, source: e.source }));
   if (!OPTS.offline) {
-    const stale = cssInfo.sources.filter((s) => s.from !== "live");
+    // Fresh means fetched this run: from the live site, or from the repo at --ref's sha.
+    const fresh = REF_SHA ? "ref" : "live";
+    const stale = cssInfo.sources.filter((s) => s.from !== fresh);
     if (stale.length) {
-      fail(2, "--check is about the LIVE stylesheets, and " + stale.map((s) => s.url).join(", ")
+      fail(2, "--check is about the " + (REF_SHA ? "stylesheets at " + REF_SHA.slice(0, 12) : "LIVE stylesheets")
+        + ", and " + stale.map((s) => s.url).join(", ")
         + " could not be fetched. Retry, or pass --offline to check the cached copy.");
     }
   }
@@ -618,7 +685,7 @@ async function check(browser, settings, cssInfo) {
   for (const s of sanitizer) note("check sanitizer " + s.id + (s.ok ? " ok" : " FAILED: " + JSON.stringify(s.sent) + " came back " + JSON.stringify(s.kept)));
   note(ok ? "check passed" + (OPTS.offline ? " (against the CACHED stylesheets, --offline)" : "")
     : "check FAILED: printer-bot's CSS or sanitizer no longer matches PB_CLASSES. If nutty removed or scoped the stylesheet on purpose, that is the bot author saying no: fall back to Hanzi. Only an incidental rename justifies remapping PB_CLASSES, after a free probe.");
-  return { ok, live: !OPTS.offline, classes, sanitizer, markers };
+  return { ok, live: !OPTS.offline && !REF_SHA, ref: REF_SHA, classes, sanitizer, markers };
 }
 
 // ---------------------------------------------------------------------------------- main
@@ -634,6 +701,14 @@ let message = OPTS.message;
 if (!OPTS.check && message === undefined) {
   if (process.stdin.isTTY) fail(2, "pipe a chat message on stdin, or pass --message (see --help)");
   message = readFileSync(0, "utf8").replace(/\r?\n$/, "");
+}
+
+if (OPTS.ref) {
+  REF_SHA = resolveRef(OPTS.ref);
+  prov.source = { repo: REPO_GIT, ref: OPTS.ref, sha: REF_SHA };
+  note("reading nutty's files from " + REPO_GIT + " @ " + REF_SHA.slice(0, 12) + " instead of the live site");
+} else {
+  prov.source = { live: ORIGIN };
 }
 
 const browser = await launch();
@@ -660,6 +735,7 @@ try {
     writeFileSync(join(OUT, "printed.css"), cssInfo.css);
     writeFileSync(join(OUT, "printed.css.json"), JSON.stringify({
       sha256: prov.css.sha256, bytes: prov.css.bytes, fetched_at: fetchedAt, contents: CONTENTS_URL,
+      source: prov.source,
       stylesheets: cssInfo.sources.map(({ url, sha256, fetched_at, from }) => ({ url, sha256, fetched_at, from })),
       written_at: new Date().toISOString(),
     }, null, 1));

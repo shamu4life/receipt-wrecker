@@ -80,10 +80,20 @@ import re
 import subprocess
 import sys
 
-try:
-    from PIL import Image
-except ImportError:                                             # pragma: no cover
-    sys.exit("This needs Pillow: python3 -m pip install --user Pillow")
+def _pil_image():
+    """Pillow, imported only when a render actually needs it.
+
+    Kept lazy so the parts of this tool that touch no pixels — the --help text, the
+    argument checks, and above all the case-name guard that refuses a stem outside
+    .render/ (a path-safety property, which must not hinge on an image library being
+    installed) — run on a box without Pillow. CI has no Pillow, so test/rig.test.mjs
+    exercises exactly that guard; a top-level import would exit before it ran.
+    """
+    try:
+        from PIL import Image
+    except ImportError:                                         # pragma: no cover
+        sys.exit("This needs Pillow: python3 -m pip install --user Pillow")
+    return Image
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, ".render")
@@ -199,7 +209,7 @@ def default_avatar(path, px=320):
     """
     if os.path.exists(path):
         return
-    im = Image.new("L", (px, px), 255)
+    im = _pil_image().new("L", (px, px), 255)
     for y in range(px):                       # a diagonal wedge: cheap, and asymmetric
         for x in range(px):                   # so a flipped or rotated draw is obvious
             if (x + y) % 24 < 12:
@@ -476,7 +486,7 @@ def ink(png, thresh=128):
     point()/load()/getdata(): those are variously deprecated in Pillow 14 or untypeable
     against its stubs, and this is a committed tool that should not start warning.
     """
-    im = Image.open(png).convert("L")
+    im = _pil_image().open(png).convert("L")
     w, h = im.size
     raw = im.tobytes()
     n = 0

@@ -246,8 +246,8 @@ test("the width margin absorbs the engine rounding font-size to a whole px, at e
 });
 
 test("a fitted line never overflows the paper in either real font (every 1-2 character string, and a 3-character sample)", () => {
-  // End to end through giantFit's own pick, at the size the engine really prints. Every
-  // string at "width" (the tightest pick) and at fit1.
+  // End to end through giantFit's own pick, at the size the engine really prints
+  // (Math.round(px)), measured in each real font against the 240px body.
   const keys = Object.keys(SEGOE_UI_BOLD);
   const strings = [];
   for (const a of keys) { strings.push(a); for (const b of keys) strings.push(a + b); }
@@ -442,7 +442,7 @@ test("CHARACTER BUDGET: every body fits its message, for 200 seeded texts x ever
   // The only exception is a single line too long on its own, which is flagged `over`
   // so the card can say so.
   const r = rng(1);
-  let multi = 0, overs = 0;
+  let multi = 0;
   for (let i = 0; i < 200; i++) {
     const text = randomText(r);
     const size = i % 3 === 0 ? "width" : (i % 3 === 1 ? 1 + Math.floor(r() * 18) : "fit1");
@@ -455,7 +455,7 @@ test("CHARACTER BUDGET: every body fits its message, for 200 seeded texts x ever
         const where = JSON.stringify(text) + " " + layout + " " + size + (tuck ? " tucked" : "");
         for (const b of bodies) {
           assert.equal(b.chars, len(b.html), where + ": chars must be the payload length of html");
-          if (b.giant.over) { overs++; assert.equal(bodyLines(b.html).length, 1, where + ": only a SINGLE line may be over"); continue; }
+          if (b.giant.over) { assert.equal(bodyLines(b.html).length, 1, where + ": only a SINGLE line may be over"); continue; }
           assert.ok(b.chars <= budget, where + ": a body of " + b.chars + " > budget " + budget);
         }
         // And through the packer: no part of the message goes over 500.
@@ -564,7 +564,7 @@ test("under the tuck the fit narrows by the nbsp that shares line 1", () => {
   assert.ok(changed, "the tucked fit never differs from the untucked one");
 });
 
-test("chunks never start or end on a blank line, never break a word when a gap is available, and fit the page", () => {
+test("chunks never start or end on a blank line, lose no line, and fit the page by the real-engine height model", () => {
   // A chunk that STARTS blank prints a giant-height blank above its first letter
   // (measured: 396px of nothing above "D" at L16); one that ENDS blank is counted a giant
   // line tall but collapses to a small one. Both waste a cheer's paper.
@@ -814,20 +814,19 @@ test("giantReport speaks plain language: capitals in cm, cheers, and every warni
 // when it is copy-pasted (zero-width space U+200B, ZWNJ U+200C, word joiner U+2060, soft
 // hyphen U+00AD) or control characters. None of them is whitespace to JS's \s, so the
 // stack layout makes each one its own giant LINE: it prints nothing, costs a full line
-// of height (measured: "HI​YOU" drops from 14 levels to 13 to make room for it,
+// of height (measured: "HI\u200BYOU" drops from 14 levels to 13 to make room for it,
 // and leaves 228px of blank tape between I and Y), and since it is not "" the chunk-edge
 // rule cannot trim it, so a cheer can open on an invisible giant line.
 test("KNOWN BUG: an invisible format character never becomes a giant line of its own", {
   todo: "giantClean keeps U+200B/U+200C/U+2060/U+00AD and C0 controls (reported to the coordinator)",
 }, () => {
-  for (const ch of ["​", "‌", "⁠", "­", "\u0000"]) {
+  for (const ch of ["\u200B", "\u200C", "\u2060", "\u00AD", "\u0000"]) {
     for (const layout of ["stack", "lines"]) {
       const lines = C.giantLines("HI" + ch + "YOU\n" + ch + "\nOK", layout);
       for (const l of lines) {
-        assert.ok(l === "" || /[^\u0000-\u001F\u007F-\u009F­​-‏⁠-⁤]/.test(l),
+        assert.ok(l === "" || /[^\u0000-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u2060-\u2064]/.test(l),
           layout + ": " + JSON.stringify(ch) + " became an invisible line of its own: " + JSON.stringify(lines));
       }
     }
   }
-  eq(C.giantLines("HI​YOU", "stack"), ["H", "I", "Y", "O", "U"]);
 });

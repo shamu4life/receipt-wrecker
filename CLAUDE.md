@@ -69,6 +69,20 @@ size ruler** proves the trick on the rig for one cheer; Hanzi tiling stays one s
 away as the markup-free backup; and `npm run printerbot -- --check` diffs `PB_CLASSES`
 against the live CSS before a release (a release-checklist canary, not CI).
 
+How stable is it? printer-bot's pages are served by GitHub Pages from the public repo
+`nuttylmao/nutty.gg`, so its `main` branch **is** the live site, and its history is
+readable. As of 2026-10-02: `.title { font-size: 1.2em }` has been in `global.css`
+since c5e9890 (2025-09-13); inlining every stylesheet into the printed document dates
+from 0c7b4fc / 7e20a30 (2025-07-29 / 2025-09-06); `global.css` has had eight commits
+ever, the last on 2026-04-28. (The sanitizer arrived upstream in 121c351, dated
+2026-08-27; this repo first noticed it on 2026-09-15.) So the trick rests on code that
+has been stable for over a year, but **it is not a contract**. To watch for a change
+without reading code, subscribe to the commits feed for that one file:
+<https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom>.
+That repo has **no licence file, so all rights are reserved**: never vendor or copy
+nutty's code or CSS into this repo. Fetch it at bench time (`tools/printerbot.mjs`
+does), and quote at most the few declarations we rely on, as facts about the target.
+
 **THE RULE, with its stop conditions.** Borrowing an allow-listed class is not
 obfuscation. Every token is literal, both gates see exactly what they act on, Twitch
 still charges and shows the cheer in chat, and the header still prints the bits and the
@@ -356,6 +370,8 @@ Pure core (DOM-free, unit-tested):
 7. `makeNonce(i)` / `packageCheer(body, opts)` / `CHEER_TOKEN` (`"Cheer100"`):
    append a space-delimited `Cheer100` token plus a small **visible** rotating
    nonce (glyphs, never zero-width) when the "Cheer-ready" toggle is on.
+   `packageCheer` is the old single-mode path. The block composer's lead is built by
+   `buildLead` (item 18), and the token *leads* there (see Global constraints).
 8. `buildCensus()` builds the fixed diagnostic payload for the Print test strip
    button: labeled samples of every tier plus a numbered ruler, so a single print
    on the target rig reveals which tiers render vs. tofu and the true column
@@ -384,7 +400,8 @@ Pure core (DOM-free, unit-tested):
     exists to paint over, which reads as the feature simply not working.
     **THE LEAD IS PART OF THE GEOMETRY.** A lifted overlay is positioned from where the
     SVG lands in `#receipt-content`, and it does not land at the top: every message
-    carries a lead (`Cheer100 <nonce> `, or the nbsp guard) *before* the first body,
+    carries a lead (`Cheer100 <nonce> `, or the nbsp guard; since 0.10.0, tucked, the
+    nbsp plus the corner span of item 18) *before* the first body,
     and that lead takes a line, measured 16px, which left a crescent of the streamer's
     avatar printing above the artwork. `TAKEOVER_PULL_PT` is 240 **because** of that
     line; the original 220 was calibrated against a preview that rendered the bodies
@@ -476,6 +493,117 @@ Pure core (DOM-free, unit-tested):
     matches **our** links only, by shape, across all three generations. A pasted
     third-party URL has no 15-minute clock, and flagging one that still works teaches
     the user to ignore the flag.
+16. `PB_CLASSES` / `pbClass(id)` / `classAttr(cls)` / `pbPreviewCss(scope)`: the
+    **borrowed-class table** (0.10.0), the same philosophy as `EMBEDS`: the classes we
+    borrow from printer-bot's page, and what they do, are DATA, because nutty can rename
+    or retune them any day. Rows are `{id, cls, decl, role, factor?, source, field,
+    checked}` in printer-bot's cascade order (`global.css`, then `contents/style.css`):
+    `title` (`grow`, ×1.2, `field:"printed"`), `shrink9` = `setting-description` and
+    `shrink8` = `setting-attribute` (`shrink`, ×0.9 / ×0.8, `"untested"`), `switch` and
+    `navbtn` = `dialog-nav-button` (`tuck`, `"sent"`: they rode the field cheer that
+    printed, but their own effect was not what was judged), and `emote` (style.css,
+    `height:1em`, printer-bot's own emote rendering). **Everything derives from the
+    table**: `GIANT_RATIO` is `pbClass("title").factor`, the shrink steps are the
+    `shrink` rows, `TUCK_OPEN` joins the `tuck` rows, and `pbPreviewCss` builds the
+    preview rules for BOTH the page `<style>` (injected in `init`) and `RCPT_CSS` (the
+    Thermal raster). Do not hardcode a borrowed class at a call site; when nutty renames
+    one, it is a one-row edit, after a free probe (see THE RULE in the banner).
+    `classAttr` emits `class=x` unquoted when `x` matches `/^[a-z][a-z0-9-]*$/` (two
+    characters cheaper, paid up to 18 times a line) and quotes anything else. **A
+    two-class value must be quoted.** Unquoted, `class=switch dialog-nav-button` parses
+    as `class="switch"` plus a boolean attribute named `dialog-nav-button`, which the
+    sanitizer strips, and the tuck quietly stops working. `pbPreviewCss` departs from the
+    real rules in three deliberate ways, all because the preview's receipt is a box in a
+    page rather than the page: `position:fixed` becomes `absolute` (`.rcpt` is
+    `position:relative`); the `emote` row is left out (it would shrink the takeover
+    preview's own `<img class="emote">` carrier to 16px); and `.title{line-height:1.33}`
+    is appended, Segoe UI's normal line height, so preview heights track the tape on a
+    viewer without Segoe. `tools/rig.py`'s `PB_CSS` is a third, **hand-synced** copy of
+    these rules for its fallback page; its comment says so.
+17. **Giant type**: `giantClean` / `giantLines` / `giantLineEm` / `GIANT_W` /
+    `giantSteps` / `giantLineH` / `giantFit` / `giantPlan` / `buildGiantBodies` /
+    `giantReport` / `giantOpts` / `blockRender` / `giantCapCm`, plus the `GIANT_*`
+    constants. A Text block with `render:"giant"` prints as
+    `"<br>" + open + lines.join("<br>") + close + "<br>"`, where `open` is up to 18
+    `<b class=title>` (19 characters a level, open plus close), optionally inside ONE
+    shrink wrapper.
+    - **Placement trap.** The code lives inside the DOM-glue guard, AFTER `PAPER_PX`,
+      `PX_PER_MM` and `LEAD_GUARD`, as `var name = function` expressions. A function
+      *declaration* there is block-scoped in strict mode and never reaches
+      `module.exports`. A `var X = PAPER_PX` placed before `PAPER_PX` is assigned reads
+      `undefined`, every width test is false, and the fit silently returns the
+      smallest size. The NaN test (`giantFit(["I"],{size:"width"})` reaches 15+
+      levels) guards it.
+    - **Lines.** `giantClean` drops what QtWebKit 534 cannot print (astral code
+      points, i.e. emoji, plus ZWJ, VS15/VS16 and lone surrogates) and reports each
+      character it dropped, so the card can say so. `giantLines` splits by CODE POINT:
+      `stack` is one character per line, with each whitespace run becoming ONE blank
+      line between words; `lines`/`emote` keep the lines as typed.
+    - **Width.** `GIANT_W` is a conservative uppercase advance table,
+      `round(max(Segoe UI Bold, Arial Bold) × 1.03, 3)` (derivation in its comment).
+      Neither font alone is safe, and an earlier Arial-based table let "MMMMM" ink
+      past the body edge on the real engine.
+    - **Steps.** `giantSteps` lists 51 sizes: 1-18 levels × {1, 0.9, 0.8}, nothing
+      below one level (19.2px). `giantLineH` is the real engine's line pitch.
+    - **Fit.** `giantFit`/`giantPlan` pick the step. `fit1`, the default "biggest that
+      fits ONE cheer", takes the largest step that fits the paper in one chunk; failing
+      that, the FEWEST chunks, then the largest. It never takes the biggest width fit,
+      which is the most cheers: an 80-character stack once fell back to 20 cheers.
+      `width` is the largest that fits the paper at any cost, and an integer `n` means
+      exactly `n` levels with `fits`/`overflow` reported honestly. Layout `auto` tries
+      `lines` and `stack`: a layout whose letters would be cut off never wins, then the
+      bigger type when both fit one cheer, else the fewer cheers, ties to `lines`.
+    - **Chunking is on height AND characters.** The height is `GIANT_GAP_PX + Σ
+      giantLineH ≤ HEIGHT_BUDGET`. The characters are `≤ budget`, which is `MAX_CHARS -
+      leadLength`. Height alone once let 26 lines of "ROSES nnn" become a 487-character
+      body: 499 with the plain lead, 547 tucked, and Twitch rejects that outright. The
+      chunker prefers to break at a blank line and trims blanks at both edges of every
+      chunk, because a chunk that starts with one prints a giant-height blank. A single
+      line over budget on its own is emitted with `giant.over` and warned about, never
+      truncated.
+    - **Payload rules.** The payload is never uppercased: `text-transform` is visual,
+      and emote names are case-sensitive. Every body closes every tag, because the
+      packer concatenates raw and an unclosed `.title` would make everything after it
+      giant. In the emote layout every name gets a space on BOTH sides, because Twitch
+      only reports an emote that is a whitespace-delimited word. `giant.cheerWords`
+      flags standalone `Kappa50`-shaped tokens, which Twitch would charge as extra
+      cheers. Empty input gives one empty body with `levels:0`, never 18 levels of
+      empty tags. There is one literal form only: no italic, no quote/case/tag
+      variants (THE RULE).
+    - **Untrusted fields.** `giantOpts` sanitizes `giantLayout`/`giantSize`, which
+      arrive from presets and imported JSON, and from a `<select>` as strings, so
+      everything reads them through it: `1e6` becomes 18, junk becomes `"fit1"`.
+      `blockRender` maps an absent or unknown `render` to `"type"`, today's
+      fall-through, so the card's select and the payload can never disagree.
+    - **The report.** `giantReport` is the card's plain-language text ("Capitals ≈
+      3.8 cm · fits 1 cheer", too wide, over-length, emoji left out, cheer-shaped
+      words). It stays pure so its numbers are tested.
+18. `buildLead(opts, nonce)` / `leadLength(opts)` / `TUCK_OPEN` / `TUCK_CLOSE` /
+    `bandReserve(budget)`, and the packer's tuck handling. **`buildLead` is the one
+    builder of a message's lead**: `packStackBodies`' `lead`, its per-part overhead
+    (`leadLength`, which replaced `token.length + 4`), the band builders' slack and the
+    card hint all go through it, so reserved and sent cannot drift. Cheer off gives
+    `LEAD_GUARD`; cheer on gives `Cheer<bits> <nonce> ` (12 at Cheer100). Cheer plus
+    **tuck** (`#cheerTuck`, "Hide the cheer gem in the corner", default off) gives
+    `LEAD_GUARD + '<span class="switch dialog-nav-button"> Cheer100 07 </span>'`: 60
+    characters at Cheer100 (61/62 at 1000/10000), and `leadLength` adds the 4 of a
+    `<br>` the packer may insert, so 64. Under the tuck the packer touches the first
+    body with markup in each part. A giant body (`leadBr`) **loses** its leading
+    `<br>`, which is what makes the tuck save tape (156 → 133px on the engine); kept,
+    the tuck hides the gem and saves nothing. Any other body **gains** one, so a Hanzi
+    or glyph grid starts on a clean line instead of sharing the nbsp's line and
+    shearing. `bandReserve` replaced the hardcoded `14` in `hanziBodies` /
+    `glyphImageBodies` with `max(14, MAX_CHARS - budget)`. The floor is what keeps
+    every untucked payload **byte-identical** to 0.9.1 (cheer off, and every bit
+    amount up to 99999), and it grows only with the real lead: 64 tucked, which is
+    exact. The mutation test: two 230-character bodies, tucked, must pack as two parts
+    of at most 500 at 100, 1000 and 10000 bits; restoring `token.length + 4` puts them
+    in one 524-character part.
+19. `buildGiantRuler()`: the **Print size ruler**, `buildCensus`' counterpart for Giant
+    type. The numbers 1-13, each one `.title` level deeper than the last, in one body:
+    316 characters (328 with the plain lead), 1275px, one cheer on one 500mm page. It
+    proves the trick on THIS rig today and shows every size at once. It is never
+    tucked, because it is a diagnostic and should look like every other cheer.
 
 Browser glue (canvas + DOM, guarded, browser-verified rather than
 unit-tested):

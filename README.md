@@ -105,6 +105,157 @@ cheer on a new printer, send the **Print size ruler** once (see below).
 
 ---
 
+## Giant type: how and why it works
+
+**Giant type** prints your text as huge bold capitals. A five-letter word stacked one
+letter per line comes out with capitals about **3.8 cm** tall, filling the width of an
+80 mm roll, for one 100-bit cheer. It is the default render of a Text block.
+
+### Why it works, step by step
+
+You don't need to read code to follow this. Each step is one fact about how
+printer-bot turns a chat message into paper.
+
+1. **printer-bot cleans your message, but keeps one useful thing.** Before printing, it
+   runs the message through a filter (a "sanitizer") that throws away almost all
+   formatting. It keeps a handful of plain tags, like `<b>` for bold, and exactly one
+   attribute that matters here: `class`. A class is a label that means "style me the
+   way the stylesheet says things called *this* should look".
+2. **The printed page brings a stylesheet that already defines labels.** printer-bot
+   doesn't print your message on a bare page. It builds a little web page for the
+   receipt (its code calls this step `GetRenderedHTML`), and into that page it copies
+   every stylesheet from its own settings screen. One of them is `global.css`, the
+   shared stylesheet nutty uses for all of their widgets. So any label defined there
+   works on your message too.
+3. **One of those labels is a heading style.** In `global.css`, `title` means "bold,
+   in capitals, and **1.2 times the size of whatever it sits inside**". On printer-bot's
+   settings screen it is what makes headings stand out.
+4. **A title inside a title multiplies.** "1.2 times the size of whatever it sits
+   inside" compounds. One title is 1.2 × the normal 16-pixel text. A title inside a
+   title is 1.2 × 1.2 = 1.44 ×. Fourteen of them nested is 1.2 multiplied by itself 14
+   times, about 12.8 ×, which is **205 pixels**. In general, N nested titles print at
+   16 × 1.2^N pixels.
+5. **The app does the arithmetic.** It knows how wide every capital letter is, how tall
+   every line comes out on printer-bot's engine, and how many characters a Twitch
+   message may hold (500). It picks the biggest nesting that fits across the paper and
+   inside one cheer, and it splits across several cheers only if you ask for something
+   bigger. What it sends is plain text: the cheer, `<b class=title>` repeated, your
+   words, and the matching closing tags.
+
+Here is the whole payload for `HELLO`, with the 14 repeated tags shortened:
+
+```
+Cheer100 07 <br><b class=title>…14 times…H<br>E<br>L<br>L<br>O</b>…14 times…<br>
+```
+
+That is 307 of the 500 characters. **Nothing in it is disguised.** Every tag is one the
+sanitizer openly allows, written out plainly. Twitch still sees an ordinary cheer and
+charges it, the receipt's header still prints your name and the bits, and chat sees
+exactly what you sent. (Chat shows the raw tags, the same one repeated. If a channel's
+mod bot removes repeated text, send it once with **Cheer-ready** off first: that is free,
+and it shows whether the message gets through.)
+
+### What you control
+
+- **Layout.** **Auto** (the default) tries your text as typed and stacked, and picks
+  whichever prints bigger in one cheer. **Lines as you typed them** keeps your line
+  breaks. **Stack the letters, one per line** is what makes a short word huge. **Emote
+  names** is described below.
+- **Size.** **Auto: biggest that fits one cheer** is the default and the one to use.
+  **Auto: fill the paper width** goes as big as the paper allows, even if that costs
+  more cheers. Then every size by hand. Each option in both menus is labelled with what
+  it would actually print for your text, for example `Level 14 · capitals 3.8 cm · 1
+  cheer`, or `… · letters cut off` when a size is too wide for the paper.
+- The card under the text says how tall the capitals will print and how many cheers the
+  block really costs once the stack is packed. It also warns when a line is too wide,
+  when emoji were left out, and when a word would be charged as another cheer.
+
+Rough sizes (capitals are about 70% of the type size; a level is one more nested title):
+
+| levels | type size | capitals | a typical use, one cheer |
+|---|---|---|---|
+| 5 | 40 px | ≈ 0.7 cm | a short sentence on a few lines |
+| 8 | 69 px | ≈ 1.3 cm | `HAPPY BIRTHDAY`, stacked |
+| 10 | 99 px | ≈ 1.8 cm | about ten stacked letters |
+| 14 | 205 px | ≈ 3.8 cm | a five-letter word, stacked (`HELLO`) |
+| 16 | 296 px | ≈ 5.5 cm | two or three letters (`GG`, `LOL`) |
+
+From about 15 levels up, wide capitals like M and W no longer fit across the paper.
+Auto knows each letter's width and never picks a size that cuts one off. A size you pick
+by hand says so in its label.
+
+### Things it can't do
+
+- **Fonts, weight and italics.** The style comes from printer-bot (bold Segoe UI on a
+  Windows rig), so the formatting row is hidden for Giant type. On purpose, there will
+  never be an italic or "other tag" variant: see [the rule](#if-it-stops-working).
+- **Lowercase.** Everything prints in capitals. Your text is sent as you typed it, and
+  the printer capitalises it.
+- **Emoji.** The printer's engine can't draw them (they come out as empty boxes, and at
+  this size a very large one), so they are left out, and the card says which.
+- **Narrow rolls.** It is sized for **80 mm** printers. On a 58 mm roll the letters
+  would be cut off.
+- **Words that look like cheers.** `Kappa50` or `cheer100` on its own in your text is a
+  second cheer to Twitch, and it charges for it. The card warns you.
+
+### Emote names (needs one test print)
+
+Pick **Layout → Emote names** and type Twitch emote names, separated by spaces, with
+their exact capitals (`Kappa`, not `kappa`). printer-bot swaps each name it recognises
+for the emote's picture, and printer-bot's own style makes an emote exactly as tall as
+the text around it. So a giant-sized emote prints giant: a single emote comes out about
+4.9 cm square. Some caveats:
+
+- Only emotes you are allowed to use in that chat get swapped. A channel's sub emotes
+  need a sub. Anything else prints as the name, in giant capitals.
+- BTTV, 7TV and FFZ emotes may not work. The picture is a small image blown up, so
+  expect chunky pixels.
+- The app separates every name with spaces on both sides, because Twitch only
+  recognises an emote that is a word on its own. The preview draws each emote as a
+  dashed box labelled with the name. It never downloads the emote.
+- **This exact form has never been sent.** Try one cheer before a bigger run, or send it
+  free first (Cheer-ready off): if Twitch chat shows the emote picture, Twitch recognised
+  it.
+
+### How sure are we?
+
+- **Seen on real paper:** one real cheer carrying 15 nested titles and a stacked
+  `P E N I S` went through the channel's automod and printed giant letters, on 1 Oct 2026.
+- **Measured on printer-bot's own print engine, not on paper:** every size, every line
+  height, the cheer-gem tuck, the in-between sizes, emote sizes, and when a message
+  runs past one 500 mm page. (These came from the same wkhtmltopdf build printer-bot
+  uses, fed the exact page printer-bot builds.)
+- **Never sent:** the two "in-between size" styles Auto sometimes uses
+  (`setting-description` and `setting-attribute`, ×0.9 and ×0.8), the emote form, and
+  the tucked cheer directly followed by giant text.
+
+### If it stops working
+
+Giant type borrows a style from someone else's page. Its author can change or remove it
+on any day, and if that happens **nothing errors**: your text just prints at normal size,
+and the cheer is still spent. So:
+
+- **Before your first real run on a printer**, send the **Print size ruler** (the button
+  next to *Print test strip*). It is one cheer that prints the numbers 1 to 13, each a
+  size bigger than the last. If the numbers grow, Giant type works on that printer
+  today, and you can see every size on real paper.
+- **On a run of several cheers**, send part 1 first and look at the printer. If the
+  letters came out normal-sized, stop.
+- **If it has stopped**, switch the block's Render to **Hanzi tiling**, which needs no
+  borrowed style at all.
+- **If a channel's mods block it**, that is their call. The app will never offer a
+  disguised or "alternative spelling" version to get past them, and nobody should
+  write one.
+
+The style has been in printer-bot's shared stylesheet since September 2025, and that
+stylesheet has changed eight times in its life. It is stable, but it is not a promise.
+To be told when it changes, watch
+[its commit history](https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css)
+(there is an [Atom feed](https://github.com/nuttylmao/nutty.gg/commits/main/.common/styles/global.css.atom)
+for feed readers).
+
+---
+
 ## Tiers & the Census (read this before you paste into someone else's chat)
 
 The glyph "font" you get on the other end depends entirely on what's installed on

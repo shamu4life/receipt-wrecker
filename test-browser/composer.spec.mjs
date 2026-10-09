@@ -95,11 +95,15 @@ async function copyAll(page) {
   return out;
 }
 const len = (s) => Array.from(s).length;     // payloadLength's rule: code points
-// The default lead's budget, from the core: what packStack hands a block's builder.
+// The page's default lead: Cheer-ready on, 100 bits, and no repeat number (the two nonce
+// digits are opt-in since 0.12.0). Every helper below that predicts what the page sends
+// uses it, because a budget 3 characters off can pick a different size.
+const PAGE_LEAD = { cheer: true, bits: 100, noNonce: true };
+// A lead's budget, from the core: what packStack hands a block's builder.
 const budgetFor = (o) => C.MAX_CHARS - C.leadLength(o);
 // What one giant block becomes, per the core, at the defaults the page uses.
 const giantOf = (text, layout, size, tuck) =>
-  C.buildGiantBodies(text, { layout, size, budget: budgetFor({ cheer: true, bits: 100, tuck }), tuck })[0].giant;
+  C.buildGiantBodies(text, { layout, size, budget: budgetFor({ ...PAGE_LEAD, tuck }), tuck })[0].giant;
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, (msg || "") + ` (${a} vs ${b} ±${tol})`);
 
 test("the app boots with no page errors and renders a first part", async () => {
@@ -285,14 +289,13 @@ test("a new Text block is Giant type, and Copy sends exactly what the core build
   // The lead, then the giant body. On an A4 receipt HELLO fits one cheer at L11x0.9, so the
   // body opens with a shrink wrapper (<b class=setting-description>) before the .title nest;
   // the byte-for-byte check below is the real assertion.
-  assert.match(payload, /^Cheer100 \d\d <br><b class=\S/);
+  assert.match(payload, /^Cheer100 <br><b class=\S/);
   // Byte for byte the pure core's answer for the same text and defaults. The glue
-  // (card -> block fields -> giantOpts -> budget -> packer -> nonce) is the half the unit
+  // (card -> block fields -> giantOpts -> budget -> packer -> lead) is the half the unit
   // tests can't see, so this is where a field that never reaches the builder shows up.
-  const nonce = payload.match(/^Cheer100 (\d\d) /)[1];
   const bodies = C.buildGiantBodies("HELLO", { layout: "auto", size: "fit1",
-    budget: budgetFor({ cheer: true, bits: 100 }), tuck: false });
-  const expected = C.packStackBodies(bodies, { cheer: true, bits: 100, nonceFn: () => nonce })[0].payload;
+    budget: budgetFor(PAGE_LEAD), tuck: false });
+  const expected = C.packStackBodies(bodies, PAGE_LEAD)[0].payload;
   assert.equal(payload, expected);
 
   // A block added later is Giant too, and stores the auto / fit-one-cheer fields.
@@ -435,14 +438,14 @@ test("MANDATORY: Copy's payload survives a clean-room printer-bot sanitizer and 
   }
 
   // 2. The tuck, with a shrink step: the corner span must keep BOTH classes, take the
-  //    cheermote gem and the nonce with it, and the giant line follows with no <br>.
+  //    cheermote gem and its "100" with it, and the giant line follows with no <br>.
   {
     const { page, ctx } = await freshPage({ blocks: [{ id: 1, type: "text", render: "giant",
       giantLayout: "auto", giantSize: "fit1", text: "HELLO" }] });
     await page.locator("#cheerTuck").check();
     const payload = await copyPayload(page, 0);
     await ctx.close();
-    assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=/);
+    assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 <\/span><b class=/);
     // On an A4 receipt HELLO fits one cheer at L11x0.9, so this exercises a shrink wrapper.
     const want = giantOf("HELLO", "auto", "fit1", true);
     assert.ok(want.shrink, "this case is meant to exercise a shrink wrapper; pick another text");
@@ -454,7 +457,7 @@ test("MANDATORY: Copy's payload survives a clean-room printer-bot sanitizer and 
     assert.equal(pr.tuck.overflow, "hidden");
     assert.ok(pr.tuck.gem, "the cheermote gem did not land inside the corner box");
     assert.equal(pr.tuck.bits, "100");
-    assert.match(pr.tuck.text, /^\s*100\s+\d\d\s*$/, "the whole visible lead belongs in the box");
+    assert.match(pr.tuck.text, /^\s*100\s*$/, "the whole visible lead belongs in the box");
     assert.equal(pr.innermost.length, 1);
     const t = pr.innermost[0];
     assert.equal(t.depth, want.levels);
@@ -544,7 +547,7 @@ test("cheer counts, empty blocks and the parts note all match the parts Copy sen
     assert.equal(await page.locator("#parts .part").count(), 2, "fixture: L10 HELLO WORLD needs two A4 receipts");
     assert.match(await card.locator(SIZE_SEL + ' option[value="10"]').textContent(), / · 2 cheers/);
     await card.locator(SIZE_SEL).selectOption("fit1");
-    const fit1 = C.giantPlan("HELLO WORLD", { budget: budgetFor({ cheer: true, bits: 100 }) }).fit;
+    const fit1 = C.giantPlan("HELLO WORLD", { budget: budgetFor(PAGE_LEAD) }).fit;
     assert.deepEqual([fit1.levels, fit1.shrink], [7, "setting-description"], "fit1 is the biggest one-cheer size on A4");
     assert.equal(await page.locator("#parts .part").count(), 1, "fit1 fits one A4 receipt");
     assert.match(await card.locator(SIZE_SEL + ' option[value="fit1"]').textContent(),
@@ -596,7 +599,7 @@ test("the cheer-gem tuck: a corner box in the preview, the tucked lead on Copy, 
   });
   assert.equal(st.position, "absolute");
   assert.equal(st.overflow, "hidden");
-  assert.match(st.text, /^\s*Cheer100 \d\d\s*$/);
+  assert.match(st.text, /^\s*Cheer100\s*$/);
   // In the corner of the RECEIPT: .rcpt has to be the containing block, or the box lands
   // in the corner of the page and the preview stops showing what the tape does.
   assert.ok(st.top >= 0 && st.top < 40 && st.right >= 0 && st.right < 40, "box not in the receipt's corner: " + JSON.stringify(st));
@@ -605,7 +608,7 @@ test("the cheer-gem tuck: a corner box in the preview, the tucked lead on Copy, 
 
   // Copy: the tucked lead, and the giant body's leading <br> gone (it would cost a line).
   const payload = await copyPayload(page);
-  assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=\S/);
+  assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 <\/span><b class=\S/);
   assert.ok(len(payload) <= C.MAX_CHARS);
 
   // A field of rw_controls_v1, so it survives a reload.
@@ -627,7 +630,7 @@ test("the cheer-gem tuck: a corner box in the preview, the tucked lead on Copy, 
   await page.locator("#cheer").check();
   await page.click("#rulerBtn");
   const ruler = await copyPayload(page);
-  assert.match(ruler, /^Cheer100 \d\d <br><b class=title>1<br>/);
+  assert.match(ruler, /^Cheer100 <br><b class=title>1<br>/);
   assert.ok(!ruler.includes("<span"), "the ruler was tucked");
   assert.equal((ruler.match(/<b class=title>/g) || []).length, (ruler.match(/<\/b>/g) || []).length);
   assert.equal((ruler.match(/<b class=title>/g) || []).length, 13);
@@ -666,7 +669,7 @@ test("Emote layout previews placeholders and never fetches an emote", async () =
   await page.locator("#cheerTuck").check();
   await page.locator(".rcpt .switch.dialog-nav-button").waitFor();
   const tucked = await copyPayload(page);
-  assert.match(tucked, /^\u00A0<span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><br><b class=/);
+  assert.match(tucked, /^\u00A0<span class="switch dialog-nav-button"> Cheer100 <\/span><br><b class=/);
   assert.ok(!tucked.includes("<br><br>"), "a doubled <br> prints a blank line: " + tucked);
   for (const n of names) assert.match(tucked, new RegExp("(^|\\s)" + n + "(?=\\s|$)"), n + " is glued to markup: " + tucked);
   assert.equal(await page.locator(".rcpt .rw-giant").count(), 1);
@@ -695,8 +698,9 @@ test("saved Hanzi and Type blocks are not migrated: same render, same payload af
   const { page, ctx, errors } = await freshPage({ blocks: seeded });
   const renders = async () => [await cards(page).nth(0).locator(RENDER_SEL).inputValue(),
                                await cards(page).nth(1).locator(RENDER_SEL).inputValue()];
-  // The nonce is the only part of a payload that is supposed to change between copies.
-  const bodies = async () => (await copyAll(page)).map((p) => p.replace(/^Cheer100 \d\d /, ""));
+  // The lead's repeat digits (when they are on) are the only part of a payload that is
+  // supposed to change between copies, so compare what follows them.
+  const bodies = async () => (await copyAll(page)).map((p) => p.replace(/^Cheer100 (\d\d )?/, ""));
   const stored = async () => JSON.parse(await page.evaluate(() => localStorage.getItem("rw_blocks_v1")));
 
   assert.equal(await cardCount(page), 2);
@@ -726,7 +730,7 @@ test("saved Hanzi and Type blocks are not migrated: same render, same payload af
   const tucked = await copyAll(page);
   for (const p of tucked) assert.ok(len(p) <= C.MAX_CHARS, "a tucked part is over " + C.MAX_CHARS + ": " + len(p));
   assert.ok(tucked.some((p) => len(p) > 450), "no full Hanzi band here, so the budget check above proves nothing");
-  assert.match(tucked[0], /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><br>[㐀-鿿]/);
+  assert.match(tucked[0], /^ <span class="switch dialog-nav-button"> Cheer100 <\/span><br>[㐀-鿿]/);
 
   // And the nudge does what it says.
   await cards(page).nth(0).getByRole("button", { name: "Switch this block" }).click();
@@ -760,4 +764,104 @@ test("Receipt length: a field of rw_controls_v1 that re-splits the stack and sur
   assert.equal(await page.locator("#parts .part").count(), 1, "the re-split survived the reload");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+test("the repeat number: off by default, two digits when on, kept across a reload, and a repeated part says so", async () => {
+  // 0.12.0: the two nonce digits after the cheer are opt-in. They print on the receipt, and
+  // all they do is make repeat copies differ, because Twitch won't send the same message
+  // twice within 30 seconds. Off, nothing makes two parts differ, so a stack that repeats
+  // itself sends the SAME message twice and the second one is refused: the part must say so.
+  // Two identical HELLO blocks: each fills its own cheer at fit1, so they can't share a part.
+  const twin = { ...GIANT_SEED, text: "HELLO" };
+  const { page, ctx, errors } = await freshPage({ blocks: [{ ...twin, id: 1 }, { ...twin, id: 2 }] });
+  const box = page.locator("#cheerNonce");
+  const partNote = (i) => page.locator("#parts .part").nth(i).locator(".parts-note");
+  const twinBodies = (budget) => [0, 1].flatMap(() =>
+    C.buildGiantBodies("HELLO", { layout: "auto", size: "fit1", budget, tuck: false }));
+  assert.equal(await box.isChecked(), false, "the repeat number must be off by default");
+  assert.equal(await box.isEnabled(), true);
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 2);
+
+  // Off: no digits anywhere, byte for byte the core's answer, and part 2 warns.
+  const off = await copyAll(page);
+  // Array.from: the core runs in its own vm realm, and a strict deepEqual compares prototypes.
+  assert.deepEqual(off, Array.from(C.packStackBodies(twinBodies(budgetFor(PAGE_LEAD)), PAGE_LEAD), (p) => p.payload));
+  for (const p of off) assert.match(p, /^Cheer100 <br><b class=/, "digits with the repeat number off: " + p);
+  assert.equal(off[0], off[1], "fixture: the two parts are meant to be the same message");
+  assert.equal(await partNote(0).count(), 0, "part 1 repeats nothing, so it needs no note");
+  assert.match(await partNote(1).textContent(), /^Same message as part 1\..*30 seconds.*Add a repeat number/);
+
+  // On: two digits after the cheer, different in each part, the note gone, and byte for byte
+  // the core's answer for the digits each part carries (its budget is 3 characters smaller).
+  await box.check();
+  assert.match(await page.textContent("#cheerTuckHint"), /two repeat digits/, "the tuck hint ignores the digits");
+  const on = await copyAll(page);
+  for (const p of on) assert.match(p, /^Cheer100 \d\d <br><b class=/, "no digits with the repeat number on: " + p);
+  assert.notEqual(on[0], on[1], "the two parts should differ by their digits");
+  const digits = on.map((p) => p.match(/^Cheer100 (\d\d) /)[1]);
+  const lead = { cheer: true, bits: 100 };
+  assert.deepEqual(on, Array.from(C.packStackBodies(twinBodies(budgetFor(lead)),
+    { ...lead, nonceFn: (i) => digits[i] }), (p) => p.payload));
+  assert.equal(await page.locator("#parts .part .parts-note").count(), 0, "the repeated-part note outlived the digits");
+  // Copy advances the copied part's digits, so copying it again gives a different message.
+  assert.notEqual(await copyPayload(page, 0), on[0], "Copy did not advance the digits");
+
+  // A field of rw_controls_v1 (no new storage key), so it survives a reload.
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("rw_")));
+  assert.ok(!keys.includes("rw_nonce"), "a new storage key: " + keys.join(","));
+  assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem("rw_controls_v1")))).nonce, true);
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.equal(await box.isChecked(), true, "the repeat number did not survive a reload");
+
+  // Tucked, the digits ride inside the corner span with the token.
+  await page.locator("#cheerTuck").check();
+  assert.match(await copyPayload(page, 0), /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=/);
+  await page.locator("#cheerTuck").uncheck();
+
+  // Without Cheer-ready there is nothing to put the digits after: disabled, NOT unchecked,
+  // and the free messages are identical again, so the note comes back without the toggle.
+  await page.locator("#cheer").uncheck();
+  assert.equal(await box.isDisabled(), true);
+  assert.equal(await box.isChecked(), true, "turning Cheer-ready off reset the repeat number");
+  assert.match(await page.textContent("#cheerNonceHint"), /^Needs Cheer-ready/);
+  assert.ok((await copyPayload(page, 0)).startsWith(" <br><b class="), "a free message got a cheer lead");
+  const freeNote = await partNote(1).textContent();
+  assert.match(freeNote, /^Same message as part 1\./);
+  assert.ok(!freeNote.includes("repeat number"), "offered a toggle that Cheer-ready has disabled: " + freeNote);
+  await page.locator("#cheer").check();
+  assert.equal(await box.isEnabled(), true);
+  assert.equal(await box.isChecked(), true, "Cheer-ready did not bring the repeat number back");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // Settings saved before the toggle existed (no `nonce` field, digits always on back then)
+  // read as OFF: dropping the digits for everyone was the point of the toggle.
+  const ctx2 = await browser.newContext();
+  await ctx2.addInitScript(installClipboardStub);
+  await ctx2.addInitScript(() => {
+    try {
+      if (!localStorage.getItem("rw_controls_v1")) {
+        localStorage.setItem("rw_controls_v1", JSON.stringify({ mode: "text", cheer: true, bits: "100", tuck: false }));
+      }
+    } catch (e) {}
+  });
+  const old = await ctx2.newPage();
+  await old.goto(server.url);
+  await old.waitForSelector("#blockList");
+  assert.equal(await old.locator("#cheerNonce").isChecked(), false, "an old settings blob turned the digits on");
+  assert.match(await copyPayload(old, 0), /^Cheer100 <br>/);
+  await ctx2.close();
+
+  // Only the part right before counts: Twitch refuses the same message twice IN A ROW, so
+  // HELLO, WORLD, HELLO sends all three, and flagging part 3 would be wrong advice.
+  const { page: p3, ctx: ctx3, errors: errors3 } = await freshPage({ blocks: [
+    { ...twin, id: 1 }, { ...twin, id: 2, text: "WORLD" }, { ...twin, id: 3 }] });
+  await p3.waitForFunction(() => document.querySelectorAll("#parts .part").length === 3);
+  const run = await copyAll(p3);
+  assert.equal(run[0], run[2], "fixture: parts 1 and 3 are meant to be the same message");
+  assert.notEqual(run[1], run[2], "fixture: part 2 is meant to differ");
+  assert.equal(await p3.locator("#parts .part .parts-note").count(), 0, "a repeat with a different part between was flagged");
+  assert.deepEqual(errors3, []);
+  await ctx3.close();
 });

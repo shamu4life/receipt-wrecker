@@ -259,10 +259,13 @@
       </div><!-- /glyphControls -->
 
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
-      <div class="hint">Starts each message with " Cheer&lt;bits&gt; " plus a rotating two-digit nonce, so it triggers the print and dodges Twitch's duplicate-message filter. Turn it off to send a <strong>free test</strong>: a message with no cheer never reaches the printer, but it does go through chat's filters, so it shows whether the channel lets this text through before you spend bits on it.</div>
+      <div class="hint">Starts each message with "Cheer&lt;bits&gt; " so it triggers the print. Turn it off to send a <strong>free test</strong>: a message with no cheer never reaches the printer, but it does go through chat's filters, so it shows whether the channel lets this text through before you spend bits on it.</div>
+
+      <label><input type="checkbox" id="cheerNonce"> Add a repeat number</label>
+      <div class="hint" id="cheerNonceHint">Puts two rotating digits after the cheer ("Cheer100 07"). Twitch won't send the same message twice in a row within 30 seconds (it just isn't sent, and no bits are spent), and the digits make each copy different. They also print on the receipt, which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.</div>
 
       <label><input type="checkbox" id="cheerTuck"> Hide the cheer gem in the corner</label>
-      <div class="hint" id="cheerTuckHint">Normally your cheer prints as a small gem, '100' and two digits on their own line above your art. This squeezes them into a tiny box in the receipt's top-right corner and saves that line.</div>
+      <div class="hint" id="cheerTuckHint">Normally your cheer prints as a small gem and '100' on their own line above your art. This squeezes them into a tiny box in the receipt's top-right corner and saves that line.</div>
 
       <label>Bits per receipt: <input type="number" id="bitsAmount" min="100" step="100" value="100" style="width:6em"></label>
       <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts. The total is shown under the preview.</div>
@@ -337,7 +340,7 @@
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer. Only the first-party client actually cheers.</p>
-  <p class="reminder"><strong>Held or blocked by chat?</strong> Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: a rotating nonce beats duplicate-blocking, letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit, which bypass all of it, there is no way to <em>guarantee</em> delivery. If a message is held, resend it, shorten it, or drop the column count and try again.</p>
+  <p class="reminder"><strong>Held or blocked by chat?</strong> Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit, which bypass all of it, there is no way to <em>guarantee</em> delivery. If a message is held, resend it, shorten it, or drop the column count and try again.</p>
 </main>
 <script>
   "use strict";
@@ -550,9 +553,11 @@
   // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
   // cheer overhead) and the height budget hold; else start a new receipt. A single body
   // always gets at least its own receipt (over-budget is warned in the UI). One nonce and
-  // one lead per receipt. opts = {bits, cheer, tuck, nonceFn, covers}. Returns Part[] =
+  // one lead per receipt. opts = {bits, cheer, tuck, noNonce, nonceFn, covers}. Returns Part[] =
   // {payload, lead, cover, chars, heightPx, bodies, nonce}. Pure (no DOM) so the test
-  // harness can exercise it.
+  // harness can exercise it. `noNonce: true` leaves the two digits out of every lead
+  // ("Cheer100 " instead of "Cheer100 07 ") and the reservation shrinks with it; absent
+  // means the nonce is on, which is every caller written before the toggle existed.
   //
   // The lead and its cost both come from buildLead / leadLength (defined with the giant
   // type core, inside the DOM-glue guard; `var`-hoisted, and assigned long before anything
@@ -563,7 +568,7 @@
     opts = opts || {};
     // The tuck hides the cheer GEM, so it only means anything when cheering.
     var tuck = !!(opts.cheer && opts.tuck);
-    var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, tuck: tuck };
+    var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, tuck: tuck, noNonce: !!opts.noNonce };
     var overhead = leadLength(leadOpts);
     var maxBody = MAX_CHARS - overhead;
     // The per-receipt height ceiling, from the user's receipt length (opts.heightPx), or the
@@ -588,7 +593,8 @@
     var parts = [], cur = [], curChars = 0, curH = 0, curInk = false;
     function flush() {
       if (!cur.length) return;
-      var nonce = opts.cheer ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
+      var nonce = opts.cheer && !opts.noNonce
+        ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
       // UNDER THE TUCK the lead is an nbsp plus a box pinned out of the flow, so the
       // first body of the part would start on the nbsp's line. Two cases, one per kind:
       //  - a body that opens with its own <br> (giant type, `leadBr`) loses it. That <br>
@@ -3068,8 +3074,9 @@
       return r === "giant" || r === "hanzi" ? r : "type";
     };
     // ── THE LEAD, AND THE CHEER-GEM TUCK ──
-    // Every message starts with a lead the packer owns: the cheer token and nonce, or
-    // LEAD_GUARD when not cheering. buildLead is the ONE builder: packStackBodies' `lead`,
+    // Every message starts with a lead the packer owns: the cheer token and, when the
+    // "Add a repeat number" toggle is on, the nonce; or LEAD_GUARD when not cheering. An
+    // empty `nonce` argument gives the bare "Cheer100 ". buildLead is the ONE builder: packStackBodies' `lead`,
     // its per-part overhead, the band builders' slack and tools/payload.mjs all go through
     // it, so the characters reserved and the characters sent cannot drift apart.
     //
@@ -3095,10 +3102,11 @@
     // Characters a part's lead costs, which is what the packer and the body builders have
     // to reserve. Tucked, it also counts the 4-character <br> the packer may put in front
     // of a first body that has no leading <br> of its own (see packStackBodies). Measured
-    // with a 2-digit nonce, which is what every part carries.
+    // with the 2-digit nonce every part carries, or with none under `noNonce`, so the
+    // characters reserved and the characters sent stay equal either way.
     var leadLength = function (opts) {
       opts = opts || {};
-      return payloadLength(buildLead(opts, makeNonce(0))) + (opts.cheer && opts.tuck ? 4 : 0);
+      return payloadLength(buildLead(opts, opts.noNonce ? "" : makeNonce(0))) + (opts.cheer && opts.tuck ? 4 : 0);
     };
     // What a BANDED body (Hanzi rows, glyph-art strips) leaves free for the lead when it
     // sizes a band. The packer never splits a single body, so a band sized for the wrong
@@ -3883,6 +3891,14 @@
     function getTuck() {
       return !!(els && els.cheerTuck && els.cheerTuck.checked);
     }
+    // "Add a repeat number" (#cheerNonce): the two rotating digits after the cheer token.
+    // Absent control or unchecked = off, and off is the default: the digits print on the
+    // receipt, and all they do is make repeat copies differ (Twitch won't send the same
+    // message twice in a row within 30 seconds), which a cheer rarely needs. Like the tuck, the packer
+    // only reads it when cheering; the census, which always carries the token, reads it too.
+    function getNonce() {
+      return !!(els && els.cheerNonce && els.cheerNonce.checked);
+    }
     // The receipt length (mm) the stack packs against, clamped to the control's range. Feeds
     // heightBudget() — the per-receipt height ceiling — so every size label, cheer count and
     // split reflects the user's real page, not the 500mm wkhtmltopdf sheet.
@@ -3904,7 +3920,8 @@
       var extra = payloadLength(buildLead({ cheer: true, bits: bits, tuck: true }, "00"))
                 - payloadLength(buildLead({ cheer: true, bits: bits }, "00"));
       els.cheerTuckHint.textContent = (on ? "" : "Needs Cheer-ready: without a cheer there is no gem to hide. ")
-        + "Normally your cheer prints as a small gem, '" + bits + "' and two digits on their own "
+        + "Normally your cheer prints as a small gem and '" + bits + "'"
+        + (getNonce() ? ", plus the two repeat digits," : "") + " on their own "
         + "line above your art. This squeezes them into a tiny box in the receipt's top-right "
         + "corner and saves that line. printer-bot's header still shows the bits and your name. "
         + "Made for Giant type; with other blocks it starts them on a fresh line. Uses " + extra
@@ -3913,14 +3930,28 @@
         + "fresh line). Emote names keep that line, so their first row stays centred. If "
         + "printer-bot changes its style, the gem just prints normally and nothing else breaks.";
     }
+    // The repeat-number checkbox's state and hint, the same way as the tuck: disabled (not
+    // unchecked) without Cheer-ready, since a message with no cheer has no lead to put the
+    // digits in, and turning Cheer-ready back on brings the user's choice back with it.
+    function syncNonceUi() {
+      if (!els || !els.cheerNonce) return;
+      var on = !!els.cheer.checked;
+      els.cheerNonce.disabled = !on;
+      if (!els.cheerNonceHint) return;
+      els.cheerNonceHint.textContent = (on ? "" : "Needs Cheer-ready: without a cheer there is nothing to put the digits after. ")
+        + "Puts two rotating digits after the cheer (\"Cheer" + getBits() + " 07\"). Twitch won't send "
+        + "the same message twice in a row within 30 seconds (it just isn't sent, and no bits are "
+        + "spent), and the digits make each copy different. They also print on the receipt, "
+        + "which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.";
+    }
     function cheerOptsFor(i) {
-      return { cheer: els.cheer.checked, cheerToken: "Cheer" + getBits(), nonce: nonceForPart(i) };
+      return { cheer: els.cheer.checked, cheerToken: "Cheer" + getBits(), nonce: getNonce() ? nonceForPart(i) : "" };
     }
     // Big Text: split the rendered CellGrid into ordered top-to-bottom bands
     // whenever it's taller than one <=MAX_CHARS message can hold. rowsPerMsg
     // reserves 14 chars (" Cheer100 " + a 2-glyph nonce) out of MAX_CHARS
-    // regardless of whether Cheer-ready is actually on, so toggling it never
-    // changes how the grid is banded. N===1 when the grid already fits.
+    // regardless of whether Cheer-ready or the repeat number is actually on, so
+    // toggling either never changes how the grid is banded. N===1 when the grid already fits.
     function buildTextParts() {
       var o = baseOpts();
       // Glyph tiling's resolution IS the column count, so shrinking the letters
@@ -4069,6 +4100,8 @@
           // stop persisting every other control along with it. A field of rw_controls_v1,
           // not a new storage key.
           tuck: !!(els.cheerTuck && els.cheerTuck.checked),
+          // "Add a repeat number", guarded and a field of rw_controls_v1 for the same reasons.
+          nonce: !!(els.cheerNonce && els.cheerNonce.checked),
           textSize: els.textSize.value, bigStyle: els.bigStyle.value,
           rotateLen: els.rotateLen.value,
           imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
@@ -4111,6 +4144,10 @@
       // absent (every settings blob older than 0.10.0) means OFF, and only an explicit
       // true turns it on.
       if (els.cheerTuck) els.cheerTuck.checked = saved.tuck === true;
+      // The repeat number defaults OFF, and that includes every settings blob saved before the
+      // toggle existed, when the digits were always sent: only an explicit true turns it on.
+      // The digits print on the receipt, and dropping them was the point of the toggle.
+      if (els.cheerNonce) els.cheerNonce.checked = saved.nonce === true;
       if (saved.text != null) els.textInput.value = saved.text;
       // textSize is now a px font-size (>=12); ignore any old fractional value.
       if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
@@ -5055,7 +5092,7 @@
         // The SAME budget and tuck packStack sizes bodies with, so a label's "1 cheer" is
         // the packer's answer and not a second opinion that can disagree with it.
         var cheer = !!els.cheer.checked, tuck = cheer && getTuck(), bits = getBits();
-        var budget = MAX_CHARS - leadLength({ cheer: cheer, bits: bits, tuck: tuck });
+        var budget = MAX_CHARS - leadLength({ cheer: cheer, bits: bits, tuck: tuck, noNonce: !getNonce() });
         var heightPx = getHeightPx(), receiptMm = getReceiptMm();
         // The receipt length is in the key: changing it re-plans every label (the cheer
         // counts and cut-off flags move with the page).
@@ -6064,10 +6101,24 @@
       if (!blocks.some(blockHasContent)) {
         return [{ payload: "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
-      var parts = packStack(blocks, { bits: getBits(), cheer: els.cheer.checked, tuck: getTuck(), nonceFn: nonceForPart,
+      var cheer = !!els.cheer.checked;
+      var parts = packStack(blocks, { bits: getBits(), cheer: cheer, tuck: getTuck(), noNonce: !getNonce(), nonceFn: nonceForPart,
                                       covers: !els.stackCovers || els.stackCovers.checked, heightPx: getHeightPx() });
-      return parts.map(function (p) {
-        return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead, cover: p.cover };
+      return parts.map(function (p, i) {
+        var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead, cover: p.cover };
+        // Without the repeat number nothing makes two parts differ, so a stack that repeats
+        // itself (the same block twice, say) can produce the SAME message twice in a row,
+        // and Twitch won't send the same message twice in a row within 30 seconds. Nothing
+        // is charged for a message that isn't sent, but the run stops there with no word
+        // from the app. Only the part right before counts: the parts go out in order, and a
+        // different message in between makes the repeat sendable again.
+        if (i > 0 && parts[i - 1].payload === p.payload) {
+          item.note = "Same message as part " + i + ". Twitch won't send the same message twice in a "
+            + "row within 30 seconds (it just isn't sent, and no bits are spent), so wait 30 seconds "
+            + "after part " + i + " before sending this one"
+            + (cheer ? ", or turn on “Add a repeat number”." : ".");
+        }
+        return item;
       });
     }
     // "Find what still sends": one cheer per carrier tag, labelled A, B, C…, each
@@ -6090,7 +6141,7 @@
         // testing the probe's framing instead of the tag.
         // Tuck included, for the same reason: the probe tests the tag, not a different lead.
         var part = packStackBodies([{ html: p.html, chars: payloadLength(p.html), heightPx: box.h }],
-          { bits: getBits(), cheer: els.cheer.checked, tuck: getTuck(),
+          { bits: getBits(), cheer: els.cheer.checked, tuck: getTuck(), noNonce: !getNonce(),
             nonceFn: function () { return nonceForPart(k); } })[0];
         return { payload: part.payload, chars: part.chars, copyable: true, probeBlocked: p.blocked,
                  headNote: p.label + ": " + p.name, previewImgUrl: box.url };
@@ -6100,7 +6151,8 @@
       if (currentKind === "census") {
         // Never tucked: the census builds its own markup-free payload (trailing token)
         // without the packer, and a diagnostic should look like any ordinary cheer.
-        var body = buildCensus() + " " + nonceForPart(0);   // nonce so a re-print isn't dup-blocked
+        // With the repeat number on, the digits let a re-print go out within Twitch's 30 seconds.
+        var body = buildCensus() + (getNonce() ? " " + nonceForPart(0) : "");
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
       if (currentKind === "probe") return probeParts();
@@ -6108,7 +6160,7 @@
       return composeParts();
     }
     // "Print size ruler": 1..13 at every .title depth, one cheer. Through the normal packer
-    // so it carries the ordinary lead and nonce (a re-print isn't duplicate-blocked), and
+    // so it carries the ordinary lead (and the repeat number when that's on), and
     // NEVER tucked: a diagnostic should look like any other cheer, and the one thing it
     // has to prove is the size, not the corner box. Rendered as a stack part so the preview
     // draws it in the receipt the way it will print.
@@ -6118,7 +6170,7 @@
       // cheer even when it overruns a short receipt — which is the point: it is the length
       // gauge. giantReport turns the current Receipt length into "numbers up to N print" plus
       // where each lands, so the user can read their real length off the tape.
-      return packStackBodies([body], { bits: getBits(), cheer: els.cheer.checked, nonceFn: nonceForPart })
+      return packStackBodies([body], { bits: getBits(), cheer: els.cheer.checked, noNonce: !getNonce(), nonceFn: nonceForPart })
         .map(function (p) {
           return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
                    cover: p.cover, note: giantReport(body, { receiptMm: getReceiptMm() }) };
@@ -6140,15 +6192,16 @@
       refresh();
       saveControls();
     }
-    // Advance just this part's nonce (a text band or the single image payload —
-    // the census has none to advance), then recompute and redisplay so the
-    // clipboard content matches exactly what's now on screen.
+    // Advance just this part's nonce (when the repeat number is on), then recompute and
+    // redisplay so the clipboard content matches exactly what's now on screen.
     // Which part was copied, and when — read by renderParts to label the button. A plain
     // timestamp rather than a timer handle, so a second copy just supersedes the first.
     var lastCopiedIdx = -1, lastCopiedAt = 0, COPY_FLASH_MS = 1800;
     function copyPart(index) {
-      if (currentKind === "text" || currentKind === "image" || currentKind === "census" || currentKind === "probe"
-          || currentKind === "ruler") {
+      // Only with the repeat number on: off, no payload carries a nonce, and advancing the
+      // counter would only spend a storage write.
+      if (getNonce() && (currentKind === "text" || currentKind === "image" || currentKind === "census"
+          || currentKind === "probe" || currentKind === "ruler")) {
         partNonces[index] = nextNonce();
       }
       refresh();
@@ -6224,6 +6277,8 @@
         cheer: document.getElementById("cheer"),
         cheerTuck: document.getElementById("cheerTuck"),
         cheerTuckHint: document.getElementById("cheerTuckHint"),
+        cheerNonce: document.getElementById("cheerNonce"),
+        cheerNonceHint: document.getElementById("cheerNonceHint"),
         bitsAmount: document.getElementById("bitsAmount"),
         stackCovers: document.getElementById("stackCovers"),
         receiptLen: document.getElementById("receiptLen"),
@@ -6273,12 +6328,13 @@
 
       restoreControls();
       syncTuckUi();
+      syncNonceUi();
 
       els.tabText.addEventListener("click", function () { setMode("text"); });
       els.tabImage.addEventListener("click", function () { setMode("image"); });
 
       [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.cheerTuck, els.bitsAmount, els.stackCovers, els.receiptLen, els.textInput, els.textSize, els.rotateLen,
+       els.invert, els.cheer, els.cheerNonce, els.cheerTuck, els.bitsAmount, els.stackCovers, els.receiptLen, els.textInput, els.textSize, els.rotateLen,
        els.imgUrl, els.imgWidth].forEach(function (el) {
         if (!el) return;
         el.addEventListener("input", function () {
@@ -6287,6 +6343,7 @@
           els.imgWidthVal.textContent = els.imgWidth.value;
           applyVisibility();   // a URL toggles real-image vs glyph-art controls
           syncTuckUi();        // Cheer-ready gates the tuck; the bit amount changes its cost
+          syncNonceUi();       // ...and gates the repeat number; the bit amount is in its example
           update();
         });
       });

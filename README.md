@@ -10,7 +10,7 @@ Unicode has to stand in for a picture or a poster-sized word.
 
 <p align="center">
   <a href="https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI" /></a>
-  <a href="docs/CHANGELOG.md"><img alt="Version 0.11.0" src="https://img.shields.io/badge/version-0.11.0-blue" /></a>
+  <a href="docs/CHANGELOG.md"><img alt="Version 0.12.0" src="https://img.shields.io/badge/version-0.12.0-blue" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
   <img alt="Single file" src="https://img.shields.io/badge/source-one%20HTML%20file-success" />
   <img alt="Zero dependencies" src="https://img.shields.io/badge/dependencies-0-brightgreen" />
@@ -33,6 +33,11 @@ Unicode has to stand in for a picture or a poster-sized word.
 > printer's real paper length (often A4), losing everything past ~29.7 cm. It is now
 > packed to a **Receipt length** you set (default A4), splitting a tall stack across
 > receipts that each fit. [Receipt length](#receipt-length).
+
+> **0.12.0: the two digits after the cheer are optional, and off by default.** A cheer
+> used to go out as `Cheer100 07`, and the `07` printed on the receipt. Now it is just
+> `Cheer100`. Turn on **Add a repeat number** if you want the digits back.
+> [Add a repeat number](#add-a-repeat-number-optional).
 
 > **⚠ printer-bot added an HTML sanitizer (2026-09-15), and it changed what prints.**
 > The chat message is no longer rendered as raw HTML — it passes through an allow-list
@@ -155,10 +160,10 @@ printer-bot turns a chat message into paper.
 Here is the whole payload for `HELLO`, with the 14 repeated tags shortened:
 
 ```
-Cheer100 07 <br><b class=title>…14 times…H<br>E<br>L<br>L<br>O</b>…14 times…<br>
+Cheer100 <br><b class=title>…14 times…H<br>E<br>L<br>L<br>O</b>…14 times…<br>
 ```
 
-That is 307 of the 500 characters. **Nothing in the markup is disguised.** Every tag is
+That is 304 of the 500 characters. **Nothing in the markup is disguised.** Every tag is
 one the sanitizer openly allows, written out plainly. (Your words are another matter: a
 stacked word goes out one letter per line, as above, so a channel's word filter never
 sees it whole. That is how the letters fit the paper, not a way around a channel's
@@ -281,8 +286,9 @@ the text around it. So a giant-sized emote prints giant: a single emote comes ou
   page printer-bot builds. Font rendering on the Windows rig can differ slightly.)
 - **Never sent:** the two "in-between size" styles Auto sometimes uses
   (`setting-description` and `setting-attribute`, ×0.9 and ×0.8), the emote form, and
-  the app's exact hidden-gem cheer (a leading space and the two digits inside the corner
-  box). The corner box itself, directly followed by giant text, rode the real cheer above.
+  the app's exact hidden-gem cheer (a leading space before the corner box, plus the two
+  repeat digits inside it if you turn those on). The corner box itself, directly followed
+  by giant text, rode the real cheer above.
 
 ### If it stops working
 
@@ -392,9 +398,8 @@ measured fact, with a single throwaway print and no access to the other side.
 ## Cheer-ready output & the AutoMod caveat
 
 For the Twitch-cheer use case there's a **Cheer-ready** toggle (on by default). Every
-message then **starts with** a `Cheer100` token (`Cheer<your bits>` if you set more) and
-a small visible rotating two-digit nonce, so Twitch registers the message as a cheer and
-a duplicate-message filter doesn't eat a re-send. The token goes first so it survives
+message then **starts with** a `Cheer100` token (`Cheer<your bits>` if you set more), so
+Twitch registers the message as a cheer. The token goes first so it survives
 anything that trims a long message, and so the message never starts with `<`, which
 some sends are dropped for. Turn it off to get the blocks only, for three reasons:
 
@@ -406,15 +411,29 @@ some sends are dropped for. Turn it off to get the blocks only, for three reason
   through the channel's chat filters, so sending it shows whether the channel lets that
   text through before you spend bits on it.
 
+### Add a repeat number (optional)
+
+Twitch won't send the same message twice in a row within 30 seconds. A refused message
+just isn't sent, and no bits are spent. **Add a repeat number** (off
+by default since 0.12.0, needs Cheer-ready) puts two rotating digits after the token
+(`Cheer100 07`), so every copy is different and you can send the same art again
+straight away. The digits print on the receipt, which is why it is off. With it off,
+wait 30 seconds before sending the same thing again.
+
+A stack that repeats itself (the same block twice, say) can produce two identical
+parts in a row. With the repeat number off, the second of them says so on its part, so a
+run doesn't quietly stop halfway.
+
 ### Hide the cheer gem (optional)
 
-printer-bot turns your `Cheer100` into a small cheer gem plus "100", and with the
-nonce that takes a line of its own above your art. **Hide the cheer gem in the
-corner** (off by default, needs Cheer-ready) wraps the token in a box that
-printer-bot's own stylesheet pins to the receipt's top-right corner and clips. The gem
-is squeezed into a tiny corner box, "100" and the nonce are cut off, and with Giant type
-the line they used is saved for your art. printer-bot's header still prints the bits
-and your name, and Twitch still sees, shows and charges an ordinary cheer.
+printer-bot turns your `Cheer100` into a small cheer gem plus "100" (and the repeat
+digits, if you turned those on), and that takes a line of its own above your art.
+**Hide the cheer gem in the corner** (off by default, needs Cheer-ready) wraps the
+token in a box that printer-bot's own stylesheet pins to the receipt's top-right corner
+and clips. The gem is squeezed into a tiny corner box, "100" (and any repeat digits)
+are cut off, and with Giant type the line they used is saved for your art.
+printer-bot's header still prints the bits and your name, and Twitch still sees, shows
+and charges an ordinary cheer.
 
 - It costs **48 of the 500 characters**, whatever the amount.
   The hint under the checkbox computes it. A cheer that starts with Giant type gets 4
@@ -708,8 +727,8 @@ printer draws the letters. See [Giant type](#giant-type-how-and-why-it-works).
    That wrapper is what lets the ASCII tiers use a plain space as their lightest
    cell.
 4. **Package.** If **Cheer-ready** is on, the payload is *prefixed* with
-   `Cheer<N>` plus a visible rotating nonce, leading so that they survive any
-   trailing-strip and the message never starts with `<`. (With **Hide the cheer gem**
+   `Cheer<N>` (plus a visible rotating two-digit repeat number, if you turned that on),
+   leading so that it survives any trailing-strip and the message never starts with `<`. (With **Hide the cheer gem**
    on, a non-breaking space leads and the token sits in the corner box right after it,
    so the message still never starts with `<`.) A live character counter
    (budget: 500, Twitch's per-message cap, leaving headroom) turns red if you go
@@ -784,8 +803,9 @@ so "I never clicked upload" is not the same as "nothing left the device".
 
 **Storage:** four `localStorage` keys, all wrapped in `try/catch` so locked-down
 contexts still work: control settings (`rw_controls_v1`, which also holds the "Hide the
-cheer gem" choice), the nonce counter (`rw_nonce_seq`), your block stack
-(`rw_blocks_v1`) and your saved presets (`rw_presets_v1`).
+cheer gem" and "Add a repeat number" choices), the repeat-number counter (`rw_nonce_seq`,
+which only moves while that option is on), your block stack (`rw_blocks_v1`) and your
+saved presets (`rw_presets_v1`).
 
 The app is still one auditable file, and it still runs offline if you only use Big
 Text and locally-picked pictures.

@@ -56,6 +56,65 @@ test("no-cheer payload keeps the nbsp lead guard (may start with '<')", () => {
   assert.equal(parts[0].payload.charCodeAt(0), 0x00A0);
 });
 
+// 0.12.0: the repeat number (the two nonce digits) is opt-in. `noNonce: true` is what the
+// app passes when it is off, which is its default.
+test("noNonce: every lead is the bare token, and its reservation is exactly 3 smaller", () => {
+  for (const bits of [100, 1000, 10000]) {
+    for (const tuck of [false, true]) {
+      const on = { cheer: true, bits, tuck }, off = { ...on, noNonce: true };
+      const what = "bits " + bits + (tuck ? ", tucked" : "");
+      assert.equal(C.leadLength(off), C.leadLength(on) - 3, what + ": the digits and their space");
+      const parts = C.packStackBodies([body(300, 50), body(300, 50)], off);
+      assert.equal(parts.length, 2, what);
+      const bare = tuck ? C.LEAD_GUARD + C.TUCK_OPEN + " Cheer" + bits + " " + C.TUCK_CLOSE : "Cheer" + bits + " ";
+      for (const p of parts) {
+        assert.equal(p.nonce, "", what);
+        assert.equal(p.lead, bare, what);
+        assert.equal(p.lead, C.buildLead(off, ""), what);
+        assert.notEqual(p.payload[0], "<", what);
+      }
+    }
+  }
+  // Not cheering, there was never a nonce: the nbsp guard either way.
+  assert.equal(C.leadLength({ cheer: false, noNonce: true }), C.LEAD_GUARD.length);
+});
+
+test("noNonce never asks for a nonce, so the app's counter (a storage write per call) is untouched", () => {
+  let calls = 0;
+  C.packStackBodies([body(300, 50), body(300, 50)],
+    { cheer: true, bits: 100, noNonce: true, nonceFn: () => { calls++; return "07"; } });
+  assert.equal(calls, 0);
+});
+
+test("noNonce: a body sized to the smaller reservation still lands at exactly 500, tucked or not", () => {
+  for (const tuck of [false, true]) {
+    const opts = { cheer: true, bits: 100, tuck, noNonce: true };
+    const budget = C.MAX_CHARS - C.leadLength(opts);
+    const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
+    assert.equal(one.length, 1);
+    assert.equal(one[0].chars, C.MAX_CHARS, tuck ? "tucked" : "untucked");
+  }
+});
+
+test("noNonce leaves untucked bands where they were (the 14 floor) and gives a tucked band its 3", () => {
+  // Untucked, the band reserve's floor of 14 still applies, so toggling the digits never
+  // re-bands a Hanzi or glyph grid. Tucked, the reserve IS the lead, so it shrinks with it.
+  assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, noNonce: true })), 14);
+  const tucked = (o) => C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, tuck: true, ...o }));
+  assert.equal(tucked({ noNonce: true }), tucked({}) - 3);
+});
+
+test("noNonce absent or false packs byte-identically: callers written before the toggle are unchanged", () => {
+  const bodies = [body(200, 50), body(150, 700, "丶二土"), body(260, 900)];
+  for (const cheer of [true, false]) {
+    for (const tuck of [false, true]) {
+      const a = C.packStackBodies(bodies, { cheer, bits: 100, tuck, nonceFn: (i) => C.makeNonce(i) });
+      const b = C.packStackBodies(bodies, { cheer, bits: 100, tuck, noNonce: false, nonceFn: (i) => C.makeNonce(i) });
+      assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
+    }
+  }
+});
+
 // The bug this pins: the lead is CONTENT. It occupies a line in the bot's
 // #receipt-content, above the first body, which shifts a lifted takeover DOWN by that
 // line's height and leaves the top of the header uncovered. The preview used to render

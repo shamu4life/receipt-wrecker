@@ -10,6 +10,53 @@ then and neither is true now. For current behaviour see the
 
 ---
 
+## [0.12.0] - 2026-10-09
+
+### The short version
+
+**The two digits after the cheer are optional now, and off by default.** Every cheer
+used to go out as `Cheer100 07`, with two rotating digits (the nonce) after the token,
+and those digits printed on the receipt. A cheer now goes out as plain `Cheer100`.
+
+### Added — Add a repeat number
+
+A checkbox under Cheer-ready, **off by default**. On, it puts the two rotating digits
+back (`Cheer100 07`, and inside the corner box when the cheer gem is hidden). All they
+do is make each copy different: Twitch won't send the same message twice in a row
+within 30 seconds. A refused message just isn't sent and costs no bits, so for
+a cheer the digits mostly bought a stray `07` on the tape. Like "Hide the cheer gem",
+it is disabled (not unchecked) without Cheer-ready, and it is saved as a field of
+`rw_controls_v1`, with no new storage key. Settings saved before this release have no
+such field, and they read as **off**: dropping the digits for everyone was the point.
+
+With the digits off, a stack that repeats itself (the same block twice, say) can come
+out as two identical parts in a row, and Twitch would refuse the second within 30
+seconds. That part now says so ("Same message as part 1 …") instead of letting the run
+stop with no word from the app. Only the part right before counts: the parts go out in
+order, and a different message in between makes a repeat sendable again.
+
+### Changed
+
+- Without the digits a lead is 3 characters shorter (`Cheer100 ` is 9; tucked, 57 plus
+  the 4-character `<br>`), and the reservation shrinks with it, so Giant type can spend
+  those 3 characters. Untucked Hanzi and glyph-art bands still reserve their floor of
+  14, so turning the digits on or off never re-bands a grid.
+- With the default settings, the tucked lead is now the form that rode the real cheer
+  on 2026-10-01 (`<span class="switch dialog-nav-button"> Cheer100 </span>`) plus the
+  leading non-breaking space; the two-digit form was never sent.
+- Copy only advances the repeat counter (`rw_nonce_seq`) while the digits are on.
+- `tools/payload.mjs` follows the app's default (no digits); `"nonce":true` adds them.
+
+### How sure
+
+297 unit tests and 18 browser tests pass. The new tests were checked against the bugs
+they exist for, and each of these makes them fail: old settings reading as on, no
+repeated-part note, the composer ignoring the setting, `leadLength` ignoring it, and
+the packer sending the digits anyway. That last one puts a full message at 503
+characters, which Twitch rejects outright.
+
+---
+
 ## [0.11.0] - 2026-10-02
 
 ### The short version

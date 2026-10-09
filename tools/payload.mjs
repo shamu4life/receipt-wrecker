@@ -18,7 +18,11 @@
 //
 // Specs (all fields optional unless noted):
 //   {"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote",
-//    "size":"fit1|width"|1..18,"tuck":false,"bits":100,"cheer":true,"part":0,"mm":297}
+//    "size":"fit1|width"|1..18,"tuck":false,"bits":100,"cheer":true,"part":0,"mm":297,
+//    "nonce":false}
+//        "nonce" is the app's "Add a repeat number" toggle, OFF by default like the app's:
+//        the lead is "Cheer100 " with no digits. "nonce":true gives "Cheer100 00 ". It
+//        applies to every kind that carries a lead (giant, ruler, and "lead":true below).
 //        "mm" is the app's Receipt length (the per-receipt height budget = heightBudget(mm));
 //        omit it for the A4 default the app ships with.
 //        Giant type, through the app's own path: buildGiantBodies at the budget packStack
@@ -34,8 +38,8 @@
 //   {"kind":"embed","url":"...","w":160,"h":160,"carrier":"embed"}   one bare picture
 //   {"kind":"raw","html":"<b>anything</b>"}                escape hatch
 //
-// Add "lead":true to the last four to prefix the real cheer lead ("Cheer100 00 ", or the
-// tucked one with "tuck":true; "bits" sets the amount). That lead occupies a line in
+// Add "lead":true to the last four to prefix the real cheer lead ("Cheer100 ", "Cheer100 00 "
+// with "nonce":true, or the tucked one with "tuck":true; "bits" sets the amount). That lead occupies a line in
 // #receipt-content and pushes a lifted takeover DOWN by its height — measuring without it
 // is what made the pull calibration a line short and printed a crescent of the streamer's
 // avatar above the artwork.
@@ -65,6 +69,8 @@ const leadOpts = {
   cheer: spec.kind === "giant" ? spec.cheer !== false : true,
   bits: Number(spec.bits) >= 100 ? Math.floor(Number(spec.bits)) : 100,
   tuck: !!spec.tuck,
+  // The app's repeat-number toggle defaults to off, so the bench does too.
+  noNonce: spec.nonce !== true,
 };
 // One message through the packer, exactly as probeParts sends a single body: the lead,
 // the nonce, and under the tuck the packer's first-body <br> rule all come from the app.
@@ -108,10 +114,10 @@ switch (spec.kind) {
     break;
   }
   case "ruler": {
-    // rulerParts: the normal lead and nonce, NEVER tucked (a diagnostic should look like
-    // any other cheer; the one thing it has to prove is the size).
+    // rulerParts: the normal lead (with the nonce only if asked for), NEVER tucked (a
+    // diagnostic should look like any other cheer; the one thing it has to prove is the size).
     const body = C.buildGiantRuler();
-    html = C.packStackBodies([body], { cheer: true, bits: leadOpts.bits })[0].payload;
+    html = C.packStackBodies([body], { cheer: true, bits: leadOpts.bits, noNonce: leadOpts.noNonce })[0].payload;
     console.error("[payload] ruler: 1.." + body.giant.levels + ", predicted height " + body.heightPx + "px");
     break;
   }

@@ -65,6 +65,9 @@ sample up as a mechanism.**
   nonce, directly followed by `<b class=title>` with no `<br>` between, so that adjacency
   itself has printed; only the nbsp and the nonce have not. These are the first things to
   put in a free probe (see the probe list under "Measuring").
+  *(Amended 0.12.0: the nonce is opt-in now ("Add a repeat number", off by default), so the
+  DEFAULT tucked lead is the field cheer's span plus the leading nbsp. The two-digit form
+  is what someone who turns the digits on sends, and it is still unsent.)*
 
 **It is fragile by construction.** This is a borrowed style on someone else's page.
 nutty can rename `.title`, retune it, scope `global.css` away from the receipt, or stop
@@ -375,6 +378,9 @@ and clicking Copy, because the payload is never in the DOM. Any browser test tha
 depends on a default must **pin** the value it needs. When Giant type became the default,
 "the cover surcharge line never says a range of one" quietly stopped splitting and
 passed while testing nothing; it now pins its block to Hanzi and asserts the split.
+When 0.12.0 turned the nonce off by default, every helper that predicts a payload from
+the page's defaults moved to `PAGE_LEAD` (`noNonce: true`): a budget 3 characters off
+can pick a different Giant size.
 In the unit suite, `test/_harness.mjs` exports `scanTags`, an all-occurrences tag and
 attribute scanner. The older first-occurrence `attrsOf` scan missed a stray attribute
 on level 2 of a nest, and read the unquoted two-class span as clean. Anything needing the Worker (`/px`,
@@ -441,6 +447,8 @@ Pure core (DOM-free, unit-tested):
 7. `makeNonce(i)` / `packageCheer(body, opts)` / `CHEER_TOKEN` (`"Cheer100"`):
    append a space-delimited `Cheer100` token plus a small **visible** rotating
    nonce (glyphs, never zero-width) when the "Cheer-ready" toggle is on.
+   *(Since 0.12.0 the nonce is opt-in, "Add a repeat number", off by default:
+   `cheerOptsFor` hands `packageCheer` an empty nonce and it appends the bare token.)*
    `packageCheer` is the old single-mode path. The block composer's lead is built by
    `buildLead` (item 18), and the token *leads* there (see Global constraints).
 8. `buildCensus()` builds the fixed diagnostic payload for the Print test strip
@@ -759,6 +767,15 @@ Pure core (DOM-free, unit-tested):
     exact. The mutation test: two 230-character bodies, tucked, must pack as two parts
     of at most 500 at 100, 1000 and 10000 bits; restoring `token.length + 4` puts them
     in one 524-character part.
+    **`noNonce: true`** (0.12.0) is what the app passes unless "Add a repeat number" is
+    on, i.e. by default. It drops the digits from every lead: `Cheer100 ` (9) and, tucked,
+    57 (61 with the `<br>`), so `leadLength` and every reservation built on it shrink by
+    exactly 3, and the packer never calls `nonceFn` (the app's `nonceForPart` writes
+    storage). Absent means the nonce is on, so callers written before the toggle are
+    byte-identical. `bandReserve`'s floor of 14 keeps untucked bands where they were
+    either way; a tucked band gets its 3 back. Mutation test: have the packer send the
+    digits while the reservation is the bare lead's, and a full-budget body lands at
+    503, which Twitch rejects outright.
 19. `buildGiantRuler()`: the **Print size ruler**, `buildCensus`' counterpart for Giant
     type. The numbers 1-13, each one `.title` level deeper than the last, in one body:
     316 characters (328 with the plain lead), 1275px, one cheer on one 500mm page. It
@@ -803,7 +820,8 @@ unit-tested):
   0.10.0 that includes `tuck` (the "Hide the cheer gem" checkbox) as a FIELD of
   `rw_controls_v1`; absent reads as off. 0.11.0 adds `receiptLen` (the Receipt length
   mm) the same way, clamped on restore to `clampReceiptMm`; absent reads as the A4
-  default. No new key.
+  default. 0.12.0 adds `nonce` (the "Add a repeat number" checkbox); absent reads as
+  OFF, including every blob saved back when the digits were always sent. No new key.
 - `getReceiptMm()` / `getHeightPx()`: the Receipt length control, clamped, and its
   `heightBudget(mm)`. `composeParts` passes `heightPx: getHeightPx()` into `packStack`,
   and the giant card passes it (and `receiptMm`) into `giantPlan` / `giantReport`, so
@@ -812,6 +830,16 @@ unit-tested):
   without Cheer-ready, so turning Cheer-ready back on restores the user's choice, and
   its hint computes the cost from the two real leads (`buildLead`) rather than writing
   a number down: an earlier draft said "+46" for what measures 48.
+- `getNonce()` / `syncNonceUi()` (0.12.0): the repeat-number checkbox (`#cheerNonce`,
+  default off), the same pattern as the tuck: disabled, not unchecked, without
+  Cheer-ready. Every builder reads it: `composeParts`, `probeParts` and `rulerParts`
+  pass `noNonce: !getNonce()`, the census appends a nonce only when it is on,
+  `cheerOptsFor` hands `packageCheer` an empty nonce when it is off, and the giant
+  card's budget passes `noNonce` too, so its labels stay the packer's answer.
+  `composeParts` puts a `note` on a part whose payload equals the part right before it
+  (only possible with no nonce), because Twitch won't send the same message twice in a
+  row within 30 seconds and the run would otherwise stop with no word from the app. Only
+  the previous part counts: a different message in between makes a repeat sendable.
 - `packStack(blocks, opts)` computes `budget = MAX_CHARS - leadLength(opts)` and
   `heightPx = giantHeight(opts.heightPx)` once and passes them (and `tuck`) to
   `renderBlockBodies(block, budget, tuck, heightPx)`, which routes through `blockRender`:
@@ -839,6 +867,8 @@ unit-tested):
   normal packer, with the plain lead.
 - `nextNonce()`: advances a `localStorage`-backed counter (falling back to an
   in-session counter if storage is unavailable) and feeds it through `makeNonce`.
+  Only reached while the repeat number is on: `copyPart` skips the advance when it is
+  off, and the packer never calls `nonceFn` under `noNonce`.
 - `init()`: wires all DOM elements and event listeners; only runs on
   `DOMContentLoaded`, so it never executes under the test harness.
 
@@ -1404,9 +1434,17 @@ not arbitrary style choices:
   above still hold. The token keeps a space on each side, so Twitch still parses a
   standalone `Cheer100` and charges for it, and printer-bot's cheermote pass still finds
   it, because it is the first `Cheer<N>` in the message.)*
+  *(Amended 0.12.0: the nonce is opt-in, so by default the lead is the bare
+  `Cheer<bits> ` and, tucked, ` <span class="switch dialog-nav-button"> Cheer100 </span>`.
+  Both reasons above hold without it.)*
 - **The nonce is visible, never zero-width.** It exists to defeat a duplicate-
   message filter; an invisible/zero-width character is likely to be stripped by
   the same sanitizing behavior that rules out HTML injection.
+  *(Amended 0.12.0: and optional. "Add a repeat number" is off by default, because the
+  digits print on the receipt, and the duplicate rule they answer (Twitch won't send the
+  same message twice in a row within 30 seconds; a refused message is not sent and costs
+  nothing) rarely matters for a cheer. Off, two identical parts in a row are flagged on
+  the repeated part. On, it is still visible, never zero-width.)*
 - **Markup went out of scope, came back on field evidence, and the sanitizer has
   now cut most of it again.** The v1 spec rejected markup (see
   `docs/superpowers/specs/2026-07-05-block-glyph-art-generator-design.md`, §2) on
@@ -1524,13 +1562,15 @@ These are the project's defining properties (shared with the sibling tools).
   test asserts no request leaves the page's origin. Fetching nutty's live stylesheets
   is something only the dev-only bench (`tools/printerbot.mjs`) does, never the app.
 - **Storage:** `localStorage` holds exactly four keys: the control-panel
-  settings (`rw_controls_v1`), the nonce sequence counter (`rw_nonce_seq`), the
+  settings (`rw_controls_v1`), the nonce sequence counter (`rw_nonce_seq`, advanced
+  only while "Add a repeat number" is on), the
   block composer's stack (`rw_blocks_v1`), and the saved presets (`rw_presets_v1`,
   added by explicit request in 0.6.0, spec §8). All wrapped in `try/catch` so
   sandboxed previews that block storage still render and run. Don't add a fifth
-  without an explicit request. (0.10.0 and 0.11.0 added state without adding a key: the
+  without an explicit request. (0.10.0, 0.11.0 and 0.12.0 added state without adding a key: the
   "Hide the cheer gem" checkbox is a `tuck` field inside `rw_controls_v1`, the Receipt
-  length is a `receiptLen` field there, both absent-means-default, and a giant block's
+  length is a `receiptLen` field there, the "Add a repeat number" checkbox a `nonce`
+  field, all absent-means-default (the repeat number's default is off), and a giant block's
   `giantLayout` / `giantSize` ride in `rw_blocks_v1` and presets like every other block
   field.)
 - **Vanilla JS**, IIFE-wrapped, `"use strict"`, ES5-ish style (`var`, function

@@ -21,7 +21,7 @@ Key facts:
 
 As of 2026-09-15 the receipt printer's bot runs the chat message through an HTML
 sanitizer (an allow-list keeping only a few tags and the src/class attributes)
-before rendering it. What prints now, as of version 0.11.0 (2026-10-02):
+before rendering it. What prints now, as of version 0.12.0 (2026-10-09):
 
 - Giant type, for text. The sanitizer removes the style attribute but keeps the
   class attribute, and the printed page includes the bot author's shared stylesheet,
@@ -102,9 +102,13 @@ longer receipts).
 uploaded picture's link expires after 15 minutes, so a preset that used one loads
 with that block flagged for re-upload rather than printing blank.
 
-A **Cheer-ready** toggle prefixes the payload with a `Cheer<N>` token plus a small
-visible rotating nonce, so the message registers as a cheer and a duplicate-message
-filter doesn't eat a re-send. With it off, a message is a free test: it never reaches
+A **Cheer-ready** toggle prefixes the payload with a `Cheer<N>` token, so the message
+registers as a cheer. An optional **Add a repeat number** setting (off by default since
+0.12.0, because the digits print on the receipt) puts two rotating digits after the
+token, so the same art can be sent again straight away (Twitch won't send the same
+message twice in a row within 30 seconds); with it off, a stack with two identical
+parts in a row says so on the repeated part.
+With Cheer-ready off, a message is a free test: it never reaches
 the printer but still passes the channel's chat filters. An optional **Hide the cheer
 gem** setting wraps the token in a box the bot's own stylesheet pins to the receipt's
 corner, saving the line the cheer gem would print on (except in the emote layout,

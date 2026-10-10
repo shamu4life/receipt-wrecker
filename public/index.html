@@ -2235,9 +2235,9 @@
   // ── GLYPH-ART (High Roller): a picture as a grid of characters ──
   // The canvas work (decode, rotate, sample, quantize) stays in the browser glue; these take
   // the finished grid (rows of cells) and build the bodies. The form follows the tier:
-  //   cjk                 R1  <div style=font-size:<K>vw;line-height:1><row><br>...</div>
-  //                           Cells are 1em squares and every row ends in an explicit <br>,
-  //                           so a row can never reflow into the next. (Rows
+  //   cjk                 R1  <div style=font-size:<K>vw;line-height:1><row><br>...<row></div>
+  //                           Cells are 1em squares and the rows are separated by <br> (the
+  //                           last ends at </div>), so a row can never reflow into the next. (Rows
   //                           used to break themselves at width:<C>.2em with no <br>. Newer
   //                           Chromium (156) rounds each Han advance to the nearest whole px,
   //                           10.69 -> 11 at 58 mm, so 14 cells no longer fitted 14.2em,
@@ -2246,7 +2246,10 @@
   //                           58 mm's 153px even when every cell rounds up half a pixel, so
   //                           a row never wraps either and needs no nowrap; vw is the page
   //                           width, so the same message fits both papers. The rows centre
-  //                           on the receipt's own text-align:center.
+  //                           on the receipt's own text-align:center. That rounding also
+  //                           makes the picture's width depend on the browser's version: up
+  //                           to about 10% wider or narrower in Chromium 156 than in 141
+  //                           (the tier hint says so). Braille's 0.733em cells round the same way.
   //   ascii, asciifull,   R4  <pre style="font:<K>vw/1.2 'Courier New';margin:0"><row><br>...</pre>
   //   safe (blocks)           Courier New is 0.6em on the rig and on the bench (Liberation
   //                           Mono); <pre> keeps the spaces the ASCII ramps need. K =
@@ -2636,8 +2639,8 @@
         ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + bitsWord(t) + "), so the bot prints plain text."
         : "The streamer's High Roller threshold is 0 (off), so the bot prints every cheer as plain text.")
       + " Every block prints in its plain form: text as Han tiling, pictures as a grid of Han characters. "
-      + (t > 0 ? "For big or sideways text, set Bits per cheer to " + t + " or more."
-               : "Big and sideways text need the streamer to set a High Roller threshold.");
+      + (t > 0 ? "For big text, sideways text or glyph-art in the characters you picked, set Bits per cheer to " + t + " or more."
+               : "Big text, sideways text and glyph-art in the characters you picked need the streamer to set a High Roller threshold.");
   }
   // What to do when the streamer's settings leave a High Roller cheer no room after its Cheer
   // line (boxNoRoom): said under the parts in place of the bits total, since nothing there is
@@ -2999,10 +3002,10 @@
         });
       }).then(function (im) {
         if (block._decodeKey !== key) return;
-        block._img = im; block._decoding = false; delete block._rot; saveBlocks(); update();
+        block._img = im; block._decoding = false; delete block._rot; saveBlocks(); refresh();
       })["catch"](function () {
         if (block._decodeKey !== key) return;
-        block._decoding = false; block._decodeFailed = src; update();
+        block._decoding = false; block._decodeFailed = src; refresh();
       });
     }
     // The block's picture source changed without a new read starting (the link was emptied,
@@ -3098,14 +3101,23 @@
       return packStackBodies(bodies, po);
     }
     // The settings panel as one object (normalizeControls' fields), read from the controls.
+    // The last Bits per cheer that was a real amount (1 or more). A field holding anything else
+    // (0, -5, emptied to retype) reads as that amount, not as 100: a user on 30 bits who typed 0
+    // ended up on a 100-bit cheer with no word (final review 1). bitsRefused is the entry put
+    // back when the field was left, for the hint to name; any new typing clears it.
+    var lastBits = null, bitsRefused = null;
+    function bitsEntryOk(raw) { var n = parseFloat(raw); return isFinite(n) && n >= 1; }
     function getSettings() {
       var v = function (el) { return el ? el.value : undefined; };
-      return normalizeControls({
-        cheer: !!els.cheer.checked, bits: v(els.bitsAmount), hrThreshold: v(els.hrThreshold),
+      var rawBits = v(els.bitsAmount), okBits = bitsEntryOk(rawBits);
+      var s = normalizeControls({
+        cheer: !!els.cheer.checked, bits: okBits || lastBits == null ? rawBits : lastBits, hrThreshold: v(els.hrThreshold),
         bitsPerInch: v(els.bitsPerInch), maxInches: v(els.maxInches), paperMm: v(els.paperMm),
         nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
         thermalDither: v(els.thermalDither)
       });
+      if (okBits) lastBits = s.bits;
+      return s;
     }
     // What a stack is built and packed with (stackContext's options): the settings, the
     // repeat number as `noNonce` (getNonce: only while its checkbox is enabled), and any
@@ -3149,7 +3161,10 @@
       syncNonceUi();
       if (!els.bitsHint) return;
       var s = getSettings(), t = s.hrThreshold;
-      els.bitsHint.textContent = "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
+      els.bitsHint.textContent = (bitsRefused == null ? ""
+          : (bitsRefused === "" ? "Bits per cheer can't be empty" : "“" + bitsRefused + "” isn't an amount a cheer can spend (1 bit or more)")
+            + ", so it stays at " + bitsWord(s.bits) + ". ")
+        + "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
         + "so a run of parts costs bits × parts; the total is under the preview. "
         + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
            : s.bits >= t ? "At " + bitsWord(s.bits) + " the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
@@ -3223,7 +3238,7 @@
     // px), so vw units and the 244 / 153 px message box are the bot's, and as tall as render()
     // says the receipt is. Our glue (previewGlue, appended after the renderer's own script) and
     // this page talk by postMessage only, and each end checks event.source. A frame is kept per
-    // part across re-renders, so typing re-renders instead of re-loading 140 KB a keystroke;
+    // part across re-renders, so typing re-renders instead of re-loading about 130 KB a keystroke;
     // every request carries a sequence number and an answer to an older one is dropped.
     //
     // previewGlue runs INSIDE the frame: its source text is what gets appended (toString), so it
@@ -3301,7 +3316,7 @@
     // every keystroke). renderParts refills everything else in it each time.
     //
     // FRAMES ARE DRAWN LAZILY, ONE AT A TIME. A long stack is 70 parts or more (a long Big text
-    // at a fixed size, a short bits-per-inch box), and every part's frame loads 140 KB of the
+    // at a fixed size, a short bits-per-inch box), and every part's frame loads about 130 KB of the
     // bot's page and runs its renderer: all at once, and again on every keystroke, that froze
     // the page. So a part asks for its drawing only when its card is near the viewport (an
     // IntersectionObserver, 800px either side), and the requests go through one queue that
@@ -3631,6 +3646,8 @@
       } else if (pn) pn.parentNode.removeChild(pn);
       var total = document.getElementById("partsTotal");
       if (total) total.parentNode.removeChild(total);
+      var cutNote = document.getElementById("partsCut");
+      if (cutNote) cutNote.parentNode.removeChild(cutNote);
       while (partCards.length > items.length) {
         var gone = partCards.pop();
         dropFrame(gone);
@@ -3664,6 +3681,21 @@
           : (tooLong.length === 1 ? "Part " + nums + " is" : "Parts " + nums + " are") + " too long for Twitch to send "
             + "(500 characters at most), so Twitch would reject " + it1 + ". Fix " + it1 + " before pasting the parts."));
         return;
+      }
+      // Every part taller than the room the streamer's settings give a cheer (a Han tiling row
+      // under a high bits-per-inch, say): the bot cuts each one, so the total says that first.
+      // Each card said it in orange, but the total under them, where the cost is read, still said
+      // "Paste the parts into chat in order" over 12 cheers of light first rows (final review 1).
+      // Said only when Copy is live: a free test prints nothing to cut.
+      var cutAll = copyable.length > 0 && copyable[0].cheer !== false && copyable.every(function (it) { return it.cut; });
+      if (cutAll) {
+        var lim0 = copyable[0].limit, one = copyable.length === 1;
+        container.appendChild(mkEl("p", { "class": "parts-note too-long", id: "partsCut" },
+          (one ? "This part is" : "Every part is") + " taller than " + boxWords(lim0) + ", so the bot cuts "
+          + (one ? "it" : "every one") + "."
+          + (lim0.by === "bits" ? " Set Bits per cheer higher first: the streamer gives 1 inch (2.5 cm) of receipt per "
+               + bitsWord(bitsPerInchOf(getSettings().bitsPerInch)) + "."
+             : lim0.by === "cap" ? " Only a longer maximum length lets " + (one ? "it" : "them") + " print whole." : "")));
       }
       // One part says what it costs too (the hints point here for the cost); a test part's own
       // note already does.
@@ -3962,13 +3994,15 @@
     // Wrap a range/number input with a live value readout + a reset-to-default button.
     // `input` keeps its own change
     // handler; this adds the value display and a reset that re-fires that handler.
+    // A number box shows its own value, so it gets no readout in the label: Detail (columns)
+    // showed "18" twice (final review 1). The reset stays.
     function sliderRow(labelText, input, def, unit) {
       unit = unit || "";
       var row = mkEl("div");
-      var lab = mkEl("label");
-      lab.appendChild(document.createTextNode(labelText + ": "));
+      var lab = mkEl("label"), num = input.type === "number";
+      lab.appendChild(document.createTextNode(labelText + (num ? " " : ": ")));
       var val = mkEl("span", { "class": "bc-val" }, String(input.value) + unit);
-      lab.appendChild(val);
+      if (!num) lab.appendChild(val);
       var rst = mkEl("button", { type: "button", "class": "bc-reset", title: "Reset to " + def + unit,
                                  "aria-label": "Reset " + labelText.toLowerCase() + " to " + def + unit }, "↺");
       rst.addEventListener("click", function () { input.value = String(def); input.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -4031,22 +4065,26 @@
     // sits in a run of several cheers. Not the run's length when the box leaves no room after
     // the Cheer line (`noRoom`): the parts say nothing there is worth sending, and "needs 14
     // cheers" beside them priced it anyway (polish review 4).
+    // {warn, fine}: the over-length line asks for a change (orange, with the warnings); where the
+    // block sits in the run is only information (quiet). Both used to be orange, so a viewer
+    // couldn't tell which lines needed doing something about (final review 1).
     function partLines(where, parts, noRoom) {
-      var out = [], ip = where.inParts;
+      var warn = [], fine = [], ip = where.inParts;
       if (where.over) {
-        out.push((ip.length === 1 ? "Its part is" : "One of its parts is") + " over " + MAX_CHARS
+        warn.push((ip.length === 1 ? "Its part is" : "One of its parts is") + " over " + MAX_CHARS
           + " characters, so Twitch rejects that message and it never prints.");
       }
       if (parts && parts.length > 1 && ip.length && !noRoom) {
         // A range of one reads "parts 2 to 2"; that sentence bug has shipped here before.
-        out.push("Your whole stack " + (parts[0].cheer === false ? "takes " + parts.length + " messages" : "needs " + parts.length + " cheers")
+        fine.push("Your whole stack " + (parts[0].cheer === false ? "takes " + parts.length + " messages" : "needs " + parts.length + " cheers")
           + "; this block is in "
           + (ip.length === 1 ? "part " + (ip[0] + 1) : "parts " + (ip[0] + 1) + " to " + (ip[ip.length - 1] + 1)) + ".");
       }
-      return out;
+      return { warn: warn, fine: fine };
     }
-    // Write a card's note: the first line is the summary, the rest warnings; `fine` lines
-    // (always said) come last and quieter.
+    // Write a card's note: the first line is the summary, the rest warnings (orange: something
+    // to change); `fine` lines (information: where the block sits, why it prints plain, a font
+    // it needs) come last and quieter.
     function writeNote(el, lines, fine, over) {
       el.textContent = "";
       el.className = "text-note" + (over ? " over" : "");
@@ -4323,7 +4361,7 @@
             lines.push("Type something to print it.");
           }
           if (plainNow && r !== "hanzi") {
-            lines.push(t0 > 0
+            fine.push(t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
                 + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + " or more."
               : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
@@ -4347,7 +4385,8 @@
               + "which is what the streamer's bot uses, prints it running up the tape.");
           }
         }
-        writeNote(note, lines.concat(partLines(where, parts, noRoom)), fine, where.over);
+        var pl = partLines(where, parts, noRoom);
+        writeNote(note, lines.concat(pl.warn), pl.fine.concat(fine), where.over);
       };
       var applyRender = function () {
         var r = blockRender(block);
@@ -4425,7 +4464,7 @@
           if (adjKey(block) !== key) return;   // user moved on — drop stale result
           if (!res.ok) { setStatus("Adjust failed: " + ((res.d && res.d.error) || "server")); return; }
           block.outUrl = res.d.url; block.aspect = res.aspect;
-          setStatus((br || ct ? "Adjusted" : "Turned") + " ✓ (a copy is uploaded to show it here; its link expires in about 15 minutes)"); saveBlocks(); update();
+          setStatus((br || ct ? "Adjusted" : "Turned") + " ✓ (a copy is uploaded to show it here; its link expires in about 15 minutes)"); saveBlocks(); refresh();
         })
         .catch(function (e) { setStatus("Adjust failed (" + e.message + ")"); });
     }
@@ -4462,13 +4501,17 @@
       img.onerror = function () { setStatus("Couldn't read that image."); URL.revokeObjectURL(img.src); };
       img.src = URL.createObjectURL(file);
     }
-    function uploadFileForBlock(block, file, setStatus) {
+    // `urlInput`: the card's Image URL field, which is given the minted link. It kept whatever was
+    // typed before (or nothing), so the card named one picture while another one was the block's,
+    // and Switch to Glyph-art printed the upload under someone else's link (final review 1).
+    function uploadFileForBlock(block, file, setStatus, urlInput) {
       uploadPngForUrl(file, setStatus, function (url, aspect) {
         // A new link is a new picture: whatever glyph-art decoded before is not it.
         block.url = url; block.outUrl = null; block.aspect = aspect; block._img = null;
+        if (urlInput) urlInput.value = url;
         delete block.fileName; delete block._decodeFailed; cancelDecode(block);
         if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded, now adjusting…"); processImage(block, setStatus); }
-        else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
+        else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); refresh(); }
       });
     }
     function imageCard(block, at, count) {
@@ -4583,12 +4626,14 @@
       var TIER_HINTS = {
         cjk: "Han characters from light (丶) to dark (鬱), in a square grid of 12 to 30 columns. Every cell is "
           + "the same width in any CJK font, so the rows line up on both paper widths. Bold shapes read best; "
-          + "the tones are soft.",
+          + "the tones are soft. Newer browsers round each character to a whole pixel, so the picture can "
+          + "print up to about 10% wider or narrower than this preview if the streamer's Edge is a different version.",
         mono: "Rows of characters in Courier New, which the streamer's Windows has, 8 to 48 columns. The light "
           + "areas are spaces, and they keep their width.",
         braille: "Braille packs 2 × 4 dots into each character, the finest detail here. Courier New has no "
           + "Braille, so the streamer's PC draws it in another font that nobody has measured on this bot "
-          + "yet: send one cheer to check it before a bigger run."
+          + "yet: send one cheer to check it before a bigger run. Its width can also differ by up to about 10% "
+          + "between browser versions."
       };
       var tierHint = moreHint();
       glyphWrap.appendChild(tierHint.el);
@@ -4664,9 +4709,13 @@
         } else if (!block.url && !block._img) {
           lines.push("Paste an image link or pick a file.");
         }
+        var fine = [];
         if (ctx.mode === "plain") {
-          lines.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so the picture prints"
-                            : "The streamer's High Roller is off (threshold 0), so every picture prints")
+          // Worded as a condition while the block prints nothing (no picture yet, a link that can't
+          // be read or has expired): it sat under the red "prints nothing" saying the picture
+          // prints (final review 1). Information, so quiet.
+          fine.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
+            + (!gs.length ? "once this block has a picture it prints" : t > 0 ? "the picture prints" : "every picture prints")
             + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above.");
         } else if (noRoom) {
           lines.push(tallWords("", ctx.limit));
@@ -4676,7 +4725,8 @@
           lines.push("One row is taller than " + boxWords(ctx.limit) + ", so the bot cuts every part. Raise Detail (columns), "
             + "which makes the rows shorter" + (ctx.limit.by === "bits" ? ", or set Bits per cheer higher for more room." : "."));
         }
-        writeNote(gnote, lines.concat(partLines(where, parts, noRoom)), [], where.over);
+        var pl = partLines(where, parts, noRoom);
+        writeNote(gnote, lines.concat(pl.warn), pl.fine.concat(fine), where.over);
       };
       costSyncs.push(syncGlyph);
 
@@ -4712,7 +4762,7 @@
           decodeGlyphImage(block, f);
           saveBlocks(); update();
         }
-        else uploadFileForBlock(block, f, setStatus);
+        else uploadFileForBlock(block, f, setStatus, url);
       });
       kind.addEventListener("change", function () {
         // The decoded picture is kept: it is the same source (a picked file could not be read
@@ -4896,6 +4946,26 @@
     // set of flagged blocks actually changed. Waiting for every check to settle before
     // repainting is what keeps a clear-then-re-flag from flickering the card.
     function isGlyphBlock(b) { return !!b && b.type === "image" && b.imgKind === "glyph"; }
+    // Rebuild the cards (fn) without taking the focus from the control being typed in. The
+    // expiry check answers on its own, 700 ms after a keystroke saved, and its rebuild sent the
+    // rest of the typing to the page body (final review 1). The same control on the same card
+    // gets the focus back, with its caret and its scroll.
+    function keepFocus(fn) {
+      var a = document.activeElement, list = document.getElementById("blockList");
+      var sel = "input, select, textarea, button, summary";
+      var card = a && list && list.contains(a) && a.closest ? a.closest("#blockList > .block-card") : null;
+      if (!card) { fn(); return; }
+      var ci = Array.prototype.indexOf.call(list.querySelectorAll("#blockList > .block-card"), card);
+      var ki = Array.prototype.indexOf.call(card.querySelectorAll(sel), a);
+      var s0 = null, s1 = null, top = a.scrollTop;
+      try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (e) {}
+      fn();
+      var c = blockCard(ci), b = c && ki >= 0 ? c.querySelectorAll(sel)[ki] : null;
+      if (!b || b.tagName !== a.tagName) return;
+      try { b.focus({ preventScroll: true }); } catch (e) { b.focus(); }
+      try { if (s0 != null) b.setSelectionRange(s0, s1); } catch (e) {}
+      b.scrollTop = top;
+    }
     function probeStackExpiry() {
       var before = blocks.map(function (b) { return !!b._expired; });
       blocks.forEach(function (b) { delete b._expired; });
@@ -4928,7 +4998,7 @@
         // The parts too, not only the cards: their red notice names an expired link as expired
         // (missingPictures), and it kept the read failure's "can't be read" until some other edit
         // redrew it (polish review 4).
-        if (changed) { renderComposer(); refresh(); }
+        if (changed) { keepFocus(renderComposer); refresh(); }
         // How many blocks it flagged (all, and the Glyph-art ones a dead link stops printing: not
         // one still holding the copy it read earlier), and how many links it checked.
         return { expired: blocks.filter(function (b) { return b._expired; }).length,
@@ -5062,14 +5132,14 @@
         var minted = presetImageUrls(blocks.filter(isGlyphBlock)).filter(isMintedImageUrl).length;
         var base = "Loaded \"" + name + "\"." + (old ? " " + migrationNote(p.blocks, name, true) : "") + pictureFileNote(blocks);
         els.presetName.value = name;
-        presetNote(base + (minted ? " Checking its uploaded pictures still load…" : ""));
+        presetNote(base + (minted ? " Checking its Glyph-art pictures still load…" : ""));
         if (!minted || !job) return;
         job.then(function (r) {
           if (seq !== loadSeq) return;   // another Load since
           presetNote(r.glyph
             ? base + " " + r.glyph + (r.glyph === 1 ? " picture's link has" : " pictures' links have")
               + " expired: pick the file again or paste a fresh link on the flagged " + (r.glyph === 1 ? "block." : "blocks.")
-            : base + " Its uploaded pictures still load.", r.glyph > 0);
+            : base + " Its Glyph-art pictures still load.", r.glyph > 0);   // only those are checked (minted)
         });
       });
       els.presetRename.addEventListener("click", function () {
@@ -5217,6 +5287,7 @@
         var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
                      alone: !!p.alone, mode: ctx.mode, cheer: ctx.cheer, bits: ctx.bits, paperMm: ctx.paperMm,
                      warned: partWarned(p, ctx), noRoom: noRoom, contentPx: p.contentPx,
+                     cut: p.contentPx > ctx.limit.px + 1, limit: ctx.limit,
                      kindLabel: !ctx.cheer ? "free test" : p.alone || ctx.mode === "plain" ? "plain text" : "High Roller" };
         // A part with nothing printable in it (a picture still decoding) would be a cheer that
         // prints only the lead: it is shown, but it can't be copied until there is ink.
@@ -5260,6 +5331,7 @@
       return packStackBodies(pr.bodies, po).map(function (p) {
         return { payload: p.payload, chars: p.chars, copyable: works, bodies: p.bodies, lead: p.lead, alone: !!p.alone,
                  mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note, warned: partWarned(p, ctx), contentPx: p.contentPx,
+                 cut: p.contentPx > ctx.limit.px + 1, limit: ctx.limit,
                  kindLabel: kind === "hrprobe" ? "High Roller test" : "Plain test" };
       });
     }
@@ -5272,6 +5344,14 @@
     // — which part it landed in, whether that part is over budget — instead of only its
     // own length, which on its own never tells you a split is coming.
     // A callback must only WRITE to its card. Calling refresh() from one would recurse.
+    //
+    // refresh() redraws whatever view is on screen and never leaves it; update() is for the
+    // user's own edits and drops a test back to the stack. Work that finishes on its own (a
+    // picture read, an adjust bake, an upload, the expiry check) calls refresh(): it used to call
+    // update(), and a read landing while the High Roller test was up swapped the stack's parts in
+    // under the pointer, so a Copy a moment later copied the stack's part 1, not the test
+    // (final review 1). While a test is shown the stack's parts are still recomputed, so the
+    // cards' notes follow what landed.
     var costSyncs = [];
     function refresh() {
       lastParts = computeParts();
@@ -5286,7 +5366,7 @@
             + ", not your stack. Your blocks are unchanged."
             + (st.cheer ? "" : " It is a real cheer even with Cheer-ready off: a test has to print to show anything."), back: true },
         compose && blocks.some(blockHasContent) ? pictureAlert(missingPictures()) : []);
-      if (compose) stackParts = lastParts;
+      stackParts = compose ? lastParts : composeParts();
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](stackParts);
     }
     function update() {
@@ -5378,17 +5458,20 @@
         el.addEventListener(el.tagName === "SELECT" ? "change" : "input", update);
       });
       // A number field shows the value the app uses once it is committed (change: Enter, or
-      // leaving the field): 0 or nothing in Bits is 100 (a cheer is at least 1 bit), a maximum
-      // length of 50 inches is the dock's 40, junk in the threshold is its default 25. Not while
-      // it is being typed, which would fight the keyboard.
+      // leaving the field): 0 or nothing in Bits goes back to the last amount it held (a cheer is
+      // at least 1 bit; the hint says so), a maximum length of 50 inches is the dock's 40, junk in
+      // the threshold is its default 25. Not while it is being typed, which would fight the keyboard.
       [["bitsAmount", "bits"], ["hrThreshold", "hrThreshold"], ["bitsPerInch", "bitsPerInch"], ["maxInches", "maxInches"]].forEach(function (f) {
         var el = els[f[0]];
         if (!el) return;
         el.addEventListener("change", function () {
           var v = String(getSettings()[f[1]]);
+          if (f[0] === "bitsAmount" && !bitsEntryOk(el.value)) bitsRefused = el.value.trim();
           if (el.value !== v) { el.value = v; update(); }
+          else if (bitsRefused != null) syncModeUi();
         });
       });
+      if (els.bitsAmount) els.bitsAmount.addEventListener("input", function () { bitsRefused = null; syncModeUi(); });
 
       // The probes are a view, not a block: any edit drops back out (update() resets
       // currentKind to "compose").

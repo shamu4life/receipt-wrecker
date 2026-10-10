@@ -70,9 +70,11 @@ page, built into the app and run in a sandboxed frame with no network access.
   Han, kana and Hangul count 1.05em, so a stack of them stays inside the paper). Layouts *Auto*,
   *Lines as you typed them*, *Words wrapped to the paper*, *Stack the letters* and *Each line
   its own size*; Auto also tries the typed lines with the words wrapped
-  to the paper (balanced, every word whole), so a sentence typed on one line prints wrapped
-  rather than tiny or as a long column of small letters, and keeps whichever is biggest in one
-  cheer. A line too wide at a fixed size is counted by the lines its words really wrap to, and a
+  to the paper (balanced, every word whole), so a long sentence typed on one line prints wrapped
+  rather than tiny, and keeps whichever is biggest in one cheer. A short sentence still stacks
+  when its stacked letters come out even slightly bigger, which can take most of the 42 cm box
+  ("You are the best streamer": 61 px stacked over about 42 cm, 56 px wrapped in about 6 cm), so
+  *Words wrapped* is offered on its own, one pick away. A line too wide at a fixed size is counted by the lines its words really wrap to, and a
   word too wide for the paper that the page can break inside (Han, kana, emoji, a hyphen) by the
   most lines it could print as, so the next block is never packed into a part the bot will cut;
   sizes *Auto* (biggest in one cheer), *Fill the
@@ -112,9 +114,11 @@ page, built into the app and run in a sandboxed frame with no network access.
   that needs several spreads its rows evenly over them (no cheer for a lone row). Up to 50
   typed lines a block (it was 24, silently); past that the card says how many are left out.
 - **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
-  one message fits both papers (12 to 30 columns), every row ending in its own line break so it
-  can't reflow: Chromium 156 rounds each Han character's width to a whole pixel, and a grid
-  that relied on a fixed width to break its rows came out slanted there; ASCII and blocks as Courier New rows in a
+  one message fits both papers (12 to 30 columns), the rows separated by line breaks so none
+  can reflow: Chromium 156 rounds each Han character's width to a whole pixel, and a grid
+  that relied on a fixed width to break its rows came out slanted there (the same rounding
+  still makes the picture up to about 10% wider or narrower from one Chromium version to the
+  next, and the tier hint says so); ASCII and blocks as Courier New rows in a
   `<pre>` (8 to 48 columns); Braille, with its rows sized for its narrow cell so a picture keeps
   its shape (marked as needing a test print). When the streamer's bits per inch leaves a cheer
   less room than one row, the card says the bot cuts every part.
@@ -154,7 +158,8 @@ page, built into the app and run in a sandboxed frame with no network access.
 ### Changed
 
 - **Bits per cheer** is any whole number from 1. A floor of 100 would have made the control
-  say 25 while the message said `Cheer100`.
+  say 25 while the message said `Cheer100`. An entry that isn't an amount (0, a negative
+  number, an emptied field) goes back to the last amount the field held, and its hint says so.
 - **A plain part carries its cheer word last** (`… Cheer24`). The old "token leads" rule
   still holds for High Roller messages, which never start with `<`.
 - **Real picture** blocks send nothing. SassyTP's bot only prints pictures from emote
@@ -187,6 +192,13 @@ page, built into the app and run in a sandboxed frame with no network access.
   needs). That line and the notice above the parts have a button that goes to the field to
   change (**Change Bits per cheer**, or the streamer's setting): on a phone it is far below the
   parts.
+- **Every part cut**: when the streamer's bits-per-inch (or maximum length) leaves each part
+  less room than it needs, a red line above the total says the bot cuts every one and what to
+  change, not only each card.
+- **A test stays on screen** while a picture read, an adjust or an upload finishes, so its Copy
+  still copies the test; before, the stack's parts replaced it under the pointer. An upload on
+  a Real picture card puts its link in the card's Image URL field, and an expired-link check
+  no longer takes the cursor out of the box being typed in.
 - **× has an Undo.** Removing a block leaves "Removed a Text block (…). Undo" in its place
   until the next change to the stack; on a phone the card's ↑ ↓ × buttons are full-size touch
   targets, with × set apart.
@@ -304,7 +316,7 @@ blocks a form, the answer is the plain form, never a reworked message.
   sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
   Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
   caption says their texture is approximate.
-- **Tests**: 185 unit tests and 44 browser tests, including the tag allow-list test and the
+- **Tests**: 185 unit tests and 46 browser tests, including the tag allow-list test and the
   contract test against the vendored renderer (which carries the *Words wrapped* layout and a
   Han and an emoji run at a fixed size too wide for the paper).
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig

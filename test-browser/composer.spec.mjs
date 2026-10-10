@@ -1218,11 +1218,25 @@ test("a probe shows the way back to the stack; number fields show the values the
   await page.click("#backToStack");
   await page.fill("#bitsPerInch", "0");
 
-  // 0 bits is 100 (a cheer is at least 1 bit), and the field says so once committed.
+  // 0 bits goes back to the amount the field held (a cheer is at least 1 bit), and the field and
+  // its hint say so once committed. It used to jump to 100 from any amount (final review 1).
   await page.fill("#bitsAmount", "0");
   await page.locator("#bitsAmount").press("Tab");
   assert.equal(await page.inputValue("#bitsAmount"), "100");
   assert.match(await copyPayload(page), /^Cheer100 /);
+  await page.fill("#bitsAmount", "30");
+  await page.fill("#bitsAmount", "0");
+  await page.locator("#bitsAmount").press("Tab");
+  assert.equal(await page.inputValue("#bitsAmount"), "30");
+  assert.match(await page.textContent("#bitsHint"), /^“0” isn't an amount a cheer can spend \(1 bit or more\), so it stays at 30 bits\. /);
+  assert.match(await copyPayload(page), /^Cheer30 /);
+  await page.fill("#bitsAmount", "");
+  assert.match(await copyPayload(page), /^Cheer30 /, "an emptied field, still being retyped, spent 100");
+  await page.locator("#bitsAmount").press("Tab");
+  assert.equal(await page.inputValue("#bitsAmount"), "30");
+  assert.match(await page.textContent("#bitsHint"), /^Bits per cheer can't be empty, so it stays at 30 bits\. /);
+  await page.fill("#bitsAmount", "100");
+  assert.match(await page.textContent("#bitsHint"), /^How many bits each cheer spends/);
   await page.fill("#maxInches", "50");
   await page.locator("#maxInches").press("Tab");
   assert.equal(await page.inputValue("#maxInches"), "40", "the dock's maximum length is 40 inches");
@@ -1528,7 +1542,7 @@ test("polish: presets: Load asks before replacing an unsaved stack; Import never
   const t = await freshPage({ blocks: [img(1, "glyph", "")], presets: { v: 1, presets: [pics] } });
   await t.ctx.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 404, body: "gone" }));
   await t.page.click("#presetLoad");
-  // Wait for the check's answer, not its "Checking its uploaded pictures still load…" note,
+  // Wait for the check's answer, not its "Checking its Glyph-art pictures still load…" note,
   // which the old /expired|still load/ also matched: on a slow runner the test then read the
   // note before the check had finished.
   await t.page.waitForFunction(() => { const n = document.getElementById("presetNote").textContent;
@@ -2253,4 +2267,118 @@ test("polish 4: an expired upload: the parts' notice says expired too, and a pic
   assert.ok((await copyAll(p2)).some((s) => /line-height:1>/.test(s)), "the picture left the parts");
   assert.deepEqual(e2, []);
   await c2.close();
+});
+
+test("final 1: work that finishes on its own keeps a test on screen; an upload's link shows in the card's link field", async () => {
+  const pic = Buffer.from(PIC.split(",")[1], "base64");
+  const IMG = (o) => ({ type: "image", imgKind: "glyph", url: "https://example.com/cat.png", width: 70, rotate: 0, adjBright: 0,
+                        adjContrast: 0, tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, ...o });
+  // A Glyph-art read lands while the High Roller test is up. It used to swap the stack's parts in
+  // under the pointer (update() reset the view), and the next Copy sent the stack's part 1.
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY BIRTHDAY" }), IMG({ id: 2 })], routes: async (c) => {
+    await c.route("**/px?u=*", async (r) => { await held; await r.fulfill({ status: 200, contentType: "image/png", body: pic }); });
+  } });
+  await page.waitForFunction(() => /Reading the picture/.test(document.querySelector("#blockList").textContent));
+  await page.click("#hrProbeBtn");
+  await page.waitForSelector("#backToStack");
+  release();
+  await page.waitForFunction(() => /columns × \d+ rows/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent),
+    null, { timeout: 8000 });   // the read landed, and the card's note follows it while the test is shown
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator("#backToStack").count(), 1, "the test was swapped for the stack");
+  assert.equal(await page.locator("#parts .part").count(), 1);
+  const probe = C.buildHighRollerProbe({ hrThreshold: 25, bits: 100, paperMm: 80 });
+  assert.equal(await copyPayload(page, 0), C.packStackBodies(probe.bodies, C.stackContext({ ...stackOptsOf(SETTINGS), bits: probe.bits, mode: probe.mode }))[0].payload);
+  await page.click("#backToStack");
+  await settled(page);
+  assert.ok((await copyAll(page)).some((s) => /line-height:1>/.test(s)), "the picture that landed is not in the stack");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // An upload on a Real picture card: the link field names the minted link (it kept the link typed
+  // before), so Switch to Glyph-art prints the picture the field names.
+  const minted = "https://i.uwutoowo.com/aaaaaaaaaaaa.png";
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG({ id: 2, imgKind: "real", url: "" })],
+    routes: async (c) => {
+      await c.route("**/upload", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }));
+      await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+      await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+    } });
+  const card = cards(p2).nth(1), link = card.locator("input[type=url]");
+  await link.fill("https://example.com/other.png");
+  await card.locator("input[type=file]").setInputFiles({ name: "smile.png", mimeType: "image/png", buffer: pic });
+  await p2.waitForFunction(() => /Uploaded ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  assert.equal(await link.inputValue(), minted);
+  assert.equal((await stored(p2, "rw_blocks_v1"))[1].url, minted);
+  await card.getByRole("button", { name: "Switch to Glyph-art" }).click();
+  await settled(p2);
+  assert.equal(await link.inputValue(), minted);
+  assert.ok((await copyAll(p2)).some((s) => /line-height:1>/.test(s)), "the uploaded picture does not print");
+  assert.deepEqual(e2, []);
+  await c2.close();
+});
+
+test("final 1: typing survives the expiry check; a run the bot cuts says so under the parts; notes say what applies, quiet when it is only information", async () => {
+  const minted = "https://i.uwutoowo.com/0123456789ab.png", pic = Buffer.from(PIC.split(",")[1], "base64");
+  const IMG = (o) => ({ type: "image", imgKind: "glyph", url: minted, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                        tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, ...o });
+  // The link dies while a text card is being typed in: the expiry check's redraw used to send the
+  // rest of the typing to the page body.
+  let alive = true;
+  const answer = (r) => r.fulfill(alive ? { status: 200, contentType: "image/png", body: pic } : { status: 404, body: "gone" });
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY" }), IMG({ id: 2 })], routes: async (c) => {
+    await c.route("https://i.uwutoowo.com/**", answer);
+    await c.route("**/px?u=*", answer);
+  } });
+  await settled(page);
+  await page.waitForFunction(() => !document.getElementById("pictureNote"));
+  alive = false;
+  const ta = cards(page).first().locator("textarea");
+  await ta.click(); await page.keyboard.press("End");
+  await page.keyboard.type(" BIRTH");
+  await page.waitForFunction(() => /expired/.test(document.querySelector("#blockList").textContent), null, { timeout: 8000 });
+  await page.keyboard.type("DAY");
+  assert.equal(await cards(page).first().locator("textarea").inputValue(), "HAPPY BIRTHDAY");
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.tagName), "TEXTAREA");
+  // A number box shows its own value, so Detail (columns) has no second readout.
+  assert.equal(await cards(page).nth(1).locator("label", { hasText: "Detail (columns)" }).locator(".bc-val").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // Han tiling under a bits-per-inch that leaves less than one row a part: every part is cut, and
+  // the total under the parts says so, not only each card.
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
+    controls: { ...SETTINGS, bitsPerInch: 300 } });
+  await p2.waitForSelector("#partsCut");
+  assert.match(await p2.textContent("#partsCut"), /^Every part is taller than this cheer’s part of the receipt \(about 8 mm, from the streamer’s bits-per-inch setting\), where the bot fades it out, so the bot cuts every one\. Set Bits per cheer higher first: the streamer gives 1 inch \(2\.5 cm\) of receipt per 300 bits\.$/);
+  // Where the block sits in the run is information: quiet. The cut is a warning: orange.
+  const note2 = cards(p2).first().locator(".text-note");
+  assert.equal(await note2.locator("div", { hasText: "Your whole stack needs" }).getAttribute("class"), "note-fine");
+  assert.equal(await note2.locator("div", { hasText: "so the bot cuts every part" }).getAttribute("class"), "note-warn");
+  await p2.fill("#bitsPerInch", "0");
+  await p2.waitForFunction(() => !document.getElementById("partsCut"));
+  assert.deepEqual(e2, []);
+  await c2.close();
+
+  // Below the threshold: the notice names glyph-art too, a Glyph-art block with no picture says the
+  // plain form as a condition (quietly), and Load counts only the Glyph-art pictures it checked.
+  const dead = "https://i.uwutoowo.com/bbbbbbbbbbbb.png";
+  const two = { v: 1, name: "Two pics", savedAt: 1, blocks: [IMG({ id: 1 }), IMG({ id: 2, imgKind: "real", url: dead })] };
+  const { page: p3, ctx: c3, errors: e3 } = await freshPage({ blocks: [IMG({ id: 1, url: "" })], controls: { ...SETTINGS, bits: 10 },
+    presets: { v: 1, presets: [two] }, routes: async (c) => {
+      await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill(/bbbb/.test(r.request().url()) ? { status: 404, body: "gone" }
+        : { status: 200, contentType: "image/png", body: pic }));
+      await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+    } });
+  assert.match(await p3.textContent("#modeNote"), /For big text, sideways text or glyph-art in the characters you picked, set Bits per cheer to 25 or more\./);
+  const plainLine = cards(p3).first().locator(".text-note .note-fine", { hasText: "below the streamer's High Roller threshold" });
+  assert.match(await plainLine.textContent(), /, so once this block has a picture it prints as a plain grid of Han characters/);
+  await p3.click("#presetLoad");
+  await p3.waitForFunction(() => /still load\.$|expired/.test(document.getElementById("presetNote").textContent)
+    && !/Checking/.test(document.getElementById("presetNote").textContent), null, { timeout: 8000 });
+  assert.equal(await p3.textContent("#presetNote"), 'Loaded "Two pics". Its Glyph-art pictures still load.');
+  assert.deepEqual(e3, []);
+  await c3.close();
 });

@@ -86,7 +86,8 @@ test("modeNotice: says why below the threshold, with High Roller off, and in a f
   const below = C.modeNotice({ cheer: true, bits: 10, hrThreshold: 25 });
   assert.match(below, /^A 10-bit cheer is below the streamer's High Roller threshold \(25 bits\), so the bot prints plain text\./);
   assert.match(below, /text as Han tiling, pictures as a grid of Han characters/);
-  assert.match(below, /set Bits per cheer to 25 or more/);
+  // Glyph-art's own characters need it too: a picture-only stack was told only about text (final review 1).
+  assert.match(below, /For big text, sideways text or glyph-art in the characters you picked, set Bits per cheer to 25 or more\.$/);
   assert.match(C.modeNotice({ cheer: true, bits: 100, hrThreshold: 0 }), /threshold is 0 \(off\)/);
   assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 25 }), /^Free test/);
   // A free test is the High Roller form; when the real cheer is below the threshold it says

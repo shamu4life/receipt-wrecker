@@ -515,7 +515,7 @@ async function main() {
         const inkRegion = region ? inkBox(img.rgba, img.w, img.h, region.x0, region.y0, region.x1, region.y1) : null;
         const inkPage = inkBox(img.rgba, img.w, img.h, 0, 0, img.w, img.h);
         const css = (n) => Math.round(n / dsf * 100) / 100;
-        let ink = null;
+        let ink = null, inkCutSides = [];
         if (inkRegion && c) {
             const k = inkRegion;
             const bx = { x: css(k.left), y: css(k.top), width: css(k.right - k.left), height: css(k.bottom - k.top) };
@@ -533,19 +533,32 @@ async function main() {
                 contentClippedVertically: scroll ? scroll.scrollHeight > scroll.clientHeight + 1 : null,
                 contentClippedHorizontally: scroll ? scroll.scrollWidth > scroll.clientWidth + 1 : null,
             };
+            // Ink in the content box's outermost device row or column on a side: the ink runs into
+            // the edge there, so overflow:hidden cuts it. (The bottom stops at the screenshot,
+            // which ends at the height render() returns.)
+            if (k.top <= Math.max(0, region.y0)) inkCutSides.push("top");
+            if (k.right >= Math.min(img.w, region.x1)) inkCutSides.push("right");
+            if (k.bottom >= Math.min(img.h, region.y1)) inkCutSides.push("bottom");
+            if (k.left <= Math.max(0, region.x0)) inkCutSides.push("left");
         }
 
         // one-glance verdicts for whoever reads the report
+        // The box overflow is the message's element and text-run boxes past #receipt-content. Those
+        // are font boxes (1.117em tall against big text's line-height .8, a sideways column's whole
+        // font box), not ink, so nearly every big and sideways part overflows with its ink well
+        // clear of the edges. It is reported for whoever needs the boxes; the clipping verdict is
+        // the ink's.
         const ov = m.overflowPastContent || { top: 0, right: 0, bottom: 0, left: 0 };
-        const clippedSides = ["top", "right", "bottom", "left"].filter((s) => ov[s] > 0.5);
+        const boxOverflowSides = ["top", "right", "bottom", "left"].filter((s) => ov[s] > 0.5);
         const angles = m.turned.map((t) => t.angleDeg).filter((a) => a !== null && Math.abs(a) > 0.5);
         const summary = {
             highRoller: m.partClass ? /\braw\b/.test(m.partClass) : null,          // 'part raw' = styled High Roller copy, 'part message' = literal text in quotes
             securityNotes: Array.isArray(result.security) ? result.security.length : 0,   // anything the sanitizer dropped or refused
             rotated: m.turned.length > 0,                                          // some element has a transform / rotate / vertical writing-mode
             angles, writingModes: [...new Set(m.turned.map((t) => t.writingMode).filter((w) => w !== "horizontal-tb"))],
-            clippedByContentBox: clippedSides.length > 0,                          // part of the message lies outside #receipt-content (overflow:hidden cuts it off)
-            clippedSides,
+            clippedByContentBox: inkCutSides.length > 0,                           // ink runs into an edge of #receipt-content, so overflow:hidden cuts it off
+            clippedSides: inkCutSides,                                             // which edges, from the ink (dark dots in the box's outermost row or column)
+            boxOverflowSides,                                                      // font boxes past the content box: NOT a clipping verdict (see above)
             cutByLengthLimit: !!result.trimmed,                                    // render() cut it at the bits-per-inch / maximum-length limit (fades out)
             inkReachesContentBottom: ink ? ink.reachesContentBottom : null,
             inkTallNarrow: ink ? ink.tallNarrow : null,

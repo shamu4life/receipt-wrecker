@@ -372,9 +372,10 @@ nothing that prints).
   at its spaces by `bigWrapWords` at the size being tried, then fitted like `lines`; the size
   it settles on is then balanced (the same number of lines, each as short as it can be: "WE
   ARE / SO BACK", not "WE ARE SO / BACK"), which changes neither the height nor the characters.
-  It is what a sentence typed on one line gets: as one line it was tiny, and stacked a long
-  column of small letters. A short phrase whose stacked letters come out bigger still stacks
-  under Auto (it keeps the biggest), so `wrap` is also offered on its own, one pick away; a
+  It is what a long sentence typed on one line gets (as one line it was tiny). A short one whose
+  stacked letters come out even 1 to 5 px bigger still stacks under Auto (it keeps the biggest),
+  often over most of the 1600px box: "You are the best streamer" stacks at 61px over 1581px,
+  where `wrap` gives 56px in 215px. So `wrap` is also offered on its own, one pick away; a
   line with no space to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
   `lines` then. Under Auto, `bigFit(...).layout` can read `wrap`. Sizes (`bigSizeOf`): `fit1`
   (the biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
@@ -396,6 +397,13 @@ nothing that prints).
   share a part: chunks are not cheers.
 - Upside down, the chunks go out last first and the divs inside a chunk reverse, so the tape
   reads in order once turned over.
+- Known limit, upside down: at line-height .8 the overshoot of round capitals (O, G, S, C) sits
+  up to 1.5 CSS px above the line box (Chromium rounds the ascent to whole px), which `rotate`
+  turns into the bottom. When a flipped block is the last thing in a part, `#receipt-content`'s
+  `overflow:hidden` trims that much (about 3 dots; measured with Arial Bold, worst at 48px,
+  none from about 80px up). An em-based `translate` does not cover the small sizes, and more
+  room changes every flipped height and fit, so it is left as is; the bench shows it as
+  `clippedSides: ["bottom"]`.
 - `bigPlan` makes the decision without markup (the card labels use it), `bigFit` returns it as
   data, `buildBigBodies` builds the bodies (each with a `big` record), and `bigReport` writes
   the card's plain-language note: capitals in cm (`bigCapCm` = px × 0.716 × 25.4 / 96 / 10),
@@ -520,21 +528,31 @@ nothing that prints).
   shrink a block with a spaced line below the width rule's size and its capitals are under
   1.5 cm: a typed line is ONE column and never wraps, so a sentence on one line printed as a
   thin column (the textarea soft-wraps it, so it looked like two lines there).
-- The bench reports a shifted sideways block as `clippedByContentBox` on the side it moved
-  toward: that is the empty part of the line box past the content box, not ink. Read the ink
-  gaps instead.
+- The bench's `summary.clippedByContentBox` / `clippedSides` come from the ink: dark pixels in
+  the content box's outermost row or column on that side, where `overflow:hidden` cuts. The
+  boxes are reported apart as `boxOverflowSides`, and they are font boxes, not ink (1.117em
+  against big text's line-height .8, a sideways column's whole font box), so nearly every big
+  and sideways part lists sides there with its ink well clear. Until 1.0.0's final review the
+  verdict was the box one, and it called almost every correct big or sideways print clipped.
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
-- `cjk` → **R1** `<div style=font-size:<K>vw;line-height:1>` + rows of cells joined by `<br>`.
-  Every row ends in an explicit `<br>`, so a row can never reflow into the next. Rows used to break
+- `cjk` → **R1** `<div style=font-size:<K>vw;line-height:1>` + rows of cells separated by
+  `<br>` (the last row ends at `</div>`), so a row can never reflow into the next. Rows used to break
   themselves at `width:<C>.2em` with no `<br>`; Chromium 156 rounds each Han advance to the nearest
   whole px (10.69 → 11 at 58 mm), so 14 cells no longer fitted 14.2em and every row reflowed at 13
   (found by CI, reproduced with that Chromium; 24 columns would have reflowed at 25 on 80 mm). K =
   floor(100 × (152 − C/2) / (1.81 × C)) / 100 keeps a row inside 58 mm's 153px even when every
   cell rounds up half a pixel, so no row wraps either. C is 12..30. vw is the page width, so the
   same message fits both papers. The rows centre on the receipt's own `text-align:center`. One
-  cheer holds 27 rows at 12 columns (it held 34 before the `<br>`s).
+  cheer holds 27 rows at 12 columns (it held 34 before the `<br>`s). Known limit: because newer
+  Chromium rounds each advance to a whole px and older Chromium does not, the picture's WIDTH
+  depends on the browser's version (height does not): measured on the bench, 30 columns on
+  58 mm print about 10% wider in Chromium 156 than in 141, and Braille (0.733em cells at a
+  whole-px F) on 58 mm at 28+ columns about 9% narrower; within about 5% on 80 mm. Nothing
+  shears, wraps or is cut. The cjk and Braille tier hints say so. A whole-px R1 font size per
+  paper would make the cell the same in every version; it was left for after 1.0.0 because it
+  changes the R1 payload, its fit and every number pinned to it.
 - `ascii`, `asciifull`, `safe` → **R4** `<pre style="font:<K>vw/1.2 'Courier New';margin:0">`
   rows joined by `<br>`, each row escaped. Courier New is 0.6em on the rig and the bench; `<pre>`
   keeps the ASCII ramps' spaces. K = floor(100 × 152 / (C × 0.6 × 1.81)) / 100. C is 8..48. The
@@ -727,7 +745,11 @@ generations; `presetImageUrls` walks a stack's picture links.
   (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
   callback, which always gets the STACK's last parts (`stackParts`), so a probe shown in the
-  parts never rewrites the cards (they went blank). The Text box has as many rows as typed
+  parts never rewrites the cards (they went blank); while a probe is shown, `refresh()`
+  recomputes the stack's parts too, so the cards follow a picture that lands meanwhile. The
+  note's first line is the summary, then warnings in orange (something to change: `note-warn`),
+  then information in grey (`note-fine`: where the block sits, why it prints plain, the CJK
+  font it needs); `partLines` returns `{warn, fine}` for that. The Text box has as many rows as typed
   lines, 2 to 8. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
   box under a bits-per-inch setting); with High Roller off the note says so instead of "below
   the threshold (0 bits)". In a free test the note counts messages, not bits. `imageCard`: Kind
@@ -768,7 +790,19 @@ generations; `presetImageUrls` walks a stack's picture links.
   "Go to High Roller threshold"), which scrolls there and focuses it: on a phone the settings
   sit below every part. Without the repeat number, a part identical to
   the one right before it gets a note (Twitch won't send the same message twice in a row
-  within 30 seconds). `probeParts(kind)` builds a probe the same way; its view's notice
+  within 30 seconds). When every copyable part is taller than the box the streamer's settings
+  give a cheer (`item.cut`: a Han tiling row under a high bits-per-inch, say), a red line above
+  the total (`#partsCut`) says the bot cuts every one and what to change.
+  **`update()` vs `refresh()`:** `update()` is for the user's own edits and drops a probe view
+  back to the stack; `refresh()` redraws the view on screen and stays there. Work that finishes
+  on its own (a Glyph-art read, an adjust bake, an upload, the expiry check) calls `refresh()`:
+  with `update()` a read landing under the High Roller test swapped the stack's parts in, and
+  the next Copy sent the stack's part 1. The expiry check's card rebuild keeps the focused
+  control, its caret and scroll (`keepFocus`), since it lands 700 ms after a keystroke. An upload
+  on a Real picture card writes the minted link into the card's Image URL field. Bits per cheer
+  that isn't an amount (0, negative, emptied) reads as the last amount it held (`lastBits`) and
+  is put back when the field is left, with the hint naming what was refused.
+  `probeParts(kind)` builds a probe the same way; its view's notice
   carries a "Back to my stack" button (`#backToStack`) and, with Cheer-ready off, says the test
   is a real cheer anyway (it has to print to show anything). `renderParts` shows the mode notice, a
   persistent card per part and the total (bits, or a free test's message count; one part says
@@ -859,12 +893,12 @@ refuses a source it cannot embed safely (it walks the HTML tokenizer's script-da
 app, its storage or its cookies. It is one page wide (272 / 181 CSS px, so vw units and the
 244 / 153 px box are the bot's) and as tall as `render()` says. The app and the frame talk by
 `postMessage` only, and each end checks `event.source`. Frames persist per part (typing
-re-renders instead of reloading 140 KB); every request carries a sequence number and an
+re-renders instead of reloading about 130 KB); every request carries a sequence number and an
 older answer is dropped. Cards carry `data-render` (pending/done) and `data-thermal`
 (pending/done/failed); the frame keeps `window.__rwPreview` for the tests.
 
 **Drawn lazily, one at a time.** A long stack is 80 parts or more, and all their frames at once
-(140 KB and a renderer run each, again on every edit) froze the page. A part asks for its
+(about 130 KB and a renderer run each, again on every edit) froze the page. A part asks for its
 drawing only when its card is within 800px of the viewport (`IntersectionObserver`,
 `onPartsSeen`, `previewNear`); requests go through one queue (`queuePreview`,
 `pumpPreviews`, `startPreview`) that keeps one frame busy at a time (`previewBusy`;
@@ -958,7 +992,8 @@ commit a font or the upstream renderer page.
   the cache only, `--renderer PATH` a local file. Every non-file request is blocked inside the
   page. It writes `<out>.png` (the screenshot at dot width), `<out>-1bit.png` (dithered by its
   copy of the C# Ditherer port: `--dither floyd|atkinson|threshold`) and `<out>.json` (also one
-  line on stdout: ok, height, trimmed, security, part class, fonts and more). Other flags:
+  line on stdout: ok, height, trimmed, security, part class, fonts, the ink's box and a
+  `summary` whose clipping verdict is read off the ink, not the boxes). Other flags:
   `--message`, `--message-file` or stdin, `--bits`, `--threshold`, `--bits-per-inch`,
   `--max-inches`, `--user`, `--theme-file`, `--hide-links`, `--fonts DIR` (your own font folder,
   through a fontconfig under `.render/fonts/`), `--pretty`. Exit 0 ok, 1 render failed, 2 usage

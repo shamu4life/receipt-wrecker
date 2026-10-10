@@ -98,11 +98,12 @@ Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
 - **Layout**: *Auto* (whichever prints biggest at the Size you pick of: your lines as typed,
   the same lines with the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Words
   wrapped to the paper*, *Stack the letters, one per line* (much bigger letters for short
-  words), or *Each line its own size* (every line as wide as the paper). A sentence typed on
-  one line comes out wrapped, every word whole; to choose the line breaks yourself, press
-  Enter between words and pick Lines. Auto goes for the biggest letters even when a stack
-  takes far more tape than the wrapped words: the labels show both, and *Words wrapped* is one
-  pick away.
+  words), or *Each line its own size* (every line as wide as the paper). A long sentence typed
+  on one line comes out wrapped, every word whole. A short one still stacks when its stacked
+  letters come out even slightly bigger, and that can take most of the 42 cm box: "You are the
+  best streamer" stacks at 61 px over about 42 cm, where *Words wrapped* prints it at 56 px in
+  about 6 cm. The labels show both, so pick *Words wrapped* for it. To choose the line breaks
+  yourself, press Enter between words and pick Lines.
 - **Size**: *Auto* (the biggest that fits one cheer, the default), *Fill the paper's width*
   (may cost more cheers) or a fixed size from 20 to 400 px. In *Each line its own size* a
   fixed size is a cap ("up to 400 px"), and its label gives the capitals each line really

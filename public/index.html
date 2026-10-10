@@ -55,12 +55,19 @@
   .hint { font-size:.8rem; opacity:.7; margin:.35rem 0 .75rem; }
   label + .hint { margin-top: -.4rem; }
   .part { margin: 0 0 1rem; }
-  .part button.copied { background: #1f6f43; border-color: #1f6f43; color: #fff; }
-  .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
+  /* The part's header carries its Copy button and stays in view while a tall preview scrolls
+     past (sticky within its own part). Canvas is the page's own background in either scheme. */
+  .part-head { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem;
+    position: sticky; top: 0; z-index: 2; background: Canvas; padding: .3rem 0; }
+  .part-head .copy-btn { margin-left: auto; min-height: 44px; min-width: 6.5rem; padding: .45rem 1.1rem; font: inherit;
+    font-size: 1rem; font-weight: 700; cursor: pointer; }
+  .part-head .copy-btn.copied { background: #1f6f43; border-color: #1f6f43; color: #fff; }
   .part-count.over { color: #d33; font-weight: 700; }
   .over-note { font-size: .8rem; color: #d33; margin: .35rem 0 .4rem; }
   .part-head + .over-note { margin-top: -.15rem; }   /* snug under the char count */
   .parts-note { font-size: .85rem; opacity: .8; margin: .25rem 0 1rem; }
+  .parts-note.part-note { margin: 0 0 .45rem; }
+  .mode-note button { margin: .4rem .4rem 0 0; }
   #composer { margin: 0 0 1rem; }
   .composer-h { font-size: 1rem; margin: 0 0 .5rem; }
   .block-card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem .7rem; margin: 0 0 .6rem; background: rgba(0,0,0,.02); }
@@ -82,6 +89,7 @@
   .img-thumb { display: block; max-width: 100%; max-height: 220px; margin: .45rem 0; border: 1px solid #ccc; }
   /* A card's live report: what the block prints, and where it is in the run. */
   .text-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; }
+  @media (prefers-color-scheme: dark) { .text-note { color: #c8c8c8; } }
   .text-note > div { margin: 0 0 .25rem; }
   .text-note .note-warn { color: #a60; }
   .text-note .note-fine { opacity: .8; }
@@ -752,10 +760,12 @@
       if (fmt && typeof fmt === "object") tb.fmt = JSON.parse(JSON.stringify(fmt));
       return tb;
     }
+    // A new Glyph-art block's own settings (newBlock's), so its 20 columns are what it prints:
+    // Han characters take 12 to 30, and the 40 an older build used would print as 30.
     function glyphBlock(url) {
       return { id: nextId++, type: "image", imgKind: "glyph", url: url, width: 70,
                rotate: 0, adjBright: 0, adjContrast: 0,
-               tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false };
+               tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
     }
     function fromTakeover(tk) {
       var made = [], items = [], j, it, t, u;
@@ -1070,12 +1080,31 @@
     m.lh = bigLineHeight(lines);
     return m;
   }
-  // A line's printed height at px: px x LH, times the lines it wraps to when an explicit
-  // size makes a spaced line too wide (it breaks at its spaces; a single word cannot wrap
-  // and is clipped on the right instead, bench d05/d06).
+  // Greedy word wrap at px, the way the bot's page wraps a line too wide for the paper: words
+  // go on a line while it (its spaces included) fits bigFitPx; a word wider than a whole line
+  // sits on a line of its own, where it is clipped on the right, never broken (bench d05/d06).
+  // The Arial Bold advances are exact and bigFitPx keeps a margin, so against the real page
+  // this can only count a line too many (a cheer spent), never one too few (a cut). Counting
+  // ceil(width / line width) instead under-counted: "WWW WWW WWW" at 48px is three lines,
+  // because two 136px words and a space don't fit 244px, and that guess said two.
+  function bigWrapWords(line, px, contentW) {
+    var words = String(line).split(" ").filter(function (w) { return w !== ""; });
+    if (words.length < 2) return [String(line)];
+    var spEm = BIG_W[" "], out = [], cur = words[0], curEm = bigLineEm(cur), curG = bigGraphemes(cur).length;
+    for (var i = 1; i < words.length; i++) {
+      var w = words[i], wEm = bigLineEm(w), wG = bigGraphemes(w).length;
+      var e = curEm + spEm + wEm, g = curG + 1 + wG;
+      if (e * px <= bigFitPx(contentW, g) + PX_EPS) { cur += " " + w; curEm = e; curG = g; }
+      else { out.push(cur); cur = w; curEm = wEm; curG = wG; }
+    }
+    out.push(cur);
+    return out;
+  }
+  // A line's printed height at px: px x LH, times the lines it wraps to (bigWrapWords) when
+  // an explicit size makes a spaced line too wide.
   function bigLineH(m, k, px, lh) {
     var h = px * parseFloat(lh);
-    if (m.layout !== "stack" && m.spaced[k] && m.ems[k] * px > m.fit[k]) return h * Math.ceil(m.ems[k] * px / m.fit[k]);
+    if (m.layout !== "stack" && m.spaced[k] && m.ems[k] * px > m.fit[k]) return h * bigWrapWords(m.lines[k], px, m.contentW).length;
     return h;
   }
   // CHUNKING: which lines go into which body. A body becomes (at least) one cheer and the
@@ -1245,10 +1274,11 @@
     }
     return bestC;
   }
-  function bigPickUniform(m, size, budget, room, flip, linear) {
-    var ev = function (px) { return bigEvalUniform(m, px, budget, room, flip); };
+  // A uniform layout's size: `size` itself when it is a number, else the width fit pxW
+  // ("width") or the search ("fit1"). ev(px) evaluates one size.
+  function bigPickSize(ev, size, pxW, linear) {
     if (typeof size === "number") return ev(size);
-    var pxW = Math.min(BIG_MAX_PX, m.minPxW);
+    pxW = Math.min(BIG_MAX_PX, pxW);
     if (pxW < BIG_MIN_PX) return ev(BIG_MIN_PX);                 // too wide even at the smallest size
     if (size === "width") {
       var w = ev(pxW);
@@ -1256,6 +1286,59 @@
       return w;
     }
     return bigSearch(ev, BIG_MIN_PX, pxW, linear);
+  }
+  function bigPickUniform(m, size, budget, room, flip, linear) {
+    return bigPickSize(function (px) { return bigEvalUniform(m, px, budget, room, flip); }, size, m.minPxW, linear);
+  }
+  // The WRAPPED candidate (Auto only): the lines as typed, each one broken at its spaces where
+  // it is too wide at px (bigWrapWords), then fitted like Lines. A sentence typed on one line
+  // used to have no good layout: as one line it is tiny, and stacked it is a column of small
+  // letters most of a receipt long. Every word stays whole on its line. The breaks depend on
+  // the size, so each size is evaluated on its own wrapping; the line count only grows with
+  // the size, so the search still holds. The size it settles on is then BALANCED: the same
+  // number of lines, each as short as it can be ("THANKS FOR / THE RAID", not "THANKS FOR
+  // THE / RAID"), which changes neither the height nor the characters. null when no line has
+  // a space to break at (it would be Lines exactly).
+  function bigWrapPlan(baseLines, contentW, size, budget, room, flip, linear) {
+    if (!baseLines.some(function (l) { return / /.test(l); })) return null;
+    var wrapAt = function (px, w) {
+      var out = [];
+      baseLines.forEach(function (l) { out = out.concat(l === "" ? [""] : bigWrapWords(l, px, w)); });
+      return out;
+    };
+    var ev = function (px) {
+      var m = bigPrep(wrapAt(px, contentW), "lines", contentW), c = bigEvalUniform(m, px, budget, room, flip);
+      c.m = m;
+      return c;
+    };
+    var words = [];
+    baseLines.forEach(function (l) { l.split(" ").forEach(function (w) { if (w) words.push(w); }); });
+    var pick = bigPickSize(ev, size, bigPrep(words, "lines", contentW).minPxW, linear), px = pick.px;
+    // Balance: for each typed line, the narrowest width that still wraps it to as many lines.
+    var balanced = [];
+    baseLines.forEach(function (l) {
+      if (l === "") { balanced.push(""); return; }
+      var n = bigWrapWords(l, px, contentW).length;
+      if (n < 2) { balanced.push(l); return; }
+      var lo = 1, hi = contentW;
+      while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (bigWrapWords(l, px, mid).length <= n) hi = mid; else lo = mid; }
+      balanced = balanced.concat(bigWrapWords(l, px, hi));
+    });
+    var m = bigPrep(balanced, "lines", contentW), c = bigEvalUniform(m, px, budget, room, flip);
+    c.m = m;
+    return c;
+  }
+  // Whether Auto prefers candidate x to candidate y: a layout whose letters would be cut off
+  // never beats one that fits; then a clean one (not over, not tall) beats one that is not;
+  // then, when both fit one cheer (or the size is "width"), the bigger type; else the fewer
+  // cheers. A tie keeps y, the earlier candidate.
+  function bigBetter(x, y, size) {
+    var a = x.pick, b = y.pick;
+    if (!a || !b) return !!a && !b;
+    if (a.fits !== b.fits) return a.fits;
+    if ((a.over || a.tall) !== (b.over || b.tall)) return !(a.over || a.tall);
+    if (size === "width" || (a.cheers === 1 && b.cheers === 1)) return a.px > b.px;
+    return a.cheers < b.cheers;
   }
   function bigPickEach(m, size, budget, room, flip, linear) {
     if (typeof size === "number") return bigEvalEach(m, bigEachPxs(m, 1000, size), budget, room, flip);
@@ -1266,10 +1349,10 @@
   // The whole decision for one block, without building markup: the card's size labels read
   // it, and buildBigBodies builds from it. opts = {layout, size, flip, budget, heightPx (one
   // part's room after the lead), contentW | paperMm, linear}.
-  // "auto" tries lines and stack: a layout whose letters would be cut off never beats one
-  // that fits; then a clean one (not over, not tall) beats one that is not; then, when both
-  // fit one cheer (or the size is "width"), the bigger type; else the fewer cheers; a tie
-  // goes to lines (it reads as typed). "each" is never picked automatically.
+  // "auto" tries three candidates, in this order: the lines as typed, the same lines with the
+  // words wrapped to the paper (layout "wrap", which only Auto produces), and one letter a
+  // line; bigBetter decides, and a tie goes to the earlier one (as typed reads best). "each"
+  // is never picked automatically.
   function bigPlan(text, opts) {
     opts = opts || {};
     var o = bigOpts({ bigLayout: opts.layout, bigSize: opts.size, bigFlip: opts.flip === true });
@@ -1284,13 +1367,12 @@
     var p;
     if (o.layout !== "auto") p = one(o.layout);
     else {
-      var a = one("lines"), s = one("stack"), stackWins;
-      if (!a.pick || !s.pick) stackWins = false;
-      else if (a.pick.fits !== s.pick.fits) stackWins = s.pick.fits;
-      else if ((a.pick.over || a.pick.tall) !== (s.pick.over || s.pick.tall)) stackWins = !(s.pick.over || s.pick.tall);
-      else if (o.size === "width" || (a.pick.cheers === 1 && s.pick.cheers === 1)) stackWins = s.pick.px > a.pick.px;
-      else stackWins = s.pick.cheers < a.pick.cheers;
-      p = stackWins ? s : a;
+      var a = one("lines"), cands = [a];
+      var w = a.pick ? bigWrapPlan(a.lines, contentW, o.size, budget, room, o.flip, opts.linear) : null;
+      if (w) cands.push({ layout: "wrap", lines: w.m.lines, m: w.m, pick: w });
+      cands.push(one("stack"));
+      p = cands[0];
+      for (var ci = 1; ci < cands.length; ci++) if (bigBetter(cands[ci], p, o.size)) p = cands[ci];
     }
     return { layout: p.layout, size: o.size, flip: o.flip, lines: p.lines, m: p.m, pick: p.pick,
              dropped: cleaned.dropped, budget: budget, room: room, contentW: contentW };
@@ -1396,11 +1478,19 @@
       ? "Nothing after the Cheer line prints: that line fills this cheer’s whole part of the receipt. See the note above the parts."
       : what + " is taller than " + boxWords(limit) + ". Pick a smaller size.";
   }
+  // What a block costs, for a card's summary line: "fits 1 cheer", or "needs 3 cheers (300
+  // bits); ..." In a free test (Cheer-ready off) nothing is spent and nothing prints, so it
+  // counts messages instead. `cut`: the letters don't fit the paper, so it doesn't "fit".
+  function costWords(cheers, bits, free, cut) {
+    if (free) return (cheers === 1 ? "1 message" : cheers + " messages") + ", free: a test with Cheer-ready off never prints";
+    if (cheers === 1) return cut ? "1 cheer, but too wide for the paper (see below)" : "fits 1 cheer";
+    return "needs " + cheers + " cheers (" + cheers * cheerBits(bits) + " bits); the bot prints its header between the pieces";
+  }
   // Plain-language report for a big text block: the card's text. Pass one body or all of a
-  // block's bodies; opts = {cheers, bits, limit}, where `cheers` is the number of parts the
-  // block REALLY landed in (the packer may share a part with a neighbour) and `limit` the
-  // box (contentLimitPx). One line per point, joined with "\n": the summary, then the
-  // warnings. No px jargon.
+  // block's bodies; opts = {cheers, bits, limit, free}, where `cheers` is the number of parts
+  // the block REALLY landed in (the packer may share a part with a neighbour), `limit` the
+  // box (contentLimitPx) and `free` a free test (Cheer-ready off). One line per point, joined
+  // with "\n": the summary, then the warnings. No px jargon.
   function bigReport(b, opts) {
     opts = opts || {};
     var gs = (Array.isArray(b) ? b : [b]).filter(function (x) { return x && x.big; }).map(function (x) { return x.big; });
@@ -1408,20 +1498,27 @@
     var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
     if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it in big letters.";
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
-    var bits = cheerBits(opts.bits);
     var size = g.layout === "each" && g.pxMin !== g.px
       ? "Capitals ≈ " + bigCapCm(g.pxMin).toFixed(1) + "–" + bigCapCm(g.px).toFixed(1) + " cm"
       : "Capitals ≈ " + g.capCm.toFixed(1) + " cm";
-    out.push(size + " · " + (cheers === 1 ? "fits 1 cheer"
-      : "needs " + cheers + " cheers (" + cheers * bits + " bits); the bot prints its header between the pieces"));
+    out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits));
     if (!g.fits) {
       var which = g.overflowText.slice(0, 2).map(function (l) {
         var a = Array.from(l);
         return "“" + (a.length > 24 ? a.slice(0, 23).join("") + "…" : l) + "”";
       }).join(", ");
+      // In Lines, breaking the line comes first: a long line is usually a sentence, and Auto
+      // wraps one. A single word that is too wide can only be stacked. (Auto is cut off only
+      // when even its letters are too wide, and the other layouts have no line to break.)
+      var fix = "";
+      if (g.layout === "lines") {
+        fix = g.overflowText.some(function (l) { return / /.test(l); })
+          ? " Press Enter between words to break the line, or set Layout to Auto, which wraps the words to the paper."
+          : " Set Layout to Stack the letters.";
+      }
       out.push(typeof g.size === "number"
-        ? "Too wide for the paper at this size: " + which + " will wrap or be cut off. Pick a smaller size."
-        : "Too wide for the paper even at the smallest size: " + which + " will wrap or be cut off. Use shorter lines, or set Layout to Stack the letters.");
+        ? "Too wide for the paper at this size: " + which + " will wrap or be cut off. Pick a smaller size." + fix
+        : "Too wide for the paper even at the smallest size: " + which + " will wrap or be cut off." + (fix || " Use shorter lines."));
     }
     if (gs.some(function (x) { return x.over; })) {
       out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
@@ -1602,7 +1699,7 @@
                preview: { kind: "html", html: html }, side: info(ci, k.chunks.length, r, cheerWords(html)) };
     });
   }
-  // Plain-language report for a sideways block. opts = {cheers, bits, limit} as bigReport.
+  // Plain-language report for a sideways block. opts = {cheers, bits, limit, free} as bigReport.
   function sideReport(b, opts) {
     opts = opts || {};
     var gs = (Array.isArray(b) ? b : [b]).filter(function (x) { return x && x.side; }).map(function (x) { return x.side; });
@@ -1610,9 +1707,8 @@
     var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
     if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it running down the tape.";
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
-    var bits = cheerBits(opts.bits);
     out.push("Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
-      + (cheers === 1 ? "fits 1 cheer" : "needs " + cheers + " cheers (" + cheers * bits + " bits); the bot prints its header between the pieces"));
+      + costWords(cheers, opts.bits, !!opts.free, !g.fits));
     if (!g.fits) {
       out.push(typeof g.size === "number"
         ? "Too many lines to fit across the paper at this size: the outer ones will be cut off. Pick a smaller size or use fewer lines."
@@ -2259,10 +2355,18 @@
       return buildDesignT(designTTextGrid(t, ctx.paperMm, hanziWeightOf(block.hanziWeight)),
         { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
     }
-    // Glyph-art: decoding is async (fetch via /px for a URL, or a picked File); the decoded
-    // Image is cached on block._img (a runtime-only field, stripped on save).
+    // Glyph-art: decoding is async (fetch via /px for a URL, or a picked File, read on this
+    // device and never uploaded); the decoded Image is cached on block._img. Runtime-only
+    // fields (`_`, stripped on save): _img, _decoding (a read is in flight), _decodeKey (which
+    // read is the current one: a slow read of an older link must not land over a newer one)
+    // and _decodeFailed (the source that could not be read: the link, or "file:" + its name).
+    // A failure is remembered so the card can say so; without it every refresh (each keystroke
+    // anywhere, twice per Copy) started the same read through /px again, and the card said
+    // "Reading the picture…" for ever.
+    var decodeSeq = 0;
     function decodeGlyphImage(block, file) {
-      block._decoding = true;
+      var key = ++decodeSeq, src = file ? "file:" + file.name : block.url;
+      block._decoding = true; block._decodeKey = key; delete block._decodeFailed;
       var p = file
         ? Promise.resolve(URL.createObjectURL(file))
         : fetch(proxied(block.url), { credentials: "omit" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
@@ -2274,8 +2378,28 @@
           im.src = objUrl;
         });
       }).then(function (im) {
-        block._img = im; block._decoding = false; saveBlocks(); update();
-      })["catch"](function () { block._decoding = false; });
+        if (block._decodeKey !== key) return;
+        block._img = im; block._decoding = false; delete block._rot; saveBlocks(); update();
+      })["catch"](function () {
+        if (block._decodeKey !== key) return;
+        block._decoding = false; block._decodeFailed = src; update();
+      });
+    }
+    // A glyph-art block's picture, turned by its Rotate setting (block.rotate: 0, 90, 180 or
+    // 270), on a canvas of its own: glyph-art reads the decoded picture itself, never the Real
+    // card's uploaded copy, so it turns it here. Cached per angle on block._rot.
+    function glyphSource(block, img) {
+      var deg = [90, 180, 270].indexOf(Number(block.rotate)) >= 0 ? Number(block.rotate) : 0;
+      if (!deg) return img;
+      if (block._rot && block._rot.img === img && block._rot.deg === deg) return block._rot.cv;
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, swap = deg !== 180;
+      var cv = document.createElement("canvas");
+      cv.width = swap ? h : w; cv.height = swap ? w : h;
+      var c = cv.getContext("2d");
+      c.fillStyle = "#fff"; c.fillRect(0, 0, cv.width, cv.height);
+      c.translate(cv.width / 2, cv.height / 2); c.rotate(deg * Math.PI / 180); c.drawImage(img, -w / 2, -h / 2, w, h);
+      block._rot = { img: img, deg: deg, cv: cv };
+      return cv;
     }
     // A decoded picture as a glyph grid for this stack. In a High Roller cheer: the block's
     // tier, sampled for its form's cell shape (glyphAspect) at the columns that form takes on
@@ -2287,14 +2411,15 @@
       var g = glyphOpts(block), plain = ctx.mode === "plain";
       var tierId = plain ? "cjk" : g.tier, form = plain ? "plain" : glyphForm(tierId);
       var cols = plain ? designTPictureCols(ctx.paperMm) : glyphCols(form, block.cols, ctx.paperMm);
-      var aspect = glyphAspect(form, cols, ctx.paperMm);
+      var aspect = glyphAspect(form, cols, ctx.paperMm), src = glyphSource(block, img);
       return computeGrid("image", getTier(tierId), { cols: cols, charAspect: aspect,
-        rows: gridRows(cols, img.naturalWidth || img.width, img.naturalHeight || img.height, aspect),
-        threshold: g.contrast, invert: g.invert, dither: plain ? false : g.dither, img: img });
+        rows: gridRows(cols, src.naturalWidth || src.width, src.naturalHeight || src.height, aspect),
+        threshold: g.contrast, invert: g.invert, dither: plain ? false : g.dither, img: src });
     };
     function glyphImageBodies(block, ctx) {
       if (!block._img) {
-        if (block.url && !block._decoding) decodeGlyphImage(block);
+        // Read the link once; a link that could not be read is not asked again until it changes.
+        if (block.url && !block._decoding && block._decodeFailed !== block.url) decodeGlyphImage(block);
         return [{ html: "", chars: 0, heightPx: 0, waiting: true,
                   preview: { kind: "grid", grid: block._decoding ? "(decoding image…)" : "(paste an image URL or pick a file)" } }];
       }
@@ -2713,12 +2838,22 @@
     // and, unless it's a non-copyable placeholder, its own Copy button. Cards are kept and
     // refilled, never rebuilt (see partCards). lastParts mirrors what's on screen so copyPart()
     // can look up the exact payload it just (re)computed.
+    // `notice`: a string, or {text, back} for a probe's view, which carries the button back to
+    // the stack (the block cards still describe the stack while a probe is shown, and nothing
+    // else on the page leads back to it).
     function renderParts(items, notice) {
       var container = els.parts;
       var mn = document.getElementById("modeNote");
-      if (notice) {
+      var nt = notice && typeof notice === "object" ? notice : { text: notice || "" };
+      if (nt.text) {
         if (!mn) { mn = mkEl("div", { "class": "mode-note", id: "modeNote" }); }
-        mn.textContent = notice;
+        mn.textContent = nt.text;
+        if (nt.back) {
+          var back = mkEl("button", { type: "button", id: "backToStack" }, "Back to my stack");
+          back.addEventListener("click", function () { update(); });
+          mn.appendChild(document.createElement("br"));
+          mn.appendChild(back);
+        }
         if (container.firstChild !== mn) container.insertBefore(mn, container.firstChild);
       } else if (mn) mn.parentNode.removeChild(mn);
       var total = document.getElementById("partsTotal");
@@ -2737,21 +2872,36 @@
       var copyable = items.filter(function (it) { return it.copyable; });
       if (copyable.length > 1) {
         var bits = copyable[0].bits;
-        container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" },
-          "Paste the parts into chat in order. Each is a separate " + bits
-          + "-bit cheer (" + copyable.length + " × " + bits + " = " + (copyable.length * bits) + " bits total), "
-          + "and the bot prints its header between them."));
+        container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" }, copyable[0].cheer === false
+          ? "Paste the parts into chat in order: " + copyable.length + " messages, free. With Cheer-ready off "
+            + "nothing prints; chat's filters still see every one."
+          : "Paste the parts into chat in order. Each is a separate " + bits
+            + "-bit cheer (" + copyable.length + " × " + bits + " = " + (copyable.length * bits) + " bits total), "
+            + "and the bot prints its header between them."));
       }
     }
     function fillPartCard(pc, item, i, n) {
       var card = pc.el, kids = Array.prototype.slice.call(card.childNodes);
       kids.forEach(function (k) { if (k !== pc.stage && k !== pc.verdict) card.removeChild(k); });
-      var before = [], after = [];
+      var before = [];
       if (item.showHead !== false) {
         var head = mkEl("div", { "class": "part-head" });
         head.appendChild(mkEl("span", { "class": "part-count" + (item.chars > MAX_CHARS ? " over" : "") },
           (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : "") + item.chars + " / " + MAX_CHARS));
         if (item.kindLabel) head.appendChild(mkEl("span", { "class": "part-kind" }, item.kindLabel));
+        // Copy, the one thing a part is for, sits in its header: a full receipt preview can be
+        // 40 cm tall, and under it the button was a scroll away (on a phone, past every
+        // control too). The header stays in view while its preview scrolls past (CSS sticky).
+        // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
+        // refresh(), which refills this card, so the button you clicked is gone by the time the
+        // copy resolves.
+        if (item.copyable) {
+          var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
+          var btn = mkEl("button", { type: "button", "class": "copy-btn" + (justCopied ? " copied" : "") },
+            justCopied ? "Copied" : n > 1 ? "Copy part " + (i + 1) : "Copy");
+          btn.addEventListener("click", function () { copyPart(i); });
+          head.appendChild(btn);
+        }
         before.push(head);
       }
       // Twitch rejects (doesn't truncate) an over-length message, so an over-budget part
@@ -2772,21 +2922,10 @@
         if (!pre) { pre = mkEl("pre", { "class": "receipt" }); pc.stage.appendChild(pre); }
         pre.textContent = item.payload;
       }
-      // A part's own one-line explanation (a probe says how to read it; a repeated part
-      // says why it has to wait).
-      if (item.note) after.push(mkEl("p", { "class": "parts-note" }, item.note));
-      if (item.copyable) {
-        // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
-        // refresh(), which refills this card, so the button you clicked is gone by the time the
-        // copy resolves.
-        var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
-        var btn = mkEl("button", { type: "button" }, justCopied ? "Copied" : "Copy");
-        if (justCopied) btn.className = "copied";
-        btn.addEventListener("click", function () { copyPart(i); });
-        after.push(btn);
-      }
+      // A part's own one-line explanation (a probe says how to read it; a repeated part says
+      // why it has to wait), above the preview, where it is read before Copy is pressed.
+      if (item.note) before.push(mkEl("p", { "class": "parts-note part-note" }, item.note));
       before.forEach(function (el) { card.insertBefore(el, pc.stage); });
-      after.forEach(function (el) { card.appendChild(el); });
     }
     // ============ COMPOSER (block stack) ============
     var blocks = [], blockIdSeq = 1, BLOCKS_KEY = "rw_blocks_v1";
@@ -2938,7 +3077,8 @@
       }
       if (parts && parts.length > 1 && ip.length) {
         // A range of one reads "parts 2 to 2"; that sentence bug has shipped here before.
-        out.push("Your whole stack needs " + parts.length + " cheers; this block is in "
+        out.push("Your whole stack " + (parts[0].cheer === false ? "takes " + parts.length + " messages" : "needs " + parts.length + " cheers")
+          + "; this block is in "
           + (ip.length === 1 ? "part " + (ip[0] + 1) : "parts " + (ip[0] + 1) + " to " + (ip[ip.length - 1] + 1)) + ".");
       }
       return out;
@@ -3027,6 +3167,10 @@
       BIG_LAYOUTS.forEach(function (l) { bLayout.appendChild(opt(l, LAYOUT_LABELS[l], boNow.layout === l)); });
       bLayout.addEventListener("change", function () { block.bigLayout = bLayout.value; saveBlocks(); update(); });
       bigWrap.appendChild(bLayout);
+      bigWrap.appendChild(mkEl("div", { "class": "hint" },
+        "Auto tries your lines as typed, the same lines with the words wrapped to the paper, and one letter "
+        + "a line, and keeps whichever prints biggest in one cheer. To choose the line breaks yourself, press "
+        + "Enter between words and pick Lines."));
       bigWrap.appendChild(mkEl("label", null, "Size"));
       var bSize = mkEl("select", { "class": "sel-size" });
       fillSizes(bSize, BIG_SIZE_LABELS, BIG_SIZE_STEPS, boNow.size);
@@ -3125,7 +3269,7 @@
             if (has) {
               f = fitFor(o.value, bo.size);
               if (f.px) {
-                label += " · " + (o.value === "auto" ? (f.layout === "stack" ? "stacked, " : "as lines, ") : "")
+                label += " · " + (o.value === "auto" ? (f.layout === "stack" ? "stacked, " : f.layout === "wrap" ? "words wrapped, " : "as lines, ") : "")
                   + capsOf(f) + (f.cheers > 1 ? " · " + cheersOf(f.cheers) : "") + bigFlags(f);
               }
             }
@@ -3163,10 +3307,12 @@
         }
       };
       var syncText = function (parts) {
-        var ctx = stackContext(stackOpts()), raw = stackContext(stackOpts({ mode: "raw" }));
-        // Labelled for a High Roller cheer whatever the bits: below the threshold the block
-        // prints as Han tiling, and the labels then say what it prints at the threshold.
-        relabel(raw);
+        var so0 = stackOpts(), ctx = stackContext(so0), t0 = hrThresholdOf(so0.hrThreshold);
+        // Labelled for a High Roller cheer whatever the bits. Below the threshold the block
+        // prints as Han tiling, and the labels say what it prints AT the threshold: its bits,
+        // so its share of the receipt under a bits-per-inch setting and its lead's length.
+        // (With High Roller off, no cheer prints them; they stay at the current bits.)
+        relabel(stackContext(stackOpts(ctx.mode === "plain" && t0 > 0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
         var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
         var lines = [], fine = [], plainNow = ctx.mode === "plain";
         if (r === "hanzi" || plainNow) {
@@ -3179,8 +3325,11 @@
             lines.push("Type something to print it.");
           }
           if (plainNow && r !== "hanzi") {
-            lines.push("This cheer is below the streamer's High Roller threshold (" + hrThresholdOf(stackOpts().hrThreshold)
-              + " bits), so this block prints as Han tiling (plain text). The sizes above are what it prints at the threshold or more.");
+            lines.push(t0 > 0
+              ? "This cheer is below the streamer's High Roller threshold (" + t0 + " bits), so this block prints as "
+                + "Han tiling (plain text). The sizes above are what it prints at " + t0 + " bits or more."
+              : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
+                + "prints as Han tiling. The sizes above apply only if the streamer turns High Roller on.");
           }
           fine.push("Han tiling needs a CJK font on the streamer's PC (Windows has one): if the receipt comes out blank, it has none.");
         } else {
@@ -3193,7 +3342,7 @@
             var so = sideOpts(block);
             own = buildSideBodies(text, { dir: so.dir, size: so.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
           }
-          var rep = (r === "big" ? bigReport : sideReport)(own, { cheers: cheers, bits: ctx.bits, limit: ctx.limit });
+          var rep = (r === "big" ? bigReport : sideReport)(own, { cheers: cheers, bits: ctx.bits, limit: ctx.limit, free: !ctx.cheer });
           lines = rep ? rep.split("\n") : [];
           if (r === "sideways" && sideOpts(block).dir === "up" && !sidewaysLrSupported()) {
             lines.push("This browser can't draw bottom-to-top text, so the preview shows it lying flat. A current Edge, "
@@ -3316,7 +3465,9 @@
     }
     function uploadFileForBlock(block, file, setStatus) {
       uploadPngForUrl(file, setStatus, function (url, aspect) {
-        block.url = url; block.outUrl = null; block.aspect = aspect;
+        // A new link is a new picture: whatever glyph-art decoded before is not it.
+        block.url = url; block.outUrl = null; block.aspect = aspect; block._img = null;
+        delete block.fileName; delete block._decodeFailed;
         if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded, now adjusting…"); processImage(block, setStatus); }
         else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
       });
@@ -3339,9 +3490,20 @@
       card.appendChild(mkEl("label", null, "… or pick a file"));
       var file = mkEl("input", { type: "file", accept: "image/*" });
       card.appendChild(file);
+      // What happens to a picked file depends on the kind: glyph-art reads it on this device
+      // and never uploads it, so it lives only in memory (a reload or a preset keeps only a
+      // link); a Real picture uploads it to our Worker for a link that lasts 15 minutes.
+      var fileHint = mkEl("div", { "class": "hint" });
+      card.appendChild(fileHint);
       var status = mkEl("div", { "class": "hint" });
       var setStatus = function (t) { status.textContent = t; };
       card.appendChild(status);
+      // Rotate, for both kinds: glyph-art turns the picture on this device before tiling it
+      // (glyphSource); the Real card bakes and uploads a turned copy to show it.
+      card.appendChild(mkEl("label", null, "Rotate"));
+      var rot = mkEl("select", { "class": "sel-rotate" });
+      [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
+      card.appendChild(rot);
 
       // --- Real-picture controls ---
       // Said plainly, first, and in red: a Real picture sends NOTHING. SassyTP's bot loads a
@@ -3387,10 +3549,9 @@
         }
       };
       costSyncs.push(syncThumb);
-      realWrap.appendChild(mkEl("label", null, "Rotate"));
-      var rot = mkEl("select");
-      [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
-      realWrap.appendChild(rot);
+      realWrap.appendChild(mkEl("div", { "class": "hint" },
+        "Brightness and contrast change only the picture on this card (an adjusted copy is uploaded to show it): "
+        + "a Real picture prints nothing either way. Glyph-art has its own Contrast."));
       // Brightness / contrast are baked into the pixels (debounced) and re-uploaded.
       // block.outUrl is cleared while adjusting; the picture above shows a CSS-filter
       // approximation until the baked version lands.
@@ -3427,7 +3588,20 @@
       var tierHint = mkEl("div", { "class": "hint" });
       glyphWrap.appendChild(tierHint);
       var gcols = mkEl("input", { type: "number", step: "1", "class": "num-cols" }); gcols.value = block.cols || 20;
-      glyphWrap.appendChild(sliderRow("Detail (columns)", gcols, 20, ""));
+      var gcolsRow = sliderRow("Detail (columns)", gcols, 20, "");
+      glyphWrap.appendChild(gcolsRow);
+      // The field shows the columns the grid really uses (glyphCols: 12 to 30 for Han characters,
+      // 8 to 48 otherwise, fewer for Braille on 58 mm), never a raw value the grid clamps: a block
+      // saved before 1.0.0 with 40 columns of Han characters prints 30, and said 40. Not while
+      // it is being typed in; committing a value (change) writes the clamped one back.
+      var effCols = function () { return glyphCols(glyphForm(glyphOpts(block).tier), block.cols, getSettings().paperMm); };
+      var showCols = function (force) {
+        if (!force && document.activeElement === gcols) return;
+        var v = String(effCols());
+        if (gcols.value !== v) gcols.value = v;
+        var val = gcolsRow.querySelector(".bc-val");
+        if (val) val.textContent = v;
+      };
       var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = glyphOpts(block).contrast;
       glyphWrap.appendChild(sliderRow("Contrast", contrast, 128, ""));
       var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = glyphOpts(block).dither;
@@ -3445,22 +3619,39 @@
         gcols.min = form === "cjk" ? "12" : "8";
         gcols.max = form === "cjk" ? "30" : "48";
         tierHint.textContent = TIER_HINTS[form];
+        showCols();
       };
       // What the picture prints as, read off the packed parts like the text cards.
       var syncGlyph = function (parts) {
+        fileHint.textContent = block.imgKind === "glyph"
+          ? "A picked file is read on this device and never uploaded, so it isn't kept after a reload or saved in a preset: pick it again then. A link is kept."
+          : "A picked file is uploaded to this site's server for a link that lasts 15 minutes.";
         if (block.imgKind !== "glyph") return;
-        var ctx = stackContext(stackOpts()), where = blockParts(block, parts), lines = [];
+        showCols();
+        var so = stackOpts(), ctx = stackContext(so), t = hrThresholdOf(so.hrThreshold), where = blockParts(block, parts), lines = [];
         var gs = where.own.filter(function (b) { return b.glyph || b.hanzi; });
         if (gs.length) {
-          var rows = gs.reduce(function (t, b) { return t + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
+          var rows = gs.reduce(function (n, b) { return n + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
           var cols = gs[0].glyph ? gs[0].glyph.cols : designTPictureCols(ctx.paperMm);
           lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · " + cheersOf(where.inParts.length || gs.length));
-        } else if (block.url || block._img) {
-          lines.push(block._decoding ? "Reading the picture…" : "The picture couldn't be read. Check the link, or pick the file again.");
+        } else if (block._decoding) {
+          lines.push("Reading the picture…");
+        } else if (block._decodeFailed) {
+          lines.push(/^file:/.test(block._decodeFailed)
+            ? "That file couldn't be read as a picture. Pick another file."
+            : "The picture couldn't be read. Check the link, or pick the file instead. Until then this block prints nothing.");
+        } else if (!block.url && !block._img && block.fileName) {
+          lines.push("Pick “" + block.fileName + "” again: a picked file isn't kept after a reload or in a preset, so this "
+            + "block prints nothing until you do. A link is kept.");
+        } else if (!block.url && !block._img) {
+          lines.push("Paste an image link or pick a file.");
         }
         if (ctx.mode === "plain") {
-          lines.push("This cheer is below the streamer's High Roller threshold, so the picture prints as a plain grid of "
-            + "Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever the characters above say.");
+          lines.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so the picture prints"
+                            : "The streamer's High Roller is off (threshold 0), so every picture prints")
+            + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever the characters above say.");
+        } else if (ctx.cheer && boxNoRoom(ctx.limit)) {
+          lines.push(tallWords("", ctx.limit));
         }
         writeNote(gnote, lines.concat(partLines(where, parts)), [], where.over);
       };
@@ -3474,6 +3665,7 @@
 
       url.addEventListener("input", function () {
         block.url = url.value; block.outUrl = null; block._img = null; block.aspect = null;
+        delete block.fileName; delete block._decodeFailed;
         if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
         else if (block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
         saveBlocks(); update();
@@ -3481,18 +3673,29 @@
       file.addEventListener("change", function (e) {
         var f = e.target.files && e.target.files[0];
         if (!f) return;
-        if (block.imgKind === "glyph") { block._img = null; decodeGlyphImage(block, f); setStatus("Decoding…"); }
+        if (block.imgKind === "glyph") {
+          // The file is now the picture: the link it replaces goes, so a reload can't quietly
+          // bring back a different picture, and its name stays so the card can ask for it again.
+          block.url = ""; url.value = ""; block.outUrl = null; block._img = null; block.aspect = null;
+          block.fileName = String(f.name || "the file").slice(0, 120);
+          setStatus("");
+          decodeGlyphImage(block, f);
+          saveBlocks(); update();
+        }
         else uploadFileForBlock(block, f, setStatus);
       });
       kind.addEventListener("change", function () {
-        block.imgKind = kind.value; block.outUrl = null; block._img = null; block.aspect = null; applyKind();
-        if (block.imgKind === "glyph" && block.url) decodeGlyphImage(block);
+        // The decoded picture is kept: it is the same source (a picked file could not be read
+        // back, and a link needn't be read twice). The rotation carries over (one field).
+        block.imgKind = kind.value; block.outUrl = null; block.aspect = null; applyKind();
+        setStatus("");
+        if (block.imgKind === "glyph" && block.url && !block._img && !block._decoding) { delete block._decodeFailed; decodeGlyphImage(block); }
         else if (block.imgKind !== "glyph" && block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
         saveBlocks(); update();
       });
       rot.addEventListener("change", function () {
         block.rotate = parseInt(rot.value, 10) || 0; block.outUrl = null; block.aspect = null;
-        if (block.url) processImage(block, setStatus);   // clears outUrl if nothing's set
+        if (block.imgKind !== "glyph" && block.url) processImage(block, setStatus);   // clears outUrl if nothing's set
         saveBlocks(); update();
       });
       toGlyph.addEventListener("click", function () {
@@ -3501,6 +3704,7 @@
       });
       tier.addEventListener("change", function () { block.tier = tier.value; syncTier(); saveBlocks(); update(); });
       gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 20; saveBlocks(); update(); });
+      gcols.addEventListener("change", function () { block.cols = effCols(); showCols(true); saveBlocks(); update(); });
       contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
       dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
@@ -3530,7 +3734,7 @@
       });
     }
     // ── PRESETS (glue) ──────────────────────────────────────────────────────
-    var PRESETS_KEY = "rw_presets_v1", presets = [], armedDelete = "";
+    var PRESETS_KEY = "rw_presets_v1", presets = [], armedDelete = -1, armedSave = "";
     function loadPresets() {
       try {
         var r = localStorage.getItem(PRESETS_KEY);
@@ -3558,10 +3762,16 @@
       els.presetNote.textContent = msg;
       els.presetNote.style.color = bad ? "#d33" : "";
     }
-    function renderPresetList() {
+    // The list is keyed on each preset's INDEX, not its name. Keyed on the name, two presets with
+    // one name (a rename onto a taken name made them, and an older build could have saved them)
+    // were one entry to Load, Rename and Delete: Load on the second loaded the first, and one
+    // Delete removed both. Save and Rename keep names unique now; the index keeps a list that
+    // already has a duplicate working. `pick` is the index to select after a re-render; absent,
+    // the selection stays where it was (clamped to the list).
+    function renderPresetList(pick) {
       var sel = els.presetList;
       if (!sel) return;
-      var keep = sel.value;
+      var keep = typeof pick === "number" ? pick : parseInt(sel.value, 10);
       sel.textContent = "";
       if (!presets.length) {
         var none = document.createElement("option");
@@ -3569,18 +3779,21 @@
         sel.appendChild(none);
         return;
       }
-      presets.forEach(function (p) {
+      presets.forEach(function (p, i) {
         var o = document.createElement("option");
-        o.value = p.name; o.textContent = p.name;
+        o.value = String(i); o.textContent = p.name;
         sel.appendChild(o);
       });
-      if (keep) sel.value = keep;
-      if (!sel.value) sel.value = presets[0].name;
+      sel.value = String(isFinite(keep) ? Math.max(0, Math.min(presets.length - 1, keep)) : 0);
     }
-    function selectedPreset() {
-      var v = els.presetList && els.presetList.value;
-      for (var i = 0; i < presets.length; i++) if (presets[i].name === v) return presets[i];
-      return null;
+    function selectedIndex() {
+      var i = els.presetList ? parseInt(els.presetList.value, 10) : NaN;
+      return isFinite(i) && i >= 0 && i < presets.length ? i : -1;
+    }
+    function selectedPreset() { var i = selectedIndex(); return i >= 0 ? presets[i] : null; }
+    function presetIndexByName(name) {
+      for (var i = 0; i < presets.length; i++) if (presets[i].name === name) return i;
+      return -1;
     }
     // Ground truth, not arithmetic: ask the link whether it still resolves. An <img>
     // load is the right check — it needs no CORS grant and adds no fetch call site, and
@@ -3622,6 +3835,8 @@
         var changed = blocks.some(function (b, i) { return !!b._expired !== before[i]; })
           || blocks.length !== before.length;
         if (changed) renderComposer();
+        // How many blocks it flagged, and how many links it checked (Load reports both).
+        return { expired: blocks.filter(function (b) { return b._expired; }).length, checked: jobs.length };
       });
     }
     // Hung off saveBlocks rather than off the three or four places a picture URL can
@@ -3651,7 +3866,7 @@
       saveBlocks();
       renderComposer();
       update();
-      probeStackExpiry();
+      return probeStackExpiry();
     }
     function initPresets() {
       if (!els.presetList) return;
@@ -3666,54 +3881,94 @@
       }
       pendingBackup = null;
       renderPresetList();
+      // Save and Delete each ask for a second press when they would destroy something (a preset
+      // replaced by this stack, or deleted): a modal confirm() blocks the page, and the button
+      // re-labelling says the same thing in place. Any other preset action, or a new pick in
+      // the list or a new name, disarms both.
+      var disarm = function () {
+        armedDelete = -1; armedSave = "";
+        els.presetDelete.textContent = "Delete"; els.presetSave.textContent = "Save";
+      };
+      var pictureFileNote = function (bs) {
+        var n = bs.filter(function (b) { return b && b.type === "image" && b.imgKind === "glyph" && b.fileName && !b.url; }).length;
+        return n ? " A picture picked from a file isn't saved with it (only a link is): pick the file again after loading it." : "";
+      };
       els.presetSave.addEventListener("click", function () {
-        var name = (els.presetName.value || "").trim();
-        if (!name) { presetNote("Give the setup a name first.", true); els.presetName.focus(); return; }
+        var name = (els.presetName.value || "").trim().slice(0, 60);
+        if (!name) { disarm(); presetNote("Give the setup a name first.", true); els.presetName.focus(); return; }
+        var at = presetIndexByName(name), blocksWord = blocks.length + (blocks.length === 1 ? " block" : " blocks");
+        if (at >= 0 && armedSave !== name) {
+          disarm();
+          armedSave = name; els.presetSave.textContent = "Replace?";
+          presetNote("There's already a setup called \"" + name + "\". Press Replace? to save this stack over it, or type another name.", true);
+          return;
+        }
+        disarm();
         presets = upsertPreset(presets, makePreset(name, blocks, Date.now()));
-        persistPresets(); renderPresetList();
-        els.presetList.value = name;
-        presetNote("Saved \"" + name + "\" with " + blocks.length
-                   + (blocks.length === 1 ? " block." : " blocks."));
+        persistPresets(); renderPresetList(presetIndexByName(name));
+        presetNote((at >= 0 ? "Replaced \"" + name + "\" with this stack (" + blocksWord + ")."
+                            : "Saved \"" + name + "\" with " + blocksWord + ".") + pictureFileNote(blocks));
       });
+      els.presetName.addEventListener("input", disarm);
+      // Load says what the expiry check found, once it has heard back, and only when the preset
+      // has uploaded links to check: "checking…" that never resolved read as a hang.
+      var loadSeq = 0;
       els.presetLoad.addEventListener("click", function () {
+        disarm();
         var p = selectedPreset();
         if (!p) { presetNote("Nothing saved to load yet.", true); return; }
-        applyPreset(p);
-        els.presetName.value = p.name;
-        presetNote("Loaded \"" + p.name + "\". Checking any uploaded pictures are still alive…");
+        var minted = presetImageUrls(p.blocks).filter(isMintedImageUrl).length, seq = ++loadSeq, name = p.name;
+        var base = "Loaded \"" + name + "\"." + pictureFileNote(p.blocks);
+        els.presetName.value = name;
+        presetNote(base + (minted ? " Checking its uploaded pictures still load…" : ""));
+        var job = applyPreset(p);
+        if (!minted || !job) return;
+        job.then(function (r) {
+          if (seq !== loadSeq) return;   // another Load since
+          presetNote(r.expired
+            ? base + " " + r.expired + (r.expired === 1 ? " picture's link has" : " pictures' links have")
+              + " expired: pick the file again on the flagged " + (r.expired === 1 ? "block." : "blocks.")
+            : base + " Its uploaded pictures still load.", r.expired > 0);
+        });
       });
       els.presetRename.addEventListener("click", function () {
-        var p = selectedPreset(), name = (els.presetName.value || "").trim();
+        disarm();
+        var i = selectedIndex(), p = i >= 0 ? presets[i] : null, name = (els.presetName.value || "").trim().slice(0, 60);
         if (!p) { presetNote("Nothing saved to rename.", true); return; }
         if (!name) { presetNote("Type the new name in the box, then press Rename.", true); return; }
+        if (name === p.name) { presetNote("\"" + name + "\" is already its name. Type a new name in the box, then press Rename.", true); return; }
+        var other = presetIndexByName(name);
+        if (other >= 0 && other !== i) {
+          presetNote("There's already a setup called \"" + name + "\". Pick another name, or delete that one first.", true);
+          return;
+        }
         var old = p.name;
         p.name = name;
-        persistPresets(); renderPresetList();
-        els.presetList.value = name;
+        persistPresets(); renderPresetList(i);
         presetNote("Renamed \"" + old + "\" to \"" + name + "\".");
       });
-      // Two-press delete rather than a confirm() — a modal dialog blocks the page, and
-      // the button re-labelling says the same thing in place.
       els.presetDelete.addEventListener("click", function () {
-        var p = selectedPreset();
-        if (!p) { presetNote("Nothing saved to delete.", true); return; }
-        if (armedDelete !== p.name) {
-          armedDelete = p.name;
+        var i = selectedIndex(), p = i >= 0 ? presets[i] : null;
+        if (!p) { disarm(); presetNote("Nothing saved to delete.", true); return; }
+        if (armedDelete !== i) {
+          disarm();
+          armedDelete = i;
           els.presetDelete.textContent = "Really?";
           presetNote("Press again to delete \"" + p.name + "\". Export first if you want it back.", true);
           return;
         }
-        presets = presets.filter(function (q) { return q.name !== p.name; });
-        armedDelete = ""; els.presetDelete.textContent = "Delete";
-        persistPresets(); renderPresetList();
+        disarm();
+        presets = presets.slice(0, i).concat(presets.slice(i + 1));
+        persistPresets(); renderPresetList(Math.min(i, presets.length - 1));
         presetNote("Deleted \"" + p.name + "\".");
       });
       els.presetList.addEventListener("change", function () {
-        armedDelete = ""; els.presetDelete.textContent = "Delete";
+        disarm();
         var p = selectedPreset();
         if (p) els.presetName.value = p.name;
       });
       els.presetExport.addEventListener("click", function () {
+        disarm();
         if (!presets.length) { presetNote("Save a setup first. There's nothing to export yet.", true); return; }
         els.presetJson.value = serializePresets(presets);
         els.presetJson.className = "show";
@@ -3722,6 +3977,7 @@
                    + " as JSON. Copy it somewhere safe, or into another browser's Import box.");
       });
       els.presetImport.addEventListener("click", function () {
+        disarm();
         if (els.presetJson.className !== "show" || !(els.presetJson.value || "").trim()) {
           els.presetJson.className = "show"; els.presetJson.focus();
           presetNote("Paste exported JSON into the box, then press Import again.");
@@ -3737,17 +3993,27 @@
       });
     }
     // Whether this app already says a part will be cut: it is taller than the bot's message box
-    // (one body taller than the box gets a part of its own, and its card warns). The preview's
-    // verdict adds "this app expected it to fit" to a cut the bot makes anywhere else.
+    // (one body taller than the box gets a part of its own, and its card warns), or a block in
+    // it is too wide for the paper at its size (its card says it will wrap or be cut off, and a
+    // wrap the app did not plan for makes it taller). The preview's verdict adds "this app
+    // expected it to fit" to a cut the bot makes anywhere else, and only there.
     function partWarned(p, ctx) {
-      return p.contentPx > ctx.limit.px + 1 || p.bodies.some(function (b) { return !!b.tall; });
+      return p.contentPx > ctx.limit.px + 1 || p.bodies.some(function (b) {
+        return !!b.tall || !!(b.big && !b.big.fits) || !!(b.side && !b.side.fits);
+      });
     }
     function composeParts() {
       if (!blocks.some(blockHasContent)) {
-        var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph" && b.url; });
-        return [{ payload: realOnly
+        // Say why, for each way a stack can print nothing: a glyph-art picture picked from a file
+        // that a reload (or a preset) didn't keep; a Real picture, with or without its picture
+        // yet; or nothing typed at all.
+        var repick = blocks.some(function (b) { return b.type === "image" && b.imgKind === "glyph" && b.fileName && !b.url && !b._img; });
+        var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph"; });
+        return [{ payload: repick
+          ? "(nothing to print yet: pick the picture's file again on its Image card. A picked file isn't kept after a reload or in a preset)"
+          : realOnly
           ? "(nothing to print: a Real picture can't print on SassyTP's bot. Switch it to Glyph-art, or add some text)"
-          : "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
+          : "(nothing to print yet: add a block, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
       var so = stackOpts({ nonceFn: nonceForPart }), ctx = stackContext(so);
       var parts = packStack(blocks, so);
@@ -3811,7 +4077,9 @@
     var costSyncs = [];
     function refresh() {
       lastParts = computeParts();
-      renderParts(lastParts, currentKind === "compose" ? modeNotice(getSettings()) : "");
+      renderParts(lastParts, currentKind === "compose" ? modeNotice(getSettings())
+        : { text: "This is the " + (currentKind === "hrprobe" ? "High Roller test" : "Plain test")
+            + ", not your stack. The blocks on the left are unchanged.", back: true });
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {
@@ -3934,7 +4202,7 @@
       BIG_LAYOUTS: BIG_LAYOUTS, BIG_CAP_EM: BIG_CAP_EM, MM_PER_PX: MM_PER_PX, bigCapCm: bigCapCm,
       bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, bigClean: bigClean, bigGraphemes: bigGraphemes,
       bigGraphemesFallback: bigGraphemesFallback, bigLineEm: bigLineEm, bigFitPx: bigFitPx,
-      bigLineHeight: bigLineHeight, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
+      bigLineHeight: bigLineHeight, bigWrapWords: bigWrapWords, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
       bigCheerCount: bigCheerCount, bigPlan: bigPlan, bigFit: bigFit, buildBigBodies: buildBigBodies,
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
       // Sideways (High Roller).

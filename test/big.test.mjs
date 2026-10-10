@@ -108,12 +108,65 @@ test("auto: the bigger type when lines and stack both fit one cheer, else fewer 
   assert.equal(C.bigFit("HELLO", {}).layout, "stack", "HELLO stacks at 310px against 70px as a line");
   const long = new Array(8).fill("HAPPY BIRTHDAY").join("\n");
   assert.equal(C.bigFit(long, { layout: "stack" }).cheers > 1, true, "fixture: stacked, 8 lines take more than one cheer");
-  assert.equal(C.bigFit(long, {}).layout, "lines", "as lines they fit one, so auto keeps the lines");
+  const lf = C.bigFit(long, { layout: "lines" }), af = C.bigFit(long, {});
+  assert.equal(lf.cheers, 1, "fixture: as lines they fit one cheer");
+  // Wrapped, each HAPPY BIRTHDAY is two lines: 16 lines at 46px still fit one cheer, against
+  // 26px as typed, so auto wraps them. It never falls back to the stack's extra cheers.
+  assert.equal(af.layout, "wrap");
+  assert.equal(af.cheers, 1);
+  assert.ok(af.px > lf.px, af.px + " vs " + lf.px);
+  eq(af.lines, new Array(8).fill(["HAPPY", "BIRTHDAY"]).flat());
+  assert.equal(C.bigFit(long, { layout: "lines" }).layout, "lines", "a layout picked by hand is kept as it is");
   assert.equal(C.bigFit("THANK YOU\nFOR THE RAID", {}).layout, "stack", "both fit one cheer: the stack's letters are bigger");
   const wide = "A".repeat(40);
   assert.equal(C.bigFit(wide, { layout: "lines" }).fits, false, "40 capitals are too wide even at 20px");
   assert.equal(C.bigFit(wide, {}).layout, "stack", "so auto stacks it");
   assert.equal(C.bigFit("HI", { layout: "each" }).layout, "each", "each is only ever chosen by hand");
+});
+
+test("auto wraps a sentence at its spaces: every word whole, every line inside the paper, the lines balanced", () => {
+  // A sentence typed on one line had no good layout: as one line 0.4 cm and cut off, stacked
+  // a 47 cm column of 0.6 cm letters. Wrapped, it is six lines of 50px type in one cheer.
+  const s = "gg wp, thanks for the raid everyone; Q&A later";
+  const f = C.bigFit(s, {}), st = C.bigFit(s, { layout: "stack" });
+  assert.equal(f.layout, "wrap");
+  assert.equal(f.cheers, 1);
+  assert.ok(f.fits && !f.over && !f.tall);
+  assert.ok(f.px > st.px, "bigger than the stack: " + f.px + " vs " + st.px);
+  assert.equal(f.lines.join(" "), s, "the words, in order, none of them broken");
+  for (const l of f.lines) assert.ok(C.bigLineEm(l) * f.px <= C.bigFitPx(244, C.bigGraphemes(l).length) + 1e-9, l);
+  const b = build(s, {});
+  assert.equal(b.length, 1);
+  assert.equal(b[0].html, '<div style="font:700 50px/1.15 Arial">' + f.lines.map(C.escapeHtml).join("<br>") + "</div>");
+  close(b[0].heightPx, f.lines.length * 50 * 1.15, "height: one line of type per wrapped line");
+  // Balanced: as many lines as the greedy wrap needs, each as short as it can be.
+  eq(C.bigWrapWords("WE ARE SO BACK", 30, 244), ["WE ARE SO", "BACK"]);
+  eq(C.bigFit("WE ARE SO BACK", { size: 30 }).lines, ["WE ARE", "SO BACK"]);
+  eq(C.bigFit("HI MOM HI DAD", { size: 32 }).lines, ["HI MOM", "HI DAD"]);
+  // Typed line breaks are kept; only a line too wide is broken.
+  eq(C.bigFit("THANKS FOR THE RAID\nGG", { size: 48 }).lines, ["THANKS", "FOR THE", "RAID", "GG"]);
+  // No space anywhere: nothing to wrap, so Lines and Stack decide as before.
+  for (const t of ["HELLO", "HELLO\nWORLD"]) assert.notEqual(C.bigFit(t, {}).layout, "wrap", t);
+  // At a fixed size, wrapped lines that fit beat a stack of the same size (they read as words).
+  assert.equal(C.bigFit("THANKS FOR THE RAID", { size: 48 }).layout, "wrap");
+  // A word too wide at that size can't be wrapped narrower: the stack fits, so it wins.
+  assert.equal(C.bigFit("WELCOME TO THE STREAM", { size: 64 }).layout, "stack");
+});
+
+test("height: a too-wide spaced line counts the lines its words really wrap to", () => {
+  // "WWW WWW WWW" at 48px: each WWW is 136px, and two of them and a space don't fit 244px, so it
+  // is three lines on the paper. Counting width / line width said two, the packer put all 20
+  // lines in one cheer, and the bot's box cut a third of them off.
+  eq(C.bigWrapWords("WWW WWW WWW", 48, 244), ["WWW", "WWW", "WWW"]);
+  eq(C.bigWrapWords("SUPERCALIFRAGILISTIC IS LONG", 40, 244), ["SUPERCALIFRAGILISTIC", "IS LONG"], "a word too wide sits alone");
+  eq(C.bigWrapWords("ONEWORD", 400, 244), ["ONEWORD"]);
+  const k = ctx();
+  const txt = new Array(20).fill("WWW WWW WWW").join("\n");
+  const b = build(txt, { layout: "lines", size: 48 }, k);
+  close(b.reduce((t, x) => t + x.heightPx, 0), 20 * 3 * 48 * 0.8, "60 printed lines");
+  const parts = C.packStackBodies(b, k);
+  assert.ok(parts.length >= 2);
+  for (const p of parts) assert.ok(p.contentPx <= k.limit.px + 1e-6, p.contentPx + "px");
 });
 
 test("emoji print (Edge draws them) and widen the line; invisible characters are dropped and reported", () => {
@@ -299,6 +352,18 @@ test("the report: size in cm, cheers and bits, cheer-shaped words", () => {
   assert.match(C.bigReport(maybe), /If “PS5” is a cheer name on this channel/);
   assert.equal(C.bigReport(build("", {})), "Type something to print it in big letters.");
   assert.match(C.bigReport(build("\u200B", {})), /Nothing else is left to print/);
+  // A free test (Cheer-ready off) spends nothing and prints nothing: it counts messages.
+  assert.match(C.bigReport(b, { cheers: 2, bits: 100, free: true }), /\u00B7 2 messages, free: a test with Cheer-ready off never prints$/);
+  assert.ok(!/bits/.test(C.bigReport(b, { cheers: 2, bits: 100, free: true })));
+  assert.match(C.bigReport(b, { free: true }), /\u00B7 1 message, free/);
+  // Cut-off letters never read "fits".
+  const wide = C.bigReport(build("HELLO", { layout: "lines", size: 100 }));
+  assert.match(wide, /^Capitals \u2248 [\d.]+ cm \u00B7 1 cheer, but too wide for the paper \(see below\)\n/);
+  assert.ok(!/fits 1 cheer/.test(wide));
+  // A too-wide line in Lines: break it (or let Auto wrap it) before stacking it.
+  assert.match(C.bigReport(build("A".repeat(20) + " " + "B".repeat(20), { layout: "lines" })),
+    /Press Enter between words to break the line, or set Layout to Auto, which wraps the words to the paper\./);
+  assert.match(C.bigReport(build("A".repeat(40), { layout: "lines" })), /even at the smallest size.* Set Layout to Stack the letters\./);
 });
 
 test("every user character is escaped; only our own tags remain", () => {

@@ -177,9 +177,11 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
     const po = Object.assign({}, ctx, digits ? { nonceFn: (i) => digits[i] } : {});
     // Each part's predicted height (the packer's contentPx: the lead line plus the bodies, or a
     // plain part's whole grid), and whether the app itself says it will be cut: taller than the
-    // bot's box (one body taller than the box gets a part of its own, and its card warns).
+    // bot's box (one body taller than the box gets a part of its own, and its card warns), or a
+    // block in it too wide for the paper at its size (its card says it will wrap or be cut off).
     return K.packStackBodies(all, po).map((p) => ({ payload: p.payload, contentPx: p.contentPx,
-      warned: p.contentPx > ctx.limit.px + 1 || p.bodies.some((b) => !!b.tall) }));
+      warned: p.contentPx > ctx.limit.px + 1
+        || p.bodies.some((b) => !!b.tall || !!(b.big && !b.big.fits) || !!(b.side && !b.side.fits)) }));
   }, [blocks, stackOptsOf(s), digits]);
 }
 const expectPage = async (...a) => (await expectParts(...a)).map((p) => p.payload);

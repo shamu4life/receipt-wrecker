@@ -6,7 +6,7 @@
 // nested levels print at 16px x 1.2^N. These tests pin the pure core that turns text
 // into those nests: which size, how it splits into cheers, and that every body fits the
 // 500-character message it has to ride in. What actually comes off the printer is the
-// Print size ruler's job (one cheer) and tools/rig.py's (no cheer at all).
+// Print size ruler's job (one cheer).
 //
 // Several numbers below are REAL-ENGINE measurements (wkhtmltopdf 0.12.6.1, patched Qt,
 // printer-bot's exact flags, Segoe UI), recorded where they are used. They are fixtures,
@@ -180,40 +180,6 @@ test("the preview CSS is built from the table, minus .emote, with fixed turned i
   assert.ok(css.includes(".rcpt .title{line-height:1.33}"), css);
   // Scoped: nothing in it may reach the app's own UI.
   for (const rule of css.split("}").filter(Boolean)) assert.ok(rule.startsWith(".rcpt ."), rule);
-});
-
-test("tools/rig.py's hand-synced copy of the borrowed rules matches PB_CLASSES, both ways", () => {
-  // The bench's fallback CSS (used when no cached copy of printer-bot's real CSS exists)
-  // is kept in step BY HAND: Python cannot load the app core. A drift there makes a giant
-  // payload bench at 16px and read as "giant type doesn't work". Offline: this reads the
-  // file as text, it runs nothing.
-  //
-  // Read out of the two string constants rig.py actually renders with, not the whole
-  // file: a rule that survives only in a comment or a usage note prints nothing. And
-  // both ways: a row PB_CLASSES dropped but rig.py still carries is a bench measuring a
-  // class the app no longer emits.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const rig = readFileSync(join(here, "../tools/rig.py"), "utf8");
-  const block = (name) => {
-    const m = rig.match(new RegExp("^" + name + ' = """\\\\\n([\\s\\S]*?)"""', "m"));
-    assert.ok(m, "tools/rig.py has no " + name + ' = """\\ ... """ block any more');
-    return m[1];
-  };
-  const pbCss = block("PB_CSS").split("\n").map((l) => l.trim()).filter(Boolean);
-  const styleCss = block("CSS");
-  const fromGlobal = C.PB_CLASSES.filter((e) => e.source === "global.css");
-  assert.ok(fromGlobal.length >= 5, "expected the title, two shrink and two tuck rows from global.css");
-  const want = fromGlobal.map((e) => "." + e.cls + "{" + e.decl + "}");
-  for (const rule of want) assert.ok(pbCss.includes(rule), "rig.py's PB_CSS lacks " + rule);
-  for (const rule of pbCss) assert.ok(want.includes(rule), "rig.py's PB_CSS carries " + rule + ", which is not a PB_CLASSES row");
-  // The rows from printer-bot's own style.css (the emote's height:1em) live in rig.py's
-  // verbatim copy of that file's receipt rules, in its spaced form.
-  const fromStyle = C.PB_CLASSES.filter((e) => e.source === "style.css");
-  assert.ok(fromStyle.some((e) => e.id === "emote"), "the emote row moved out of style.css");
-  for (const e of fromStyle) {
-    const rule = "." + e.cls + " { " + e.decl.split(";").map((d) => d.replace(":", ": ") + ";").join(" ") + " }";
-    assert.ok(styleCss.split("\n").includes(rule), "rig.py's CSS lacks " + rule);
-  }
 });
 
 // ── Widths ──

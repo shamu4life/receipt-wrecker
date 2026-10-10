@@ -149,18 +149,27 @@ test("the lead is the cheer token when cheering and the nbsp guard when not", ()
 // against the plain lead's 12.
 const TUCK_RE = /^\u00A0<span class="switch dialog-nav-button"> Cheer100 \d\d <\/span>$/;
 
-test("the plain lead is unchanged: 'Cheer100 07 ', and the old token.length + 4 to the character", () => {
-  // Byte-identical with the tuck off is a hard requirement: every untucked payload the
-  // app sent before must still be the payload it sends now. The packer used to reserve
-  // `"Cheer" + bits` + 4 inline; leadLength has to agree with that at every bit amount.
+test("the plain lead is 'Cheer<bits> 07 ' for ANY amount from 1 up, and leadLength is token.length + 4", () => {
+  // The packer used to reserve `"Cheer" + bits` + 4 inline; leadLength has to agree with
+  // that at every bit amount. There is no 100-bit floor any more: a floor made the Bits
+  // control say 25 while the payload sent (and spent) Cheer100. Absent, zero, negative or
+  // junk falls back to the 100 default; a fraction is floored.
   assert.equal(C.buildLead({ cheer: true, bits: 100 }, "07"), "Cheer100 07 ");
   assert.equal(C.buildLead({ cheer: true, bits: 500, tuck: false }, "07"), "Cheer500 07 ");
+  assert.equal(C.buildLead({ cheer: true, bits: 25 }, "07"), "Cheer25 07 ");
+  assert.equal(C.buildLead({ cheer: true, bits: 1 }, ""), "Cheer1 ");
   assert.equal(C.buildLead({ cheer: false }, "07"), C.LEAD_GUARD);
-  for (const bits of [undefined, 0, 1, 99, 100, 101, 500, 1000, 9999, 10000, 99999]) {
-    const token = "Cheer" + (bits && bits >= 100 ? bits : 100);
+  const want = (bits) => (typeof bits === "number" && bits >= 1 ? Math.floor(bits) : 100);
+  for (const bits of [undefined, 0, -5, NaN, 1, 2.9, 24, 25, 99, 100, 101, 500, 1000, 9999, 10000, 99999]) {
+    const token = "Cheer" + want(bits);
+    assert.equal(C.cheerBits(bits), want(bits), "bits " + bits);
     assert.equal(C.leadLength({ cheer: true, bits }), token.length + 4, "bits " + bits);
+    assert.equal(C.leadLength({ cheer: true, bits, noNonce: true }), token.length + 1, "bits " + bits + ", no nonce");
     assert.equal(C.leadLength({ cheer: false, bits }), C.LEAD_GUARD.length, "bits " + bits);
   }
+  // Strings (a saved setting, a <select> value) parse the same way.
+  assert.equal(C.cheerBits("25"), 25);
+  assert.equal(C.cheerBits("junk"), 100);
   assert.equal(C.leadLength({ cheer: true, bits: 100 }), 12);
 });
 

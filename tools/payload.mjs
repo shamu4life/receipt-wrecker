@@ -1,20 +1,21 @@
-// Emit a payload built by the app's OWN pure core, for tools/rig.py to render.
+// Emit a payload built by the app's OWN pure core, for tools/forkbench.mjs to render through
+// SassyTP printer-bot's real receipt page.
 //
 // The point is that the bench measures what the app really sends. Hand-writing the
 // markup for a bench case is how you end up measuring a page the app would never
 // produce and then writing the result into CLAUDE.md as though it meant something.
 //
 // Usage:
-//   node tools/payload.mjs '{"kind":"takeover","items":[...],"pullPt":240}' | python3 tools/rig.py case
-//   node tools/payload.mjs spec.json | python3 tools/rig.py case
-//   node tools/payload.mjs '{"kind":"giant","text":"HELLO"}' \
-//     | node tools/printerbot.mjs --out - | python3 tools/rig.py hello --document - --fonts DIR
+//   node tools/payload.mjs '<json spec>' | node tools/forkbench.mjs [--bits N] [--paper 80|58]
+//   node tools/payload.mjs spec.json | npm run bench -- --out .render/forkbench/case.png
 //
-// Giant type and the ruler are COMPLETE MESSAGES (lead included), because they only mean
-// anything after printer-bot's sanitizer and cheermote pass, and the faithful path is the
-// one above: printerbot.mjs runs both on nutty's live files, rig.py prints the result.
-// Piped straight into rig.py (template mode) they still render, but with no sanitizer and
-// the token left as text, which is not what the tape gets.
+// Give forkbench the same --bits as the spec's "bits" (default 100 in both), or the bot's
+// header and its High Roller decision will not match the message.
+//
+// NOTE: the kinds below are still the nutty.gg-era ones (Giant type, the Print size ruler,
+// takeovers, covers, carrier embeds) while the app is rebuilt for SassyTP's printer-bot;
+// most of them print nothing styled on it. The rebuild replaces them with big, side,
+// glyph, plain, hrprobe and plainprobe. "raw" is the escape hatch either way.
 //
 // Specs (all fields optional unless noted):
 //   {"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote",
@@ -49,7 +50,7 @@ import { loadCore } from "../test/_harness.mjs";
 const C = loadCore();
 const arg = process.argv[2];
 if (!arg) {
-  console.error("usage: node tools/payload.mjs '<json>'|<spec.json>  [ | python3 tools/rig.py <case> ]");
+  console.error("usage: node tools/payload.mjs '<json>'|<spec.json>  [ | node tools/forkbench.mjs ]");
   process.exit(2);
 }
 
@@ -67,7 +68,8 @@ try {
 // payload the app never sends, without the corner span and without the packer's <br>.
 const leadOpts = {
   cheer: spec.kind === "giant" ? spec.cheer !== false : true,
-  bits: Number(spec.bits) >= 100 ? Math.floor(Number(spec.bits)) : 100,
+  // Any whole number of bits from 1 up, like the app's Bits control; absent or junk = 100.
+  bits: Number(spec.bits) >= 1 ? Math.floor(Number(spec.bits)) : 100,
   tuck: !!spec.tuck,
   // The app's repeat-number toggle defaults to off, so the bench does too.
   noNonce: spec.nonce !== true,

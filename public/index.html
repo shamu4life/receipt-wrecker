@@ -267,8 +267,8 @@
       <label><input type="checkbox" id="cheerTuck"> Hide the cheer gem in the corner</label>
       <div class="hint" id="cheerTuckHint">Normally your cheer prints as a small gem and '100' on their own line above your art. This squeezes them into a tiny box in the receipt's top-right corner and saves that line.</div>
 
-      <label>Bits per receipt: <input type="number" id="bitsAmount" min="100" step="100" value="100" style="width:6em"></label>
-      <div class="hint">How many bits each cheer spends (min 100). Each taped part is its own cheer, so a multi-part message costs bits &times; parts. The total is shown under the preview.</div>
+      <label>Bits per receipt: <input type="number" id="bitsAmount" min="1" step="1" value="100" style="width:6em"></label>
+      <div class="hint">How many bits each cheer spends (1 or more). Each taped part is its own cheer, so a multi-part message costs bits &times; parts. The total is shown under the preview.</div>
 
       <label><input type="checkbox" id="stackCovers" checked> Cover every receipt</label>
       <div class="hint">When a takeover splits across several cheers, repaints the header on every part after the first, so the run reads as one piece instead of artwork followed by ordinary receipts. That costs 106 characters per extra part. Turn it off to spend them on content.</div>
@@ -487,6 +487,16 @@
   function withinBudget(s) { return payloadLength(s) <= MAX_CHARS; }
 
   var CHEER_TOKEN = "Cheer100";
+  // The bits a cheer spends, as the Cheer<N> token states them: any whole number from 1 up.
+  // Absent, zero or junk falls back to 100. The ONE place the amount is validated: the lead,
+  // the card's bits total, the Bits control and the saved settings all read it through here.
+  // (A ">= 100" floor used to be repeated in each of them, a nutty.gg-era rule. SassyTP's bot
+  // prints a cheer of any size, so a floor only made the UI say 25 while the payload sent
+  // Cheer100 and spent 100.)
+  function cheerBits(b) {
+    var n = typeof b === "number" ? b : parseFloat(b);
+    return isFinite(n) && n >= 1 ? Math.floor(n) : 100;
+  }
   var NONCE_ALPHABET = ["0","1","2","3","4","5","6","7","8","9"]; // digits: visible, non-collapsing, and NOT symbols (so a CJK grid trips no block-symbol/% filters)
   function makeNonce(i) {
     var a = NONCE_ALPHABET, base = a.length * a.length;
@@ -3096,7 +3106,7 @@
     var buildLead = function (opts, nonce) {
       opts = opts || {};
       if (!opts.cheer) return LEAD_GUARD;
-      var cheer = "Cheer" + (opts.bits && opts.bits >= 100 ? opts.bits : 100) + (nonce ? " " + nonce : "") + " ";
+      var cheer = "Cheer" + cheerBits(opts.bits) + (nonce ? " " + nonce : "") + " ";
       return opts.tuck ? LEAD_GUARD + TUCK_OPEN + " " + cheer + TUCK_CLOSE : cheer;
     };
     // Characters a part's lead costs, which is what the packer and the body builders have
@@ -3651,7 +3661,7 @@
       var dropNotes = giantDropNotes(g.dropped);
       if (!g.levels) return dropNotes.length ? dropNotes.join("\n") + " Nothing else is left to print." : "Type something to print it in giant capitals.";
       var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
-      var bits = typeof opts.bits === "number" && opts.bits >= 100 ? opts.bits : 100;
+      var bits = cheerBits(opts.bits);
       // An emote is a 1em SQUARE (.emote{height:1em}), so it is the whole font-size tall,
       // not the 0.70em cap height: quoting capitals for it under-sold it by 30%.
       out.push((g.layout === "emote" ? "Emotes ≈ " + giantEmoteCm(g.px).toFixed(1)
@@ -3879,11 +3889,10 @@
         sizeFactor: getSizeFactor(),
       };
     }
-    // Bits per cheer (min 100). The "100" in "Cheer100" is just the bit count, so a
-    // different amount is a different token — the bot prints on any amount >= 100.
+    // Bits per cheer: any whole number from 1 up (cheerBits). The "100" in "Cheer100" is
+    // just the bit count, so a different amount is a different token.
     function getBits() {
-      var n = parseInt(els.bitsAmount && els.bitsAmount.value, 10);
-      return isFinite(n) && n >= 100 ? n : 100;
+      return cheerBits(parseInt(els.bitsAmount && els.bitsAmount.value, 10));
     }
     // "Hide the cheer gem" (#cheerTuck): tuck the cheer token into the corner span (see
     // buildLead). Absent control or unchecked = off, and off is byte-identical to the
@@ -4131,7 +4140,7 @@
       if (saved.contrast != null) els.contrast.value = saved.contrast;
       els.invert.checked = !!saved.invert;
       els.cheer.checked = saved.cheer !== false;
-      if (saved.bits && parseInt(saved.bits, 10) >= 100) els.bitsAmount.value = saved.bits;
+      if (parseInt(saved.bits, 10) >= 1) els.bitsAmount.value = cheerBits(parseInt(saved.bits, 10));
       // Default ON for anyone whose settings predate the toggle: an uncovered tail is the
       // bug this fixes, so absent must mean covered.
       els.stackCovers.checked = saved.covers !== false;
@@ -6468,7 +6477,7 @@
       ditherFloydSteinberg: ditherFloydSteinberg,
       lumaToDots: lumaToDots, packBraille: packBraille,
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
-      makeNonce: makeNonce, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
+      makeNonce: makeNonce, cheerBits: cheerBits, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,

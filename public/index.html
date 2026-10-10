@@ -4908,7 +4908,11 @@
             var im = new Image();
             im.onload = function () { done(); };
             im.onerror = function () { dead[u] = true; done(); };
-            im.src = u;
+            // A query the Worker ignores (it matches the path) makes every check a fresh request.
+            // Without it the answer could come from the browser's cache: the image is served with
+            // max-age=900, and Chromium 156 reuses an image this page already loaded, so a link
+            // that died after it was read kept reading as alive.
+            im.src = u + (u.indexOf("?") < 0 ? "?" : "&") + "check=" + Date.now();
           }));
         });
       });

@@ -1,9 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { loadCore } from "./_harness.mjs";
+import { loadCore, appScript } from "./_harness.mjs";
 const C = loadCore();
 
 // packStackBodies — dual char + height budget packing.
@@ -219,8 +216,7 @@ test("the glue builds every block against the stack context it packs with (a str
   // cannot run. This pins that they, renderBlockBodies and packStack still hand the builders
   // the ONE stackContext the packer then packs with: a body sized for another budget or
   // another box than its part's goes over 500 (Twitch rejects it) or past the bot's box.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const src = readFileSync(join(here, "../public/index.html"), "utf8");
+  const src = appScript();
   const fn = (name) => {
     const m = src.match(new RegExp("function " + name + "\\(([^)]*)\\)\\s*\\{[\\s\\S]*?\\n    \\}\\n"));
     assert.ok(m, "could not find " + name + " in index.html");

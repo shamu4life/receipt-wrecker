@@ -14,11 +14,22 @@ import { dirname, join } from "node:path";
 // here (buildBigTextSvg divides a measurement into the paper width) can be checked
 // end-to-end instead of only through its helpers. An unlisted key throws rather than
 // silently measuring NaN, so a test can't quietly stop measuring what it thinks it does.
-export function loadCore(metrics) {
+//
+// The app's script is picked out by its id. public/index.html also carries SassyTP's receipt
+// page as an inert <script type="text/plain" id="sassytp-renderer"> block AFTER it (the preview
+// loads it into a sandboxed frame), and that page has a <script> of its own inside, so "the
+// first <script>" is not a safe way to find the app: the old /<script>(...)<\/script>/ match
+// ran the bot's renderer here instead. test/vendor.test.mjs pins that this cannot happen again.
+export const APP_SCRIPT_RE = /<script id="rw-app">([\s\S]*?)<\/script>/g;
+export function appScript() {
   const here = dirname(fileURLToPath(import.meta.url));
   const html = readFileSync(join(here, "../public/index.html"), "utf8");
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error("could not find the inline <script> in index.html");
+  const all = [...html.matchAll(APP_SCRIPT_RE)];
+  if (all.length !== 1) throw new Error("expected exactly one <script id=\"rw-app\"> in index.html, found " + all.length);
+  return all[0][1];
+}
+export function loadCore(metrics) {
+  const src = appScript();
   // Every `.font =` assignment any nullNode receives, in call order, for the lifetime
   // of this sandbox. The only thing in the app that ever sets `.font` on a DOM-ish
   // object is a canvas 2D context (see measureRun) — recording it here, without
@@ -69,7 +80,7 @@ export function loadCore(metrics) {
     setTimeout: () => 0, console, module: { exports: {} },
   };
   vm.createContext(sandbox);
-  vm.runInContext(m[1], sandbox, { filename: "index.html#inline" });
+  vm.runInContext(src, sandbox, { filename: "index.html#inline" });
   const C = sandbox.module.exports;
   C.__fontLog = fontLog;
   return C;

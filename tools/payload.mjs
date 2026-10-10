@@ -43,7 +43,7 @@
 //   {"kind":"plainprobe"}   the Plain test (bits = threshold - 1)
 //   {"kind":"raw","html":"<b>anything</b>","lead":true}   escape hatch ("lead" adds the app's lead)
 import { readFileSync, existsSync } from "node:fs";
-import { loadCore } from "../test/_harness.mjs";
+import { loadCore, appScript } from "../test/_harness.mjs";
 
 const C = loadCore();
 const arg = process.argv[2];
@@ -110,11 +110,10 @@ function pictureGrid(tier, cols, aspect, o) {
 // added at the one place the glue ends, and call designTTextGrid there.
 async function hanTilingGrid(text, mm) {
   const { chromium } = await import("playwright");
-  const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  const app = appScript();
   const anchor = 'document.addEventListener("DOMContentLoaded", init);';
-  if (!m || !m[1].includes(anchor)) throw new Error("could not find the app's script or its init hook");
-  const src = m[1].replace(anchor, "window.__rwGlue = { designTTextGrid: designTTextGrid }; " + anchor);
+  if (!app.includes(anchor)) throw new Error("could not find the app's init hook");
+  const src = app.replace(anchor, "window.__rwGlue = { designTTextGrid: designTTextGrid }; " + anchor);
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();

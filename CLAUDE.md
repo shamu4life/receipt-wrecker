@@ -217,7 +217,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **130 keys**. Regenerate the list instead of trusting this one:
+test harness **131 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -234,8 +234,8 @@ test harness **130 keys**. Regenerate the list instead of trusting this one:
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
-`cjkGridK`, `monoK`, `brailleFontPx`, `buildCjkGrid`, `buildMonoGrid`, `buildBrailleGrid`,
-`buildGlyphBodies`, `HAN_CELL_PX`, `HAN_LIGHT`, `hanziCols`, `designTHeader`,
+`cjkGridK`, `monoK`, `brailleFontPx`, `glyphAspect`, `buildCjkGrid`, `buildMonoGrid`,
+`buildBrailleGrid`, `buildGlyphBodies`, `HAN_CELL_PX`, `HAN_LIGHT`, `hanziCols`, `designTHeader`,
 `designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `buildHighRollerProbe`,
 `buildPlainProbe`, `escapeHtml`, `escapeAttr`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`, `upsertPreset`,
@@ -380,8 +380,10 @@ The tier picks the form (`GLYPH_FORMS`):
 - `braille` → **R6** `<div style=font-size:<F>px;line-height:<F+2>px>` rows joined by `<br>`,
   F 6..12. The rig's Braille face is unmeasured (Courier New has none), so the card says it
   needs a test print.
-- `glyphCols` clamps the columns per form and paper; `gridRows` and `GLYPH_ASPECT` (cjk 1,
-  mono 0.5, plain 16 / 21.6) give the rows. Every grid is banded into bodies by characters
+- `glyphCols` clamps the columns per form and paper; `gridRows` at `glyphAspect(form, cols,
+  paperMm)` gives the rows: `GLYPH_ASPECT` (cjk 1, mono 0.5, plain 16 / 21.6), and for Braille
+  0.733F / (F + 2), which follows the font size (sampled square, a round picture printed 1.6 to
+  1.8 times too tall). `glyphGrid` and `tools/payload.mjs` both size the rows this way. Every grid is banded into bodies by characters
   (the tags repeat in each band) and by height (the room).
 
 **Plain: Design T (Han tiling).** Below the threshold the bot prints text: 16px, a line every
@@ -667,7 +669,9 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   contains a `fetch` of its own (the avatar lookup): it is inert text in the page and runs only
   inside the no-network frame, and only with a `userName`, which the preview never sends.
   The expiry check loads links with `new Image()` on purpose: turning it into a `fetch` would
-  add a fifth call site and a CORS problem.
+  add a fifth call site and a CORS problem. The Real picture card's picture is an `<img>` too,
+  loaded only while the card is a Real picture: a pasted link through `/px`, our own minted
+  upload links as they are. The browser never asks a pasted link's own host for anything.
 - **Storage: exactly four `localStorage` keys**, all in `try/catch`: `rw_controls_v1` (the
   settings: the `normalizeControls` fields), `rw_nonce_seq` (the repeat-number counter, which
   only moves while that option is on), `rw_blocks_v1` (the stack), `rw_presets_v1` (presets).

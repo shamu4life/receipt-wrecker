@@ -247,6 +247,36 @@ test("tall: one line taller than the box is flagged and explained, never silentl
     /no warning/);
 });
 
+test("a box no taller than the Cheer line is NO room, not the default 1600px box", () => {
+  // bits 40 at 200 bits per inch: a 19px box, 2.6px less than the lead's 21.6px line. It used to
+  // read as "unset" and size and pack the stack for 1600px: 310px capitals, "fits 1 cheer", no
+  // warning, while the bot printed the Cheer line and faded the rest.
+  for (const [bits, bpi] of [[40, 200], [25, 200], [21, 96]]) {
+    const k = C.stackContext({ cheer: true, bits, noNonce: true, hrThreshold: 20, bitsPerInch: bpi, paperMm: 80 });
+    assert.ok(k.room <= 0, bits + "/" + bpi + ": room " + k.room);
+    const b = build("HELLO", {}, k);
+    assert.ok(b.every((x) => x.big.tall), bits + "/" + bpi + ": every body is flagged too tall");
+    const msg = C.bigReport(b, { bits, limit: k.limit });
+    assert.match(msg, /Nothing after the Cheer line prints/);
+    assert.doesNotMatch(msg, /Pick a smaller size/, "no size fits, so the report must not suggest one");
+    const s = C.buildSideBodies("HELLO", { budget: k.budget, heightPx: k.room, contentW: k.contentW });
+    assert.ok(s.some((x) => x.tall || x.side.tall), "sideways is flagged too");
+    assert.match(C.sideReport(s, { bits, limit: k.limit }), /Nothing after the Cheer line prints/);
+    const g = C.buildCjkGrid([["丶", "鬱"], ["鬱", "丶"]].map((r) => r.concat(Array(10).fill("丶"))), { budget: k.budget, heightPx: k.room, paperMm: 80 });
+    assert.equal(g.length, 2, "glyph rows band one a part, as for any box shorter than a row");
+    const parts = C.packStackBodies(b.concat(build("WORLD", {}, k)), k);
+    assert.equal(parts.length, 2, "the packer gives each over-tall body its own part rather than packing for 1600px");
+    assert.match(C.modeNotice({ cheer: true, bits, hrThreshold: 20, bitsPerInch: bpi }),
+      new RegExp("gives a " + bits + "-bit cheer about \\d+ mm of receipt, and the Cheer line fills it.*1 inch \\(2\\.5 cm\\) of receipt per " + bpi + " bits"));
+  }
+  for (const h of [undefined, NaN]) {
+    const f = C.bigFit("HELLO", { heightPx: h, paperMm: 80 });
+    assert.ok(f.px >= 300 && !f.tall, "heightPx " + h + ": absent still means the default box");
+  }
+  assert.match(C.modeNotice({ cheer: true, bits: 100, hrThreshold: 25, maxInches: 0.2 }), /maximum length \(about 5 mm\) is no taller than the Cheer line/);
+  assert.equal(C.modeNotice({ cheer: true, bits: 50, hrThreshold: 25, bitsPerInch: 200 }), "", "a 24px box has room, and each body says it is too tall");
+});
+
 test("the report: size in cm, cheers and bits, cheer-shaped words", () => {
   const b = build("HELLO", { layout: "lines" });
   assert.equal(C.bigReport(b), "Capitals ≈ " + (70 * 0.716 * 25.4 / 96 / 10).toFixed(1) + " cm · fits 1 cheer");

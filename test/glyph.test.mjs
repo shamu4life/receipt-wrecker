@@ -111,6 +111,27 @@ test("columns and rows per form", () => {
   assert.equal(C.gridRows(12, 100, 100, C.GLYPH_ASPECT.cjk), 12, "R1 cells are square");
   assert.equal(C.gridRows(24, 100, 100, C.GLYPH_ASPECT.mono), 12, "a Courier cell is twice as tall as wide");
   assert.equal(C.gridRows(13, 100, 100, C.GLYPH_ASPECT.plain), 10, "a plain Han cell is 16 x 21.6");
+  for (const f of ["cjk", "mono", "plain"]) assert.equal(C.glyphAspect(f, 20, 80), C.GLYPH_ASPECT[f]);
+});
+
+test("a Braille picture keeps its shape: rows sized for the 0.733F x (F + 2) cell, not a square one", () => {
+  // Rows x (F + 2) must match cols x 0.733F x h/w to within half a row, at every column count
+  // either paper allows and for a square, a wide and a tall picture. Sampled square (the bug),
+  // a 200 x 200 disc at 20 columns printed 175.9 x 280px on 80 mm and took 2 parts.
+  for (const mm of [80, 58]) {
+    const cw = C.paperSpec(mm).contentW;
+    for (let cols = 8; cols <= C.glyphCols("braille", 999, mm); cols++) {
+      const F = C.brailleFontPx(cols, cw), asp = C.glyphAspect("braille", cols, mm);
+      for (const [w, h] of [[200, 200], [300, 150], [150, 300]]) {
+        const rows = C.gridRows(cols, w, h, asp);
+        const want = cols * 0.733 * F * h / w;
+        assert.ok(Math.abs(rows * (F + 2) - want) <= (F + 2) / 2 + 1e-9,
+          mm + " mm, " + cols + " cols, " + w + "x" + h + ": " + rows + " rows print " + rows * (F + 2) + "px, want " + want.toFixed(1));
+      }
+    }
+  }
+  assert.equal(C.gridRows(20, 200, 200, C.glyphAspect("braille", 20, 80)), 13, "80 mm: 20 x 13 cells at 12px");
+  assert.equal(C.gridRows(20, 200, 200, C.glyphAspect("braille", 20, 58)), 12, "58 mm: 20 x 12 cells at 8px");
 });
 
 test("Design T: header, rows of exactly C cells, the token LAST, alone in its cheer", () => {

@@ -504,9 +504,9 @@
     var maxBody = MAX_CHARS - overhead;
     // The per-part height ceiling (opts.heightPx), or the bot's default box when unset. A
     // single body always still gets its own part, so one taller than this is warned, never
-    // dropped.
-    var hb = typeof opts.heightPx === "number" && isFinite(opts.heightPx) && opts.heightPx > 0
-      ? opts.heightPx : CONTENT_CEILING_PX - LEAD_LINE_PX;
+    // dropped. Set but not positive (a box no taller than the lead's line: a small cheer under
+    // a high bits-per-inch) is NO room, not "unset": every body is then too tall.
+    var hb = bigRoom(opts.heightPx);
     var leadPx = typeof opts.leadPx === "number" && isFinite(opts.leadPx) && opts.leadPx >= 0 ? opts.leadPx : LEAD_LINE_PX;
     var parts = [], cur = [], curChars = 0, curH = 0, curInk = false;
     function partNonce() {
@@ -1027,8 +1027,11 @@
     if (typeof b === "number" && isFinite(b) && b > 0) return Math.min(MAX_CHARS, Math.floor(b));
     return MAX_CHARS - leadLength({ cheer: true, noNonce: true });
   }
+  // One part's room for its bodies. Absent (not a number), the bot's default box less the
+  // lead's line; set, never below 0. A box no taller than the lead's line leaves no room at
+  // all, and treating that as "unset" sized a 12px box as if it were 1600px.
   function bigRoom(h) {
-    return (typeof h === "number" && isFinite(h) && h > 0) ? h : CONTENT_CEILING_PX - LEAD_LINE_PX;
+    return (typeof h === "number" && isFinite(h)) ? Math.max(0, h) : CONTENT_CEILING_PX - LEAD_LINE_PX;
   }
   function bigContentW(o) {
     return (o && typeof o.contentW === "number" && isFinite(o.contentW) && o.contentW > 0) ? o.contentW
@@ -1363,10 +1366,18 @@
   // The message box, in words, for a "taller than the box" warning. limit = contentLimitPx().
   function boxWords(limit) {
     var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
-    var cm = Math.round(l.px * MM_PER_PX / 10);
-    if (l.by === "bits") return "this cheer’s part of the receipt (about " + cm + " cm, from the streamer’s bits-per-inch setting), where the bot fades it out";
-    if (l.by === "cap") return "the streamer’s maximum length (about " + cm + " cm), where the bot fades it out";
-    return "the bot’s message box (about " + cm + " cm), where it is cut off" + (l.fades ? " and faded" : " with no warning");
+    var mm = l.px * MM_PER_PX, cm = mm < 10 ? Math.max(1, Math.round(mm)) + " mm" : Math.round(mm / 10) + " cm";
+    if (l.by === "bits") return "this cheer’s part of the receipt (about " + cm + ", from the streamer’s bits-per-inch setting), where the bot fades it out";
+    if (l.by === "cap") return "the streamer’s maximum length (about " + cm + "), where the bot fades it out";
+    return "the bot’s message box (about " + cm + "), where it is cut off" + (l.fades ? " and faded" : " with no warning");
+  }
+  // Whether a High Roller box leaves no room after the Cheer line (a small cheer under a high
+  // bits-per-inch, or a tiny maximum length): no size fits, so "pick a smaller size" is wrong.
+  function boxNoRoom(limit) { return !!limit && limit.px <= LEAD_LINE_PX + PX_EPS; }
+  function tallWords(what, limit) {
+    return boxNoRoom(limit)
+      ? "Nothing after the Cheer line prints: that line fills this cheer’s whole part of the receipt. See the note above the parts."
+      : what + " is taller than " + boxWords(limit) + ". Pick a smaller size.";
   }
   // Plain-language report for a big text block: the card's text. Pass one body or all of a
   // block's bodies; opts = {cheers, bits, limit}, where `cheers` is the number of parts the
@@ -1399,7 +1410,7 @@
       out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
     }
     if (gs.some(function (x) { return x.tall; })) {
-      out.push("One line is taller than " + boxWords(opts.limit) + ". Pick a smaller size.");
+      out.push(tallWords("One line", opts.limit));
     }
     if (g.flip && cheers > 1) out.push("Upside down, the pieces go out last first, so the tape reads in order once you turn it over.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
@@ -1591,7 +1602,7 @@
         : "Too many lines to fit across the paper even at the smallest size: the outer ones will be cut off. Use fewer lines.");
     }
     if (gs.some(function (x) { return x.over; })) out.push("One piece is too long for a single Twitch message, so that cheer would be rejected. Use fewer lines.");
-    if (gs.some(function (x) { return x.tall; })) out.push("One letter is taller than " + boxWords(opts.limit) + ". Pick a smaller size.");
+    if (gs.some(function (x) { return x.tall; })) out.push(tallWords("One letter", opts.limit));
     if (g.dir === "up" && cheers > 1) out.push("Read bottom to top, so the pieces go out last first: the tape reads in order once you turn it.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
     out = out.concat(drop);
@@ -1624,6 +1635,7 @@
   function glyphForm(tier) { return GLYPH_FORMS[tier] || "cjk"; }
   // A cell's width over its height, for sampling a picture into rows: R1's cells are square,
   // a Courier New cell is 0.6em x 1.2em, a plain Han cell prints 16 x 21.6px (Design T).
+  // Braille is not here because its aspect follows its font size: see glyphAspect.
   var GLYPH_ASPECT = { cjk: 1, mono: 0.5, plain: 16 / 21.6 };
   var CJK_COLS_MIN = 12, CJK_COLS_MAX = 30, GLYPH_COLS_MIN = 8, GLYPH_COLS_MAX = 48;
   var BRAILLE_ADV = 0.733, BRAILLE_MIN_PX = 6, BRAILLE_MAX_PX = 12;
@@ -1645,6 +1657,17 @@
   function monoK(C) { return Math.floor(100 * 152 / (C * 0.6 * 1.81)) / 100; }
   function brailleFontPx(C, contentW) {
     return Math.max(BRAILLE_MIN_PX, Math.min(BRAILLE_MAX_PX, Math.floor(contentW * 0.85 / (C * BRAILLE_ADV))));
+  }
+  // The cell aspect a form's picture is sampled for (gridRows' `aspect`). A Braille cell's
+  // shape depends on its font size: 0.733F wide and F + 2 tall (R6's line-height), so at
+  // F = 12 it is 0.63 as wide as tall and at F = 6 only 0.55. Sampled square instead, a round
+  // picture printed 1.6 to 1.8 times too tall and took twice the rows it needed.
+  function glyphAspect(form, cols, paperMm) {
+    if (form === "braille") {
+      var F = brailleFontPx(glyphCols("braille", cols, paperMm), paperSpec(paperMm).contentW);
+      return BRAILLE_ADV * F / (F + 2);
+    }
+    return GLYPH_ASPECT[form] || 1;
   }
   function glyphRowsOf(grid) {
     return (grid || []).map(function (r) { return Array.isArray(r) ? r.slice() : Array.from(String(r)); });
@@ -1879,8 +1902,9 @@
              dither: b.dither !== false, invert: b.invert === true };
   }
   // The notice above the parts that says why a stack prints the way it does. opts = the
-  // settings (normalizeControls' fields; `cheer`, `bits` and `hrThreshold` are read). ""
-  // when the stack prints as built, in its High Roller forms.
+  // settings (normalizeControls' fields; `cheer`, `bits`, `hrThreshold` and, for a High
+  // Roller cheer, the two length settings are read). "" when the stack prints as built, in
+  // its High Roller forms, with room after the Cheer line.
   function modeNotice(o) {
     o = o || {};
     if (!o.cheer) {
@@ -1888,7 +1912,17 @@
         + "through the channel's chat filter, so sending it shows whether chat lets this markup through "
         + "before you spend bits.";
     }
-    if (printMode(o) === "raw") return "";
+    if (printMode(o) === "raw") {
+      var lim = contentLimitPx(o);
+      if (!boxNoRoom(lim)) return "";
+      return lim.by === "cap"
+        ? "The streamer's maximum length (about " + Math.max(1, Math.round(lim.px * MM_PER_PX)) + " mm) is no taller than "
+          + "the Cheer line, so nothing after it prints, whatever the bits."
+        : "The streamer's bits-per-inch setting gives a " + cheerBits(o.bits) + "-bit cheer about "
+          + Math.max(1, Math.round(lim.px * MM_PER_PX)) + " mm of receipt, and the Cheer line fills it, so nothing after "
+          + "it prints. The streamer gives 1 inch (2.5 cm) of receipt per " + bitsPerInchOf(o.bitsPerInch)
+          + " bits: set Bits per cheer higher for room to print.";
+    }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
     return (t > 0
         ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + t + " bits), so the bot prints plain text."
@@ -2118,9 +2152,10 @@
     // Text (Han tiling): each line becomes its own rotated vertical column (see
     // renderColumn/textColumnsLuma above), read by turning the receipt; tone tiers only.
     // Images: sampling derives its target grid from the *actual* rasterized buffer's w/h,
-    // never from a pre-render row assumption, and o.charAspect (GLYPH_ASPECT: a cell's
+    // never from a pre-render row assumption, and o.charAspect (glyphAspect: a cell's
     // width over its height in the form being built) makes the rows come out the right
-    // height for the cell, so the picture keeps its shape on the paper.
+    // height for the cell, so the picture keeps its shape on the paper. Braille takes its
+    // rows from o.rows (gridRows at glyphAspect), as 4 dot rows a cell.
     function computeGrid(kind, tier, o) {
       if (kind === "text") {
         var tl = textColumnsLuma(o.text, o.cols, o.sizeFactor, o.weight, o.cellAspect);
@@ -2218,7 +2253,7 @@
       })["catch"](function () { block._decoding = false; });
     }
     // A decoded picture as a glyph grid for this stack. In a High Roller cheer: the block's
-    // tier, sampled for its form's cell shape (GLYPH_ASPECT) at the columns that form takes on
+    // tier, sampled for its form's cell shape (glyphAspect) at the columns that form takes on
     // this paper (glyphCols). Below the threshold: the plain Design T picture, which is always
     // the cjk ramp, at the frame's columns (designTPictureCols), with no dither (the light
     // cell is the only one the frame and the header can share). A `var`, not a declaration,
@@ -2227,7 +2262,7 @@
       var g = glyphOpts(block), plain = ctx.mode === "plain";
       var tierId = plain ? "cjk" : g.tier, form = plain ? "plain" : glyphForm(tierId);
       var cols = plain ? designTPictureCols(ctx.paperMm) : glyphCols(form, block.cols, ctx.paperMm);
-      var aspect = GLYPH_ASPECT[form];
+      var aspect = glyphAspect(form, cols, ctx.paperMm);
       return computeGrid("image", getTier(tierId), { cols: cols, charAspect: aspect,
         rows: gridRows(cols, img.naturalWidth || img.width, img.naturalHeight || img.height, aspect),
         threshold: g.contrast, invert: g.invert, dither: plain ? false : g.dither, img: img });
@@ -2631,7 +2666,8 @@
     // The pictures that print are characters (glyph-art), so a receipt never holds a picture
     // that needs fetching, and nothing in the preview goes to the network. decodeGlyphImage
     // and processImage still read a pasted link through our own Worker (/px), because reading
-    // a cross-origin image's pixels is exactly what CORS forbids.
+    // a cross-origin image's pixels is exactly what CORS forbids, and the Real picture card
+    // shows a pasted link through it too, so no request ever goes to the link's own host.
     function proxied(url) {
       if (/^data:/i.test(url)) return url;
       try { if (new URL(url, location.href).origin === location.origin) return url; } catch (e) {}
@@ -3288,29 +3324,33 @@
       var toGlyph = mkEl("button", { type: "button" }, "Switch to Glyph-art");
       realWrap.appendChild(toGlyph);
       // The picture itself, on the card: the receipt preview shows only what prints, and
-      // this does not. A freshly uploaded link can 404 for a few seconds until it
-      // propagates, so a failed load is retried a few times rather than left broken.
+      // this does not. Loaded ONLY while the card is a Real picture (a hidden <img> still
+      // loads), and a pasted third-party link goes through our own Worker (/px) like every
+      // other read of it, so the browser never asks that link's host for anything. Our own
+      // minted upload links load as they are, and only they are retried: a fresh one can 404
+      // for a few seconds until it propagates.
       var thumb = mkEl("img", { alt: "", "class": "img-thumb" });
       var thumbSrc = "", thumbTries = 0;
       thumb.hidden = true;
       thumb.addEventListener("error", function () {
-        if (!thumbSrc || thumbTries >= 4) return;
+        if (!thumbSrc || !isMintedImageUrl(thumbSrc) || thumbTries >= 4) return;
         var u = thumbSrc, k = ++thumbTries;
         setTimeout(function () { if (thumbSrc === u) thumb.src = u + (u.indexOf("?") < 0 ? "?" : "&") + "r=" + k; }, 1200);
       });
       realWrap.appendChild(thumb);
       // Runs after every refresh (a costSyncs callback), because an upload, a rotation or
-      // a finished bake changes block.url / block.outUrl without re-rendering the card.
-      // While a brightness/contrast bake is pending, a CSS filter approximates it.
+      // a finished bake changes block.url / block.outUrl without re-rendering the card, and
+      // a change of kind turns the picture on or off. While a brightness/contrast bake is
+      // pending, a CSS filter approximates it.
       var syncThumb = function () {
-        var u = embedUrl(block) || "";
+        var u = block.imgKind === "real" ? (embedUrl(block) || "") : "";
         var pending = (block.adjBright || block.adjContrast) && !block.outUrl;
         thumb.style.filter = pending ? ("brightness(" + (100 + (block.adjBright || 0)) + "%) contrast("
           + (100 + (block.adjContrast || 0)) + "%)") : "";
         thumb.hidden = !u;
         if (u !== thumbSrc) {
           thumbSrc = u; thumbTries = 0;
-          if (u) thumb.src = u; else thumb.removeAttribute("src");
+          if (u) thumb.src = isMintedImageUrl(u) ? u : proxied(u); else thumb.removeAttribute("src");
         }
       };
       costSyncs.push(syncThumb);
@@ -3871,7 +3911,7 @@
       // Glyph-art (High Roller) and Design T (plain).
       GLYPH_FORMS: GLYPH_FORMS, glyphForm: glyphForm, GLYPH_ASPECT: GLYPH_ASPECT, CJK_COLS_MIN: CJK_COLS_MIN,
       CJK_COLS_MAX: CJK_COLS_MAX, glyphCols: glyphCols, gridRows: gridRows, cjkGridK: cjkGridK, monoK: monoK,
-      brailleFontPx: brailleFontPx, buildCjkGrid: buildCjkGrid, buildMonoGrid: buildMonoGrid,
+      brailleFontPx: brailleFontPx, glyphAspect: glyphAspect, buildCjkGrid: buildCjkGrid, buildMonoGrid: buildMonoGrid,
       buildBrailleGrid: buildBrailleGrid, buildGlyphBodies: buildGlyphBodies, HAN_CELL_PX: HAN_CELL_PX,
       HAN_LIGHT: HAN_LIGHT, hanziCols: hanziCols, designTHeader: designTHeader, designTPictureCols: designTPictureCols,
       buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture,

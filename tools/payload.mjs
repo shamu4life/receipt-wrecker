@@ -97,11 +97,12 @@ function picture(name, W, H) {
 function pictureGrid(tier, cols, aspect, o) {
   const W = 240, H = 240, px = picture(o.picture || "disc", W, H);
   const t = C.getTier(tier);
-  if (t.kind === "braille") {
-    const fineCols = cols * 2, fineRows = Math.max(4, Math.round(fineCols * H / W));
-    return C.packBraille(C.lumaToDots(C.sampleLuma(px, W, H, fineCols, fineRows), { invert: !!o.invert }));
-  }
+  // The same rows the app's glyphGrid samples (gridRows at the form's cell aspect); Braille
+  // samples 4 dot rows a cell row, 2 dot columns a cell.
   const rows = C.gridRows(cols, W, H, aspect);
+  if (t.kind === "braille") {
+    return C.packBraille(C.lumaToDots(C.sampleLuma(px, W, H, cols * 2, rows * 4), { invert: !!o.invert }));
+  }
   let luma = C.sampleLuma(px, W, H, cols, rows);
   if (o.dither !== false) luma = C.ditherFloydSteinberg(luma, t.ramp.length);
   return C.quantizeTone(luma, t.ramp, { invert: !!o.invert });
@@ -147,7 +148,7 @@ switch (spec.kind) {
     break;
   case "glyph": {
     const tier = spec.tier || "cjk", form = C.glyphForm(tier), cols = C.glyphCols(form, spec.cols ?? (form === "cjk" ? 16 : 24), paperMm);
-    const grid = pictureGrid(tier, cols, C.GLYPH_ASPECT[form] || 1, spec);
+    const grid = pictureGrid(tier, cols, C.glyphAspect(form, cols, paperMm), spec);
     say("glyph: tier " + tier + " (" + form + "), " + grid[0].length + " x " + grid.length + " cells of " + (spec.picture || "disc"));
     bodies = C.buildGlyphBodies(tier, grid, bopts);
     break;

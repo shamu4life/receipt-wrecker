@@ -458,15 +458,16 @@ test("a Real picture sends nothing, says so plainly, and switches to Glyph-art i
   // block is one must not offer a cheer at all (it would be the lead and nothing else).
   const real = { id: 1, type: "image", imgKind: "real", url: "https://example.invalid/p.png", width: 70,
                  rotate: 0, adjBright: 0, adjContrast: 0, tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
-  const { page, ctx, errors } = await freshPage({ blocks: [real] });
+  const { page, ctx, errors, requests } = await freshPage({ blocks: [real] });
   const card = cards(page).first();
   assert.equal(await page.locator("#parts .part button").count(), 0, "a Real-picture-only stack offered a Copy");
   assert.match(await page.textContent("#parts"), /a Real picture can't print on SassyTP's bot/);
   const note = card.locator(".over-note");
   assert.match(await note.textContent(),
     /SassyTP's bot only prints pictures from emote servers, and this channel's chat filter blocks the picture tag, so an upload can't print as a picture\. Switch to Glyph-art to print it as characters\./);
-  // The picture is still shown, on the card, from the block's own link.
-  assert.equal(await card.locator("img.img-thumb").getAttribute("src"), real.url);
+  // The picture is still shown, on the card, through our own Worker: a pasted third-party
+  // link is never loaded from its own host (only a minted upload link loads as it is).
+  assert.equal(await card.locator("img.img-thumb").getAttribute("src"), "/px?u=" + encodeURIComponent(real.url));
   assert.equal(await card.locator(".sel-kind").inputValue(), "real");
 
   // Next to text it adds nothing to the payload: no tag of any kind for a picture.
@@ -485,7 +486,16 @@ test("a Real picture sends nothing, says so plainly, and switches to Glyph-art i
   assert.ok(!("renderAs" in saved[0]) && !("embedV" in saved[0]));
   // And a NEW Image block starts as Glyph-art, the kind that prints.
   await page.click("#addImageBtn");
-  assert.equal(await cards(page).last().locator(".sel-kind").inputValue(), "glyph");
+  const glyphCard = cards(page).last();
+  assert.equal(await glyphCard.locator(".sel-kind").inputValue(), "glyph");
+  // A link pasted into a Glyph-art card is read through /px and nothing else: the Real
+  // card's hidden picture used to load it straight from its host, and retry it 4 times.
+  await glyphCard.locator("input[type=url]").fill("https://example.org/pic.png");
+  await page.waitForTimeout(1500);   // longer than one retry's 1.2s wait
+  assert.equal(await glyphCard.locator("img.img-thumb").getAttribute("src"), null, "a Glyph-art card loaded its hidden picture");
+  const offsite = requests.filter((u) => /example\.(org|invalid)/.test(new URL(u).host));
+  assert.deepEqual(offsite, [], "the browser asked a pasted link's own host");
+  assert.ok(requests.some((u) => u.includes("/px?u=" + encodeURIComponent("https://example.org/pic.png"))), "the Glyph-art link was not read through /px");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -536,6 +546,43 @@ test("Copy for every mode matches the pure core byte for byte, at 80 and 58 mm, 
     assert.deepEqual(errors, [], label);
     await ctx.close();
   }
+});
+
+test("a glyph-art picture keeps its shape on the paper in every form, Braille included", async () => {
+  // The Copy test above compares the page with glyphGrid itself, so it cannot see glyphGrid
+  // sampling for the wrong cell. Here the measure is the paper: a round 200 x 200 picture must
+  // print about as tall as wide (rows x cell height against cols x cell width), within a row.
+  // Braille sampled square printed 1.6 times too tall on 80 mm and took a second cheer.
+  const { page, ctx, errors } = await freshPage({ core: true });
+  const shapes = await page.evaluate(async () => {
+    const K = window.module.exports;
+    const c = document.createElement("canvas"); c.width = 200; c.height = 200;
+    const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, 200, 200);
+    x.fillStyle = "#000"; x.beginPath(); x.arc(100, 100, 90, 0, 7); x.fill();
+    const img = new Image(); img.src = c.toDataURL(); await img.decode();
+    const out = [];
+    for (const paperMm of [80, 58]) {
+      const ctx = K.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, paperMm });
+      for (const [tier, cols] of [["braille", 20], ["braille", 40], ["cjk", 20], ["ascii", 20]]) {
+        const b = { type: "image", imgKind: "glyph", tier, cols, dither: false, contrast: 128, invert: false };
+        const g = K.glyphGrid(b, img, ctx);
+        const body = K.buildGlyphBodies(tier, g, { budget: ctx.budget, heightPx: ctx.room, paperMm })[0].glyph;
+        const F = body.fontPx;
+        const cw = tier === "braille" ? 0.733 * F : tier === "cjk" ? F : 0.6 * F;
+        const ch = tier === "braille" ? F + 2 : tier === "cjk" ? F : 1.2 * F;
+        out.push({ paperMm, tier, cols: g[0].length, rows: g.length, w: g[0].length * cw, h: g.length * ch, rowH: ch,
+                   parts: K.packStackBodies(K.buildGlyphBodies(tier, g, { budget: ctx.budget, heightPx: ctx.room, paperMm }), ctx).length });
+      }
+    }
+    return out;
+  });
+  for (const s of shapes) {
+    const label = s.paperMm + " mm " + s.tier + " " + s.cols + " cols: " + s.rows + " rows, " + s.w.toFixed(1) + " x " + s.h.toFixed(1) + "px";
+    assert.ok(Math.abs(s.h - s.w) <= s.rowH, label);
+    if (s.tier === "braille" && s.cols === 20) assert.equal(s.parts, 1, label + ": a 20-column Braille disc fits one cheer");
+  }
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 test("the probes: High Roller test at the threshold, Plain test one under it, each one cheer with a how-to-read note", async () => {

@@ -118,16 +118,25 @@ through. What is known about the channel this was built for:
   paste test whose message carried an `<img` tag (an emote picture after a styled div) was
   held by AutoMod. So `<img` is still blocked, and `<object` and `<image` are presumed still
   blocked.
-- **Not known.** Whether the list blocks anything the 1.0.0 forms use (`<div`, `<pre`, `<br`,
+- **2026-10-10, later: `<br`.** Of the sideways paste tests sent that day, the one with two
+  lines (`HAPPY` and `BIRTHDAY` with a `<br>` between them) was held by AutoMod, and the three
+  without a `<br>` went through, one of them two `<div>`s in a row. So `<br` is presumed on
+  the list too (perhaps since the nutty.gg era: a giant stacked-letter cheer that printed then
+  used `</br>`). **By the owner's decision, no message carries a `<br>`:** every line, grid
+  row and stacked letter is its own `<div>` (see "One `<div>` a line" under Global
+  constraints). That puts line breaks on the paper without the blocked token, and the owner
+  chose it knowing so. It is the one exception to THE RULE's "never swap in another tag or
+  structure", and it covers `<br` only.
+- **Not known.** Whether the list blocks anything the 1.0.0 forms use now (`<div`, `<pre`,
   `style=`). Nobody has said so. Don't change the design on a guess: the free chat test
   (Cheer-ready off) is how a user finds out.
 
 What follows from that, as rules:
 
-- No builder emits `<img`, `<object`, `<image`, `<embed`, `<iframe`, `<svg` or `<input`, in
-  any letter case. `test/tags.test.mjs` checks every builder and both probes at 80 and 58 mm,
-  with hostile input, and checks the positive side too: the only tags sent are `div`, `pre`
-  and `br`, and the only attribute is `style`.
+- No builder emits `<img`, `<object`, `<image`, `<embed`, `<iframe`, `<svg`, `<input` or
+  `<br`, in any letter case. `test/tags.test.mjs` checks every builder and both probes at 80
+  and 58 mm, with hostile input, and checks the positive side too: the only tags sent are
+  `div` and `pre`, and the only attribute is `style`.
 - There is no emote or data: picture feature. An uploaded picture prints only as glyph-art.
   The Real picture card says so plainly ("SassyTP's bot only prints pictures from emote
   servers, and this channel's chat filter blocks the picture tag…") and offers Glyph-art.
@@ -146,7 +155,8 @@ A channel blocking a form is the moderators saying no.
   zero-width characters or CSS escapes.
 - **If a form is blocked, fall back to the plain form** (Han tiling). Never cycle variants,
   and never swap in another tag or structure to get the same effect past a block. The UI
-  must never suggest either.
+  must never suggest either. (The one exception, the owner's decision of 2026-10-10: line
+  breaks are `<div>`s, not `<br>`; see the field record. Don't extend it to anything else.)
 - **The words, too.** Stack (one letter a line) splits a word and Han tiling draws it as a
   picture, so a word filter never sees it as typed. (Sideways text sends each line's words
   whole: a long line is cut at a space, and only a word too long for one part is split.) That is a side effect of fitting the paper, not
@@ -291,7 +301,7 @@ contentW, limit, room, heightPx, budget, trail, cheer, bits, noNonce}`. `room` (
 is the box less the lead's 21.6px line; `budget` is 500 less the lead. `o.mode` overrides the
 mode (the probes and the card labels use it). It can be handed to `packStackBodies` as is.
 
-**`packStackBodies(bodies, opts)`**: Body = `{html, chars, heightPx, joinPx?, alone?}`.
+**`packStackBodies(bodies, opts)`**: Body = `{html, chars, heightPx, joinPx?, joinHtml?, alone?}`.
 Greedy: keep adding to the current part while the characters (500 less the lead) and the
 height (`opts.heightPx`, default 1600 − 21.6) both hold; a single body always gets at least a
 part of its own (over-budget is warned, never truncated). Each part gets one lead (and one
@@ -303,7 +313,8 @@ report `{payload, lead, trail, chars, heightPx, leadPx, contentPx, bodies, nonce
 `contentPx` is the height the bot's message box gets.
 
 **Big text (High Roller).** One literal shape:
-`<div style="font:700 <PX>px/<LH> Arial">line 1<br>line 2</div>`; upside down appends
+`<div style="font:700 <PX>px/<LH> Arial"><div>line 1</div><div>line 2</div></div>` (a block of ONE
+line is the bare `<div style="…">line</div>`); upside down appends
 `;rotate:180deg`. The browser expands the shorthand into longhands, and the bot's sanitizer
 keeps weight, size, line-height and family with no security notes (the resets it drops change
 nothing that prints).
@@ -389,11 +400,14 @@ nothing that prints).
   sentence's part printed up to 20× taller than planned, round 3).
 - A stack tries two word-gap forms and keeps the one with fewer cheers, ties to `blank`:
   `blank` (one div, a gap is a blank line of the type's height) and `small` (a div per word, a
-  gap is a bare `<br>`, 21.6px).
-- **Chunking** is on height (≤ room) AND characters (≤ budget − 4); it prefers to break at a
-  blank line and trims blank lines from both edges of a chunk. A chunk that follows a word gap
-  opens with `<br>` (`joinPx` 21.6): after the lead's text it costs nothing, after another
-  body it keeps the words apart.
+  gap is `LINE_BLANK`, `<div>` + nbsp + `</div>` at the receipt's font, 21.6px).
+- **Chunking** is on height (≤ room) AND characters (≤ budget − `LINE_BLANK_LEN`, 12); it
+  prefers to break at a blank line and trims blank lines from both edges of a chunk. A chunk
+  that follows a word gap carries `LINE_BLANK` as its `joinHtml` (`joinPx` 21.6). The packer
+  puts it in, and counts its 12 characters and its height, only when the body follows another
+  body in the same part, where it keeps the words apart; first in a part, after the lead's
+  text, it would print a blank line, so the body goes out without it (a `<br>` there used to
+  cost nothing).
 - `bigCheerCount` counts parts with the packer's own greedy test, because two chunks often
   share a part: chunks are not cheers.
 - Upside down, the chunks go out last first and the divs inside a chunk reverse, so the tape
@@ -439,7 +453,8 @@ nothing that prints).
   rule is unchanged. In Each, a range of capitals that rounds to one value reads as one.
 
 **Sideways (High Roller).** One literal shape:
-`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]">line 1<br>line 2</div>`.
+`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>`;
+one column is the bare `…">line</div>`, and an empty column is a `<div>` holding an nbsp.
 - `down` = `vertical-rl;text-orientation:sideways` (letter tops toward the right edge: turn
   the receipt anticlockwise to read; works on every Edge). The `text-orientation` is not
   optional: without it `vertical-rl` stands Han, kana, Hangul and emoji upright, so they lie on
@@ -550,15 +565,16 @@ nothing that prints).
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
-- `cjk` → **R1** `<div style=font-size:<K>vw;line-height:1>` + rows of cells separated by
-  `<br>` (the last row ends at `</div>`), so a row can never reflow into the next. Rows used to break
-  themselves at `width:<C>.2em` with no `<br>`; Chromium 156 rounds each Han advance to the nearest
+- `cjk` → **R1** `<div style=font-size:<K>vw;line-height:1>` + one `<div>` per row of cells,
+  so a row can never reflow into the next. Rows used to break
+  themselves at `width:<C>.2em` with no separator; Chromium 156 rounds each Han advance to the nearest
   whole px (10.69 → 11 at 58 mm), so 14 cells no longer fitted 14.2em and every row reflowed at 13
   (found by CI, reproduced with that Chromium; 24 columns would have reflowed at 25 on 80 mm). K =
   floor(100 × (152 − C/2) / (1.81 × C)) / 100 keeps a row inside 58 mm's 153px even when every
   cell rounds up half a pixel, so no row wraps either. C is 12..30. vw is the page width, so the
   same message fits both papers. The rows centre on the receipt's own `text-align:center`. One
-  cheer holds 27 rows at 12 columns (it held 34 before the `<br>`s). Known limit: because newer
+  cheer holds 19 rows at 12 columns (a row's `<div></div>` is 11 characters; it held 27 with a
+  `<br>` between rows, and 34 when rows broke themselves at a width). Known limit: because newer
   Chromium rounds each advance to a whole px and older Chromium does not, the picture's WIDTH
   depends on the browser's version (height does not): measured on the bench, 30 columns on
   58 mm print about 10% wider in Chromium 156 than in 141, and Braille (0.733em cells at a
@@ -567,10 +583,10 @@ The tier picks the form (`GLYPH_FORMS`):
   paper would make the cell the same in every version; it was left for after 1.0.0 because it
   changes the R1 payload, its fit and every number pinned to it.
 - `ascii`, `asciifull`, `safe` → **R4** `<pre style="font:<K>vw/1.2 'Courier New';margin:0">`
-  rows joined by `<br>`, each row escaped. Courier New is 0.6em on the rig and the bench; `<pre>`
+  one `<div>` per row, each row escaped. Courier New is 0.6em on the rig and the bench; `<pre>`
   keeps the ASCII ramps' spaces. K = floor(100 × 152 / (C × 0.6 × 1.81)) / 100. C is 8..48. The
   blocks tier shows thin seams between rows at line-height 1.2 on the bench.
-- `braille` → **R6** `<div style=font-size:<F>px;line-height:<F+2>px>` rows joined by `<br>`,
+- `braille` → **R6** `<div style=font-size:<F>px;line-height:<F+2>px>` one `<div>` per row,
   F 6..12. The rig's Braille face is unmeasured (Courier New has none), so the card says it
   needs a test print.
 - `glyphCols` clamps the columns per form and paper; `gridRows` at `glyphAspect(form, cols,
@@ -648,7 +664,7 @@ words.
   (`giantLayout`, `giantSize`, `orient`, `rotateLen`) go; `size`, `cols` and `fmt` stay, unused.
   Han tiling keeps its render.
 - An **image block** loses `renderAs` and `embedV` (the old carrier pick). A Glyph-art block
-  made from a takeover picture gets 18 columns (`newBlock`'s; the 40 an older build used would
+  made from a takeover picture gets 16 columns (`newBlock`'s; the 40 an older build used would
   print as 30, the most Han characters take).
 - A Giant type level keeps its px even when that is too wide for the paper (the spec's
   mapping); the card then says the letters are cut off rather than "fits".
@@ -777,8 +793,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   (`.sel-tier`) with per-form hints and a column range that follows the form (the Detail field
   shows the columns the grid really uses, `glyphCols`, and committing a value writes the
   clamped one back; an emptied field changes nothing while it is retyped and takes the default
-  when left empty; a new block starts at 18 (`GLYPH_COLS_DEFAULT`), so a square picture is 449
-  characters, one cheer, where 20 was two cheers and the face printed in halves), **Darkness** (the stored `contrast`,
+  when left empty; a new block starts at 16 (`GLYPH_COLS_DEFAULT`), so a square picture is 489
+  characters, one cheer, where 18 is two now that every row is its own `<div>`, and the face
+  printed in halves with the bot's header between them), **Darkness** (the stored `contrast`,
   0..255 with 128 as is, shown centred as −128..127: it is a tone shift, not a contrast) and
   **Smooth shading (photos)** (the `dither` field: error diffusion over the characters, not the
   thermal view's dither); for a Real picture the red can't-print note, "Switch to Glyph-art", a
@@ -1068,9 +1085,16 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   Over budget is reported, never truncated: Twitch rejects an over-length message.
 - **Never start a message with `<`.** The lead (`Cheer<N> ` or `LEAD_GUARD`) or a plain part's
   Han header always comes first. `buildLead` is the only place a lead is built.
-- **Tags: `div`, `pre`, `br`. Attribute: `style`.** Nothing else, and never a picture tag (see
-  the field record). Every style declaration that matters is one the bot's sanitizer keeps;
-  the contract test proves it for every mode.
+- **Tags: `div`, `pre`. Attribute: `style`.** Nothing else: never a picture tag and never a
+  `<br>` (see the field record). Every style declaration that matters is one the bot's
+  sanitizer keeps; the contract test proves it for every mode.
+- **One `<div>` a line.** Every line of big and sideways text, every glyph-art row and every
+  stacked letter is `<div>…</div>` (`LINE_OPEN` / `LINE_CLOSE`, 11 characters, `LINE_COST`)
+  inside the styled div, and a blank line or word gap is `LINE_BLANK` (a div holding one nbsp:
+  an empty div has no height, an nbsp one is one line of the font it sits in, exactly as a
+  blank line between two `<br>`s was). A block of one line (big text) or one column (sideways)
+  is the bare styled div, as before. Heights are unchanged; characters are not (a line or row
+  costs 11 where a `<br>` between lines cost 4), so fewer rows and stacked letters fit a cheer.
 - **Literal tokens only** (THE RULE). No CSS escapes, entities, case tricks or zero-width
   characters in any token.
 - **Every user character in markup goes through `escapeHtml` / `escapeAttr`.** Glyph ramps
@@ -1140,8 +1164,9 @@ lives in `test-browser/` and is not in the default matcher.
   three edits and the licence notice). `loadCore()` takes no arguments. `scanTags` reads every
   occurrence of every tag and splits attributes the way a parser does.
 - **The tag test** (`test/tags.test.mjs`, AMENDMENT B1): every builder and both probes, at 80
-  and 58 mm, with ordinary and hostile input, send only `div`, `pre` and `br` with only
-  `style`, never a forbidden tag in any case, and never a message starting with `<`.
+  and 58 mm, with ordinary and hostile input, send only `div` and `pre` with only `style`,
+  never a forbidden tag (a `<br>` included) in any case, and never a message starting with
+  `<`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
   Han tiling; plain CJK picture; both probes; a Han and an emoji run at a fixed size too wide

@@ -24,7 +24,7 @@
 - [ ] Kept single-file: CSS and JS stay inline in `public/index.html`; no separate `.css`/`.js` assets, no dependencies, no bundler, no framework, no CDN, no web fonts
 - [ ] No **new** network call; the app's four `fetch` call sites stay limited to our own `/upload` and `/px`, and `/px`'s SSRF guard is untouched
 - [ ] No new storage beyond `rw_controls_v1` / `rw_nonce_seq` / `rw_blocks_v1` / `rw_presets_v1` (new state goes in as a field of one of those) (or N/A)
-- [ ] Messages still use only `div`, `pre` and `br` with only `style`, never a picture tag in any letter case, never start with `<`, and every user-supplied character in markup goes through `escapeHtml`/`escapeAttr` (`test/tags.test.mjs` covers new builders) (or N/A)
+- [ ] Messages still use only `div` and `pre` with only `style`, never a picture tag or a `<br>` in any letter case, never start with `<`, and every user-supplied character in markup goes through `escapeHtml`/`escapeAttr` (`test/tags.test.mjs` covers new builders) (or N/A)
 - [ ] Every High Roller mode still has its plain form (Han tiling) behind it, and nothing was added to get a form past a channel's filter: no obfuscated tokens, no swapped-in tag or structure (see THE RULE in `CLAUDE.md`) (or N/A)
 - [ ] The vendored renderer block was changed only through `tools/vendor-renderer.mjs`, and `node tools/vendor-renderer.mjs --check` passes (or N/A)
 - [ ] Anything about what prints was measured, not argued: the message from `tools/payload.mjs` (or Copy) through `npm run bench` (`tools/forkbench.mjs`, SassyTP's real receipt page) at `--paper 80` and `--paper 58`, and the docs say what is bench evidence and what still needs a real print (or N/A)

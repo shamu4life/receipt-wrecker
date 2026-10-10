@@ -56,8 +56,9 @@ in.
 - Two one-cheer tests: a High Roller test (one cheer at the threshold) and a Plain test (one
   bit under it).
 
-The tool uses only the tags div, pre and br, with a style attribute, and never a picture
-tag: the bot prints pictures only from emote servers, and the chat filter of the channel it
+The tool uses only the tags div and pre, with a style attribute: every line or grid row is
+its own div, because the same chat filter held a test message that carried a line-break tag
+(br). It never sends a picture tag either: the bot prints pictures only from emote servers, and the chat filter of the channel it
 was built for blocks the picture tag. An uploaded picture prints only as glyph-art.
 
 If a channel blocks the markup, the tool's fallback is plain Han tiling. If chat holds a

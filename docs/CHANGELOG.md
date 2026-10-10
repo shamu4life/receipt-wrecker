@@ -114,7 +114,7 @@ page, built into the app and run in a sandboxed frame with no network access.
   that needs several spreads its rows evenly over them (no cheer for a lone row). Up to 50
   typed lines a block (it was 24, silently); past that the card says how many are left out.
 - **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
-  one message fits both papers (12 to 30 columns), the rows separated by line breaks so none
+  one message fits both papers (12 to 30 columns), every row its own `<div>` so none
   can reflow: Chromium 156 rounds each Han character's width to a whole pixel, and a grid
   that relied on a fixed width to break its rows came out slanted there (the same rounding
   still makes the picture up to about 10% wider or narrower from one Chromium version to the
@@ -150,7 +150,7 @@ page, built into the app and run in a sandboxed frame with no network access.
   never put an older renderer back). `tools/payload.mjs` has new kinds: `big`, `side`, `glyph`, `plain`, `hrprobe`,
   `plainprobe` (and `raw`), and takes `"paper": 58`.
 - **Tests**: a tag allow-list test (every builder, both probes, 80 and 58 mm, hostile input:
-  only `div`, `pre`, `br` and `style`, never a picture tag in any case); the MANDATORY
+  only `div`, `pre` and `style`, never a picture tag or a `<br>` in any case); the MANDATORY
   browser contract test, which runs every mode's Copy payload through the vendored renderer
   and checks that nothing is taken out, nothing is cut that the app didn't warn about, and the
   height matches the prediction.
@@ -167,7 +167,7 @@ page, built into the app and run in a sandboxed frame with no network access.
   can't print as a picture and offers **Switch to Glyph-art**. Upload, rotate and
   brightness/contrast stay on the card; the card shows the picture only while it is a Real
   picture, a pasted link through `/px` (the browser never asks the link's own host). New Image
-  blocks start as Glyph-art (Han characters, 18 columns: a square picture fits one cheer). A stack whose only content is a Real
+  blocks start as Glyph-art (Han characters, 16 columns: a square picture fits one cheer). A stack whose only content is a Real
   picture gives no copyable cheer.
 - **The repeat number** (two digits after the cheer word) is still off by default and still
   saved in `rw_controls_v1`.
@@ -300,7 +300,7 @@ The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
 - A **Type** block becomes Big text (straight), Big text upside down (180°), or Sideways text
   top to bottom (90°) or bottom to top (270°).
 - An Image block loses its carrier pick; everything else, the upload link included, stays.
-  A Glyph-art block made from a Takeover picture gets 18 columns.
+  A Glyph-art block made from a Takeover picture gets 16 columns.
 - A note above the blocks says what changed (including that emote names now print as words
   and the old fonts and italics are gone), on the load that converts the stack, until
   dismissed or the next reload. Loading an older preset converts it the same way and says
@@ -321,9 +321,21 @@ nutty.gg days is unchanged, and that a paste test whose message carried an `<img
 picture after a styled div) was held by AutoMod. That matches the older record, in which the
 list ate `<object`, then `<image`, then `<img` (confirmed 2026-09-15). So no builder emits a
 picture tag, there is no emote or inline-picture feature, and uploads print only as
-glyph-art. Whether the list blocks anything 1.0.0 does use (`<div`, `<pre`, `<br`, `style=`)
-is not known: a free test (Cheer-ready off) answers it before any bits are spent. If a channel
-blocks a form, the answer is the plain form, never a reworked message.
+glyph-art.
+
+The same day, of the sideways paste tests, the one with two lines (a `<br>` between HAPPY and
+BIRTHDAY) was held by AutoMod, and the ones without a `<br>` went through. So `<br` is
+presumed on the list too. **By the owner's decision, no message carries a `<br>`:** every line
+of big and sideways text, every glyph-art row and every stacked letter is its own `<div>`, and
+a blank line is a `<div>` holding a no-break space. That prints the same heights, and it gets
+line breaks onto the paper without the blocked token: the owner chose that knowingly, and it
+is the only such exception. A line or row costs 11 characters where a `<br>` cost 4, so fewer
+fit a cheer (a 12-column Han grid: 19 rows, not 27; a stacked letter costs 11 characters), and
+a new Glyph-art block starts at 16 columns, so a square picture still fits one cheer.
+
+Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`) is not known: a
+free test (Cheer-ready off) answers it before any bits are spent. If a channel blocks a form,
+the answer is the plain form, never a reworked message.
 
 ### How sure
 

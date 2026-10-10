@@ -501,6 +501,7 @@
   //   limit   the message box ({px, by, fades}); 1600 for a plain part, which the bot never
   //           length-limits
   //   room    what one High Roller part has for its bodies: the box minus the lead's line
+  //           (also as `heightPx`, so the context can be handed to packStackBodies as is)
   //   budget  characters a body may spend after the lead; `trail` what a plain part's
   //           trailing token costs
   function stackContext(o) {
@@ -510,7 +511,8 @@
     var limit = mode === "raw" ? contentLimitPx(o) : { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
     var paper = paperSpec(o.paperMm);
     return { mode: mode, paper: paper, paperMm: paper.mm, contentW: paper.contentW, limit: limit,
-             room: limit.px - LEAD_LINE_PX, budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
+             room: limit.px - LEAD_LINE_PX, heightPx: limit.px - LEAD_LINE_PX,
+             budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
              cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce };
   }
   // ── PER-RECEIPT HEIGHT BUDGET (length-derived; replaces the old 1400 literal) ──
@@ -560,7 +562,7 @@
   // A caller-supplied height budget, validated; falls back to the default. Mirrors
   // giantBudget for the character budget.
   function giantHeight(h) {
-    return (typeof h === "number" && isFinite(h) && h > 0) ? Math.floor(h) : DEFAULT_HEIGHT_BUDGET;
+    return (typeof h === "number" && isFinite(h) && h > 0) ? h : DEFAULT_HEIGHT_BUDGET;
   }
   // Pack an ordered list of Body objects into receipts. Body = {html, chars, heightPx}.
   // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
@@ -645,7 +647,7 @@
         continue;
       }
       var join = curInk && b.joinPx ? b.joinPx : 0;
-      var fits = !curInk || empty || ((curChars + bChars <= maxBody) && (curH + join + bH <= hb));
+      var fits = !curInk || empty || ((curChars + bChars <= maxBody) && (curH + join + bH <= hb + 1e-6));
       if (!fits) { flush(); join = 0; }
       cur.push(b); curChars += bChars; curH += join + bH;
       if (!empty) curInk = true;
@@ -946,6 +948,567 @@
   // loses nothing the user made does not count, so it never adds a preset on its own.
   function migrationRewrites(blocks) {
     return (Array.isArray(blocks) ? blocks : []).some(function (b) { return !!b && b.type === "takeover"; });
+  }
+
+  // ══ 1.0.0 BUILDERS FOR SassyTP's printer-bot ═══════════════════════════════════
+  // Pure functions: text or a ready glyph grid in, Body objects out ({html, chars, heightPx,
+  // ...}). Every user character that goes into markup goes through escapeHtml. Every token
+  // is literal and on the bot's own allow-list (tags div, pre, br; the style attribute;
+  // the longhands the font shorthand expands to, line-height, writing-mode, white-space,
+  // margin, width, rotate). Nothing is spelled to get past a filter: no CSS escapes, no
+  // entities standing in for a token, no case or zero-width tricks. If a channel blocks one
+  // of these forms, that is the mods saying no; the plain (Han tiling) form is the answer.
+
+  // ── BIG TEXT (High Roller): the words in Arial Bold, as big as the paper allows ──
+  // One literal shape:  <div style="font:700 <PX>px/<LH> Arial"><line 1><br><line 2>...</div>
+  // The bot's sanitizer expands the shorthand into longhands and keeps weight, size,
+  // line-height and family, with no security notes (bench appcode c01). Arial is PINNED:
+  // the receipt's own face is Segoe UI, which the bench cannot measure, while Arial Bold's
+  // advances are exact both on the bench (Liberation Sans Bold shares them) and on the
+  // streamer's Windows. So a line is sum(BIG_W) x px wide, and with an explicit line-height
+  // a body is exactly lines x px x LH tall (both within 0.15px, bench g01-g05). Never weight
+  // 900 or a nested <b>: that asks for a Black face.
+  var BIG_MIN_PX = 20, BIG_MAX_PX = 400;
+  var BIG_LH_CAPS = ".8", BIG_LH_TEXT = "1.15";
+  // Characters with no ink below the baseline in Arial Bold. Only lines made of these may
+  // take line-height .8; anything else (lowercase, Q, the comma and semicolon, @, accents,
+  // emoji) takes 1.15, or its tail is clipped at the box bottom or runs into the next line
+  // (bench e01/e02/d02; the sideways reviews found the same for , ; and Q).
+  var BIG_CAPS_SAFE = /^[A-PR-Z0-9 .!?'"&#:\/+\-]*$/;
+  // Arial Bold advance widths in em, measured on a real canvas at 1000px ('700 1000px Arial',
+  // Liberation Sans Bold on the bench, which has Arial Bold's advances; the modes bench's
+  // advances.json). Exact and case-aware: the payload is never uppercased, so lowercase
+  // keeps its own, narrower widths. A character not listed counts BIG_W_DEFAULT (wider than
+  // every listed glyph but W, @ and m, so it errs wide); an emoji (any grapheme holding an
+  // astral code point, U+FE0F or a keycap) counts BIG_W_EMOJI, since Segoe UI Emoji's
+  // advance on the rig is unmeasured.
+  var BIG_W = {
+      "0": 0.556, "1": 0.556, "2": 0.556, "3": 0.556, "4": 0.556, "5": 0.556, "6": 0.556, "7": 0.556, "8": 0.556, "9": 0.556,
+      A: 0.722, B: 0.722, C: 0.722, D: 0.722, E: 0.667, F: 0.611, G: 0.778, H: 0.722, I: 0.278, J: 0.556,
+      K: 0.722, L: 0.611, M: 0.833, N: 0.722, O: 0.778, P: 0.667, Q: 0.778, R: 0.722, S: 0.667, T: 0.611,
+      U: 0.722, V: 0.667, W: 0.944, X: 0.667, Y: 0.667, Z: 0.611, " ": 0.278, ".": 0.278, ",": 0.278, "!": 0.333,
+      "?": 0.611, "-": 0.333, "'": 0.238, "\"": 0.474, "&": 0.722, "@": 0.975, "#": 0.556, ":": 0.333, "/": 0.278, a: 0.556,
+      b: 0.611, c: 0.556, d: 0.611, e: 0.556, f: 0.333, g: 0.611, h: 0.611, i: 0.278, j: 0.278, k: 0.556,
+      l: 0.278, m: 0.889, n: 0.611, o: 0.611, p: 0.611, q: 0.611, r: 0.389, s: 0.556, t: 0.333, u: 0.611,
+      v: 0.556, w: 0.778, x: 0.556, y: 0.556, z: 0.5
+  };
+  var BIG_W_DEFAULT = 1.0, BIG_W_EMOJI = 1.3;
+  var BIG_LAYOUTS = ["auto", "lines", "stack", "each"];
+  // Capitals' height: Arial Bold's cap height (0.716em), in cm at 96 CSS px per inch.
+  var BIG_CAP_EM = 0.716, MM_PER_PX = 25.4 / 96;
+  function bigCapCm(px) { return px * BIG_CAP_EM * MM_PER_PX / 10; }
+  var BIG_CLOSE = "</div>";
+  function bigOpen(px, lh, flip) {
+    return '<div style="font:700 ' + px + "px/" + lh + " Arial" + (flip ? ";rotate:180deg" : "") + '">';
+  }
+  // Height comparisons tolerate float dust (5 x 310 x .8 is not always exactly 1240).
+  var PX_EPS = 1e-6;
+
+  // What prints NOTHING is dropped: the BMP part of Unicode's Default_Ignorable_Code_Point
+  // set (zero-width spaces and joiners, direction marks and embeddings, U+2060-206F, the BOM,
+  // the soft hyphen, U+034F, the Hangul fillers U+115F/1160/3164/FFA0, U+17B4/5, the Mongolian
+  // selectors, the variation selectors), U+FFF0-FFFB and the C0/C1 control codes (tab and
+  // newline are whitespace and stay). In a stack each one was a line of its own; in a line it
+  // is width the fit pays for and the paper never shows. EXCEPT inside an emoji: Edge draws
+  // colour emoji (as grey dots after the dither), so emoji are kept, and the joiner (U+200D)
+  // and presentation selectors (U+FE0E/FE0F) that build an emoji sequence stay with it.
+  // CR, CRLF and U+2028/2029 become "\n"; U+2800 (a braille blank people paste as a space
+  // Twitch will not trim) becomes a space. `dropped` lists each character that went, once,
+  // so the card can say so.
+  var BIG_INVISIBLE = /^[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF0-\uFFFB]$/;
+  function bigIsPictographic(cp) {
+    return (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || (cp >= 0x2300 && cp <= 0x23FF)
+      || (cp >= 0x2B00 && cp <= 0x2BFF) || (cp >= 0x2190 && cp <= 0x21FF) || (cp >= 0x25A0 && cp <= 0x25FF)
+      || (cp >= 0x2900 && cp <= 0x297F) || cp === 0x00A9 || cp === 0x00AE || cp === 0x203C || cp === 0x2049
+      || cp === 0x2122 || cp === 0x2139 || cp === 0x3030 || cp === 0x303D || cp === 0x3297 || cp === 0x3299;
+  }
+  function bigClean(text) {
+    var s = String(text == null ? "" : text).replace(/\r\n?|[\u2028\u2029]/g, "\n").replace(/\u2800/g, " ");
+    var out = "", dropped = [], inEmoji = false, keycap = false;
+    Array.from(s).forEach(function (ch) {
+      var cp = ch.codePointAt(0), keep;
+      if (cp >= 0xD800 && cp <= 0xDFFF) keep = false;                        // a lone surrogate
+      else if (cp === 0x200D) keep = inEmoji;                                 // a joiner inside an emoji
+      else if (cp === 0xFE0E || cp === 0xFE0F) keep = inEmoji || keycap;     // emoji / keycap presentation
+      else keep = !BIG_INVISIBLE.test(ch);
+      if (!keep) { if (dropped.indexOf(ch) < 0) dropped.push(ch); return; }
+      out += ch;
+      if (cp === 0x200D || cp === 0xFE0E || cp === 0xFE0F) return;           // still the same sequence
+      inEmoji = cp >= 0x10000 || bigIsPictographic(cp);
+      keycap = /^[0-9#*]$/.test(ch);
+    });
+    return { text: out, dropped: dropped };
+  }
+  // A string as user-perceived characters (grapheme clusters): a letter with its accents, an
+  // emoji with its joiners, modifiers and selectors, a flag. Intl.Segmenter where the
+  // browser has it; otherwise this covers the same common cases (combining marks, variation
+  // selectors, skin tones, joiners, tag sequences, regional-indicator pairs, keycaps).
+  function bigIsExtend(cp) {
+    return (cp >= 0x0300 && cp <= 0x036F) || (cp >= 0x1AB0 && cp <= 0x1AFF) || (cp >= 0x1DC0 && cp <= 0x1DFF)
+      || (cp >= 0x20D0 && cp <= 0x20FF) || (cp >= 0xFE20 && cp <= 0xFE2F) || (cp >= 0xFE00 && cp <= 0xFE0F)
+      || (cp >= 0x1F3FB && cp <= 0x1F3FF) || (cp >= 0xE0020 && cp <= 0xE007F) || (cp >= 0xE0100 && cp <= 0xE01EF)
+      || cp === 0x200D;
+  }
+  function bigGraphemesFallback(s) {
+    var out = [], glue = false, ri = 0;
+    Array.from(String(s == null ? "" : s)).forEach(function (ch) {
+      var cp = ch.codePointAt(0), isRi = cp >= 0x1F1E6 && cp <= 0x1F1FF, ws = /\s/.test(ch);
+      if (out.length && !ws && (bigIsExtend(cp) || glue || (isRi && ri % 2 === 1))) out[out.length - 1] += ch;
+      else out.push(ch);
+      glue = cp === 0x200D;
+      ri = isRi ? ri + 1 : 0;
+    });
+    return out;
+  }
+  function bigGraphemes(s) {
+    s = String(s == null ? "" : s);
+    if (typeof Intl !== "undefined" && Intl.Segmenter) {
+      var seg = bigGraphemes._seg || (bigGraphemes._seg = new Intl.Segmenter("en", { granularity: "grapheme" }));
+      return Array.from(seg.segment(s), function (x) { return x.segment; });
+    }
+    return bigGraphemesFallback(s);
+  }
+  function bigGlyphEm(g) {
+    var cps = Array.from(String(g)), i, cp;
+    if (!cps.length) return 0;
+    for (i = 0; i < cps.length; i++) {
+      cp = cps[i].codePointAt(0);
+      if (cp >= 0x10000 || cp === 0xFE0F || cp === 0x20E3) return BIG_W_EMOJI;
+    }
+    return Object.prototype.hasOwnProperty.call(BIG_W, cps[0]) ? BIG_W[cps[0]] : BIG_W_DEFAULT;
+  }
+  // A line's width in em (Arial Bold, no kerning: an upper bound) and its glyph count.
+  function bigLineEm(line) {
+    return bigGraphemes(line).reduce(function (s, g) { return s + bigGlyphEm(g); }, 0);
+  }
+  // The width a line may use: the content box less 2px, less half a px per glyph in case the
+  // rig's DirectWrite rounds each advance up (the bench is exact at the full width).
+  function bigFitPx(contentW, glyphs) { return contentW - 2 - 0.5 * glyphs; }
+  // '.8' when every line is capitals-safe, else '1.15'.
+  function bigLineHeight(lines) {
+    for (var i = 0; i < (lines || []).length; i++) if (!BIG_CAPS_SAFE.test(lines[i])) return BIG_LH_TEXT;
+    return BIG_LH_CAPS;
+  }
+  // Text -> printed lines, after bigClean.
+  //  stack: one grapheme per line; every whitespace run becomes ONE "" (a word gap), none at
+  //         either end.
+  //  lines / each: as typed. Split on newlines, inner whitespace collapsed, each line trimmed,
+  //         blank lines at either end dropped, blank lines in between kept ("").
+  function bigLines(text, layout) {
+    var s = bigClean(text).text;
+    if (layout === "stack") {
+      var out = [], gap = false;
+      bigGraphemes(s).forEach(function (g) {
+        if (/^\s+$/.test(g)) { gap = true; return; }
+        if (gap && out.length) out.push("");
+        gap = false;
+        out.push(g);
+      });
+      return out;
+    }
+    var ls = s.split("\n").map(function (l) { return l.replace(/\s+/g, " ").trim(); });
+    while (ls.length && ls[0] === "") ls.shift();
+    while (ls.length && ls[ls.length - 1] === "") ls.pop();
+    return ls;
+  }
+  // The block's size fields arrive from saved stacks, presets, imported JSON and <select>s
+  // (as strings), all untrusted, so everything reads them through here.
+  //   size: "fit1" (the biggest that fits ONE cheer, the default), "width" (fill the paper's
+  //   width, however many cheers), or a whole number of px, 20..400.
+  function bigSizeOf(size) {
+    if (size === "fit1" || size === "width") return size;
+    var n = typeof size === "number" ? Math.round(size) : (typeof size === "string" ? parseInt(size, 10) : NaN);
+    return isFinite(n) ? Math.max(BIG_MIN_PX, Math.min(BIG_MAX_PX, n)) : "fit1";
+  }
+  function bigOpts(block) {
+    var b = block || {};
+    return { layout: BIG_LAYOUTS.indexOf(b.bigLayout) >= 0 ? b.bigLayout : "auto",
+             size: bigSizeOf(b.bigSize), flip: b.bigFlip === true };
+  }
+  function bigBudget(b) {
+    if (typeof b === "number" && isFinite(b) && b > 0) return Math.min(MAX_CHARS, Math.floor(b));
+    return MAX_CHARS - leadLength({ cheer: true, noNonce: true });
+  }
+  function bigRoom(h) {
+    return (typeof h === "number" && isFinite(h) && h > 0) ? h : CONTENT_CEILING_PX - LEAD_LINE_PX;
+  }
+  function bigContentW(o) {
+    return (o && typeof o.contentW === "number" && isFinite(o.contentW) && o.contentW > 0) ? o.contentW
+      : paperSpec(o && o.paperMm).contentW;
+  }
+  // Per-line measurements, once per layout and paper (they do not depend on the size).
+  function bigPrep(lines, layout, contentW) {
+    var m = { lines: lines, layout: layout, contentW: contentW, ems: [], lens: [], fit: [], pxW: [],
+              spaced: [], lhs: [], minPxW: Infinity, ink: 0, emoji: false };
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i], gs = bigGraphemes(l), em = 0, k, w;
+      for (k = 0; k < gs.length; k++) { w = bigGlyphEm(gs[k]); em += w; if (w === BIG_W_EMOJI) m.emoji = true; }
+      var fit = bigFitPx(contentW, gs.length);
+      var pw = l === "" ? Infinity : Math.min(BIG_MAX_PX, Math.floor(fit / em));
+      m.ems.push(em); m.lens.push(payloadLength(escapeHtml(l))); m.fit.push(fit); m.pxW.push(pw);
+      m.spaced.push(/ /.test(l)); m.lhs.push(BIG_CAPS_SAFE.test(l) ? BIG_LH_CAPS : BIG_LH_TEXT);
+      if (l !== "") { m.ink++; if (pw < m.minPxW) m.minPxW = pw; }
+    }
+    m.lh = bigLineHeight(lines);
+    return m;
+  }
+  // A line's printed height at px: px x LH, times the lines it wraps to when an explicit
+  // size makes a spaced line too wide (it breaks at its spaces; a single word cannot wrap
+  // and is clipped on the right instead, bench d05/d06).
+  function bigLineH(m, k, px, lh) {
+    var h = px * parseFloat(lh);
+    if (m.layout !== "stack" && m.spaced[k] && m.ems[k] * px > m.fit[k]) return h * Math.ceil(m.ems[k] * px / m.fit[k]);
+    return h;
+  }
+  // CHUNKING: which lines go into which body. A body becomes (at least) one cheer and the
+  // packer never splits one, so each chunk has to hold by itself on BOTH budgets: height
+  // <= room (one part's box after the lead) and characters <= budget. Greedy, at least one
+  // line per chunk; it prefers to break at a "" (a word gap in a stack, a blank line in
+  // lines), drops "" at both edges of every chunk (one at the top prints a whole blank
+  // line), and flags a single line too long (`over`: Twitch rejects it) or too tall (`tall`:
+  // the box cuts it) rather than truncating anything.
+  //   units: [{blank, chars, open, h}] in source order (see bigUnits); `wordDivs` = the
+  //   stack's small-gap form, where each word is its own div and a gap is a bare <br>.
+  // Four characters of every chunk are kept back for a "<br>" it may open with: a chunk that
+  // follows a word gap carries that gap with it, so if the packer puts it after another body
+  // the words stay apart (21.6px), while after the lead's text it costs no height at all.
+  function bigChunkUnits(units, budget, room) {
+    var n = units.length, eff = budget - 4, out = [], i = 0;
+    function measure(s, e) {
+      var h = 0, c = 0, k;
+      for (k = s; k < e; k++) { c += units[k].chars(k === s); h += units[k].h; }
+      return { h: Math.round(h * 1000) / 1000, c: c };
+    }
+    while (i < n) {
+      var skipped = false;
+      while (i < n && units[i].blank) { i++; skipped = true; }
+      if (i >= n) break;
+      var start = i, h = 0, c = 0, j = i, lastBlank = -1;
+      while (j < n) {
+        var addH = units[j].h, addC = units[j].chars(j === start);
+        if (j > start && (h + addH > room + PX_EPS || c + addC > eff)) break;
+        h += addH; c += addC;
+        if (units[j].blank) lastBlank = j;
+        j++;
+      }
+      var end = (j < n && !units[j].blank && lastBlank > start) ? lastBlank : j;
+      var e = end;
+      while (e > start && units[e - 1].blank) e--;
+      var mm = measure(start, e);
+      out.push({ start: start, end: e, heightPx: mm.h, chars: mm.c, gapBefore: skipped && start > 0 });
+      i = end;
+    }
+    return out;
+  }
+  // The order chunks go out in, and which ones open with the carried word gap. Upside down,
+  // the chunks go out LAST FIRST: turned over, the tape then reads from the top in order.
+  function bigEmit(src, flip, budget, room) {
+    var n = src.length, order = flip ? src.slice().reverse() : src.slice(), out = [];
+    for (var i = 0; i < n; i++) {
+      var br = i > 0 && (flip ? src[n - i].gapBefore : order[i].gapBefore);
+      var r = order[i];
+      out.push({ start: r.start, end: r.end, br: br, chars: r.chars + (br ? 4 : 0), heightPx: r.heightPx,
+                 joinPx: br ? LEAD_LINE_PX : 0, over: r.chars + (br ? 4 : 0) > budget, tall: r.heightPx > room + PX_EPS });
+    }
+    return out;
+  }
+  // How many CHEERS a run of chunks needs, counted the way packStackBodies packs them (its
+  // own greedy test, joinPx included). Not the chunk count: the packer often puts two chunks
+  // back into one part.
+  function bigCheerCount(rs, budget, room) {
+    var n = 0, c = 0, h = 0;
+    for (var i = 0; i < rs.length; i++) {
+      var r = rs[i], j = r.joinPx || 0;
+      if (n && c + r.chars <= budget && h + j + r.heightPx <= room + PX_EPS) { c += r.chars; h += j + r.heightPx; continue; }
+      n++; c = r.chars; h = r.heightPx;
+    }
+    return n;
+  }
+  // The units of a uniform layout (lines or stack, one size) at px.
+  function bigUniformUnits(m, px, flip, wordDivs) {
+    var openL = payloadLength(bigOpen(px, m.lh, flip)), closeL = BIG_CLOSE.length, units = [];
+    for (var k = 0; k < m.lines.length; k++) {
+      (function (k) {
+        var blank = m.lines[k] === "", u = { blank: blank };
+        if (wordDivs) {
+          // A gap is the <br> between two word divs (21.6px); a letter opens its word's div
+          // when it is the first of the word or of the chunk, and that div's close is paid then.
+          u.h = blank ? LEAD_LINE_PX : bigLineH(m, k, px, m.lh);
+          u.chars = function (first) {
+            if (blank) return 4;
+            var opens = first || m.lines[k - 1] === "" || k === 0;
+            return opens ? openL + m.lens[k] + closeL : 4 + m.lens[k];
+          };
+        } else {
+          // One div per chunk, its tags paid by the chunk's first line; lines joined by <br>,
+          // so a blank line is a whole line of the type's height.
+          u.h = bigLineH(m, k, px, m.lh);
+          u.chars = function (first) { return (first ? openL + closeL : 4) + m.lens[k]; };
+        }
+        units.push(u);
+      })(k);
+    }
+    return units;
+  }
+  // The units of the `each` layout: every line its own div at its own size and line-height;
+  // a blank line is a bare <br> between them (21.6px).
+  function bigEachUnits(m, pxs, flip) {
+    var units = [];
+    for (var k = 0; k < m.lines.length; k++) {
+      (function (k) {
+        if (m.lines[k] === "") { units.push({ blank: true, h: LEAD_LINE_PX, chars: function () { return 4; } }); return; }
+        var c = payloadLength(bigOpen(pxs[k], m.lhs[k], flip)) + m.lens[k] + BIG_CLOSE.length;
+        units.push({ blank: false, h: pxs[k] * parseFloat(m.lhs[k]), chars: function () { return c; } });
+      })(k);
+    }
+    return units;
+  }
+  function bigRank(c) { return (c.over ? 2e6 : 0) + (c.tall ? 1e6 : 0) + c.cheers; }
+  // One candidate size, uniform layouts. A stack tries both word-gap forms ("blank": one div,
+  // a gap is a blank line of the type's height; "small": a div per word, a gap is a 21.6px
+  // <br>) and keeps the one with fewer cheers, a tie going to "blank" (4 characters a gap
+  // against ~46).
+  function bigEvalUniform(m, px, budget, room, flip) {
+    var gaps = m.layout === "stack" ? ["blank", "small"] : ["blank"], best = null;
+    gaps.forEach(function (gap) {
+      var units = bigUniformUnits(m, px, flip, gap === "small");
+      var src = bigChunkUnits(units, budget, room), em = bigEmit(src, flip, budget, room);
+      var cand = { px: px, gap: gap, units: units, chunks: em, cheers: bigCheerCount(em, budget, room),
+                   over: em.some(function (r) { return r.over; }), tall: em.some(function (r) { return r.tall; }) };
+      if (!best || bigRank(cand) < bigRank(best)) best = cand;
+    });
+    var overflow = [];
+    for (var k = 0; k < m.lines.length; k++) if (m.lines[k] !== "" && px > m.pxW[k] && m.ems[k] * px > m.fit[k]) overflow.push(k);
+    best.overflow = overflow; best.fits = !overflow.length;
+    return best;
+  }
+  function bigEachPxs(m, s, cap) {
+    return m.lines.map(function (l, k) {
+      if (l === "") return 0;
+      var w = m.pxW[k];
+      var px = cap ? Math.min(w, cap) : Math.floor(w * s / 1000);
+      return Math.max(BIG_MIN_PX, Math.min(BIG_MAX_PX, px));
+    });
+  }
+  function bigEvalEach(m, pxs, budget, room, flip) {
+    var units = bigEachUnits(m, pxs, flip);
+    var src = bigChunkUnits(units, budget, room), em = bigEmit(src, flip, budget, room);
+    var overflow = [];
+    for (var k = 0; k < m.lines.length; k++) if (m.lines[k] !== "" && m.ems[k] * pxs[k] > m.fit[k]) overflow.push(k);
+    var ink = pxs.filter(function (p) { return p > 0; });
+    return { px: Math.max.apply(null, ink), pxMin: Math.min.apply(null, ink), pxs: pxs, gap: "blank", units: units,
+             chunks: em, cheers: bigCheerCount(em, budget, room), over: em.some(function (r) { return r.over; }),
+             tall: em.some(function (r) { return r.tall; }), overflow: overflow, fits: !overflow.length };
+  }
+  // The size search. "fit1": the biggest size that fits ONE cheer; when none does, the
+  // fewest cheers and then the biggest size (never the biggest width fit, which is the most
+  // cheers). A size whose chunks are `over` (Twitch rejects the message) or `tall` (the box
+  // cuts it) ranks below every size without. Badness only grows with the size, so the
+  // largest size with the smallest badness is found by BINARY SEARCH between the smallest
+  // size and the width fit (tests check it against a linear scan; opts.linear runs the scan).
+  //   eval(x) evaluates one size; lo/hi bound x.
+  function bigSearch(evalAt, lo, hi, linear) {
+    if (linear) {
+      // Every size, then the LARGEST among the least bad: no assumption about monotonicity.
+      var all = [], x;
+      for (x = lo; x <= hi; x++) all.push(evalAt(x));
+      var r = Math.min.apply(null, all.map(bigRank));
+      for (x = all.length - 1; x > 0; x--) if (bigRank(all[x]) === r) break;
+      return all[x];
+    }
+    var top = evalAt(hi);
+    if (!top.over && !top.tall && top.cheers === 1) return top;
+    var low = evalAt(lo), target = bigRank(low);
+    if (bigRank(top) <= target) return top;
+    var a = lo, b = hi, bestC = low;
+    while (b - a > 1) {
+      var mid = (a + b) >> 1, c = evalAt(mid);
+      if (bigRank(c) <= target) { a = mid; bestC = c; } else b = mid;
+    }
+    return bestC;
+  }
+  function bigPickUniform(m, size, budget, room, flip, linear) {
+    var ev = function (px) { return bigEvalUniform(m, px, budget, room, flip); };
+    if (typeof size === "number") return ev(size);
+    var pxW = Math.min(BIG_MAX_PX, m.minPxW);
+    if (pxW < BIG_MIN_PX) return ev(BIG_MIN_PX);                 // too wide even at the smallest size
+    if (size === "width") {
+      var w = ev(pxW);
+      if (w.over && pxW >= 100) { var w2 = ev(99); if (!w2.over) return w2; }   // a digit fewer in the tag
+      return w;
+    }
+    return bigSearch(ev, BIG_MIN_PX, pxW, linear);
+  }
+  function bigPickEach(m, size, budget, room, flip, linear) {
+    if (typeof size === "number") return bigEvalEach(m, bigEachPxs(m, 1000, size), budget, room, flip);
+    var ev = function (s) { var c = bigEvalEach(m, bigEachPxs(m, s), budget, room, flip); c.scale = s; return c; };
+    if (size === "width") return ev(1000);
+    return bigSearch(ev, 1, 1000, linear);
+  }
+  // The whole decision for one block, without building markup: the card's size labels read
+  // it, and buildBigBodies builds from it. opts = {layout, size, flip, budget, heightPx (one
+  // part's room after the lead), contentW | paperMm, linear}.
+  // "auto" tries lines and stack: a layout whose letters would be cut off never beats one
+  // that fits; then a clean one (not over, not tall) beats one that is not; then, when both
+  // fit one cheer (or the size is "width"), the bigger type; else the fewer cheers; a tie
+  // goes to lines (it reads as typed). "each" is never picked automatically.
+  function bigPlan(text, opts) {
+    opts = opts || {};
+    var o = bigOpts({ bigLayout: opts.layout, bigSize: opts.size, bigFlip: opts.flip === true });
+    var budget = bigBudget(opts.budget), room = bigRoom(opts.heightPx), contentW = bigContentW(opts);
+    var cleaned = bigClean(text);
+    function one(layout) {
+      var lines = bigLines(cleaned.text, layout), m = bigPrep(lines, layout, contentW);
+      var pick = !m.ink ? null : layout === "each" ? bigPickEach(m, o.size, budget, room, o.flip, opts.linear)
+                                                   : bigPickUniform(m, o.size, budget, room, o.flip, opts.linear);
+      return { layout: layout, lines: lines, m: m, pick: pick };
+    }
+    var p;
+    if (o.layout !== "auto") p = one(o.layout);
+    else {
+      var a = one("lines"), s = one("stack"), stackWins;
+      if (!a.pick || !s.pick) stackWins = false;
+      else if (a.pick.fits !== s.pick.fits) stackWins = s.pick.fits;
+      else if ((a.pick.over || a.pick.tall) !== (s.pick.over || s.pick.tall)) stackWins = !(s.pick.over || s.pick.tall);
+      else if (o.size === "width" || (a.pick.cheers === 1 && s.pick.cheers === 1)) stackWins = s.pick.px > a.pick.px;
+      else stackWins = s.pick.cheers < a.pick.cheers;
+      p = stackWins ? s : a;
+    }
+    return { layout: p.layout, size: o.size, flip: o.flip, lines: p.lines, m: p.m, pick: p.pick,
+             dropped: cleaned.dropped, budget: budget, room: room, contentW: contentW };
+  }
+  // bigPlan's answer as plain data: {layout, size, flip, px (the biggest line's), pxs (each
+  // line's, "each" only), lh, lines, chunks, cheers, fits, over, tall, gap, overflow, dropped,
+  // emoji}. Nothing to print gives px 0.
+  function bigFit(text, opts) {
+    var p = bigPlan(text, opts), k = p.pick;
+    return { layout: p.layout, size: p.size, flip: p.flip, px: k ? k.px : 0, pxs: k && k.pxs ? k.pxs.slice() : null,
+             lh: p.m.lh, lines: p.lines.slice(), chunks: k ? k.chunks.length : 0, cheers: k ? k.cheers : 0,
+             fits: k ? k.fits : true, over: k ? k.over : false, tall: k ? k.tall : false, gap: k ? k.gap : "blank",
+             overflow: k ? k.overflow.slice() : [], dropped: p.dropped.slice(), emoji: p.m.emoji };
+  }
+  // One chunk's markup. Uniform "blank": one div, lines joined by <br>. Uniform "small" (a
+  // stack's words): a div per word, joined by <br>. "each": a div per line at its own size,
+  // a blank line a bare <br>. Upside down, every div gets ;rotate:180deg and the divs of a
+  // chunk go out in reverse order (a single div already reverses its own lines when it turns).
+  function bigChunkHtml(p, r) {
+    var m = p.m, k = p.pick, lines = m.lines.slice(r.start, r.end), flip = p.flip, pieces = [], i;
+    if (p.layout === "each") {
+      for (i = r.start; i < r.end; i++) {
+        pieces.push(m.lines[i] === "" ? "<br>" : bigOpen(k.pxs[i], m.lhs[i], flip) + escapeHtml(m.lines[i]) + BIG_CLOSE);
+      }
+      if (flip) pieces.reverse();
+      return pieces.join("");
+    }
+    var open = bigOpen(k.px, m.lh, flip);
+    if (k.gap !== "small") return open + lines.map(escapeHtml).join("<br>") + BIG_CLOSE;
+    var words = [], cur = [];
+    lines.forEach(function (l) { if (l === "") { if (cur.length) words.push(cur); cur = []; } else cur.push(l); });
+    if (cur.length) words.push(cur);
+    if (flip) words.reverse();
+    return words.map(function (w) { return open + w.map(escapeHtml).join("<br>") + BIG_CLOSE; }).join("<br>");
+  }
+  // buildBigBodies(text, opts) -> Body[] (opts as bigPlan). Each body is one chunk, with its
+  // `joinPx` for the packer and a `big` record for the card. The preview IS the payload:
+  // every inline style here is one the bot keeps. overflow, overflowText and dropped are
+  // block-wide and read-only downstream, so every body shares them.
+  function buildBigBodies(text, opts) {
+    var p = bigPlan(text, opts), k = p.pick;
+    function info(ci, n, r, words) {
+      return { layout: p.layout, size: p.size, flip: p.flip, px: k ? k.px : 0, pxMin: k ? (k.pxMin || k.px) : 0,
+               pxs: k && k.pxs ? k.pxs : null, lh: p.m.lh, capCm: k ? bigCapCm(k.px) : 0, gap: k ? k.gap : "blank",
+               chunkIndex: ci, chunkCount: n, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
+               overflow: k ? k.overflow : [], overflowText: k ? k.overflow.map(function (i) { return p.lines[i]; }) : [],
+               over: r ? r.over : false, tall: r ? r.tall : false, dropped: p.dropped, emoji: p.m.emoji,
+               cheerWords: words || [] };
+    }
+    if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, big: info(0, 0, null, []) }];
+    return k.chunks.map(function (r, ci) {
+      var html = (r.br ? "<br>" : "") + bigChunkHtml(p, r);
+      return { html: html, chars: payloadLength(html), heightPx: r.heightPx, joinPx: r.joinPx,
+               preview: { kind: "html", html: html },
+               big: info(ci, k.chunks.length, r, p.layout === "stack" ? [] : cheerWords(html)) };
+    });
+  }
+  // Words Twitch MIGHT charge as EXTRA cheers: a standalone token shaped like a cheermote
+  // ("CHEER100", "Kappa50", "4Head100"), read off the raw body, because that is what Twitch
+  // parses (a word glued to a tag is not standalone). Deliberately conservative: a channel's
+  // own cheermote prefixes are unknowable from here, so the report hedges for any word whose
+  // prefix is not one of Twitch's global ones (CHEER_GLOBALS).
+  function cheerWords(html) {
+    var out = [];
+    String(html).split(/\s+/).forEach(function (t) {
+      if (/^[a-z0-9]*[a-z]\d+$/i.test(t) && out.indexOf(t) < 0) out.push(t);
+    });
+    return out;
+  }
+  var CHEER_GLOBALS = ["cheer", "biblethump", "cheerwhal", "corgo", "uni", "showlove", "party",
+    "seemsgood", "pride", "kappa", "frankerz", "heyguys", "dansgame", "elegiggle", "trihard", "kreygasm",
+    "4head", "swiftrage", "notlikethis", "failfish", "vohiyo", "pjsalt", "mrdestructoid", "bday",
+    "ripcheer", "shamrock"];
+  function cheerWordIsGlobal(w) { return CHEER_GLOBALS.indexOf(String(w).replace(/\d+$/, "").toLowerCase()) >= 0; }
+  function cheerWordNotes(words, fix) {
+    var q = function (ws, sep) { return ws.map(function (w) { return "“" + w + "”"; }).join(sep); };
+    var sure = words.filter(cheerWordIsGlobal), maybe = words.filter(function (w) { return !cheerWordIsGlobal(w); }), out = [];
+    if (sure.length) out.push("Twitch would read " + q(sure, ", ") + " as another cheer and charge for it too. "
+      + fix.charAt(0).toUpperCase() + fix.slice(1));
+    if (maybe.length) out.push("If " + q(maybe, " or ") + " is a cheer name on this channel, Twitch would charge it as "
+      + "another cheer too. If it is, " + fix);
+    return out;
+  }
+  // What bigClean left out, said for what it is: it prints nothing.
+  function bigDropNotes(dropped) {
+    return (dropped || []).length
+      ? ["Invisible characters (zero-width spaces, control codes and the like, usually from copy-paste) were left out: they print nothing."]
+      : [];
+  }
+  // The message box, in words, for a "taller than the box" warning. limit = contentLimitPx().
+  function boxWords(limit) {
+    var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
+    var cm = Math.round(l.px * MM_PER_PX / 10);
+    if (l.by === "bits") return "this cheer’s part of the receipt (about " + cm + " cm, from the streamer’s bits-per-inch setting), where the bot fades it out";
+    if (l.by === "cap") return "the streamer’s maximum length (about " + cm + " cm), where the bot fades it out";
+    return "the bot’s message box (about " + cm + " cm), where it is cut off" + (l.fades ? " and faded" : " with no warning");
+  }
+  // Plain-language report for a big text block: the card's text. Pass one body or all of a
+  // block's bodies; opts = {cheers, bits, limit}, where `cheers` is the number of parts the
+  // block REALLY landed in (the packer may share a part with a neighbour) and `limit` the
+  // box (contentLimitPx). One line per point, joined with "\n": the summary, then the
+  // warnings. No px jargon.
+  function bigReport(b, opts) {
+    opts = opts || {};
+    var gs = (Array.isArray(b) ? b : [b]).filter(function (x) { return x && x.big; }).map(function (x) { return x.big; });
+    if (!gs.length) return "";
+    var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
+    if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it in big letters.";
+    var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
+    var bits = cheerBits(opts.bits);
+    var size = g.layout === "each" && g.pxMin !== g.px
+      ? "Capitals ≈ " + bigCapCm(g.pxMin).toFixed(1) + "–" + bigCapCm(g.px).toFixed(1) + " cm"
+      : "Capitals ≈ " + g.capCm.toFixed(1) + " cm";
+    out.push(size + " · " + (cheers === 1 ? "fits 1 cheer"
+      : "needs " + cheers + " cheers (" + cheers * bits + " bits); the bot prints its header between the pieces"));
+    if (!g.fits) {
+      var which = g.overflowText.slice(0, 2).map(function (l) {
+        var a = Array.from(l);
+        return "“" + (a.length > 24 ? a.slice(0, 23).join("") + "…" : l) + "”";
+      }).join(", ");
+      out.push(typeof g.size === "number"
+        ? "Too wide for the paper at this size: " + which + " will wrap or be cut off. Pick a smaller size."
+        : "Too wide for the paper even at the smallest size: " + which + " will wrap or be cut off. Use shorter lines, or set Layout to Stack the letters.");
+    }
+    if (gs.some(function (x) { return x.over; })) {
+      out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
+    }
+    if (gs.some(function (x) { return x.tall; })) {
+      out.push("One line is taller than " + boxWords(opts.limit) + ". Pick a smaller size.");
+    }
+    if (g.flip && cheers > 1) out.push("Upside down, the pieces go out last first, so the tape reads in order once you turn it over.");
+    if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
+    out = out.concat(drop);
+    var words = [];
+    gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
+    return out.concat(cheerWordNotes(words, "remove it, put it on a line of its own, or set Layout to Stack the letters.")).join("\n");
   }
 
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
@@ -4057,6 +4620,15 @@
       HR_DEFAULT: HR_DEFAULT, HR_MAX: HR_MAX, hrThresholdOf: hrThresholdOf, bitsPerInchOf: bitsPerInchOf,
       maxInchesOf: maxInchesOf, printMode: printMode, buildMode: buildMode, contentLimitPx: contentLimitPx,
       buildTrail: buildTrail, trailLength: trailLength, stackContext: stackContext,
+      // Big text (High Roller).
+      BIG_MIN_PX: BIG_MIN_PX, BIG_MAX_PX: BIG_MAX_PX, BIG_LH_CAPS: BIG_LH_CAPS, BIG_LH_TEXT: BIG_LH_TEXT,
+      BIG_CAPS_SAFE: BIG_CAPS_SAFE, BIG_W: BIG_W, BIG_W_DEFAULT: BIG_W_DEFAULT, BIG_W_EMOJI: BIG_W_EMOJI,
+      BIG_LAYOUTS: BIG_LAYOUTS, BIG_CAP_EM: BIG_CAP_EM, MM_PER_PX: MM_PER_PX, bigCapCm: bigCapCm,
+      bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, bigClean: bigClean, bigGraphemes: bigGraphemes,
+      bigGraphemesFallback: bigGraphemesFallback, bigLineEm: bigLineEm, bigFitPx: bigFitPx,
+      bigLineHeight: bigLineHeight, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
+      bigCheerCount: bigCheerCount, bigPlan: bigPlan, bigFit: bigFit, buildBigBodies: buildBigBodies,
+      bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
       LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,

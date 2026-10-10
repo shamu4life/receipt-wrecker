@@ -359,6 +359,160 @@
     var n = ((i % base) + base) % base;
     return a[Math.floor(n / a.length)] + a[n % a.length];
   }
+
+  // ── THE TARGET: SassyTP's printer-bot 2.5.4 (1.0.0) ───────────────────────
+  // Facts read from the bot's receipt page (v/2.5.0/renderer.html at commit b9f12b0, MIT,
+  // Copyright (c) 2026 SassyTP) and measured through it with tools/forkbench.mjs. The bot
+  // opens that page in headless Edge with a viewport exactly one page wide, renders the
+  // cheer, screenshots it at the printer's dot width and dithers the screenshot. So the
+  // page's own CSS px are the unit everything below is in.
+  //
+  // PAPER: the page is 272 CSS px on an 80 mm roll (576 dots) and 181 px on 58 mm (384
+  // dots); the receipt container pads 14px each side, so a message has 244 / 153 px of
+  // width. A payload sized for 244 is clipped on 58 mm, which is why paper is a setting.
+  var PAPERS = {
+    80: { mm: 80, cssWidth: 272, contentW: 244, dots: 576 },
+    58: { mm: 58, cssWidth: 181, contentW: 153, dots: 384 }
+  };
+  function paperSpec(mm) { return Number(mm) === 58 ? PAPERS[58] : PAPERS[80]; }
+  // The receipt's own text: 16px with line-height 1.35, so one line of plain text (the
+  // "Cheer100 " lead, a Han row in plain mode, a bare <br> between two blocks) is 21.6px.
+  var BASE_PX = 16, BASE_LH = 1.35;
+  var LEAD_LINE_PX = 21.6;
+  // The message box: overflow hidden, max-height 1600px unless the streamer set a limit.
+  var CONTENT_CEILING_PX = 1600;
+  var PX_PER_INCH = 96;          // the page is laid out at 96 CSS px per inch of paper
+  var MAX_CAP_INCHES = 40;       // the dock's maximum length goes up to 40 inches
+  // High Roller: a cheer of at least `highRollerBits` (the dock's setting, default 25,
+  // 0 = never) is printed as styled HTML through the bot's sanitizer; anything smaller is
+  // printed as plain text in quote marks, markup and all.
+  var HR_DEFAULT = 25, HR_MAX = 1000000;
+  // The streamer's settings, which the viewer cannot see and has to type in. Each reader
+  // goes through these, because the values arrive from inputs and saved JSON as strings.
+  //   threshold: whole bits 0..1,000,000; 0 turns High Roller off; junk is the default 25.
+  //   bits per inch: any number above 0, else 0 (off).
+  //   maximum length: inches, above 0 and at most 40, else 0 (off).
+  function hrThresholdOf(v) {
+    var n = typeof v === "number" ? v : parseFloat(v);
+    if (!isFinite(n) || n < 0) return HR_DEFAULT;
+    return Math.min(HR_MAX, Math.floor(n));
+  }
+  function bitsPerInchOf(v) {
+    var n = typeof v === "number" ? v : parseFloat(v);
+    return isFinite(n) && n > 0 ? n : 0;
+  }
+  function maxInchesOf(v) {
+    var n = typeof v === "number" ? v : parseFloat(v);
+    return isFinite(n) && n > 0 ? Math.min(MAX_CAP_INCHES, n) : 0;
+  }
+  // What the bot does with a cheer: "raw" (High Roller: our markup is styled) or "plain"
+  // (the message prints as quoted 16px text). The bot's own test is threshold > 0 and
+  // bits >= threshold (renderer.html isHighRoller). A message with no cheer never prints.
+  // opts = {cheer, bits, hrThreshold}; an absent `cheer` is off, as everywhere else here.
+  function printMode(o) {
+    o = o || {};
+    var t = hrThresholdOf(o.hrThreshold);
+    return o.cheer && t > 0 && cheerBits(o.bits) >= t ? "raw" : "plain";
+  }
+  // Which form the app BUILDS a stack in. A cheer builds what the bot will print
+  // (printMode). Cheer-ready off is a free chat test (it never reaches the printer, but it
+  // does go through the channel's chat filter), and it builds the High Roller form after
+  // LEAD_GUARD, so the test shows whether the channel lets that markup through.
+  function buildMode(o) { return o && o.cheer ? printMode(o) : "raw"; }
+  // How tall a High Roller message may print, in CSS px: a line-for-line mirror of the
+  // bot's highRollerMaxHeight plus how show() applies it (renderer.html):
+  //   bitsPx = bits per inch set ? max(1, floor(bits / bpi x 96)) : none
+  //   capPx  = maximum length set ? max(1, floor(min(inches, 40) x 96)) : none
+  //   neither set: the 1600px box, cut HARD at its edge (no fade, nothing logged);
+  //   only bits per inch: min(bitsPx, 1600);
+  //   a maximum length set: bitsPx when it is smaller, else capPx, and the 1600 ceiling no
+  //   longer applies (so up to 3840px).
+  // Whenever either setting applies, the bot fades the last 40px of a cut message and logs
+  // it (`fades`). `by` names the limit that binds: "ceiling", "bits" or "cap". A plain
+  // (below-threshold) message only ever gets the 1600 box, so callers pass this only for
+  // High Roller parts.
+  function contentLimitPx(o) {
+    o = o || {};
+    var bits = cheerBits(o.bits), bpi = bitsPerInchOf(o.bitsPerInch), cap = maxInchesOf(o.maxInches);
+    var bitsPx = null, capPx = null, px;
+    if (bpi > 0) { px = Math.floor(bits / bpi * PX_PER_INCH); if (isFinite(px)) bitsPx = Math.max(1, px); }
+    if (cap > 0) capPx = Math.max(1, Math.floor(cap * PX_PER_INCH));
+    if (capPx === null) {
+      if (bitsPx === null) return { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
+      return bitsPx < CONTENT_CEILING_PX ? { px: bitsPx, by: "bits", fades: true }
+                                         : { px: CONTENT_CEILING_PX, by: "ceiling", fades: true };
+    }
+    if (bitsPx !== null && bitsPx < capPx) return { px: bitsPx, by: "bits", fades: true };
+    return { px: capPx, by: "cap", fades: true };
+  }
+
+  // ── THE LEAD (and the plain parts' trailing token) ──
+  // A leading "<" gets some messages blocked before they send; any non-"<" first
+  // character defuses it. A non-breaking space is invisible on the print and, unlike
+  // a normal leading space, isn't trimmed away before the filter sees it.
+  var LEAD_GUARD = "\u00A0";
+  // Every High Roller message starts with a lead the packer owns: the cheer token and, when
+  // the "Add a repeat number" toggle is on, the nonce; or LEAD_GUARD when not cheering. An
+  // empty `nonce` argument gives the bare "Cheer100 ". buildLead is the ONE builder:
+  // packStackBodies' `lead`, its per-part overhead, the body builders' budgets and
+  // tools/payload.mjs all go through it, so the characters reserved and the characters sent
+  // cannot drift apart. On the receipt the lead is one 21.6px line above the first body.
+  // opts = {cheer, bits}.
+  function buildLead(opts, nonce) {
+    opts = opts || {};
+    if (!opts.cheer) return LEAD_GUARD;
+    return "Cheer" + cheerBits(opts.bits) + (nonce ? " " + nonce : "") + " ";
+  }
+  // Characters a part's lead costs, which is what the packer and the body builders have
+  // to reserve. Measured with the 2-digit nonce every part carries, or with none under
+  // `noNonce`, so the characters reserved and the characters sent stay equal either way.
+  function leadLength(opts) {
+    opts = opts || {};
+    return payloadLength(buildLead(opts, opts.noNonce ? "" : makeNonce(0)));
+  }
+  // What a BANDED body (Hanzi rows, glyph-art strips) leaves free for the lead when it
+  // sizes a band. The packer never splits a single body, so a band sized for the wrong
+  // lead goes out over 500 and Twitch rejects it. It used to be a hardcoded 14: the
+  // 12-character "Cheer100 nn " lead plus 2. The FLOOR keeps that 14, so every band stays
+  // byte-identical, and it only grows when the real lead does. (The 1.0.0 builders size
+  // against the exact budget instead; this serves the older ones until they go.)
+  function bandReserve(budget) {
+    return (typeof budget === "number" && isFinite(budget)) ? Math.max(14, MAX_CHARS - budget) : 14;
+  }
+  // A PLAIN part (Han tiling, the below-threshold form) carries the cheer token LAST: the
+  // grid, a space, "Cheer<bits>" and the repeat digits when they are on. The token cannot
+  // lead there: printed as text, "Cheer100 " would share the first line with the opening
+  // quote mark and shift every row of the grid. The old reasons for a leading token do not
+  // apply to it (the message starts with a Han glyph, never "<", and the bot cuts plain text
+  // only past 500 characters). Not cheering, a plain part has no token at all.
+  function buildTrail(opts, nonce) {
+    opts = opts || {};
+    if (!opts.cheer) return "";
+    return " Cheer" + cheerBits(opts.bits) + (nonce ? " " + nonce : "");
+  }
+  function trailLength(opts) {
+    opts = opts || {};
+    return payloadLength(buildTrail(opts, opts.noNonce ? "" : makeNonce(0)));
+  }
+  // Everything a stack is built against, in one place, so the body builders, the packer and
+  // the card labels read the same numbers. opts = {cheer, bits, noNonce, hrThreshold,
+  // bitsPerInch, maxInches, paperMm, mode?}.
+  //   mode    "raw" or "plain" (buildMode; `mode` overrides it, for the probes)
+  //   limit   the message box ({px, by, fades}); 1600 for a plain part, which the bot never
+  //           length-limits
+  //   room    what one High Roller part has for its bodies: the box minus the lead's line
+  //   budget  characters a body may spend after the lead; `trail` what a plain part's
+  //           trailing token costs
+  function stackContext(o) {
+    o = o || {};
+    var lead = { cheer: !!o.cheer, bits: o.bits, noNonce: !!o.noNonce };
+    var mode = o.mode === "raw" || o.mode === "plain" ? o.mode : buildMode(o);
+    var limit = mode === "raw" ? contentLimitPx(o) : { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
+    var paper = paperSpec(o.paperMm);
+    return { mode: mode, paper: paper, paperMm: paper.mm, contentW: paper.contentW, limit: limit,
+             room: limit.px - LEAD_LINE_PX, budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
+             cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce };
+  }
   // ── PER-RECEIPT HEIGHT BUDGET (length-derived; replaces the old 1400 literal) ──
   // printer-bot lays the page out at --page-height 500mm, so the app used to pack up to a
   // fixed ~1400px (~37cm) per receipt. FIELD FIX (0.10.0): the real printer stops far
@@ -418,23 +572,46 @@
   // ("Cheer100 " instead of "Cheer100 07 ") and the reservation shrinks with it; absent
   // means the nonce is on, which is every caller written before the toggle existed.
   //
-  // The lead and its cost both come from buildLead / leadLength (defined with the giant
-  // type core, inside the DOM-glue guard; `var`-hoisted, and assigned long before anything
-  // calls this), so the characters reserved and the characters sent cannot drift apart.
+  // The lead and its cost both come from buildLead / leadLength, so the characters
+  // reserved and the characters sent cannot drift apart.
+  //
+  // SassyTP's printer-bot (1.0.0):
+  //  - `opts.heightPx` is what one High Roller part has for its BODIES: the message box
+  //    minus the lead's 21.6px line (stackContext's `room`). Each part reports `leadPx` (that
+  //    line, opts.leadPx, default LEAD_LINE_PX) and `contentPx` = leadPx + heightPx, the
+  //    height the bot's message box gets.
+  //  - A body with `alone: true` is a PLAIN part (Han tiling): it never shares a part, it has
+  //    no lead, and its token goes LAST (buildTrail): payload = html + trail. Its heightPx
+  //    already counts every printed line, the token's included.
+  //  - `joinPx` on a body is height it adds only when it FOLLOWS another body in the same
+  //    part: a body that opens with "<br>" (a word gap carried across a split) costs nothing
+  //    after the lead's text, and one 21.6px line after another block.
   function packStackBodies(bodies, opts) {
     opts = opts || {};
     var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce };
     var overhead = leadLength(leadOpts);
     var maxBody = MAX_CHARS - overhead;
-    // The per-receipt height ceiling, from the user's receipt length (opts.heightPx), or the
-    // default (A4) when unset. A single body always still gets its own part, so one taller
-    // than this is warned, never dropped (giantReport/the card say "cut off").
+    // The per-part height ceiling (opts.heightPx), or the default when unset. A single body
+    // always still gets its own part, so one taller than this is warned, never dropped.
     var hb = giantHeight(opts.heightPx);
+    var leadPx = typeof opts.leadPx === "number" && isFinite(opts.leadPx) && opts.leadPx >= 0 ? opts.leadPx : LEAD_LINE_PX;
     var parts = [], cur = [], curChars = 0, curH = 0, curInk = false;
+    function partNonce() {
+      return opts.cheer && !opts.noNonce
+        ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
+    }
+    // A plain part: the body (and any empty bodies waiting with nothing to print) alone,
+    // with the token after it.
+    function flushAlone(b) {
+      var nonce = partNonce(), trail = buildTrail(leadOpts, nonce), payload = b.html + trail;
+      var h = b.heightPx || 0;
+      parts.push({ payload: payload, lead: "", trail: trail, chars: payloadLength(payload), heightPx: h,
+                   leadPx: 0, contentPx: h, bodies: cur.concat([b]), nonce: nonce, alone: true });
+      cur = []; curChars = 0; curH = 0; curInk = false;
+    }
     function flush() {
       if (!cur.length) return;
-      var nonce = opts.cheer && !opts.noNonce
-        ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
+      var nonce = partNonce();
       var html = cur.map(function (b) { return b.html; }).join("");
       // Cheer token + nonce LEAD the message: they survive any trailing-strip the bot/
       // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
@@ -445,26 +622,39 @@
       // The preview renders exactly this string, so preview and print cannot drift.
       var lead = buildLead(leadOpts, nonce);
       var payload = lead + html;
-      parts.push({ payload: payload, lead: lead, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
+      parts.push({ payload: payload, lead: lead, trail: "", chars: payloadLength(payload), heightPx: curH,
+                   leadPx: leadPx, contentPx: leadPx + curH, bodies: cur.slice(), nonce: nonce });
       cur = []; curChars = 0; curH = 0; curInk = false;
     }
     for (var i = 0; i < bodies.length; i++) {
       var b = bodies[i];
       var bChars = b.chars != null ? b.chars : payloadLength(b.html);
       var bH = b.heightPx || 0;
-      // A body that prints NOTHING (a giant block of only emoji or invisible characters
-      // builds one: html "", 0 characters, 0px) never opens a part, and a part holding
-      // only such bodies never closes one. Either way round, the "does it fit" test could
-      // fail with nothing printable on one side (0 + an over-tall or over-long neighbour),
-      // and flush() then sent a cheer that was the lead and nothing else: 100 bits for a
-      // receipt with only the gem on it ("Cheer100 03 "). It costs nothing to join any part.
+      // A body that prints NOTHING (a block of only invisible characters builds one: html
+      // "", 0 characters, 0px) never opens a part, and a part holding only such bodies
+      // never closes one. Either way round, the "does it fit" test could fail with nothing
+      // printable on one side (0 + an over-tall or over-long neighbour), and flush() then
+      // sent a cheer that was the lead and nothing else ("Cheer100 03 "). It costs nothing
+      // to join any part.
       var empty = !b.html && !bChars && !bH;
-      var fits = !curInk || empty || ((curChars + bChars <= maxBody) && (curH + bH <= hb));
-      if (!fits) flush();
-      cur.push(b); curChars += bChars; curH += bH;
+      if (b.alone && !empty) {
+        // Any text before a plain grid would shift every row, so it rides alone: close the
+        // part before it (unless that part holds nothing printable, which then rides along).
+        if (curInk) flush();
+        flushAlone(b);
+        continue;
+      }
+      var join = curInk && b.joinPx ? b.joinPx : 0;
+      var fits = !curInk || empty || ((curChars + bChars <= maxBody) && (curH + join + bH <= hb));
+      if (!fits) { flush(); join = 0; }
+      cur.push(b); curChars += bChars; curH += join + bH;
       if (!empty) curInk = true;
     }
-    flush();
+    // Empty bodies left over after the last printable part ride along in it rather than
+    // becoming a lead-only cheer of their own. (With nothing printable at all, the one
+    // part is the lead alone: the caller checks for content before it packs.)
+    if (!curInk && cur.length && parts.length) parts[parts.length - 1].bodies = parts[parts.length - 1].bodies.concat(cur);
+    else flush();
     return parts;
   }
   function buildCensus() {
@@ -1023,10 +1213,7 @@
     var bigItalicFor = function (fmt) {
       return !!(fmt && fmt.italic);
     };
-    // A leading "<" gets some messages blocked before they send; any non-"<" first
-    // character defuses it. A non-breaking space is invisible on the print and, unlike
-    // a normal leading space, isn't trimmed away before the filter sees it.
-    var LEAD_GUARD = "\u00A0";
+    // LEAD_GUARD, buildLead, leadLength and bandReserve live in the pure core now (1.0.0).
     // The filter walked "font-size:" -> "font:" -> a wildcard matching "font"..":",
     // which beat the CSS-comment trick (there's still a literal "font"). Next lever: a
     // CSS unicode-escape in the property NAME — "\66ont:" is "font:" to the parser
@@ -1585,35 +1772,6 @@
     var blockRender = function (b) {
       var r = b && b.render;
       return r === "giant" || r === "hanzi" ? r : "type";
-    };
-    // ── THE LEAD ──
-    // Every message starts with a lead the packer owns: the cheer token and, when the
-    // "Add a repeat number" toggle is on, the nonce; or LEAD_GUARD when not cheering. An
-    // empty `nonce` argument gives the bare "Cheer100 ". buildLead is the ONE builder: packStackBodies' `lead`,
-    // its per-part overhead, the band builders' slack and tools/payload.mjs all go through
-    // it, so the characters reserved and the characters sent cannot drift apart.
-    // opts = {cheer, bits}.
-    var buildLead = function (opts, nonce) {
-      opts = opts || {};
-      if (!opts.cheer) return LEAD_GUARD;
-      return "Cheer" + cheerBits(opts.bits) + (nonce ? " " + nonce : "") + " ";
-    };
-    // Characters a part's lead costs, which is what the packer and the body builders have
-    // to reserve. Measured with the 2-digit nonce every part carries, or with none under
-    // `noNonce`, so the characters reserved and the characters sent stay equal either way.
-    var leadLength = function (opts) {
-      opts = opts || {};
-      return payloadLength(buildLead(opts, opts.noNonce ? "" : makeNonce(0)));
-    };
-    // What a BANDED body (Hanzi rows, glyph-art strips) leaves free for the lead when it
-    // sizes a band. The packer never splits a single body, so a band sized for the wrong
-    // lead goes out over 500 and Twitch rejects it. It used to be a hardcoded 14: the
-    // 12-character "Cheer100 nn " lead plus 2. The FLOOR keeps that 14, so every band stays
-    // byte-identical (including cheer-off, whose 1-character lead would otherwise loosen
-    // the band, and every bit amount up to 99999), and it only grows when the real lead
-    // does.
-    var bandReserve = function (budget) {
-      return (typeof budget === "number" && isFinite(budget)) ? Math.max(14, MAX_CHARS - budget) : 14;
     };
     // Characters per body a giant builder may spend: MAX_CHARS minus the lead. A missing or
     // junk budget falls back to the Cheer100 lead's.
@@ -3893,6 +4051,12 @@
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
       makeNonce: makeNonce, cheerBits: cheerBits, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies,
+      // SassyTP's printer-bot (1.0.0): the target, the streamer's settings, the lead and trail.
+      PAPERS: PAPERS, paperSpec: paperSpec, BASE_PX: BASE_PX, BASE_LH: BASE_LH, LEAD_LINE_PX: LEAD_LINE_PX,
+      CONTENT_CEILING_PX: CONTENT_CEILING_PX, PX_PER_INCH: PX_PER_INCH, MAX_CAP_INCHES: MAX_CAP_INCHES,
+      HR_DEFAULT: HR_DEFAULT, HR_MAX: HR_MAX, hrThresholdOf: hrThresholdOf, bitsPerInchOf: bitsPerInchOf,
+      maxInchesOf: maxInchesOf, printMode: printMode, buildMode: buildMode, contentLimitPx: contentLimitPx,
+      buildTrail: buildTrail, trailLength: trailLength, stackContext: stackContext,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
       LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,

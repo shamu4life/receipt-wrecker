@@ -1099,7 +1099,7 @@ test("a glyph-art picture from a picked file: read on this device, and after a r
   await settled(page);
   const pay = await copyPayload(page);
   assertTags(pay);
-  assert.match(pay, /^Cheer100 <div style=width:16\.2em;/);
+  assert.match(pay, /^Cheer100 <div style=font-size:[\d.]+vw;line-height:1>/);
   assert.match(await cardNote(), /^16 columns × \d+ rows · 1 cheer/);
   assert.ok(!/Decoding/.test(await card.innerText()), "a finished read still says Decoding…");
   const saved = (await stored(page, "rw_blocks_v1"))[0];
@@ -1499,7 +1499,11 @@ test("polish: presets: Load asks before replacing an unsaved stack; Import never
   const t = await freshPage({ blocks: [img(1, "glyph", "")], presets: { v: 1, presets: [pics] } });
   await t.ctx.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 404, body: "gone" }));
   await t.page.click("#presetLoad");
-  await t.page.waitForFunction(() => /expired|still load/.test(document.getElementById("presetNote").textContent), null, { timeout: 8000 });
+  // Wait for the check's answer, not its "Checking its uploaded pictures still load…" note,
+  // which the old /expired|still load/ also matched: on a slow runner the test then read the
+  // note before the check had finished.
+  await t.page.waitForFunction(() => { const n = document.getElementById("presetNote").textContent;
+    return !/Checking/.test(n) && /expired|still load/.test(n); }, null, { timeout: 8000 });
   assert.match(await t.page.textContent("#presetNote"), /^Loaded "Pics"\. 1 picture's link has expired: pick the file again or paste a fresh link on the flagged block\.$/);
   assert.deepEqual(t.errors, []);
   await t.ctx.close();

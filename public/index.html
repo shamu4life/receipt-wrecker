@@ -1965,15 +1965,18 @@
   // ── GLYPH-ART (High Roller): a picture as a grid of characters ──
   // The canvas work (decode, rotate, sample, quantize) stays in the browser glue; these take
   // the finished grid (rows of cells) and build the bodies. The form follows the tier:
-  //   cjk                 R1  <div style=width:<C>.2em;font-size:<K>vw;line-height:1;margin:auto><cells></div>
-  //                           Cells are 1em squares and the row breaks itself at C cells
-  //                           (the .2em slack lets C fit and not C+1); no <br>, so a row
-  //                           costs nothing. K = floor(100 x 152 / (1.81 x (C + 0.2))) / 100
-  //                           keeps a row inside 58 mm's 153px; vw is the page width, so the
-  //                           same message fits both papers (about 228 of 244px on 80 mm).
-  //                           Aligned at every C from 12 to 30 on both papers (bench R1).
-  //                           margin:auto centres it: a block with a width sits flush
-  //                           left whatever text-align says, 8px (2 mm) off centre on 80 mm.
+  //   cjk                 R1  <div style=font-size:<K>vw;line-height:1><row><br>...</div>
+  //                           Cells are 1em squares and every row ends in an explicit <br>,
+  //                           so a row can never reflow into the next. (Rows
+  //                           used to break themselves at width:<C>.2em with no <br>. Newer
+  //                           Chromium (156) rounds each Han advance to the nearest whole px,
+  //                           10.69 -> 11 at 58 mm, so 14 cells no longer fitted 14.2em,
+  //                           every row reflowed at 13 and the picture sheared.) K =
+  //                           floor(100 x (152 - C/2) / (1.81 x C)) / 100 keeps a row inside
+  //                           58 mm's 153px even when every cell rounds up half a pixel, so
+  //                           a row never wraps either and needs no nowrap; vw is the page
+  //                           width, so the same message fits both papers. The rows centre
+  //                           on the receipt's own text-align:center.
   //   ascii, asciifull,   R4  <pre style="font:<K>vw/1.2 'Courier New';margin:0"><row><br>...</pre>
   //   safe (blocks)           Courier New is 0.6em on the rig and on the bench (Liberation
   //                           Mono); <pre> keeps the spaces the ASCII ramps need. K =
@@ -2006,7 +2009,7 @@
     if (!imgW || !imgH) return Math.max(1, Math.round(cols / 2));
     return Math.max(1, Math.min(120, Math.round(cols * (imgH / imgW) * (aspect || 1))));
   }
-  function cjkGridK(C) { return Math.floor(100 * 152 / (1.81 * (C + 0.2))) / 100; }
+  function cjkGridK(C) { return Math.floor(100 * (152 - C / 2) / (1.81 * C)) / 100; }
   function monoK(C) { return Math.floor(100 * 152 / (C * 0.6 * 1.81)) / 100; }
   function brailleFontPx(C, contentW) {
     return Math.max(BRAILLE_MIN_PX, Math.min(BRAILLE_MAX_PX, Math.floor(contentW * 0.85 / (C * BRAILLE_ADV))));
@@ -2069,7 +2072,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, K = cjkGridK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
-    return glyphBand(rows, "<div style=width:" + C + ".2em;font-size:" + K + "vw;line-height:1;margin:auto>", BIG_CLOSE, "",
+    return glyphBand(rows, "<div style=font-size:" + K + "vw;line-height:1>", BIG_CLOSE, "<br>",
       F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "cjk", cols: C, fontPx: F });
   }
   function buildMonoGrid(grid, opts) {

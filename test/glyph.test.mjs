@@ -23,16 +23,20 @@ function disc(cols, rows, ramp) {
 }
 const rowsOf = (html, open, close, sep) => html.slice(open.length, html.length - close.length).split(sep);
 
-test("R1: the vw-sized CJK grid, open tag pinned, a row inside 153px and 244px", () => {
+test("R1: the vw-sized CJK grid, open tag pinned, a row inside 153px and 244px even with every cell rounded up", () => {
   eq(C.buildCjkGrid(disc(12, 2, CJK), {}).map((b) => b.html.slice(0, b.html.indexOf(">") + 1)),
-     ["<div style=width:12.2em;font-size:6.88vw;line-height:1;margin:auto>"]);
+     ["<div style=font-size:6.72vw;line-height:1>"]);
+  // Chromium 156 rounds each Han advance to the nearest whole px (10.69 -> 11), so a row can be
+  // up to half a pixel a cell wider than C x the font size. It must still fit both papers, or
+  // it would wrap: rows are explicit <br>s, so the only thing that can push a cell onto the
+  // next line is a row wider than the paper.
   for (let c = 12; c <= 30; c++) {
     const K = C.cjkGridK(c);
-    assert.ok(K * 1.81 * (c + 0.2) <= 152 + 1e-9, "58 mm row, C=" + c);
-    assert.ok(K * 2.72 * (c + 0.2) <= 244, "80 mm row, C=" + c);
-    assert.ok(K * 2.72 * (c + 0.2) >= 224, "and it still uses the 80 mm paper, C=" + c);
+    assert.ok(K * 1.81 * c + c / 2 <= 152 + 1e-9, "58 mm row, C=" + c);
+    assert.ok(K * 2.72 * c + c / 2 <= 244, "80 mm row, C=" + c);
+    assert.ok(K * 2.72 * c >= 200, "and it still uses most of the 80 mm paper, C=" + c);
   }
-  assert.equal(C.cjkGridK(24), 3.47);
+  assert.equal(C.cjkGridK(24), 3.22);
 });
 
 test("R1: bands by characters and height, every row exactly C cells, height R x K x page/100", () => {
@@ -47,24 +51,25 @@ test("R1: bands by characters and height, every row exactly C cells, height R x 
         assert.ok(x.chars <= k.budget, where + ": " + x.chars);
         assert.ok(x.heightPx <= k.room + 1e-6, where + ": " + x.heightPx);
         assert.ok(x.html.startsWith(open) && x.html.endsWith("</div>"), "every band repeats the tag and closes it");
-        const cells = Array.from(x.html.slice(open.length, -6));
-        assert.equal(cells.length % cols, 0);
-        assert.ok(Math.abs(x.heightPx - (cells.length / cols) * F) < 1e-3, where);
-        all += cells.join("");
+        const rows = x.html.slice(open.length, -6).split("<br>");
+        assert.ok(rows.every((r) => Array.from(r).length === cols), where + ": a row that is not exactly C cells");
+        assert.ok(Math.abs(x.heightPx - rows.length * F) < 1e-3, where);
+        all += rows.join("");
       }
       assert.equal(all, grid.map((r) => r.join("")).join(""), where + ": nothing lost");
       for (const p of C.packStackBodies(b, k)) assert.ok(p.chars <= 500 && p.contentPx <= k.limit.px + 1e-6, where);
     }
   }
-  // The largest single cheer fits, with the closing tag: 12 x 34 at Cheer100 (the brief's
-  // 12 x 35 was before margin:auto, 12 characters a band, centred the grid on 80 mm).
+  // The largest single cheer fits, with the closing tag: 12 x 27 at Cheer100, each row but the
+  // last paying 4 characters for its <br> (it was 12 x 34 when rows broke themselves at a
+  // width, which newer Chromium's whole-pixel advances defeated).
   const k = ctx();
-  const b = C.buildCjkGrid(disc(12, 34, CJK), opts(k));
+  const b = C.buildCjkGrid(disc(12, 27, CJK), opts(k));
   assert.equal(b.length, 1);
-  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 67 + 408 + 6);
-  assert.equal(C.buildCjkGrid(disc(12, 35, CJK), opts(k)).length, 2, "35 rows band into two");
-  assert.ok(Math.abs(C.buildCjkGrid(disc(12, 36, CJK), opts(k)).reduce((t, x) => t + x.heightPx, 0) - 36 * 6.88 * 2.72) < 1e-3,
-    "12x36 at 80 mm is about 674px");
+  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 42 + 27 * 12 + 26 * 4 + 6);
+  assert.equal(C.buildCjkGrid(disc(12, 28, CJK), opts(k)).length, 2, "28 rows band into two");
+  assert.ok(Math.abs(C.buildCjkGrid(disc(12, 36, CJK), opts(k)).reduce((t, x) => t + x.heightPx, 0) - 36 * 6.72 * 2.72) < 1e-3,
+    "12x36 at 80 mm is about 658px");
 });
 
 test("R4: Courier New <pre>, rows escaped and joined by <br>, spaces kept", () => {

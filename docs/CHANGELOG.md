@@ -98,7 +98,9 @@ page, built into the app and run in a sandboxed frame with no network access.
   that needs several spreads its rows evenly over them (no cheer for a lone row). Up to 50
   typed lines a block (it was 24, silently); past that the card says how many are left out.
 - **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
-  one message fits both papers (12 to 30 columns); ASCII and blocks as Courier New rows in a
+  one message fits both papers (12 to 30 columns), every row ending in its own line break so it
+  can't reflow: Chromium 156 rounds each Han character's width to a whole pixel, and a grid
+  that relied on a fixed width to break its rows came out slanted there; ASCII and blocks as Courier New rows in a
   `<pre>` (8 to 48 columns); Braille, with its rows sized for its narrow cell so a picture keeps
   its shape (marked as needing a test print). When the streamer's bits per inch leaves a cheer
   less room than one row, the card says the bot cuts every part.

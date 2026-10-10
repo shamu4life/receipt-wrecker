@@ -450,11 +450,15 @@ nothing that prints).
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
-- `cjk` → **R1** `<div style=width:<C>.2em;font-size:<K>vw;line-height:1;margin:auto>` + the
-  cells, no `<br>` (the row breaks itself at C cells; the .2em slack lets C fit and not C+1). K =
-  floor(100 × 152 / (1.81 × (C + 0.2))) / 100. C is 12..30. vw is the page width, so the same
-  message fits both papers. `margin:auto` centres the grid: a block with a width sits flush left
-  whatever `text-align` says, about 8px (2 mm) left of centre on 80 mm (benched).
+- `cjk` → **R1** `<div style=font-size:<K>vw;line-height:1>` + rows of cells joined by `<br>`.
+  Every row ends in an explicit `<br>`, so a row can never reflow into the next. Rows used to break
+  themselves at `width:<C>.2em` with no `<br>`; Chromium 156 rounds each Han advance to the nearest
+  whole px (10.69 → 11 at 58 mm), so 14 cells no longer fitted 14.2em and every row reflowed at 13
+  (found by CI, reproduced with that Chromium; 24 columns would have reflowed at 25 on 80 mm). K =
+  floor(100 × (152 − C/2) / (1.81 × C)) / 100 keeps a row inside 58 mm's 153px even when every
+  cell rounds up half a pixel, so no row wraps either. C is 12..30. vw is the page width, so the
+  same message fits both papers. The rows centre on the receipt's own `text-align:center`. One
+  cheer holds 27 rows at 12 columns (it held 34 before the `<br>`s).
 - `ascii`, `asciifull`, `safe` → **R4** `<pre style="font:<K>vw/1.2 'Courier New';margin:0">`
   rows joined by `<br>`, each row escaped. Courier New is 0.6em on the rig and the bench; `<pre>`
   keeps the ASCII ramps' spaces. K = floor(100 × 152 / (C × 0.6 × 1.81)) / 100. C is 8..48. The

@@ -186,7 +186,7 @@ The picture as a grid of characters. Pick the characters:
   cell is the same width in any CJK font, so rows line up on both paper widths.
 
   ```text
-  Cheer100 <div style=width:12.2em;font-size:6.88vw;line-height:1;margin:auto>丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶三青直二二直青三丶丶丶二龍鬱鬱齒齒鬱鬱龍二丶丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶丶三麤鬱鬱鬱鬱鬱鬱麤三丶丶丶鬼鬱鬱鬱鬱鬱鬱鬼丶丶丶丶二鼎鬱鬱鬱鬱鼠丿丶丶丶丶丶二麥鬱鬱麥二丶丶丶丶丶丶丶丶革革丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶</div>
+  Cheer100 <div style=font-size:6.72vw;line-height:1>丶丶丶丶丶丶丶丶丶丶丶丶<br>丶丶丶丶丶丶丶丶丶丶丶丶<br>丶丶三青直二二直青三丶丶<br>丶二龍鬱鬱齒齒鬱鬱龍二丶<br>丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶<br>丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶<br>丶三麤鬱鬱鬱鬱鬱鬱麤三丶<br>丶丶鬼鬱鬱鬱鬱鬱鬱鬼丶丶<br>丶丶二鼎鬱鬱鬱鬱鼠丿丶丶<br>丶丶丶二麥鬱鬱麥二丶丶丶<br>丶丶丶丶丶革革丶丶丶丶丶<br>丶丶丶丶丶丶丶丶丶丶丶丶</div>
   ```
 
 - **ASCII letters**, **ASCII full detail** and **Blocks ░▒▓█**: rows in Courier New, 8 to 48

@@ -50,9 +50,7 @@
      border: border-box counts a border into the width and left 238px, and the thermal
      raster (which drops the border) 2px wider than the live preview. An outline takes
      no layout space, so the live box and the raster agree. (outline/shadow are
-     screen-only chrome; the thermal raster never draws them.)
-     position:relative makes this box the "page" for printer-bot's position:fixed corner
-     (the cheer-gem tuck), which the preview rules turn into position:absolute. */
+     screen-only chrome; the thermal raster never draws them.) */
   .rcpt {
     width: 72mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
     padding: 1em; background: #fff; color: #000; outline: 1px solid #bbb;
@@ -178,9 +176,6 @@
 
       <label><input type="checkbox" id="cheerNonce"> Add a repeat number</label>
       <div class="hint" id="cheerNonceHint">Puts two rotating digits after the cheer ("Cheer100 07"). Twitch won't send the same message twice in a row within 30 seconds (it just isn't sent, and no bits are spent), and the digits make each copy different. They also print on the receipt, which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.</div>
-
-      <label><input type="checkbox" id="cheerTuck"> Hide the cheer gem in the corner</label>
-      <div class="hint" id="cheerTuckHint">Normally your cheer prints as a small gem and '100' on their own line above your art. This squeezes them into a tiny box in the receipt's top-right corner and saves that line.</div>
 
       <label>Bits per receipt: <input type="number" id="bitsAmount" min="1" step="1" value="100" style="width:6em"></label>
       <div class="hint">How many bits each cheer spends (1 or more). Each taped part is its own cheer, so a multi-part message costs bits &times; parts. The total is shown under the preview.</div>
@@ -417,7 +412,7 @@
   // Greedy: keep adding to the current receipt while BOTH the char budget (minus the
   // cheer overhead) and the height budget hold; else start a new receipt. A single body
   // always gets at least its own receipt (over-budget is warned in the UI). One nonce and
-  // one lead per receipt. opts = {bits, cheer, tuck, noNonce, nonceFn, heightPx}. Returns
+  // one lead per receipt. opts = {bits, cheer, noNonce, nonceFn, heightPx}. Returns
   // Part[] = {payload, lead, chars, heightPx, bodies, nonce}. Pure (no DOM) so the test
   // harness can exercise it. `noNonce: true` leaves the two digits out of every lead
   // ("Cheer100 " instead of "Cheer100 07 ") and the reservation shrinks with it; absent
@@ -425,14 +420,10 @@
   //
   // The lead and its cost both come from buildLead / leadLength (defined with the giant
   // type core, inside the DOM-glue guard; `var`-hoisted, and assigned long before anything
-  // calls this). The overhead used to be `token.length + 4`, a second description of the
-  // lead that happened to agree with it; with the 60-character tucked lead it would have
-  // reserved 12 and let two 230-character bodies share a 524-character part.
+  // calls this), so the characters reserved and the characters sent cannot drift apart.
   function packStackBodies(bodies, opts) {
     opts = opts || {};
-    // The tuck hides the cheer GEM, so it only means anything when cheering.
-    var tuck = !!(opts.cheer && opts.tuck);
-    var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, tuck: tuck, noNonce: !!opts.noNonce };
+    var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce };
     var overhead = leadLength(leadOpts);
     var maxBody = MAX_CHARS - overhead;
     // The per-receipt height ceiling, from the user's receipt length (opts.heightPx), or the
@@ -444,28 +435,7 @@
       if (!cur.length) return;
       var nonce = opts.cheer && !opts.noNonce
         ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
-      // UNDER THE TUCK the lead is an nbsp plus a box pinned out of the flow, so the
-      // first body of the part would start on the nbsp's line. Two cases, one per kind:
-      //  - a body that opens with its own <br> (giant type, `leadBr`) loses it. That <br>
-      //    only existed to end the lead line; dropped, the art starts on line 1 and the
-      //    tuck saves real tape (real engine: message 156 -> 133px). Kept, the tuck hides
-      //    the gem and saves nothing: the blank line is exactly as tall as the gem's was.
-      //  - any other body GAINS one, so a Hanzi or glyph grid starts on a clean line
-      //    instead of sharing it with the nbsp, which would shift the first wrap and
-      //    shear the grid. leadLength reserves those 4 characters.
-      //  - unless it ALREADY opens with one and must keep it (a giant body in emote
-      //    layout: its padded first line would print off-centre after the nbsp). That one
-      //    is the clean line start already; a second <br> would print a blank line.
-      // The first body with any markup: an empty body ahead of it changes nothing on paper.
-      var first = -1;
-      if (tuck) {
-        for (var fi = 0; fi < cur.length; fi++) { if (cur[fi].html) { first = fi; break; } }
-      }
-      var html = cur.map(function (b, k) {
-        if (k !== first) return b.html;
-        if (b.leadBr) return b.html.replace(/^<br>/, "");
-        return /^<br>/.test(b.html) ? b.html : "<br>" + b.html;
-      }).join("");
+      var html = cur.map(function (b) { return b.html; }).join("");
       // Cheer token + nonce LEAD the message: they survive any trailing-strip the bot/
       // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
       // so the separate LEAD_GUARD isn't needed when cheering.
@@ -473,8 +443,6 @@
       // THAT LEAD IS NOT FREE, and it is why `lead` is exposed rather than inlined. It is
       // content in the receipt's message box, so it occupies a line ABOVE the first body.
       // The preview renders exactly this string, so preview and print cannot drift.
-      // Tucked, the token rides inside the corner span after a LEAD_GUARD (see buildLead):
-      // it still never leads with "<", and it is still a standalone word Twitch charges.
       var lead = buildLead(leadOpts, nonce);
       var payload = lead + html;
       parts.push({ payload: payload, lead: lead, chars: payloadLength(payload), heightPx: curH, bodies: cur.slice(), nonce: nonce });
@@ -489,8 +457,7 @@
       // only such bodies never closes one. Either way round, the "does it fit" test could
       // fail with nothing printable on one side (0 + an over-tall or over-long neighbour),
       // and flush() then sent a cheer that was the lead and nothing else: 100 bits for a
-      // receipt with only the gem on it ("Cheer100 03 "). It costs nothing to join any
-      // part, and flush() already skips html-less bodies when it picks the tuck's first.
+      // receipt with only the gem on it ("Cheer100 03 "). It costs nothing to join any part.
       var empty = !b.html && !bChars && !bH;
       var fits = !curInk || empty || ((curChars + bChars <= maxBody) && (curH + bH <= hb));
       if (!fits) flush();
@@ -1366,17 +1333,15 @@
     // filter never sees it whole, exactly as with Hanzi tiling. A side effect of fitting
     // the width, never a feature to offer (CLAUDE.md, under THE RULE).
     //
-    // EVIDENCE LEVELS, kept apart on purpose. FIELD: one real cheer carrying the tuck span,
+    // EVIDENCE LEVELS, kept apart on purpose. FIELD: one real cheer carrying a corner span,
     // 15 x `<b class=title>` and `</br>` passed automod and printed giant stacked letters.
     // BENCH (real wkhtmltopdf 0.12.6.1 with patched Qt, Segoe UI metrics): the sizes, the
-    // line heights, the tuck clipping, the shrink wrappers. NEVER SENT: the two shrink
-    // classes, the padded emote form, and the EXACT tucked lead (a leading nbsp and the
-    // two-digit nonce inside the span). The field cheer's span was followed directly by
-    // <b class=title> with no <br>, so that adjacency itself has printed.
+    // line heights, the shrink wrappers. NEVER SENT: the two shrink classes and the padded
+    // emote form.
     //
     // IT IS FRAGILE BY CONSTRUCTION. nutty can rename or retune these classes, or stop
     // inlining global.css, any day. So the class names and what they do are DATA: every
-    // piece of giant/tuck markup and the
+    // piece of giant markup and the
     // preview CSS derive from this one table, and an incidental rename is a one-row edit,
     // after a free probe proves the new name prints. If nutty removes or scopes global.css
     // ON PURPOSE, that is the bot author saying no: fall back to Hanzi tiling.
@@ -1400,12 +1365,6 @@
         role: "shrink", factor: 0.9, source: "global.css", field: "untested", checked: "2026-10-01" },
       { id: "shrink8", cls: "setting-attribute", decl: "font-size:.8em;font-weight:200",
         role: "shrink", factor: 0.8, source: "global.css", field: "untested", checked: "2026-10-01" },
-      { id: "switch", cls: "switch",
-        decl: "position:relative;display:inline-block;width:3em;height:1.5em;font-size:1em;overflow:hidden",
-        role: "tuck", source: "global.css", field: "sent", checked: "2026-10-01" },
-      { id: "navbtn", cls: "dialog-nav-button",
-        decl: "background:transparent;border:none;font-size:1.5em;font-weight:100;padding:0;width:1em;height:1em;position:fixed;top:.5em;right:.5em",
-        role: "tuck", source: "global.css", field: "sent", checked: "2026-10-01" },
       { id: "emote", cls: "emote", decl: "height:1em",
         role: "emote", source: "style.css", field: "printed", checked: "2026-10-01" },
     ];
@@ -1415,19 +1374,16 @@
     };
     // Unquoted is 2 characters cheaper, and a `.title` level is paid up to 18 times a line,
     // so unquoted wins wherever it is legal. A value with a space MUST be quoted: unquoted,
-    // `class=switch dialog-nav-button` parses as class="switch" plus a boolean attribute
-    // named dialog-nav-button, which the sanitizer then strips along with the effect.
+    // `class=a b` parses as class="a" plus a boolean attribute named b, which the sanitizer
+    // then strips along with the effect.
     var classAttr = function (cls) {
       cls = String(cls);
       return /^[a-z][a-z0-9-]*$/.test(cls) ? "class=" + cls : 'class="' + escapeAttr(cls) + '"';
     };
     // The same rules for the PREVIEW, scoped under `scope` (".rcpt") so they cannot touch
-    // the app's own UI. Two deliberate departures, both because the preview's receipt is a
-    // box inside a page rather than the page itself:
-    //  - position:fixed becomes absolute: the preview's .rcpt stands in for the page, and
-    //    needs position:relative for the tuck to land in ITS corner, not the window's.
-    //  - the `emote` role is LEFT OUT: no giant preview contains a real .emote (the emote
-    //    pass is never simulated, and nothing is fetched), so the rule would style nothing.
+    // the app's own UI. One deliberate departure: the `emote` role is LEFT OUT, because no
+    // giant preview contains a real .emote (the emote pass is never simulated, and nothing
+    // is fetched), so the rule would style nothing.
     // Plus one preview-only rule, .title{line-height:1.33}: Segoe UI's normal line height
     // on the rig (hhea 2210+514 over 2048), so preview heights track the tape whatever
     // font the viewer's OS substitutes. Used by BOTH the page <style> and RCPT_CSS.
@@ -1435,7 +1391,7 @@
       var pre = scope ? scope + " " : "", css = "";
       PB_CLASSES.forEach(function (e) {
         if (e.role === "emote") return;
-        css += pre + "." + e.cls + "{" + e.decl.replace(/position:fixed/g, "position:absolute") + "}";
+        css += pre + "." + e.cls + "{" + e.decl + "}";
       });
       return css + pre + "." + pbClass("title").cls + "{line-height:1.33}";
     };
@@ -1462,13 +1418,6 @@
     // the tests built on it) use, and which stays as it is; the cm sizes on the card used
     // to divide by it, which alone read 0.8% high (up to ~1.8% with the unrounded px).
     var GIANT_MM_PER_PX = 25.4 / 96;
-    // What a tucked lead costs line 1. The packer strips a giant body's own leading <br>
-    // under the tuck, so the nbsp (0.276em of 16px Segoe = 4.4px) shares the first giant
-    // line and comes off its width. Applied to every line: cheaper than knowing which
-    // part each chunk lands first in, and it only ever errs narrow. Not to the emote
-    // layout, which keeps its <br> under the tuck (see buildGiantBodies), so no line of it
-    // ever shares the nbsp's.
-    var GIANT_TUCK_PX = 5;
     // UPPERCASE ADVANCE WIDTHS in em, CONSERVATIVE: round(max(SegoeUIBold, ArialBold) x 1.03, 3).
     //  - Segoe UI Bold: hmtx advance / 2048 upm, read straight from the font. On the
     //    Windows rig the engine walks printer-bot's font stack (-apple-system,
@@ -1637,57 +1586,40 @@
       var r = b && b.render;
       return r === "giant" || r === "hanzi" ? r : "type";
     };
-    // ── THE LEAD, AND THE CHEER-GEM TUCK ──
+    // ── THE LEAD ──
     // Every message starts with a lead the packer owns: the cheer token and, when the
     // "Add a repeat number" toggle is on, the nonce; or LEAD_GUARD when not cheering. An
     // empty `nonce` argument gives the bare "Cheer100 ". buildLead is the ONE builder: packStackBodies' `lead`,
     // its per-part overhead, the band builders' slack and tools/payload.mjs all go through
     // it, so the characters reserved and the characters sent cannot drift apart.
-    //
-    // THE TUCK. printer-bot turns the first "Cheer100" into a gem image plus "100", which
-    // with the nonce is a whole line above the art. Inside a span carrying .switch (a
-    // 3em x 1.5em overflow:hidden box) and .dialog-nav-button (position:fixed at .5em from
-    // the top right, 1em square), the gem is pinned into the page's top-right corner and
-    // clipped: on the real engine the only corner ink is x 236.9-259.6, y 14.7-36.4, and
-    // "100" and the nonce are clipped away. The bot's header still prints the bits and
-    // the name. LEAD_GUARD still leads, so the message never starts with "<", and the
-    // token keeps a space on each side, so Twitch still sees a standalone "Cheer100" and
-    // the cheer still counts. 60 characters at Cheer100 (61/62 at 1000/10000) against 12.
-    var TUCK_OPEN = "<span " + classAttr(PB_CLASSES.filter(function (e) { return e.role === "tuck"; })
-      .map(function (e) { return e.cls; }).join(" ")) + ">";
-    var TUCK_CLOSE = "</span>";
-    // opts = {cheer, bits, tuck}; tuck only means anything when cheering (no token, no gem).
+    // opts = {cheer, bits}.
     var buildLead = function (opts, nonce) {
       opts = opts || {};
       if (!opts.cheer) return LEAD_GUARD;
-      var cheer = "Cheer" + cheerBits(opts.bits) + (nonce ? " " + nonce : "") + " ";
-      return opts.tuck ? LEAD_GUARD + TUCK_OPEN + " " + cheer + TUCK_CLOSE : cheer;
+      return "Cheer" + cheerBits(opts.bits) + (nonce ? " " + nonce : "") + " ";
     };
     // Characters a part's lead costs, which is what the packer and the body builders have
-    // to reserve. Tucked, it also counts the 4-character <br> the packer may put in front
-    // of a first body that has no leading <br> of its own (see packStackBodies). Measured
-    // with the 2-digit nonce every part carries, or with none under `noNonce`, so the
-    // characters reserved and the characters sent stay equal either way.
+    // to reserve. Measured with the 2-digit nonce every part carries, or with none under
+    // `noNonce`, so the characters reserved and the characters sent stay equal either way.
     var leadLength = function (opts) {
       opts = opts || {};
-      return payloadLength(buildLead(opts, opts.noNonce ? "" : makeNonce(0))) + (opts.cheer && opts.tuck ? 4 : 0);
+      return payloadLength(buildLead(opts, opts.noNonce ? "" : makeNonce(0)));
     };
     // What a BANDED body (Hanzi rows, glyph-art strips) leaves free for the lead when it
     // sizes a band. The packer never splits a single body, so a band sized for the wrong
-    // lead goes out over 500 and Twitch rejects it; with the tuck lead that was every full
-    // Hanzi band (480 + 60 = 540). It used to be a hardcoded 14: the 12-character
-    // "Cheer100 nn " lead plus 2. The FLOOR keeps that 14, so every untucked payload stays
+    // lead goes out over 500 and Twitch rejects it. It used to be a hardcoded 14: the
+    // 12-character "Cheer100 nn " lead plus 2. The FLOOR keeps that 14, so every band stays
     // byte-identical (including cheer-off, whose 1-character lead would otherwise loosen
     // the band, and every bit amount up to 99999), and it only grows when the real lead
-    // does: 64 tucked, which is exact (lead + the <br> the packer adds), not hopeful.
+    // does.
     var bandReserve = function (budget) {
       return (typeof budget === "number" && isFinite(budget)) ? Math.max(14, MAX_CHARS - budget) : 14;
     };
     // Characters per body a giant builder may spend: MAX_CHARS minus the lead. A missing or
-    // junk budget falls back to the untucked (or tucked) Cheer100 lead.
-    var giantBudget = function (b, tuck) {
+    // junk budget falls back to the Cheer100 lead's.
+    var giantBudget = function (b) {
       if (typeof b === "number" && isFinite(b) && b > 0) return Math.min(MAX_CHARS, Math.floor(b));
-      return MAX_CHARS - leadLength({ cheer: true, tuck: !!tuck });
+      return MAX_CHARS - leadLength({ cheer: true });
     };
     // How tall the CAPITALS print, in cm. Exact; whoever displays it rounds (to 0.1 cm).
     // The engine rounds font-size to whole px before it lays a glyph out (giantLineH does
@@ -1761,7 +1693,7 @@
     //  - characters: open + close + the two outer <br>s + the escaped lines + a <br>
     //    between each <= budget, which is exactly payloadLength(body.html). Height alone
     //    let 26 lines of "ROSES 000".. become one 487-character body: 499 with the plain
-    //    lead, 543 tucked, rejected by Twitch, nothing printed.
+    //    lead, over 500 with a longer one, and Twitch rejects that outright.
     // Greedy, at least one line per chunk. It PREFERS to break at a "" line (a word gap in
     // stack, a blank line in lines) and drops "" at both edges of every chunk: a chunk
     // that starts with "" prints a giant-height blank (measured +132px at L10, 396px of
@@ -1997,7 +1929,7 @@
         giantHeight(opts.heightPx)).fit;
     };
     // The whole decision for one block, without building markup: the card's size labels
-    // read it, and buildGiantBodies builds from it. opts = {layout, size, budget, tuck}.
+    // read it, and buildGiantBodies builds from it. opts = {layout, size, budget, heightPx}.
     // auto tries lines and stack: the bigger type when both fit one cheer, else the fewer
     // cheers, a tie going to lines (it reads as typed). Two refinements: a layout whose
     // letters would be cut off never beats one that fits, and "width" (fill the paper,
@@ -2005,8 +1937,8 @@
     var giantPlan = function (text, opts) {
       opts = opts || {};
       var go = giantOpts({ giantLayout: opts.layout, giantSize: opts.size });
-      var tuck = !!opts.tuck, budget = giantBudget(opts.budget, tuck), hb = giantHeight(opts.heightPx);
-      var fitPx = PAPER_PX - (tuck && go.layout !== "emote" ? GIANT_TUCK_PX : 0);
+      var budget = giantBudget(opts.budget), hb = giantHeight(opts.heightPx);
+      var fitPx = PAPER_PX;
       var cleaned = giantClean(text);
       function one(layout) {
         var lines = giantLines(cleaned.text, layout);
@@ -2055,24 +1987,16 @@
     var giantGlobalCheer = function (w) {
       return GIANT_GLOBAL_CHEERS.indexOf(String(w).replace(/\d+$/, "").toLowerCase()) >= 0;
     };
-    // buildGiantBodies(text, {layout, size, budget, tuck}) -> Body[]; budget = characters
+    // buildGiantBodies(text, {layout, size, budget, heightPx}) -> Body[]; budget = characters
     // per body (MAX_CHARS - leadLength). Each body is
     //   "<br>" + open + lines.join("<br>") + close + "<br>"
     // with every tag CLOSED, because the packer concatenates bodies raw and the tape parses
     // the whole message at once: an unclosed .title would make everything after it giant.
     // The leading <br> ends the lead line (without it "100 07" sits on the giant baseline);
     // the trailing one adds 0px at the end of a message and starts the next body on a
-    // fresh line. `leadBr` tells the packer it may strip the leading one under the tuck.
-    // EXCEPT IN EMOTE LAYOUT, which keeps it. Every emote line is padded with a space on
-    // each side (Twitch only recognises a name as a whole whitespace-delimited word), and
-    // a space at the start of a line collapses, which is why the padding is free. With the
-    // <br> stripped the first line is no longer the start of a line: it follows the tuck's
-    // nbsp, so its leading space survives as a giant-sized space and shoves line 1 right.
-    // Real engine (L10x0.9, "Kappa Kappa / Kappa", tucked): line 1 centred 14.4px right of
-    // the body centre, line 2 12.3px left, a 27px skew between two lines meant to stack.
-    // Kept, line 1 starts clean on the line after the nbsp, exactly as it does untucked.
-    // So here the tuck hides the gem and saves no tape: the 23px it saves in the other
-    // layouts is not worth a picture whose rows don't line up.
+    // fresh line. Every emote line is padded with a space on each side (Twitch only
+    // recognises a name as a whole whitespace-delimited word); a space at the start of a
+    // line collapses, which is why the padding is free.
     // No italic, no quote/case/tag variants: one literal form, the one that printed.
     var buildGiantBodies = function (text, opts) {
       var p = giantPlan(text, opts), f = p.fit;
@@ -2090,7 +2014,7 @@
                  dropped: p.dropped, cheerWords: words };
       }
       if (!f.levels) {
-        return [{ html: "", chars: 0, heightPx: 0, leadBr: false, preview: { kind: "html", html: "" },
+        return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" },
                   giant: info(0, 0, false, false, []) }];
       }
       var tags = giantStepTags(f);
@@ -2099,7 +2023,7 @@
         var ls = p.lines.slice(r.start, r.end);
         var html = "<br>" + giantChunkMarkup(ls, p.layout, tags, small, giantLineHtml) + "<br>";
         var pv = '<div class="rw-giant">' + giantChunkMarkup(ls, p.layout, tags, small, giantLinePreview) + "</div>";
-        return { html: html, chars: payloadLength(html), heightPx: r.heightPx, leadBr: p.layout !== "emote",
+        return { html: html, chars: payloadLength(html), heightPx: r.heightPx,
                  preview: { kind: "html", html: pv },
                  giant: info(ci, p.ranges.length, r.over, r.tall, p.layout === "stack" ? [] : giantCheerWords(html)) };
       });
@@ -2126,8 +2050,7 @@
     // The "Print size ruler": 1..13, each number one .title level deeper than the last,
     // in ONE cheer (~328 characters with the plain lead, 1275px, one 500mm page on the real
     // engine). It proves the trick still works on THIS rig today and shows every size at
-    // once, which is the answer to "will it print big?" for the price of one cheer. Never
-    // tucked: it is a diagnostic, and it should look like every other cheer.
+    // once, which is the answer to "will it print big?" for the price of one cheer.
     var buildGiantRuler = function () {
       var t = "<b " + classAttr(pbClass("title").cls) + ">", inner = "", close = "", h = GIANT_GAP_PX, rungs = [];
       for (var n = 1; n <= GIANT_RULER_LEVELS; n++) {
@@ -2144,7 +2067,7 @@
       }
       var html = "<br>" + inner + close;
       var top = GIANT_BASE_PX * Math.pow(GIANT_RATIO, GIANT_RULER_LEVELS);
-      return { html: html, chars: payloadLength(html), heightPx: h, leadBr: true,
+      return { html: html, chars: payloadLength(html), heightPx: h,
                preview: { kind: "html", html: '<div class="rw-giant">' + inner + close + "</div>" },
                giant: { ruler: true, rungs: rungs, levels: GIANT_RULER_LEVELS, shrink: "", factor: 1, px: top,
                         capCm: giantCapCm(top), layout: "lines", size: GIANT_RULER_LEVELS,
@@ -2337,9 +2260,8 @@
     // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
     // `budget` = characters a body may spend after the lead (MAX_CHARS - leadLength(opts));
     // the banded and giant builders size against it, because the packer never splits a
-    // single body. `tuck` narrows the giant fit (see GIANT_TUCK_PX). Both optional: absent
-    // means the untucked Cheer100 lead, which is what every caller assumed before.
-    function renderBlockBodies(block, budget, tuck, heightPx) {
+    // single body. Both optional: absent means the Cheer100 lead and the default height.
+    function renderBlockBodies(block, budget, heightPx) {
       if (block.type === "image") {
         if (block.imgKind === "glyph") return glyphImageBodies(block, budget);
         // A Real picture sends NOTHING. SassyTP's bot draws a picture only from an emote
@@ -2354,7 +2276,7 @@
       var render = blockRender(block);
       if (render === "giant") {
         var go = giantOpts(block);
-        return buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: !!tuck, heightPx: heightPx });
+        return buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, heightPx: heightPx });
       }
       var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : 0.9;
       if (render === "hanzi") return hanziBodies(text, block.cols, factor, block.hanziWeight, budget);
@@ -2369,15 +2291,15 @@
       var bodies = [], i, j, bs;
       // The per-body character budget, from the SAME lead the packer will emit. Bodies the
       // packer can't split (a Hanzi band, a glyph-art strip, a giant chunk) are sized
-      // against it, so a longer lead (the tuck, a 5-digit bit amount) shrinks them rather
-      // than pushing a whole part over 500.
-      var budget = MAX_CHARS - leadLength(opts), tuck = !!(opts.cheer && opts.tuck);
+      // against it, so a longer lead (a 5-digit bit amount, the repeat digits) shrinks them
+      // rather than pushing a whole part over 500.
+      var budget = MAX_CHARS - leadLength(opts);
       // The per-receipt height ceiling, from the user's receipt length. Threaded to the body
       // builders (so a giant chunk sizes against the real page) and carried on opts to
       // packStackBodies (so the packer splits at it too). Both read the SAME value.
       var heightPx = giantHeight(opts.heightPx);
       for (i = 0; i < blocks.length; i++) {
-        bs = renderBlockBodies(blocks[i], budget, tuck, heightPx);
+        bs = renderBlockBodies(blocks[i], budget, heightPx);
         // Stamp the source block on every body. The packer decides which part a block
         // lands in, and a card that wants to say "you're in part 2 of 3" has no other
         // way to find itself in the result.
@@ -2391,17 +2313,11 @@
     function getBits() {
       return cheerBits(parseInt(els.bitsAmount && els.bitsAmount.value, 10));
     }
-    // "Hide the cheer gem" (#cheerTuck): tuck the cheer token into the corner span (see
-    // buildLead). Absent control or unchecked = off, and off is byte-identical to the
-    // untucked payload. The packer ignores it unless Cheer-ready is on as well.
-    function getTuck() {
-      return !!(els && els.cheerTuck && els.cheerTuck.checked);
-    }
     // "Add a repeat number" (#cheerNonce): the two rotating digits after the cheer token.
     // Absent control or unchecked = off, and off is the default: the digits print on the
     // receipt, and all they do is make repeat copies differ (Twitch won't send the same
-    // message twice in a row within 30 seconds), which a cheer rarely needs. Like the tuck, the packer
-    // only reads it when cheering; the census, which always carries the token, reads it too.
+    // message twice in a row within 30 seconds), which a cheer rarely needs. The packer only
+    // reads it when cheering; the census, which always carries the token, reads it too.
     function getNonce() {
       return !!(els && els.cheerNonce && els.cheerNonce.checked);
     }
@@ -2412,32 +2328,8 @@
       return clampReceiptMm(els && els.receiptLen ? parseFloat(els.receiptLen.value) : RECEIPT_MM_DEFAULT);
     }
     function getHeightPx() { return heightBudget(getReceiptMm()); }
-    // The tuck checkbox's state and hint. Disabled (not unchecked) without Cheer-ready:
-    // there is no gem to hide, the packer ignores it, and turning Cheer-ready back on
-    // should bring back the user's choice rather than silently reset it. The cost is
-    // COMPUTED from the two real leads, never written down: an earlier draft said "+46"
-    // for what measures 48. (It is 48 at every amount: the token's length is in both
-    // leads, so it cancels out. Computed anyway, so a change to either lead can't drift.)
-    function syncTuckUi() {
-      if (!els || !els.cheerTuck) return;
-      var on = !!els.cheer.checked, bits = getBits();
-      els.cheerTuck.disabled = !on;
-      if (!els.cheerTuckHint) return;
-      var extra = payloadLength(buildLead({ cheer: true, bits: bits, tuck: true }, "00"))
-                - payloadLength(buildLead({ cheer: true, bits: bits }, "00"));
-      els.cheerTuckHint.textContent = (on ? "" : "Needs Cheer-ready: without a cheer there is no gem to hide. ")
-        + "Normally your cheer prints as a small gem and '" + bits + "'"
-        + (getNonce() ? ", plus the two repeat digits," : "") + " on their own "
-        + "line above your art. This squeezes them into a tiny box in the receipt's top-right "
-        + "corner and saves that line. printer-bot's header still shows the bits and your name. "
-        + "Made for Giant type; with other blocks it starts them on a fresh line. Uses " + extra
-        + " of the " + MAX_CHARS + " characters in each cheer (a cheer that starts with Giant "
-        + "type gives 4 back by dropping its own line break; anything else needs 4 more for that "
-        + "fresh line). Emote names keep that line, so their first row stays centred. If "
-        + "printer-bot changes its style, the gem just prints normally and nothing else breaks.";
-    }
-    // The repeat-number checkbox's state and hint, the same way as the tuck: disabled (not
-    // unchecked) without Cheer-ready, since a message with no cheer has no lead to put the
+    // The repeat-number checkbox's state and hint: disabled (not unchecked) without
+    // Cheer-ready, since a message with no cheer has no lead to put the
     // digits in, and turning Cheer-ready back on brings the user's choice back with it.
     function syncNonceUi() {
       if (!els || !els.cheerNonce) return;
@@ -2502,11 +2394,9 @@
           cheer: els.cheer.checked, bits: els.bitsAmount.value,
           // A field of rw_controls_v1, not a new storage key.
           receiptLen: els.receiptLen ? els.receiptLen.value : "",
-          // Guarded: this is ONE try block, so a missing element would throw and silently
-          // stop persisting every other control along with it. A field of rw_controls_v1,
-          // not a new storage key.
-          tuck: !!(els.cheerTuck && els.cheerTuck.checked),
-          // "Add a repeat number", guarded and a field of rw_controls_v1 for the same reasons.
+          // "Add a repeat number". Guarded: this is ONE try block, so a missing element would
+          // throw and silently stop persisting every other control along with it. A field of
+          // rw_controls_v1, not a new storage key.
           nonce: !!(els.cheerNonce && els.cheerNonce.checked),
           thermalView: els.thermalView.checked,
         }));
@@ -2515,7 +2405,8 @@
     function restoreControls() {
       // Fields an older version saved (the hidden single-mode UI's mode, tier, cols,
       // dither, contrast, invert, text, textSize, bigStyle, rotateLen, imgUrl, imgWidth;
-      // the takeover's covers toggle) are simply not read; the next save drops them.
+      // the takeover's covers toggle; the cheer-gem tuck) are simply not read; the next
+      // save drops them.
       var saved = loadSavedControls();
       if (!saved) return;
       els.cheer.checked = saved.cheer !== false;
@@ -2525,9 +2416,6 @@
       if (els.receiptLen && saved.receiptLen != null && isFinite(parseFloat(saved.receiptLen))) {
         els.receiptLen.value = clampReceiptMm(parseFloat(saved.receiptLen));
       }
-      // The tuck is cosmetic and costs characters, so absent (every settings blob older
-      // than 0.10.0) means OFF, and only an explicit true turns it on.
-      if (els.cheerTuck) els.cheerTuck.checked = saved.tuck === true;
       // The repeat number defaults OFF, and that includes every settings blob saved before the
       // toggle existed, when the digits were always sent: only an explicit true turns it on.
       // The digits print on the receipt, and dropping them was the point of the toggle.
@@ -2572,10 +2460,8 @@
     // GIANT TYPE IN THE PREVIEW, shared by the page <style> (injected in init) and RCPT_CSS
     // below, so the live preview and the thermal raster cannot disagree about it.
     //  - .rw-giant wraps one giant body's preview. A block, so it starts on its own line
-    //    the way the body's leading <br> starts it on the tape; .rw-inline undoes that for
-    //    the one case where the tape does NOT break (the first body after a tucked lead,
-    //    whose <br> the packer strips; see renderParts). Two giant bodies in a row leave
-    //    one small blank line between them on the tape (the first one's trailing <br>
+    //    the way the body's leading <br> starts it on the tape. Two giant bodies in a row
+    //    leave one small blank line between them on the tape (the first one's trailing <br>
     //    plus the next one's leading <br>: 23px on the real engine), hence the margin.
     //  - .rw-emote-ph stands in for an emote printer-bot would swap in: a dashed square
     //    exactly 1em of the giant size it sits in (an emote is .emote{height:1em} and
@@ -2587,7 +2473,6 @@
     //    the baseline, which is where the real <img> sits.
     var GIANT_PREVIEW_CSS =
       '.rcpt .rw-giant{display:block;}' +
-      '.rcpt .rw-giant.rw-inline{display:inline;}' +
       '.rcpt .rw-giant+.rw-giant{margin-top:1.33em;}' +
       '.rcpt .rw-emote-ph{display:inline-block;box-sizing:border-box;width:8em;height:8em;font-size:.125em;' +
         'border:.32em dashed currentColor;overflow:hidden;vertical-align:baseline;text-transform:none;' +
@@ -2608,8 +2493,8 @@
       '.rcpt-body>svg,.rcpt-body>img{max-width:100%;height:auto;display:block;margin:0 auto;}' +
       '.rcpt-foot{font-weight:700;font-size:.85em;color:#772ce8;}' +
       '.rcpt-date{font-size:.7em;text-transform:uppercase;margin:.5em 0;}' +
-      // printer-bot's own class rules (giant type's .title, the tuck's corner box), from
-      // the PB_CLASSES table, so a re-tuned class moves the thermal preview with it.
+      // printer-bot's own class rules (giant type's .title), from the PB_CLASSES table, so
+      // a re-tuned class moves the thermal preview with it.
       pbPreviewCss(".rcpt") + GIANT_PREVIEW_CSS;
     // Atkinson dither, in place on ImageData: Rec.601 gray, threshold 128,
     // diffuse err/8 to 6 neighbours — the soft, slightly-blown-out look of a
@@ -2730,10 +2615,7 @@
         if (item.chars > MAX_CHARS) {
           var warn = document.createElement("div");
           warn.className = "over-note";
-          warn.textContent = "Too long for Twitch (~500 chars). Trim it: clear the formatting, fewer columns, shorter text, or a smaller size."
-            // The tucked lead is 48 characters longer than the plain one, so turning it off
-            // is a real fix; only offer it when this part actually carries it.
-            + (item.lead && item.lead.indexOf(TUCK_OPEN) >= 0 ? " Or turn off “Hide the cheer gem”." : "");
+          warn.textContent = "Too long for Twitch (~500 chars). Trim it: clear the formatting, fewer columns, shorter text, or a smaller size.";
           card.appendChild(warn);
         }
         if (item.bodies) {
@@ -2741,23 +2623,11 @@
           var stackBody = document.createElement("div");
           // The message carries this text before the first body, and it takes up a line
           // in the printed receipt. Rendering it here is what makes the preview agree with
-          // the tape.
-          // As MARKUP, not a text node: the tucked lead carries the corner span, and a text
-          // node would print `<span class="switch …">` into the preview. Safe because the
-          // lead is only ever buildLead's output: LEAD_GUARD, constants, "Cheer" + an
-          // integer and a digit nonce. The plain leads render identically either way.
-          if (item.lead) stackBody.insertAdjacentHTML("beforeend", item.lead);
-          // UNDER THE TUCK the packer strips the leading <br> of the part's first body when
-          // it is giant type, so on the tape the nbsp and the first giant line SHARE line 1.
-          // A giant preview is a block (.rw-giant), which would give the nbsp a line of its
-          // own: a small line the print doesn't have. That first one renders inline instead.
-          // Found by the SAME test the packer uses (the first body with any markup), so the
-          // two cannot pick different bodies.
-          var tuckedLead = !!(item.lead && item.lead.indexOf(TUCK_OPEN) >= 0), firstSeen = false;
+          // the tape. A text node: the lead is plain text (the cheer token, digits, or the
+          // nbsp guard), never markup.
+          if (item.lead) stackBody.appendChild(document.createTextNode(item.lead));
           item.bodies.forEach(function (b) {
             var pv = b.preview || {};
-            var isFirst = !firstSeen && !!b.html;
-            if (b.html) firstSeen = true;
             if (pv.kind === "grid") {
               var pre2 = document.createElement("pre"); pre2.className = "receipt"; pre2.textContent = pv.grid || "";
               stackBody.appendChild(pre2);
@@ -2765,10 +2635,6 @@
               // html (big SVG / rotate span): append as direct children so the
               // .rcpt-body > svg centering rule (and the rotate div's own margin) apply.
               stackBody.insertAdjacentHTML("beforeend", pv.html || b.html);
-              if (isFirst && tuckedLead && b.leadBr && stackBody.lastElementChild
-                  && stackBody.lastElementChild.classList.contains("rw-giant")) {
-                stackBody.lastElementChild.classList.add("rw-inline");
-              }
             }
           });
           var frame2 = receiptFrame(stackBody);
@@ -3232,7 +3098,7 @@
       // changed. The note below is cheap and always rebuilt: it reads the packed parts.
       var labelKey = "";
       // Relabel both selects for `text` as it stands. planFor is giantPlan bound to the
-      // budget and tuck the packer will use.
+      // budget the packer will use.
       var relabel = function (planFor, go, has) {
         var i, o, p, label;
         // Layout options, each at the block's CURRENT size setting.
@@ -3272,18 +3138,18 @@
       var syncGiant = function (parts) {
         if (blockRender(block) !== "giant") return;
         var go = giantOpts(block), text = block.text || "";
-        // The SAME budget and tuck packStack sizes bodies with, so a label's "1 cheer" is
-        // the packer's answer and not a second opinion that can disagree with it.
-        var cheer = !!els.cheer.checked, tuck = cheer && getTuck(), bits = getBits();
-        var budget = MAX_CHARS - leadLength({ cheer: cheer, bits: bits, tuck: tuck, noNonce: !getNonce() });
+        // The SAME budget packStack sizes bodies with, so a label's "1 cheer" is the
+        // packer's answer and not a second opinion that can disagree with it.
+        var cheer = !!els.cheer.checked, bits = getBits();
+        var budget = MAX_CHARS - leadLength({ cheer: cheer, bits: bits, noNonce: !getNonce() });
         var heightPx = getHeightPx(), receiptMm = getReceiptMm();
         // The receipt length is in the key: changing it re-plans every label (the cheer
         // counts and cut-off flags move with the page).
-        var key = [text, go.layout, go.size, budget, tuck, heightPx].join("\u0000");
+        var key = [text, go.layout, go.size, budget, heightPx].join("\u0000");
         if (key !== labelKey) {
           labelKey = key;
           relabel(function (layout, size) {
-            return giantPlan(text, { layout: layout, size: size, budget: budget, tuck: tuck, heightPx: heightPx });
+            return giantPlan(text, { layout: layout, size: size, budget: budget, heightPx: heightPx });
           }, go, giantLines(text, "lines").length > 0);
         }
         // THE NOTE reads the PACKED parts: the packer
@@ -3305,7 +3171,7 @@
         var cheers;
         if (own.length) cheers = inParts.length;
         else {
-          own = buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: tuck, heightPx: heightPx });
+          own = buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, heightPx: heightPx });
           cheers = own[0].giant.cheers || 1;
         }
         var g = own[0].giant;
@@ -3854,7 +3720,7 @@
           : "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
       var cheer = !!els.cheer.checked;
-      var parts = packStack(blocks, { bits: getBits(), cheer: cheer, tuck: getTuck(), noNonce: !getNonce(), nonceFn: nonceForPart,
+      var parts = packStack(blocks, { bits: getBits(), cheer: cheer, noNonce: !getNonce(), nonceFn: nonceForPart,
                                       heightPx: getHeightPx() });
       return parts.map(function (p, i) {
         var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead };
@@ -3875,8 +3741,7 @@
     }
     function computeParts() {
       if (currentKind === "census") {
-        // Never tucked: the census builds its own markup-free payload (trailing token)
-        // without the packer, and a diagnostic should look like any ordinary cheer.
+        // The census builds its own markup-free payload (trailing token) without the packer.
         // With the repeat number on, the digits let a re-print go out within Twitch's 30 seconds.
         var body = buildCensus() + (getNonce() ? " " + nonceForPart(0) : "");
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
@@ -3885,10 +3750,8 @@
       return composeParts();
     }
     // "Print size ruler": 1..13 at every .title depth, one cheer. Through the normal packer
-    // so it carries the ordinary lead (and the repeat number when that's on), and
-    // NEVER tucked: a diagnostic should look like any other cheer, and the one thing it
-    // has to prove is the size, not the corner box. Rendered as a stack part so the preview
-    // draws it in the receipt the way it will print.
+    // so it carries the ordinary lead (and the repeat number when that's on). Rendered as a
+    // stack part so the preview draws it in the receipt the way it will print.
     function rulerParts() {
       var body = buildGiantRuler();
       // The ruler is ONE body and packStackBodies never splits a single body, so it stays one
@@ -3945,8 +3808,6 @@
       currentKind = "compose";
       els = {
         cheer: document.getElementById("cheer"),
-        cheerTuck: document.getElementById("cheerTuck"),
-        cheerTuckHint: document.getElementById("cheerTuckHint"),
         cheerNonce: document.getElementById("cheerNonce"),
         cheerNonceHint: document.getElementById("cheerNonceHint"),
         bitsAmount: document.getElementById("bitsAmount"),
@@ -3978,14 +3839,12 @@
       document.head.appendChild(pbStyle);
 
       restoreControls();
-      syncTuckUi();
       syncNonceUi();
 
-      [els.cheer, els.cheerNonce, els.cheerTuck, els.bitsAmount, els.receiptLen].forEach(function (el) {
+      [els.cheer, els.cheerNonce, els.bitsAmount, els.receiptLen].forEach(function (el) {
         if (!el) return;
         el.addEventListener("input", function () {
-          syncTuckUi();        // Cheer-ready gates the tuck; the bit amount changes its cost
-          syncNonceUi();       // ...and gates the repeat number; the bit amount is in its example
+          syncNonceUi();       // Cheer-ready gates the repeat number; the bit amount is in its example
           update();
         });
       });
@@ -4054,11 +3913,11 @@
       PB_CLASSES: PB_CLASSES, pbClass: pbClass, classAttr: classAttr, pbPreviewCss: pbPreviewCss,
       GIANT_BASE_PX: GIANT_BASE_PX, GIANT_RATIO: GIANT_RATIO, GIANT_MAX_LEVELS: GIANT_MAX_LEVELS,
       GIANT_MIN_PX: GIANT_MIN_PX, GIANT_GAP_PX: GIANT_GAP_PX, GIANT_CAP_EM: GIANT_CAP_EM,
-      GIANT_TUCK_PX: GIANT_TUCK_PX, GIANT_W: GIANT_W, GIANT_W_DEFAULT: GIANT_W_DEFAULT,
+      GIANT_W: GIANT_W, GIANT_W_DEFAULT: GIANT_W_DEFAULT,
       GIANT_LAYOUTS: GIANT_LAYOUTS, GIANT_RULER_LEVELS: GIANT_RULER_LEVELS,
       giantLineH: giantLineH, giantSteps: giantSteps, giantClean: giantClean, giantLines: giantLines,
       giantLineEm: giantLineEm, giantOpts: giantOpts, blockRender: blockRender,
-      buildLead: buildLead, leadLength: leadLength, TUCK_OPEN: TUCK_OPEN, TUCK_CLOSE: TUCK_CLOSE,
+      buildLead: buildLead, leadLength: leadLength,
       bandReserve: bandReserve, giantCapCm: giantCapCm, giantEmoteCm: giantEmoteCm, GIANT_MM_PER_PX: GIANT_MM_PER_PX,
       giantFit: giantFit, giantPlan: giantPlan, buildGiantBodies: buildGiantBodies,
       buildGiantRuler: buildGiantRuler, giantReport: giantReport,

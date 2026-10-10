@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { loadCore } from "./_harness.mjs";
 const C = loadCore();
 
@@ -48,20 +51,17 @@ test("no-cheer payload keeps the nbsp lead guard (may start with '<')", () => {
 // 0.12.0: the repeat number (the two nonce digits) is opt-in. `noNonce: true` is what the
 // app passes when it is off, which is its default.
 test("noNonce: every lead is the bare token, and its reservation is exactly 3 smaller", () => {
-  for (const bits of [100, 1000, 10000]) {
-    for (const tuck of [false, true]) {
-      const on = { cheer: true, bits, tuck }, off = { ...on, noNonce: true };
-      const what = "bits " + bits + (tuck ? ", tucked" : "");
-      assert.equal(C.leadLength(off), C.leadLength(on) - 3, what + ": the digits and their space");
-      const parts = C.packStackBodies([body(300, 50), body(300, 50)], off);
-      assert.equal(parts.length, 2, what);
-      const bare = tuck ? C.LEAD_GUARD + C.TUCK_OPEN + " Cheer" + bits + " " + C.TUCK_CLOSE : "Cheer" + bits + " ";
-      for (const p of parts) {
-        assert.equal(p.nonce, "", what);
-        assert.equal(p.lead, bare, what);
-        assert.equal(p.lead, C.buildLead(off, ""), what);
-        assert.notEqual(p.payload[0], "<", what);
-      }
+  for (const bits of [1, 25, 100, 1000, 10000]) {
+    const on = { cheer: true, bits }, off = { ...on, noNonce: true };
+    const what = "bits " + bits;
+    assert.equal(C.leadLength(off), C.leadLength(on) - 3, what + ": the digits and their space");
+    const parts = C.packStackBodies([body(300, 50), body(300, 50)], off);
+    assert.equal(parts.length, 2, what);
+    for (const p of parts) {
+      assert.equal(p.nonce, "", what);
+      assert.equal(p.lead, "Cheer" + bits + " ", what);
+      assert.equal(p.lead, C.buildLead(off, ""), what);
+      assert.notEqual(p.payload[0], "<", what);
     }
   }
   // Not cheering, there was never a nonce: the nbsp guard either way.
@@ -75,32 +75,27 @@ test("noNonce never asks for a nonce, so the app's counter (a storage write per 
   assert.equal(calls, 0);
 });
 
-test("noNonce: a body sized to the smaller reservation still lands at exactly 500, tucked or not", () => {
-  for (const tuck of [false, true]) {
-    const opts = { cheer: true, bits: 100, tuck, noNonce: true };
-    const budget = C.MAX_CHARS - C.leadLength(opts);
-    const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
-    assert.equal(one.length, 1);
-    assert.equal(one[0].chars, C.MAX_CHARS, tuck ? "tucked" : "untucked");
-  }
+test("noNonce: a body sized to the smaller reservation still lands at exactly 500", () => {
+  const opts = { cheer: true, bits: 100, noNonce: true };
+  const budget = C.MAX_CHARS - C.leadLength(opts);
+  const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
+  assert.equal(one.length, 1);
+  assert.equal(one[0].chars, C.MAX_CHARS);
 });
 
-test("noNonce leaves untucked bands where they were (the 14 floor) and gives a tucked band its 3", () => {
-  // Untucked, the band reserve's floor of 14 still applies, so toggling the digits never
-  // re-bands a Hanzi or glyph grid. Tucked, the reserve IS the lead, so it shrinks with it.
+test("noNonce leaves bands where they were (the 14 floor)", () => {
+  // The band reserve's floor of 14 still applies, so toggling the digits never re-bands a
+  // Hanzi or glyph grid.
   assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, noNonce: true })), 14);
-  const tucked = (o) => C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, tuck: true, ...o }));
-  assert.equal(tucked({ noNonce: true }), tucked({}) - 3);
+  assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100 })), 14);
 });
 
 test("noNonce absent or false packs byte-identically: callers written before the toggle are unchanged", () => {
   const bodies = [body(200, 50), body(150, 700, "丶二土"), body(260, 900)];
   for (const cheer of [true, false]) {
-    for (const tuck of [false, true]) {
-      const a = C.packStackBodies(bodies, { cheer, bits: 100, tuck, nonceFn: (i) => C.makeNonce(i) });
-      const b = C.packStackBodies(bodies, { cheer, bits: 100, tuck, noNonce: false, nonceFn: (i) => C.makeNonce(i) });
-      assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
-    }
+    const a = C.packStackBodies(bodies, { cheer, bits: 100, nonceFn: (i) => C.makeNonce(i) });
+    const b = C.packStackBodies(bodies, { cheer, bits: 100, noNonce: false, nonceFn: (i) => C.makeNonce(i) });
+    assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
   }
 });
 
@@ -131,20 +126,16 @@ test("the lead is the cheer token when cheering and the nbsp guard when not", ()
   assert.equal(bare.lead.charCodeAt(0), 0x00A0);
 });
 
-// ── THE LEAD, AND THE CHEER-GEM TUCK ──
+// ── THE LEAD ──
 // buildLead is the ONE builder of a part's lead; leadLength is what the packer and the
-// band builders reserve for it. The tuck moves the cheer token into a corner box:
-// LEAD_GUARD + <span class="switch dialog-nav-button"> Cheer100 nn </span>, 60 characters
-// against the plain lead's 12.
-const TUCK_RE = /^\u00A0<span class="switch dialog-nav-button"> Cheer100 \d\d <\/span>$/;
-
+// band builders reserve for it.
 test("the plain lead is 'Cheer<bits> 07 ' for ANY amount from 1 up, and leadLength is token.length + 4", () => {
   // The packer used to reserve `"Cheer" + bits` + 4 inline; leadLength has to agree with
   // that at every bit amount. There is no 100-bit floor any more: a floor made the Bits
   // control say 25 while the payload sent (and spent) Cheer100. Absent, zero, negative or
   // junk falls back to the 100 default; a fraction is floored.
   assert.equal(C.buildLead({ cheer: true, bits: 100 }, "07"), "Cheer100 07 ");
-  assert.equal(C.buildLead({ cheer: true, bits: 500, tuck: false }, "07"), "Cheer500 07 ");
+  assert.equal(C.buildLead({ cheer: true, bits: 500 }, "07"), "Cheer500 07 ");
   assert.equal(C.buildLead({ cheer: true, bits: 25 }, "07"), "Cheer25 07 ");
   assert.equal(C.buildLead({ cheer: true, bits: 1 }, ""), "Cheer1 ");
   assert.equal(C.buildLead({ cheer: false }, "07"), C.LEAD_GUARD);
@@ -162,135 +153,87 @@ test("the plain lead is 'Cheer<bits> 07 ' for ANY amount from 1 up, and leadLeng
   assert.equal(C.leadLength({ cheer: true, bits: 100 }), 12);
 });
 
-test("tucked, the lead is the corner span after LEAD_GUARD, and never starts with '<'", () => {
-  for (const bits of [100, 1000, 10000]) {
-    const lead = C.buildLead({ cheer: true, bits, tuck: true }, "07");
-    assert.match(lead.replace("Cheer" + bits, "Cheer100"), TUCK_RE, lead);
-    assert.equal(lead.charCodeAt(0), 0x00A0, "the tucked lead must start with LEAD_GUARD, not '<'");
-    // 60/61/62, plus the 4-character <br> the packer may add to a first body.
-    const n = { 100: 60, 1000: 61, 10000: 62 }[bits];
-    assert.equal(C.payloadLength(lead), n, "tucked lead at " + bits);
-    assert.equal(C.leadLength({ cheer: true, bits, tuck: true }), n + 4, "reserve at " + bits);
-  }
-  // The token keeps a space on BOTH sides inside the span: Twitch only charges (and
-  // printer-bot only turns into a gem) a standalone "Cheer100".
-  assert.match(C.buildLead({ cheer: true, bits: 100, tuck: true }, "07"), /(^|\s)Cheer100(?=\s)/);
-});
-
-test("the tuck means nothing without a cheer: no token, no span, the nbsp guard", () => {
-  const lead = C.buildLead({ cheer: false, tuck: true }, "07");
-  assert.equal(lead, C.LEAD_GUARD);
-  assert.equal(C.leadLength({ cheer: false, tuck: true }), C.LEAD_GUARD.length);
-  const parts = C.packStackBodies([body(120, 50, "<b>x</b>")], { cheer: false, tuck: true });
-  assert.equal(parts[0].lead, C.LEAD_GUARD);
-  assert.ok(!parts[0].payload.includes("<span"), parts[0].payload);
-  assert.equal(parts[0].payload, C.LEAD_GUARD + "<b>x</b>", "an uncheered body must not gain a <br> either");
-});
-
-test("tuck OFF packs byte-identically to no tuck option at all", () => {
-  const bodies = [body(200, 50), body(150, 700, "丶二土"), body(260, 900), body(90, 10, "<br><b>x</b><br>")];
-  bodies[3].leadBr = true;
-  for (const cheer of [true, false]) {
-    for (const bits of [100, 1000]) {
-      const a = C.packStackBodies(bodies, { cheer, bits, nonceFn: (i) => C.makeNonce(i) });
-      const b = C.packStackBodies(bodies, { cheer, bits, tuck: false, nonceFn: (i) => C.makeNonce(i) });
-      assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
-      for (const p of a) {
-        // Untucked, the packer touches no body: a leadBr body keeps its <br>.
-        assert.equal(p.payload, p.lead + p.bodies.map((x) => x.html).join(""));
+test("the lead's real overhead is reserved: a body filling the budget lands at exactly 500, one more splits", () => {
+  // The mutation this exists for: a reservation smaller than the lead the packer then
+  // sends lets a part go over Twitch's limit, so the whole message is rejected and
+  // nothing prints. Every amount from 1 up, with the repeat digits on and off.
+  for (const bits of [1, 25, 100, 1000, 10000]) {
+    for (const noNonce of [false, true]) {
+      const opts = { cheer: true, bits, noNonce };
+      const what = "bits " + bits + (noNonce ? ", no nonce" : "");
+      const budget = C.MAX_CHARS - C.leadLength(opts);
+      const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
+      assert.equal(one.length, 1, what);
+      assert.equal(one[0].chars, C.MAX_CHARS, what + ": a full-budget body");
+      const half = Math.floor(budget / 2);
+      const two = C.packStackBodies([body(half, 10), body(budget - half + 1, 10)], opts);
+      assert.equal(two.length, 2, what + ": " + two.map((p) => p.chars).join("/"));
+      for (const p of two) {
+        assert.ok(p.chars <= C.MAX_CHARS, what + ": a part is " + p.chars + " characters");
+        assert.equal(p.chars, C.payloadLength(p.payload));
+        assert.equal(p.lead, C.buildLead(opts, p.nonce), what + ": the part's lead is not buildLead's");
       }
     }
   }
 });
 
-test("the tuck lead's real overhead is reserved: two 230-char bodies are TWO parts, each <= 500", () => {
-  // The mutation this exists for: reserving the old `token.length + 4` (12) instead of
-  // leadLength (64 tucked) lets 230 + 230 share one part at 60 + 460 = 520 characters,
-  // over Twitch's limit, so the whole message is rejected and nothing prints.
-  for (const bits of [100, 1000, 10000]) {
-    const opts = { cheer: true, tuck: true, bits };
-    const parts = C.packStackBodies([body(230, 10), body(230, 10)], opts);
-    assert.equal(parts.length, 2, "bits " + bits + ": " + parts.map((p) => p.chars).join("/"));
-    for (const p of parts) {
-      assert.ok(p.chars <= C.MAX_CHARS, "bits " + bits + ": a part is " + p.chars + " characters");
-      assert.equal(p.chars, C.payloadLength(p.payload));
-      assert.equal(p.lead, C.buildLead(opts, p.nonce), "the part's lead is not buildLead's");
-      assert.notEqual(p.payload[0], "<");
-    }
+test("the packer never touches a body: no <br> is added or stripped, whatever opens it", () => {
+  // A giant body opens with its own <br> (it ends the lead's line); a Hanzi band opens with
+  // a glyph. Both go out exactly as built, after exactly the lead.
+  const giant = body(200, 600, "<br><b class=title>GG</b><br>" + "x".repeat(171));
+  const hanzi = body(200, 600, "丶".repeat(200));
+  for (const cheer of [true, false]) {
+    const parts = C.packStackBodies([giant, hanzi, hanzi, giant], { cheer, bits: 100, heightPx: 5000 });
+    assert.equal(parts.length, 2, parts.map((p) => p.chars).join("/"));
+    for (const p of parts) assert.equal(p.payload, p.lead + p.bodies.map((b) => b.html).join(""));
+    assert.equal(parts[1].payload, parts[1].lead + hanzi.html + giant.html);
   }
 });
 
-test("the tuck's <br> is reserved too: a body filling the whole budget still lands at exactly 500", () => {
-  // A body WITHOUT its own leading <br> (Hanzi, glyph-art) gains one under the tuck, and
-  // leadLength counts those 4 characters. Drop them from the reserve and a body sized to
-  // the budget lands at 504. Two bodies sharing the budget pay the <br> once.
-  const opts = { cheer: true, bits: 100, tuck: true };
-  const budget = C.MAX_CHARS - C.leadLength(opts);
-  const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
-  assert.equal(one.length, 1);
-  assert.equal(one[0].chars, C.MAX_CHARS, "a full-budget body under the tuck");
-  const half = Math.floor(budget / 2);
-  const two = C.packStackBodies([body(half, 10, "丶".repeat(half)), body(budget - half, 10, "二".repeat(budget - half))], opts);
-  assert.equal(two.length, 1);
-  assert.ok(two[0].chars <= C.MAX_CHARS, two[0].chars);
-});
-
-test("tucked, the FIRST body of every part is fixed up: a leadBr body loses its <br>, any other gains one", () => {
-  // A giant body opens with <br> only to end the lead's line. Tucked, the lead is an nbsp
-  // plus a box pinned out of the flow, so keeping that <br> leaves a blank line exactly as
-  // tall as the gem line it hid (real engine: 156px either way); dropping it saves the
-  // line (133px). A Hanzi/glyph grid has no <br>, and would share line 1 with the nbsp,
-  // shifting its wrap and shearing the grid, so it gains one instead.
-  // Pinned to one 500mm page (heightPx): this test is about the leadBr fix-up and CHARACTER
-  // packing, so it uses a page long enough that two 600px bodies share a part by height and
-  // only the character budget decides the split — not the A4 receipt-length default.
-  const opts = { cheer: true, bits: 100, tuck: true, nonceFn: (i) => C.makeNonce(i), heightPx: C.heightBudget(500) };
-  const giant = (n) => Object.assign(body(n, 600, "<br><b class=title>" + "G".repeat(n - 27) + "</b><br>"), { leadBr: true });
-  const hanzi = (n) => body(n, 600, "丶".repeat(n));
-  const g1 = giant(200), h1 = hanzi(200), g2 = giant(200), h2 = hanzi(200);
-  const parts = C.packStackBodies([g1, h1, h2, g2], opts);
-  assert.equal(parts.length, 2, parts.map((p) => p.chars).join("/"));
-  // Part 1 starts with the giant body minus its <br>; the hanzi body after it is untouched.
-  assert.equal(parts[0].payload, parts[0].lead + g1.html.slice(4) + h1.html);
-  // Part 2 starts with a hanzi body, which gains a <br>; the giant body after it keeps its own.
-  assert.equal(parts[1].payload, parts[1].lead + "<br>" + h2.html + g2.html);
-  // An EMPTY body ahead of the first real one changes nothing on paper, so it must not
-  // absorb the fix-up.
-  const empty = { html: "", chars: 0, heightPx: 0 };
-  const e = C.packStackBodies([empty, hanzi(100)], opts);
-  assert.equal(e[0].payload, e[0].lead + "<br>" + "丶".repeat(100));
-  const eg = C.packStackBodies([empty, giant(100)], opts);
-  assert.equal(eg[0].payload, eg[0].lead + giant(100).html.slice(4));
-  // A body that opens with its own <br> but does NOT offer it (leadBr false: a giant body
-  // in emote layout) already starts on a clean line. Adding the usual <br> would double
-  // it into a blank line; stripping it would print its padded first line off-centre.
-  const kept = body(200, 600, "<br><b class=title> Kappa </b><br>" + "x".repeat(200 - 34));
-  const k = C.packStackBodies([kept], opts);
-  assert.equal(k[0].payload, k[0].lead + kept.html);
-  assert.ok(!k[0].payload.includes("<br><br>"), k[0].payload);
-});
-
-test("a full 15-column Hanzi band is resized for the tuck instead of going out over 500", () => {
+test("a full 15-column Hanzi band fits its message at every lead", () => {
   // hanziBodies sizes a band as floor((MAX_CHARS - bandReserve(budget)) / cols) rows of
-  // pure text, and the packer never splits a band. Untucked that is 32 rows (480 chars,
-  // 492 with "Cheer100 nn "), exactly as before; with the tuck's 60 + <br> a 32-row band
-  // would be 544 and Twitch would reject it, so the reserve has to grow to the real lead.
-  // (hanziBodies itself needs a canvas, so its formula is replayed here from the two
-  // exported pieces it uses; giant.test.mjs checks it still calls them.)
+  // pure text, and the packer never splits a band: 32 rows (480 chars, 492 with
+  // "Cheer100 nn "). (hanziBodies itself needs a canvas, so its formula is replayed here
+  // from the two exported pieces it uses; the structural check below pins that it still
+  // calls them.)
   const rowsFor = (opts, cols) =>
     Math.max(1, Math.floor((C.MAX_CHARS - C.bandReserve(C.MAX_CHARS - C.leadLength(opts))) / cols));
-  for (const opts of [{ cheer: true, bits: 100 }, { cheer: true, bits: 10000 }, { cheer: false }, { cheer: false, tuck: true }]) {
-    assert.equal(rowsFor(opts, 15), 32, "untucked band changed for " + JSON.stringify(opts));
-    assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength(opts)), 14, "untucked reserve must stay 14");
+  for (const opts of [{ cheer: true, bits: 100 }, { cheer: true, bits: 10000 }, { cheer: false },
+                      { cheer: true, bits: 1, noNonce: true }]) {
+    assert.equal(rowsFor(opts, 15), 32, "band changed for " + JSON.stringify(opts));
+    assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength(opts)), 14, "reserve must stay 14");
   }
-  for (const bits of [100, 1000, 10000]) {
-    const opts = { cheer: true, bits, tuck: true };
+  for (const bits of [1, 100, 1000, 10000, 99999]) {
+    const opts = { cheer: true, bits };
     for (const cols of [8, 15, 23, 48]) {
       const rows = rowsFor(opts, cols), band = "丶".repeat(rows * cols);
       const parts = C.packStackBodies([body(rows * cols, rows * 18, band)], opts);
       assert.equal(parts.length, 1);
-      assert.ok(parts[0].chars <= C.MAX_CHARS,
-        cols + "-column band at " + bits + " bits, tucked: " + parts[0].chars + " characters");
+      assert.ok(parts[0].chars <= C.MAX_CHARS, cols + "-column band at " + bits + " bits: " + parts[0].chars + " characters");
     }
   }
+});
+
+test("the banded builders size against the real lead (a structural check: they need a canvas)", () => {
+  // hanziBodies and glyphImageBodies rasterize on a <canvas>, which the null-DOM sandbox
+  // cannot run, so their band arithmetic is replayed above from the two exported pieces it
+  // uses. This pins that they still USE them: the packer never splits a band, so a band
+  // sized for a shorter lead than the one sent goes over 500 and Twitch rejects the cheer.
+  const here = dirname(fileURLToPath(import.meta.url));
+  const src = readFileSync(join(here, "../public/index.html"), "utf8");
+  const fn = (name) => {
+    const m = src.match(new RegExp("function " + name + "\\(([^)]*)\\)\\s*\\{[\\s\\S]*?\\n    \\}\\n"));
+    assert.ok(m, "could not find " + name + " in index.html");
+    return m;
+  };
+  for (const name of ["hanziBodies", "glyphImageBodies"]) {
+    const m = fn(name);
+    assert.ok(/\bbudget\b/.test(m[1]), name + " no longer takes the per-body budget");
+    assert.ok(m[0].includes("bandReserve(budget)"), name + " sizes its band without bandReserve(budget)");
+    assert.ok(!/MAX_CHARS - 14\b|\+ 14\b/.test(m[0]), name + " is back to a hardcoded 14-character lead");
+  }
+  const rbb = fn("renderBlockBodies")[0];
+  assert.ok(/glyphImageBodies\(block, budget\)/.test(rbb), "renderBlockBodies stopped passing the budget to glyph-art");
+  assert.ok(/hanziBodies\([^)]*\bbudget\)/.test(rbb), "renderBlockBodies stopped passing the budget to Hanzi");
+  assert.ok(/MAX_CHARS - leadLength\(opts\)/.test(fn("packStack")[0]), "packStack no longer derives the budget from the lead");
 });

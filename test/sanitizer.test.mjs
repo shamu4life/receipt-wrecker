@@ -69,30 +69,29 @@ test("the attribute scan reads EVERY occurrence and splits bare names the way a 
   //  - a stray attribute on the SECOND level of a nest (level 1 is clean);
   assert.ok(!survivesWhole("<b class=title>A<b class=title style=\"x\">B</b></b>"),
     "a style= on level 2 of a .title nest must be seen");
-  //  - the unquoted multi-class tuck span: a parser reads class="switch" plus a boolean
-  //    attribute named dialog-nav-button, which the sanitizer strips, and the corner
-  //    tuck with it.
-  assert.ok(!survivesWhole("<span class=switch dialog-nav-button> Cheer100 07 </span>"),
-    "the unquoted multi-class span must read as a stripped boolean attribute");
-  assert.ok(survivesWhole("<span class=\"switch dialog-nav-button\"> Cheer100 07 </span>"),
+  //  - an unquoted multi-class value: a parser reads class="title" plus a boolean
+  //    attribute named setting-description, which the sanitizer strips.
+  assert.ok(!survivesWhole("<b class=title setting-description>A</b>"),
+    "the unquoted multi-class value must read as a stripped boolean attribute");
+  assert.ok(survivesWhole("<b class=\"title setting-description\">A</b>"),
     "the quoted form is one class attribute and survives");
 });
 
-test("Giant type and the cheer-gem tuck survive the allow-list whole: b/br/span, class only", () => {
+test("Giant type survives the allow-list whole: b/br, class only", () => {
   // Giant type works ONLY because the sanitizer keeps `class` and printer-bot's printed
   // page carries nutty's global.css (see PB_CLASSES). So the whole feature lives or dies
-  // on this scan: a tag outside b/br/span, or any attribute but class, and the size or
-  // the tuck silently falls off on paper. Checked on the CONCATENATED payload the packer
-  // emits, every size class and every layout, tuck on and off, plus the ruler.
+  // on this scan: a tag outside b/br, or any attribute but class, and the size silently
+  // falls off on paper. Checked on the CONCATENATED payload the packer emits, every size
+  // class and every layout, repeat digits on and off, plus the ruler.
   const texts = ["HELLO", "PENIS", "A&B <i>x</i> \"Q\"", "HAPPY\nBIRTHDAY\nCHAT", "Kappa KEKW\nPogChamp"];
   const blobs = [C.buildGiantRuler().html];
   for (const text of texts) {
     for (const layout of ["auto", "lines", "stack", "emote"]) {
       for (const size of ["fit1", "width", 1, 9, 18]) {
-        for (const tuck of [false, true]) {
-          const opts = { cheer: true, bits: 100, tuck };
+        for (const noNonce of [false, true]) {
+          const opts = { cheer: true, bits: 100, noNonce };
           const bodies = C.buildGiantBodies(text, {
-            layout, size, tuck, budget: C.MAX_CHARS - C.leadLength(opts) });
+            layout, size, budget: C.MAX_CHARS - C.leadLength(opts) });
           for (const p of C.packStackBodies(bodies, opts)) blobs.push(p.payload);
         }
       }
@@ -103,11 +102,10 @@ test("Giant type and the cheer-gem tuck survive the allow-list whole: b/br/span,
   for (const e of C.PB_CLASSES.filter((x) => x.role === "shrink")) {
     assert.ok(all.includes("class=" + e.cls), "no payload exercised the " + e.cls + " wrapper");
   }
-  assert.ok(all.includes(C.TUCK_OPEN), "no payload exercised the tuck span");
   for (const html of blobs) {
     assert.ok(survivesWhole(html), "giant payload loses markup at the sanitizer: " + html);
     for (const t of scanTags(html)) {
-      assert.ok(["b", "br", "span"].includes(t.tag), "giant type emitted <" + t.tag + ">: " + html);
+      assert.ok(["b", "br"].includes(t.tag), "giant type emitted <" + t.tag + ">: " + html);
       for (const a of t.attrs) assert.equal(a.name, "class", "giant type emitted a " + a.name + " attribute: " + html);
     }
   }

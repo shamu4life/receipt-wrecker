@@ -13,9 +13,6 @@
 // not targets to tune the code against.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import { loadCore, eq, scanTags } from "./_harness.mjs";
 
 const C = loadCore();
@@ -77,7 +74,7 @@ test("PB_CLASSES rows are well-formed, in printer-bot's cascade order, and name 
       assert.equal(typeof e[k], "string", e.id + " is missing " + k);
       assert.ok(e[k].length, e.id + " has an empty " + k);
     }
-    assert.ok(["grow", "shrink", "tuck", "emote"].includes(e.role), e.id + ": unknown role " + e.role);
+    assert.ok(["grow", "shrink", "emote"].includes(e.role), e.id + ": unknown role " + e.role);
     assert.ok(["printed", "sent", "untested"].includes(e.field), e.id + ": unknown field " + e.field);
     assert.ok(["global.css", "style.css"].includes(e.source), e.id + ": unknown source " + e.source);
     assert.match(e.checked, /^\d{4}-\d\d-\d\d$/);
@@ -98,8 +95,6 @@ test("PB_CLASSES rows are well-formed, in printer-bot's cascade order, and name 
     title: ["title", "font-weight:900;font-size:1.2em;text-transform:uppercase", "grow"],
     shrink9: ["setting-description", "font-size:.9em;font-weight:100", "shrink"],
     shrink8: ["setting-attribute", "font-size:.8em;font-weight:200", "shrink"],
-    switch: ["switch", "position:relative;display:inline-block;width:3em;height:1.5em;font-size:1em;overflow:hidden", "tuck"],
-    navbtn: ["dialog-nav-button", "background:transparent;border:none;font-size:1.5em;font-weight:100;padding:0;width:1em;height:1em;position:fixed;top:.5em;right:.5em", "tuck"],
     emote: ["emote", "height:1em", "emote"],
   };
   eq(ids, Object.keys(want));
@@ -115,17 +110,12 @@ test("PB_CLASSES rows are well-formed, in printer-bot's cascade order, and name 
 test("every constant that describes a borrowed class is DERIVED from the table", () => {
   assert.equal(C.GIANT_RATIO, C.pbClass("title").factor);
   assert.equal(C.GIANT_MIN_PX, C.GIANT_BASE_PX * C.GIANT_RATIO);
-  // The tuck span MUST be quoted: unquoted, dialog-nav-button parses as a boolean
-  // attribute, the sanitizer strips it, and the gem prints in the flow as before.
-  assert.equal(C.TUCK_OPEN, '<span class="switch dialog-nav-button">');
-  assert.equal(C.TUCK_CLOSE, "</span>");
-  const tuckClasses = C.PB_CLASSES.filter((e) => e.role === "tuck").map((e) => e.cls).join(" ");
-  assert.equal(C.TUCK_OPEN, "<span " + C.classAttr(tuckClasses) + ">");
   // classAttr: unquoted where that is legal (2 characters cheaper, paid up to 18 times a
-  // line), quoted where it is not.
+  // line), quoted where it is not. A two-class value MUST be quoted: unquoted, the second
+  // class parses as a boolean attribute, which the sanitizer strips.
   assert.equal(C.classAttr("title"), "class=title");
   assert.equal(C.classAttr("setting-description"), "class=setting-description");
-  assert.equal(C.classAttr("switch dialog-nav-button"), 'class="switch dialog-nav-button"');
+  assert.equal(C.classAttr("title setting-description"), 'class="title setting-description"');
   assert.equal(C.classAttr("Title"), 'class="Title"');
   assert.equal(C.classAttr('a"b'), 'class="a&quot;b"');
 });
@@ -134,8 +124,7 @@ test("every class giant type emits exists in PB_CLASSES, and every class attribu
   // All-occurrences scan (scanTags), so level 17 of an 18-deep nest is checked as hard as
   // level 1. Only `class` is allowed through: anything else is stripped on the way in.
   const known = new Set(C.PB_CLASSES.map((e) => e.cls));
-  const blobs = [C.buildGiantRuler().html, C.TUCK_OPEN + C.TUCK_CLOSE,
-    C.buildLead({ cheer: true, bits: 100, tuck: true }, "07")];
+  const blobs = [C.buildGiantRuler().html];
   for (const text of ["HI", "PENIS", "A&B", "HAPPY\nBIRTHDAY\nCHAT", "Kappa KEKW"]) {
     for (const layout of LAYOUTS) {
       for (const size of ["fit1", "width", 1, 2, 3, 12, 18]) {
@@ -147,7 +136,7 @@ test("every class giant type emits exists in PB_CLASSES, and every class attribu
   for (const html of blobs) {
     for (const t of scanTags(html)) {
       for (const a of t.attrs) {
-        assert.equal(a.name, "class", "giant/tuck markup carries a " + a.name + " attribute: " + html);
+        assert.equal(a.name, "class", "giant markup carries a " + a.name + " attribute: " + html);
         assert.ok(a.quoted || /^[a-z][a-z0-9-]*$/.test(a.value),
           "an unquoted class value must be a plain name: " + a.value + " in " + html);
         for (const cls of String(a.value).split(/\s+/)) {
@@ -157,25 +146,21 @@ test("every class giant type emits exists in PB_CLASSES, and every class attribu
       }
     }
   }
-  for (const cls of ["title", "setting-description", "setting-attribute", "switch", "dialog-nav-button"]) {
+  for (const cls of ["title", "setting-description", "setting-attribute"]) {
     assert.ok(seen.has(cls), "no builder output exercised class " + cls);
   }
 });
 
-test("the preview CSS is built from the table, minus .emote, with fixed turned into absolute", () => {
+test("the preview CSS is built from the table, minus .emote, and scoped to the receipt", () => {
   const css = C.pbPreviewCss(".rcpt");
   for (const e of C.PB_CLASSES) {
     if (e.role === "emote") {
-      // printer-bot's .emote{height:1em} would also catch the takeover preview's
-      // <img class="emote"> carrier and shrink it to 16px.
+      // No giant preview holds a real .emote, so the rule would style nothing.
       assert.ok(!css.includes("." + e.cls + "{"), "the emote rule must stay out of the preview");
       continue;
     }
-    const decl = e.decl.replace(/position:fixed/g, "position:absolute");
-    assert.ok(css.includes(".rcpt ." + e.cls + "{" + decl + "}"), "preview CSS lacks " + e.cls + ": " + css);
+    assert.ok(css.includes(".rcpt ." + e.cls + "{" + e.decl + "}"), "preview CSS lacks " + e.cls + ": " + css);
   }
-  // The preview's .rcpt stands in for the PAGE; fixed would pin the tuck to the window.
-  assert.ok(!/position:fixed/.test(css), css);
   // Segoe UI's line height on the rig, so preview heights track the tape on any OS font.
   assert.ok(css.includes(".rcpt .title{line-height:1.33}"), css);
   // Scoped: nothing in it may reach the app's own UI.
@@ -388,23 +373,21 @@ test("fit1 is the biggest size in ONE cheer, and never costs more cheers than th
   for (let i = 0; i < 120; i++) {
     const text = randomText(r);
     for (const layout of ["lines", "stack", "emote"]) {
-      for (const tuck of [false, true]) {
-        const budget = budgetFor({ cheer: true, bits: 100, tuck });
-        const fitPx = C.PAPER_PX - (tuck ? C.GIANT_TUCK_PX : 0);
-        const lines = C.giantLines(text, layout);
-        const fit1 = C.giantFit(lines, { layout, size: "fit1", budget, fitPx });
-        const smallest = C.giantFit(lines, { layout, size: 1, budget, fitPx });
-        assert.ok(fit1.cheers <= smallest.cheers,
-          JSON.stringify(text) + " " + layout + ": fit1 costs " + fit1.cheers + " cheers, the smallest size " + smallest.cheers);
-        if (smallest.cheers === 1) assert.equal(fit1.cheers, 1, JSON.stringify(text) + " " + layout);
-        // And the pruning (giantChunkFloor, a floor on CHUNKS used against a count of
-        // merged CHEERS) never skipped a bigger whole level that sends in one cheer.
-        if (fit1.cheers === 1 && !fit1.over) {
-          for (let n = fit1.levels + 1; n <= C.GIANT_MAX_LEVELS; n++) {
-            const g = C.giantFit(lines, { layout, size: n, budget, fitPx });
-            assert.ok(!(g.fits && g.cheers === 1 && !g.over && g.px > fit1.px),
-              JSON.stringify(text) + " " + layout + ": L" + n + " sends in one cheer, bigger than the pick " + JSON.stringify(fit1));
-          }
+      const budget = budgetFor({ cheer: true, bits: 100 });
+      const fitPx = C.PAPER_PX;
+      const lines = C.giantLines(text, layout);
+      const fit1 = C.giantFit(lines, { layout, size: "fit1", budget, fitPx });
+      const smallest = C.giantFit(lines, { layout, size: 1, budget, fitPx });
+      assert.ok(fit1.cheers <= smallest.cheers,
+        JSON.stringify(text) + " " + layout + ": fit1 costs " + fit1.cheers + " cheers, the smallest size " + smallest.cheers);
+      if (smallest.cheers === 1) assert.equal(fit1.cheers, 1, JSON.stringify(text) + " " + layout);
+      // And the pruning (giantChunkFloor, a floor on CHUNKS used against a count of
+      // merged CHEERS) never skipped a bigger whole level that sends in one cheer.
+      if (fit1.cheers === 1 && !fit1.over) {
+        for (let n = fit1.levels + 1; n <= C.GIANT_MAX_LEVELS; n++) {
+          const g = C.giantFit(lines, { layout, size: n, budget, fitPx });
+          assert.ok(!(g.fits && g.cheers === 1 && !g.over && g.px > fit1.px),
+            JSON.stringify(text) + " " + layout + ": L" + n + " sends in one cheer, bigger than the pick " + JSON.stringify(fit1));
         }
       }
     }
@@ -465,16 +448,14 @@ test("the cheer count is the packer's: fit, report and packed parts agree, and f
   for (let i = 0; i < 80; i++) {
     const text = randomText(r);
     for (const layout of LAYOUTS) {
-      for (const tuck of [false, true]) {
-        for (const size of ["fit1", "width", 4, 11, 17]) {
-          const bodies = C.buildGiantBodies(text, { layout, size, tuck });
-          if (!bodies[0].giant.levels) continue;
-          const parts = C.packStackBodies(bodies, { cheer: true, bits: 100, tuck });
-          assert.equal(bodies[0].giant.cheers, parts.length,
-            JSON.stringify(text) + " " + layout + " " + size + (tuck ? " tucked" : "") + ": the card would say "
-            + bodies[0].giant.cheers + " cheers for " + parts.length + " parts");
-          assert.equal(C.giantPlan(text, { layout, size, tuck }).fit.cheers, parts.length);
-        }
+      for (const size of ["fit1", "width", 4, 11, 17]) {
+        const bodies = C.buildGiantBodies(text, { layout, size });
+        if (!bodies[0].giant.levels) continue;
+        const parts = C.packStackBodies(bodies, { cheer: true, bits: 100 });
+        assert.equal(bodies[0].giant.cheers, parts.length,
+          JSON.stringify(text) + " " + layout + " " + size + ": the card would say "
+          + bodies[0].giant.cheers + " cheers for " + parts.length + " parts");
+        assert.equal(C.giantPlan(text, { layout, size }).fit.cheers, parts.length);
       }
     }
   }
@@ -486,13 +467,11 @@ test("the cheer count is the packer's: fit, report and packed parts agree, and f
 // tag more than the plain step below it, which is how a SMALLER step can be the over one.
 test("a line too long to send on its own ranks below every step that sends, in fit1 and width", () => {
   for (const size of ["fit1", "width"]) {
-    for (const tuck of [false, true]) {
-      const b = C.buildGiantBodies("A".repeat(240), { layout: "emote", size, tuck });
-      assert.ok(!b.some((x) => x.giant.over),
-        size + (tuck ? " tucked" : "") + " picked an over step: " + JSON.stringify(b.map((x) => [x.chars, x.giant.levels, x.giant.shrink])));
-      for (const p of C.packStackBodies(b, { cheer: true, bits: 100, tuck })) {
-        assert.ok(p.chars <= C.MAX_CHARS, size + ": a " + p.chars + "-character part");
-      }
+    const b = C.buildGiantBodies("A".repeat(240), { layout: "emote", size });
+    assert.ok(!b.some((x) => x.giant.over),
+      size + " picked an over step: " + JSON.stringify(b.map((x) => [x.chars, x.giant.levels, x.giant.shrink])));
+    for (const p of C.packStackBodies(b, { cheer: true, bits: 100 })) {
+      assert.ok(p.chars <= C.MAX_CHARS, size + ": a " + p.chars + "-character part");
     }
   }
   // Long tokens, seeded: an over pick is only allowed when EVERY width-fitting whole level
@@ -505,16 +484,14 @@ test("a line too long to send on its own ranks below every step that sends, in f
       words.push(toks[Math.floor(r() * toks.length)].repeat(1 + Math.floor(r() * 90)));
     }
     const text = words.join(r() < 0.5 ? " " : "\n");
-    for (const tuck of [false, true]) {
-      const budget = budgetFor({ cheer: true, bits: 100, tuck });
-      const lines = C.giantLines(text, "emote");
-      for (const size of ["fit1", "width"]) {
-        const pick = C.giantFit(lines, { layout: "emote", size, budget });
-        if (!pick.over) continue;
-        for (let n = 1; n <= C.GIANT_MAX_LEVELS; n++) {
-          const g = C.giantFit(lines, { layout: "emote", size: n, budget });
-          assert.ok(!g.fits || g.over, JSON.stringify(text) + " " + size + ": picked an over step while L" + n + " fits and sends");
-        }
+    const budget = budgetFor({ cheer: true, bits: 100 });
+    const lines = C.giantLines(text, "emote");
+    for (const size of ["fit1", "width"]) {
+      const pick = C.giantFit(lines, { layout: "emote", size, budget });
+      if (!pick.over) continue;
+      for (let n = 1; n <= C.GIANT_MAX_LEVELS; n++) {
+        const g = C.giantFit(lines, { layout: "emote", size: n, budget });
+        assert.ok(!g.fits || g.over, JSON.stringify(text) + " " + size + ": picked an over step while L" + n + " fits and sends");
       }
     }
   }
@@ -534,22 +511,22 @@ test("a body that prints nothing never opens or closes a part of its own", () =>
     assert.equal(parts.length, 1, "an empty body got a cheer of its own: " + JSON.stringify(parts.map((p) => p.payload)));
   }
   // A run that splits: every part carries something of ours, the empty body included in one.
-  for (const tuck of [false, true]) {
-    const budget = budgetFor({ cheer: true, bits: 100, tuck });
+  {
+    const budget = budgetFor({ cheer: true, bits: 100 });
     const bodies = [
-      ...C.buildGiantBodies("HAPPY BIRTHDAY SHAMU", { layout: "stack", size: "width", budget, tuck }),
-      ...C.buildGiantBodies("🎉", { budget, tuck })];
-    const parts = C.packStackBodies(bodies, { cheer: true, bits: 100, tuck });
+      ...C.buildGiantBodies("HAPPY BIRTHDAY SHAMU", { layout: "stack", size: "width", budget }),
+      ...C.buildGiantBodies("🎉", { budget })];
+    const parts = C.packStackBodies(bodies, { cheer: true, bits: 100 });
     assert.ok(parts.length > 1, "fixture: the run splits");
     for (const p of parts) {
-      assert.ok(p.bodies.some((b) => b.html), (tuck ? "tucked: " : "") + "a part prints nothing of ours: " + p.payload);
+      assert.ok(p.bodies.some((b) => b.html), "a part prints nothing of ours: " + p.payload);
     }
   }
 });
 
 // ── Bodies: characters, height, chunk edges ──
 
-test("CHARACTER BUDGET: every body fits its message, for 200 seeded texts x every layout x tuck on/off", () => {
+test("CHARACTER BUDGET: every body fits its message, for 200 seeded texts x every layout x repeat digits on/off", () => {
   // The packer never splits a body, and Twitch REJECTS an over-length message rather than
   // truncating it. So a giant body over (500 - lead) is a cheer that never prints. Height
   // alone allowed exactly that: 26 lines of "ROSES 000".. made one 487-character body.
@@ -561,12 +538,12 @@ test("CHARACTER BUDGET: every body fits its message, for 200 seeded texts x ever
     const text = randomText(r);
     const size = i % 3 === 0 ? "width" : (i % 3 === 1 ? 1 + Math.floor(r() * 18) : "fit1");
     for (const layout of LAYOUTS) {
-      for (const tuck of [false, true]) {
-        const opts = { cheer: true, bits: 100, tuck };
+      for (const noNonce of [false, true]) {
+        const opts = { cheer: true, bits: 100, noNonce };
         const budget = budgetFor(opts);
-        const bodies = C.buildGiantBodies(text, { layout, size, budget, tuck });
+        const bodies = C.buildGiantBodies(text, { layout, size, budget });
         if (bodies.length > 1) multi++;
-        const where = JSON.stringify(text) + " " + layout + " " + size + (tuck ? " tucked" : "");
+        const where = JSON.stringify(text) + " " + layout + " " + size + (noNonce ? " no nonce" : "");
         for (const b of bodies) {
           assert.equal(b.chars, len(b.html), where + ": chars must be the payload length of html");
           if (b.giant.over) { assert.equal(bodyLines(b.html).length, 1, where + ": only a SINGLE line may be over"); continue; }
@@ -584,138 +561,27 @@ test("CHARACTER BUDGET: every body fits its message, for 200 seeded texts x ever
   assert.ok(multi > 50, "only " + multi + " multi-body cases; the generator stopped exercising the split");
 });
 
-test("the 24-line case splits under the tuck: at least 2 bodies, each <= 440 characters", () => {
+test("a body never goes over the budget it is handed: 24 lines, a pinned size, a tight budget", () => {
   const text = Array.from({ length: 24 }, (_, i) => "LINE NUMBER " + i).join("\n");
-  const tuck = { cheer: true, bits: 100, tuck: true };
-  const bodies = C.buildGiantBodies(text, { layout: "lines", size: "fit1", tuck: true, budget: budgetFor(tuck) });
-  assert.ok(bodies.length >= 2, "one body of " + bodies.map((b) => b.chars).join("/") + " cannot fit a tucked cheer");
-  for (const b of bodies) assert.ok(b.chars <= 440, "a " + b.chars + "-character body plus the 60-character tucked lead is over 500");
-  // Untucked the same text is one body of 464, under the 488 the plain lead leaves.
-  const plain = C.buildGiantBodies(text, { layout: "lines", size: "fit1", budget: budgetFor({ cheer: true, bits: 100 }) });
+  // With the plain lead the 24 lines are one body of 464, under the 488 it leaves.
+  const plainBudget = budgetFor({ cheer: true, bits: 100 });
+  const plain = C.buildGiantBodies(text, { layout: "lines", size: "fit1", budget: plainBudget });
   assert.equal(plain.length, 1);
-  assert.ok(plain[0].chars <= 488, plain[0].chars);
+  assert.ok(plain[0].chars <= plainBudget, plain[0].chars);
+  // A lead 64 characters long leaves 436, which no size fits in one body: it splits.
+  const bodies = C.buildGiantBodies(text, { layout: "lines", size: "fit1", budget: 436 });
+  assert.ok(bodies.length >= 2, "one body of " + bodies.map((b) => b.chars).join("/") + " cannot fit 436");
+  for (const b of bodies) assert.ok(b.chars <= 436, "a " + b.chars + "-character body over a 436 budget");
   // The same rule when the size is pinned: 40 lines at a manual size still split by characters.
   const forty = Array.from({ length: 40 }, (_, i) => "LINE " + String(i).padStart(4, "0")).join("\n");
-  const pinned = C.buildGiantBodies(forty, { layout: "lines", size: 3, tuck: true, budget: budgetFor(tuck) });
+  const pinned = C.buildGiantBodies(forty, { layout: "lines", size: 3, budget: plainBudget });
   assert.ok(pinned.length >= 2);
-  for (const b of pinned) assert.ok(b.chars <= budgetFor(tuck), b.chars);
+  for (const b of pinned) assert.ok(b.chars <= plainBudget, b.chars);
   // The budget handed in is the one honoured, whatever it is (a 5-digit bit amount, a
   // future longer lead), not a default that happens to agree with the common case.
   const tight = C.buildGiantBodies(forty, { layout: "lines", size: 3, budget: 200 });
   assert.ok(tight.length > pinned.length);
   for (const b of tight) assert.ok(b.chars <= 200, "budget 200 ignored: a body of " + b.chars);
-});
-
-test("the banded builders size against the real lead (a structural check: they need a canvas)", () => {
-  // hanziBodies and glyphImageBodies rasterize on a <canvas>, which the null-DOM sandbox
-  // cannot run, so their band arithmetic is replayed in compose.test.mjs from the two
-  // exported pieces it uses. This pins that they still USE them: a band sized with the
-  // old hardcoded 14 is 480 characters at 15 columns, 544 with the tucked lead, and the
-  // packer never splits a band, so Twitch rejects the whole cheer.
-  const here = dirname(fileURLToPath(import.meta.url));
-  const src = readFileSync(join(here, "../public/index.html"), "utf8");
-  const fn = (name) => {
-    const m = src.match(new RegExp("function " + name + "\\(([^)]*)\\)\\s*\\{[\\s\\S]*?\\n    \\}\\n"));
-    assert.ok(m, "could not find " + name + " in index.html");
-    return m;
-  };
-  for (const name of ["hanziBodies", "glyphImageBodies"]) {
-    const m = fn(name);
-    assert.ok(/\bbudget\b/.test(m[1]), name + " no longer takes the per-body budget");
-    assert.ok(m[0].includes("bandReserve(budget)"), name + " sizes its band without bandReserve(budget)");
-    assert.ok(!/MAX_CHARS - 14\b|\+ 14\b/.test(m[0]), name + " is back to a hardcoded 14-character lead");
-  }
-  const rbb = fn("renderBlockBodies")[0];
-  assert.ok(/glyphImageBodies\(block, budget\)/.test(rbb), "renderBlockBodies stopped passing the budget to glyph-art");
-  assert.ok(/hanziBodies\([^)]*\bbudget\)/.test(rbb), "renderBlockBodies stopped passing the budget to Hanzi");
-  assert.ok(/MAX_CHARS - leadLength\(opts\)/.test(fn("packStack")[0]), "packStack no longer derives the budget from the lead");
-});
-
-test("tucked, a real giant body sheds its leading <br> in every part; a Hanzi band ahead of it gains one", () => {
-  // The packer only strips what a body flags with leadBr. Every giant body must carry it,
-  // or the tuck hides the gem and saves no tape (the <br> leaves a blank line exactly as
-  // tall as the one it hid: 156px either way on the engine, 133px with it stripped).
-  // Pinned to one 500mm page: the multi-cheer run here is forced by HEIGHT (20 lines at L11),
-  // and this test is about the leadBr fix-up, not the receipt-length default.
-  const opts = { cheer: true, bits: 100, tuck: true, heightPx: PAGE_FULL };
-  const text = "ABCDEFGHIJKLMNOPQRST".split("").join("\n");
-  const bodies = C.buildGiantBodies(text, { layout: "lines", size: 11, tuck: true, budget: budgetFor(opts), heightPx: PAGE_FULL });
-  assert.ok(bodies.length >= 3, "want a multi-cheer giant run, got " + bodies.length);
-  for (const b of bodies) {
-    assert.equal(b.leadBr, true);
-    assert.ok(b.html.startsWith("<br><b class="), b.html);
-  }
-  const parts = C.packStackBodies(bodies, opts);
-  assert.equal(parts.length, bodies.length);
-  parts.forEach((p, i) => {
-    assert.equal(p.payload, p.lead + bodies[i].html.slice(4), "part " + (i + 1) + " kept the giant body's <br>");
-    assert.ok(p.chars <= C.MAX_CHARS, "part " + (i + 1) + ": " + p.chars);
-  });
-  // A Hanzi band first, giant second: the band gains the <br> (so it starts on a clean
-  // line instead of sharing one with the nbsp), the giant body after it is left alone.
-  const band = "丶二土田".repeat(25);
-  const last = bodies.at(-1);
-  const mixed = C.packStackBodies([{ html: band, chars: len(band), heightPx: 126 }, last], opts);
-  assert.equal(mixed.length, 1);
-  assert.equal(mixed[0].payload, mixed[0].lead + "<br>" + band + last.html);
-  // Untucked, nobody's markup is touched.
-  const plain = C.packStackBodies(bodies, { cheer: true, bits: 100 });
-  plain.forEach((p, i) => assert.equal(p.payload, p.lead + bodies[i].html));
-});
-
-test("tucked, an EMOTE body keeps its one leading <br>: line 1 starts clean, never doubled", () => {
-  // Every emote line is padded with a space on each side so Twitch sees whole words. At
-  // the start of a line that space collapses; after the tuck's nbsp it does not, and line 1
-  // printed shoved right (real engine, L10x0.9 "Kappa Kappa / Kappa": line 1 centred
-  // 14.4px right of the body centre, line 2 12.3px left, a 27px skew). So the emote body
-  // does not offer its <br> to the packer, and the packer must not add a second one.
-  const opts = { cheer: true, bits: 100, tuck: true };
-  const bodies = C.buildGiantBodies("Kappa Kappa\nKappa", { layout: "emote", tuck: true, budget: budgetFor(opts) });
-  assert.equal(bodies.length, 1);
-  assert.equal(bodies[0].leadBr, false, "an emote body offered its <br> to the tuck");
-  assert.ok(bodies[0].html.startsWith("<br><b class="), bodies[0].html);
-  const parts = C.packStackBodies(bodies, opts);
-  assert.equal(parts[0].payload, parts[0].lead + bodies[0].html, "the packer touched the emote body");
-  assert.ok(/<\/span><br><b class=/.test(parts[0].payload), "line 1 must start right after one <br>: " + parts[0].payload);
-  assert.ok(!parts[0].payload.includes("<br><br>"), "a doubled <br> prints a blank line: " + parts[0].payload);
-  assert.ok(parts[0].chars <= C.MAX_CHARS);
-  // Untucked it is byte-identical to before: the plain lead, then the body.
-  const plain = C.packStackBodies(C.buildGiantBodies("Kappa Kappa\nKappa", { layout: "emote" }), { cheer: true, bits: 100 });
-  assert.match(plain[0].payload, /^Cheer100 \d\d <br><b class=/);
-  // Lines and stack still shed theirs (that is where the tuck saves its 23px).
-  for (const layout of ["lines", "stack", "auto"]) {
-    const b = C.buildGiantBodies("GG", { layout, tuck: true, budget: budgetFor(opts) });
-    assert.equal(b[0].leadBr, true, layout);
-  }
-  // A multi-part emote run: every part keeps exactly one <br> after the tucked lead.
-  const many = C.buildGiantBodies(Array(12).fill("Kappa Kappa Kappa").join("\n"),
-    { layout: "emote", size: 8, tuck: true, budget: budgetFor(opts) });
-  assert.ok(many.length >= 2, "want a multi-cheer emote run, got " + many.length);
-  C.packStackBodies(many, opts).forEach((p, i) => {
-    assert.ok(p.payload.startsWith(p.lead + "<br><b class="), "part " + (i + 1) + ": " + p.payload.slice(0, 90));
-    assert.ok(!p.payload.includes("<br><br>"), "part " + (i + 1) + " doubled a <br>");
-    assert.ok(p.chars <= C.MAX_CHARS, "part " + (i + 1) + ": " + p.chars);
-  });
-});
-
-test("under the tuck the fit narrows by the nbsp that shares line 1", () => {
-  // Tucked, the giant body's own <br> is gone, so the 16px nbsp lead (0.276em of Segoe UI,
-  // 4.4px) sits on the first giant line and comes off its width.
-  const fitPx = C.PAPER_PX - C.GIANT_TUCK_PX;
-  assert.ok(C.GIANT_TUCK_PX >= 0.276 * 16, "the tuck margin is narrower than the nbsp it is for");
-  for (const text of ["W", "MM", "HELLO", "OK"]) {
-    const plan = C.giantPlan(text, { layout: "lines", size: "width", tuck: true });
-    assert.equal(plan.fitPx, fitPx);
-    assert.ok(C.giantLineEm(text, "lines") * plan.fit.px <= fitPx, text + " fitted wider than the tucked line");
-  }
-  // And there is a word it actually changes, or the margin is decoration.
-  const changed = ["W", "MM", "HELLO", "OK", "A", "GG", "LOL", "HI", "WOW", "POG"].some((t) =>
-    C.giantPlan(t, { layout: "lines", size: "width", tuck: true }).fit.px
-      < C.giantPlan(t, { layout: "lines", size: "width" }).fit.px);
-  assert.ok(changed, "the tucked fit never differs from the untucked one");
-  // The emote layout keeps its <br> under the tuck, so none of its lines shares the nbsp
-  // and it keeps the whole width.
-  assert.equal(C.giantPlan("Kappa", { layout: "emote", size: "width", tuck: true }).fitPx, C.PAPER_PX);
 });
 
 test("chunks never start or end on a blank line, lose no line, and fit the page by the real-engine height model", () => {
@@ -788,23 +654,21 @@ test("emote layout: every name is a whitespace-delimited word in the RAW message
   // square, so it overflows (measured on the real pipeline).
   const names = ["Kappa", "KEKW", "PogChamp", "catJAM", "LUL", "D:"];
   const text = "Kappa Kappa\n  KEKW   PogChamp \n\ncatJAM\nLUL D: Kappa";
-  for (const tuck of [false, true]) {
-    for (const size of ["fit1", "width", 3, 16]) {
-      const opts = { cheer: true, bits: 100, tuck };
-      const bodies = C.buildGiantBodies(text, { layout: "emote", size, tuck, budget: budgetFor(opts) });
-      const payload = C.packStackBodies(bodies, opts).map((p) => p.payload).join("\n");
-      for (const name of names) {
-        const at = [...payload.matchAll(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))];
-        assert.ok(at.length, name + " missing from " + payload);
-        for (const m of at) {
-          const before = payload.slice(0, m.index), after = payload.slice(m.index + name.length);
-          assert.ok(/(^|\s)$/.test(before) && /^(\s|$)/.test(after),
-            name + " is glued to its neighbours at " + m.index + ": …" + payload.slice(Math.max(0, m.index - 12), m.index + name.length + 12) + "…");
-        }
+  for (const size of ["fit1", "width", 3, 16]) {
+    const opts = { cheer: true, bits: 100 };
+    const bodies = C.buildGiantBodies(text, { layout: "emote", size, budget: budgetFor(opts) });
+    const payload = C.packStackBodies(bodies, opts).map((p) => p.payload).join("\n");
+    for (const name of names) {
+      const at = [...payload.matchAll(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))];
+      assert.ok(at.length, name + " missing from " + payload);
+      for (const m of at) {
+        const before = payload.slice(0, m.index), after = payload.slice(m.index + name.length);
+        assert.ok(/(^|\s)$/.test(before) && /^(\s|$)/.test(after),
+          name + " is glued to its neighbours at " + m.index + ": …" + payload.slice(Math.max(0, m.index - 12), m.index + name.length + 12) + "…");
       }
-      assert.ok(!payload.includes("CATJAM") && !payload.includes("POGCHAMP"),
-        "emote names are case-sensitive: never uppercase the payload (text-transform is visual)");
     }
+    assert.ok(!payload.includes("CATJAM") && !payload.includes("POGCHAMP"),
+      "emote names are case-sensitive: never uppercase the payload (text-transform is visual)");
   }
   // The preview draws a labelled placeholder, never an <img>: no request leaves the page.
   const pv = C.buildGiantBodies("Kappa catJAM", { layout: "emote" })[0].preview.html;
@@ -854,7 +718,6 @@ test("empty or blank text is ONE empty body in every layout, never a cheer of em
         assert.equal(bodies.length, 1, JSON.stringify(text) + " " + layout);
         const b = bodies[0];
         assert.equal(b.html, ""); assert.equal(b.chars, 0); assert.equal(b.heightPx, 0);
-        assert.equal(b.leadBr, false, "an empty body has no <br> for the tuck to strip");
         assert.equal(b.giant.levels, 0);
         assert.equal(b.preview.html, "");
       }
@@ -888,7 +751,7 @@ test("giantOpts clamps whatever a preset or import hands it", () => {
 
 test("hostile options finish fast and still fit one message", () => {
   const hostile = [
-    ["HELLO WORLD THIS IS A TEST", { layout: { evil: 1 }, size: 1e9, budget: 1e9, tuck: "yes" }],
+    ["HELLO WORLD THIS IS A TEST", { layout: { evil: 1 }, size: 1e9, budget: 1e9, heightPx: "yes" }],
     ["HELLO", { layout: "stack", size: NaN, budget: -5 }],
     ["W".repeat(400), { layout: "lines", size: 1e6 }],
     ["AB ".repeat(160), C.giantOpts({ giantLayout: "constructor", giantSize: "1e9" })],
@@ -920,7 +783,6 @@ test("blockRender: giant and hanzi by name, anything else is Type (today's fall-
 test("Print size ruler: 1..13, one level deeper each, balanced, one cheer on one page", () => {
   const ru = C.buildGiantRuler();
   assert.ok(ru.html.startsWith("<br>"), "the ruler starts on its own line, below the lead");
-  assert.equal(ru.leadBr, true);
   assert.equal((ru.html.match(/<b class=title>/g) || []).length, C.GIANT_RULER_LEVELS);
   assert.equal((ru.html.match(/<\/b>/g) || []).length, C.GIANT_RULER_LEVELS, "every level closed");
   assert.equal(C.GIANT_RULER_LEVELS, 13);

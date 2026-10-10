@@ -86,11 +86,11 @@ export const eq = (a, b, msg) =>
 // Shared by the sanitizer and giant-type tests because the scan it replaces had two
 // blind spots, and giant type walks straight into both. It read attributes off only the
 // FIRST occurrence of each tag, so a stray attribute on level 2 of an 18-deep `.title`
-// nest passed. And it only knew `name=`, so the unquoted tuck span,
+// nest passed. And it only knew `name=`, so an unquoted two-class value,
 // `<span class=switch dialog-nav-button>`, read as one clean class attribute, when a real
 // parser makes `dialog-nav-button` a separate boolean attribute that printer-bot's
-// sanitizer then strips, taking the corner tuck with it. A bare name here comes back as
-// its own attribute with value null, which is what makes that mistake visible.
+// sanitizer then strips, taking its effect with it. A bare name here comes back as its
+// own attribute with value null, which is what makes that mistake visible.
 // Our markup never puts ">" inside an attribute value (escapeAttr), so a token scan is
 // faithful to what a parser would see.
 export function scanTags(html) {

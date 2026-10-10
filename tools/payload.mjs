@@ -19,7 +19,7 @@
 //
 // Specs (all fields optional unless noted):
 //   {"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote",
-//    "size":"fit1|width"|1..18,"tuck":false,"bits":100,"cheer":true,"part":0,"mm":297,
+//    "size":"fit1|width"|1..18,"bits":100,"cheer":true,"part":0,"mm":297,
 //    "nonce":false}
 //        "nonce" is the app's "Add a repeat number" toggle, OFF by default like the app's:
 //        the lead is "Cheer100 " with no digits. "nonce":true gives "Cheer100 00 ". It
@@ -27,16 +27,16 @@
 //        "mm" is the app's Receipt length (the per-receipt height budget = heightBudget(mm));
 //        omit it for the A4 default the app ships with.
 //        Giant type, through the app's own path: buildGiantBodies at the budget packStack
-//        gives it, then packStackBodies, so the lead, the tuck's <br> handling and the
-//        split into cheers are the app's. Emits parts[part] (0-based); the part count and
+//        gives it, then packStackBodies, so the lead and the split into cheers are the
+//        app's. Emits parts[part] (0-based); the part count and
 //        the size the app predicts go to stderr. "cheer":false is the free probe message
 //        (no token, never reaches the printer, still passes the chat filter).
-//   {"kind":"ruler","bits":100}                            the Print size ruler (never tucked)
+//   {"kind":"ruler","bits":100}                            the Print size ruler
 //   {"kind":"raw","html":"<b>anything</b>"}                escape hatch
 //
-// Add "lead":true to "raw" to prefix the real cheer lead ("Cheer100 ", "Cheer100 00 "
-// with "nonce":true, or the tucked one with "tuck":true; "bits" sets the amount). That lead
-// occupies a line of the receipt's message box, so a measurement without it is a line short.
+// Add "lead":true to "raw" to prefix the real cheer lead ("Cheer100 ", or "Cheer100 00 "
+// with "nonce":true; "bits" sets the amount). That lead occupies a line of the receipt's
+// message box, so a measurement without it is a line short.
 import { readFileSync, existsSync } from "node:fs";
 import { loadCore } from "../test/_harness.mjs";
 
@@ -55,20 +55,17 @@ try {
   process.exit(2);
 }
 
-// The lead, from the app's ONE lead builder (buildLead, via packStackBodies). This used to
-// be hand-built here as "Cheer100 " + nonce + " ", a second description of the lead that
-// agreed with the app's only until the tuck: a tucked bench case would have measured a
-// payload the app never sends, without the corner span and without the packer's <br>.
+// The lead, from the app's ONE lead builder (buildLead, via packStackBodies), so the bench
+// can never measure a lead the app does not send.
 const leadOpts = {
   cheer: spec.kind === "giant" ? spec.cheer !== false : true,
   // Any whole number of bits from 1 up, like the app's Bits control; absent or junk = 100.
   bits: Number(spec.bits) >= 1 ? Math.floor(Number(spec.bits)) : 100,
-  tuck: !!spec.tuck,
   // The app's repeat-number toggle defaults to off, so the bench does too.
   noNonce: spec.nonce !== true,
 };
-// One message through the packer, exactly as the app sends a single body: the lead,
-// the nonce, and under the tuck the packer's first-body <br> rule all come from the app.
+// One message through the packer, exactly as the app sends a single body: the lead and
+// the nonce both come from the app.
 const wrap = (body) => C.packStackBodies([{ html: body, chars: C.payloadLength(body), heightPx: 0 }],
   leadOpts)[0].payload;
 
@@ -77,13 +74,12 @@ switch (spec.kind) {
   case "giant": {
     // packStack's budget: what a body may spend after the lead this part will carry.
     const budget = C.MAX_CHARS - C.leadLength(leadOpts);
-    const tuck = leadOpts.cheer && leadOpts.tuck;
     // Per-receipt height budget, from an optional "mm" (the app's Receipt length control);
     // omitted = the A4 default the app ships with. Both the body builder and the packer get
     // it, so the split matches what the app sends for that length.
     const heightPx = spec.mm == null ? C.DEFAULT_HEIGHT_BUDGET : C.heightBudget(Number(spec.mm));
     const bodies = C.buildGiantBodies(String(spec.text == null ? "" : spec.text),
-      { layout: spec.layout, size: spec.size, budget, tuck, heightPx });
+      { layout: spec.layout, size: spec.size, budget, heightPx });
     const parts = C.packStackBodies(bodies, Object.assign({ heightPx }, leadOpts));
     const idx = spec.part == null ? 0 : Number(spec.part);
     if (!Number.isInteger(idx) || idx < 0 || idx >= parts.length) {
@@ -108,8 +104,7 @@ switch (spec.kind) {
     break;
   }
   case "ruler": {
-    // rulerParts: the normal lead (with the nonce only if asked for), NEVER tucked (a
-    // diagnostic should look like any other cheer; the one thing it has to prove is the size).
+    // rulerParts: the normal lead (with the nonce only if asked for).
     const body = C.buildGiantRuler();
     html = C.packStackBodies([body], { cheer: true, bits: leadOpts.bits, noNonce: leadOpts.noNonce })[0].payload;
     console.error("[payload] ruler: 1.." + body.giant.levels + ", predicted height " + body.heightPx + "px");
@@ -124,8 +119,8 @@ switch (spec.kind) {
     process.exit(2);
 }
 
-// The real message leads with the cheer token (or, tucked, LEAD_GUARD and the corner
-// span), never with "<": some sends are dropped outright on a leading angle bracket.
+// The real message leads with the cheer token (or LEAD_GUARD), never with "<": some sends
+// are dropped outright on a leading angle bracket.
 // packStackBodies builds `lead + bodies` as ONE string so the preview and the print
 // cannot diverge; wrap() goes through it so this cannot diverge from either.
 if (spec.lead && spec.kind !== "giant" && spec.kind !== "ruler") html = wrap(html);

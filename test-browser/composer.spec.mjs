@@ -8,10 +8,10 @@
 //   * the expired-upload flag was set and never cleared, so the card kept warning after
 //     the user did exactly what it asked.
 //
-// Since 0.10.0 (Giant type, the cheer-gem tuck) it also holds the cases that need a real
-// layout engine to mean anything: what printer-bot's sanitizer and its borrowed class
-// rules do to the payload Copy hands over, the preview's 240px body, the tuck's corner
-// box, and the promise that the Emote layout never fetches an emote.
+// Since 0.10.0 (Giant type) it also holds the cases that need a real layout engine to mean
+// anything: what printer-bot's sanitizer and its borrowed class rules do to the payload
+// Copy hands over, the preview's 240px body, and the promise that the Emote layout never
+// fetches an emote.
 //
 // These are node:test + playwright, kept OUT of `npm test` on purpose: that command is
 // documented as needing zero installs, and it should stay true. Run `npm run
@@ -98,8 +98,8 @@ const PAGE_LEAD = { cheer: true, bits: 100, noNonce: true };
 // A lead's budget, from the core: what packStack hands a block's builder.
 const budgetFor = (o) => C.MAX_CHARS - C.leadLength(o);
 // What one giant block becomes, per the core, at the defaults the page uses.
-const giantOf = (text, layout, size, tuck) =>
-  C.buildGiantBodies(text, { layout, size, budget: budgetFor({ ...PAGE_LEAD, tuck }), tuck })[0].giant;
+const giantOf = (text, layout, size) =>
+  C.buildGiantBodies(text, { layout, size, budget: budgetFor(PAGE_LEAD) })[0].giant;
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, (msg || "") + ` (${a} vs ${b} ±${tol})`);
 
 test("the app boots with no page errors and renders a first part", async () => {
@@ -298,7 +298,7 @@ test("a new Text block is Giant type, and Copy sends exactly what the core build
   // (card -> block fields -> giantOpts -> budget -> packer -> lead) is the half the unit
   // tests can't see, so this is where a field that never reaches the builder shows up.
   const bodies = C.buildGiantBodies("HELLO", { layout: "auto", size: "fit1",
-    budget: budgetFor(PAGE_LEAD), tuck: false });
+    budget: budgetFor(PAGE_LEAD) });
   const expected = C.packStackBodies(bodies, PAGE_LEAD)[0].payload;
   assert.equal(payload, expected);
 
@@ -362,8 +362,8 @@ function printerBot({ message, bits, css }) {
   };
 }
 // What came out of the printed document: every innermost .title (its depth and computed
-// style), every text node in order (and whether it sits in giant markup), every attribute
-// name, and the tuck box.
+// style), every text node in order (and whether it sits in giant markup), and every
+// attribute name.
 function inspectPrint() {
   const root = document.getElementById("receipt-content");
   const depth = (el) => { let n = 0; for (let e = el; e && e !== root; e = e.parentElement) if (e.classList.contains("title")) n++; return n; };
@@ -378,13 +378,7 @@ function inspectPrint() {
   }
   const attrs = new Set();
   root.querySelectorAll("*").forEach((e) => { for (const a of e.attributes) attrs.add(a.name); });
-  const box = root.querySelector(".switch");
-  return {
-    innermost, texts, attrs: [...attrs],
-    tuck: box && { classes: [...box.classList], position: getComputedStyle(box).position,
-                   overflow: getComputedStyle(box).overflow, gem: !!box.querySelector("img.emote"),
-                   bits: box.querySelector(".bits")?.textContent ?? null, text: box.textContent },
-  };
+  return { innermost, texts, attrs: [...attrs] };
 }
 // The class rules printer-bot's printed page carries, from the app's PB_CLASSES table in
 // cascade order and UNSCOPED, as global.css / style.css state them (position:fixed and
@@ -405,14 +399,16 @@ async function printThroughPrinterBot(message, bits = 100) {
 }
 
 test("MANDATORY: Copy's payload survives a clean-room printer-bot sanitizer and prints giant", async () => {
-  // The control first, so the harness is proven able to see the failure it exists for:
-  // an UNQUOTED tuck class makes `dialog-nav-button` a boolean attribute, which the
-  // sanitizer strips — the corner box then isn't fixed, and the gem prints on its own line.
-  const control = await printThroughPrinterBot(" <span class=switch dialog-nav-button> Cheer100 07 </span>");
-  assert.deepEqual(control.tuck.classes, ["switch"], "the clean-room sanitizer kept an unquoted second class");
-  assert.ok(control.removed.includes("span[dialog-nav-button]"), "the sanitizer did not report the stripped attribute");
+  // The control first, so the harness is proven able to see the failure it exists for: an
+  // UNQUOTED second class on level 2 of a nest is a boolean attribute, which the sanitizer
+  // strips, so the shrink step it named is lost on paper.
+  const control = await printThroughPrinterBot(" <b class=title>A<b class=title setting-description>B</b></b>");
+  assert.ok(control.removed.includes("b[setting-description]"), "the sanitizer did not report the stripped attribute");
+  assert.equal(control.innermost.length, 1);
+  assert.equal(control.innermost[0].depth, 2);
+  assert.equal(control.innermost[0].shrink, "", "the clean-room sanitizer kept an unquoted second class");
 
-  // 1. A [giant, hanzi] stack in ONE part, untucked, so the whole concatenated message is
+  // 1. A [giant, hanzi] stack in ONE part, so the whole concatenated message is
   //    parsed at once the way the tape parses it: an unclosed .title in the giant body
   //    would make the Hanzi rows after it giant too, which the per-body preview can't show.
   const giantA = { id: 1, type: "text", render: "giant", giantLayout: "lines", giantSize: 6, text: "HI" };
@@ -423,7 +419,7 @@ test("MANDATORY: Copy's payload survives a clean-room printer-bot sanitizer and 
     await ctx.close();
     assert.ok(payload.includes("<b class=title>") && /[㐀-鿿]/.test(payload),
       "the giant and Hanzi bodies were expected in the same part: " + payload);
-    const want = giantOf("HI", "lines", 6, false);
+    const want = giantOf("HI", "lines", 6);
     const pr = await printThroughPrinterBot(payload);
     assert.deepEqual(pr.removed, [], "the sanitizer had to strip something from our payload");
     assert.deepEqual(pr.attrs.filter((a) => a !== "class" && a !== "src"), []);
@@ -441,27 +437,20 @@ test("MANDATORY: Copy's payload survives a clean-room printer-bot sanitizer and 
     for (const x of after) assert.ok(!x.inTitle && !x.inB, "text after the giant body is still in giant markup: " + JSON.stringify(x));
   }
 
-  // 2. The tuck, with a shrink step: the corner span must keep BOTH classes, take the
-  //    cheermote gem and its "100" with it, and the giant line follows with no <br>.
+  // 2. A shrink step: the wrapper keeps its class, and the innermost .title computes the
+  //    shrunk size at weight 900.
   {
     const { page, ctx } = await freshPage({ blocks: [{ id: 1, type: "text", render: "giant",
       giantLayout: "auto", giantSize: "fit1", text: "HELLO" }] });
-    await page.locator("#cheerTuck").check();
     const payload = await copyPayload(page, 0);
     await ctx.close();
-    assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 <\/span><b class=/);
+    assert.match(payload, /^Cheer100 <br><b class=/);
     // On an A4 receipt HELLO fits one cheer at L11x0.9, so this exercises a shrink wrapper.
-    const want = giantOf("HELLO", "auto", "fit1", true);
+    const want = giantOf("HELLO", "auto", "fit1");
     assert.ok(want.shrink, "this case is meant to exercise a shrink wrapper; pick another text");
     const pr = await printThroughPrinterBot(payload);
     assert.deepEqual(pr.removed, []);
     assert.deepEqual(pr.attrs.filter((a) => a !== "class" && a !== "src"), []);
-    assert.deepEqual(pr.tuck.classes, ["switch", "dialog-nav-button"]);
-    assert.equal(pr.tuck.position, "fixed");
-    assert.equal(pr.tuck.overflow, "hidden");
-    assert.ok(pr.tuck.gem, "the cheermote gem did not land inside the corner box");
-    assert.equal(pr.tuck.bits, "100");
-    assert.match(pr.tuck.text, /^\s*100\s*$/, "the whole visible lead belongs in the box");
     assert.equal(pr.innermost.length, 1);
     const t = pr.innermost[0];
     assert.equal(t.depth, want.levels);
@@ -476,7 +465,7 @@ test("the preview's body is the tape's 240px, and draws giant type at its real s
   // The preview was 268px wide for a long time against a 240px tape body, so a line that
   // wraps or runs off the paper sat whole in the preview. Phone width too: the receipt has
   // to stay 240 there without a horizontal scroll.
-  const want = giantOf("HELLO", "auto", "fit1", false);
+  const want = giantOf("HELLO", "auto", "fit1");
   for (const viewport of [undefined, { width: 390, height: 844 }]) {
     const { page, ctx, errors } = await freshPage({ viewport });
     const m = await page.evaluate(() => {
@@ -588,57 +577,15 @@ test("cheer counts, empty blocks and the parts note all match the parts Copy sen
   }
 });
 
-test("the cheer-gem tuck: a corner box in the preview, the tucked lead on Copy, kept across a reload", async () => {
+test("the Print size ruler: 1 to 13, one level deeper each, balanced, one cheer with the plain lead", async () => {
   const { page, ctx, errors } = await freshPage();
-  const tuck = page.locator("#cheerTuck");
-  assert.equal(await tuck.isChecked(), false, "the tuck must be off by default");
-  assert.equal(await tuck.isEnabled(), true);
-  await tuck.check();
-
-  const box = page.locator(".rcpt .switch.dialog-nav-button");
-  await box.waitFor();
-  const st = await box.evaluate((el) => {
-    const cs = getComputedStyle(el), r = el.getBoundingClientRect(), f = el.closest(".rcpt").getBoundingClientRect();
-    return { position: cs.position, overflow: cs.overflow, text: el.textContent, top: r.top - f.top, right: f.right - r.right };
-  });
-  assert.equal(st.position, "absolute");
-  assert.equal(st.overflow, "hidden");
-  assert.match(st.text, /^\s*Cheer100\s*$/);
-  // In the corner of the RECEIPT: .rcpt has to be the containing block, or the box lands
-  // in the corner of the page and the preview stops showing what the tape does.
-  assert.ok(st.top >= 0 && st.top < 40 && st.right >= 0 && st.right < 40, "box not in the receipt's corner: " + JSON.stringify(st));
-  // The lead is rendered as markup, never as text.
-  assert.ok(!(await page.locator(".rcpt").first().textContent()).includes("<span"), "the preview printed the tuck span as text");
-
-  // Copy: the tucked lead, and the giant body's leading <br> gone (it would cost a line).
-  const payload = await copyPayload(page);
-  assert.match(payload, /^ <span class="switch dialog-nav-button"> Cheer100 <\/span><b class=\S/);
-  assert.ok(len(payload) <= C.MAX_CHARS);
-
-  // A field of rw_controls_v1, so it survives a reload.
-  await page.reload();
-  await page.waitForSelector("#blockList");
-  assert.equal(await page.locator("#cheerTuck").isChecked(), true, "the tuck did not survive a reload");
-  await page.locator(".rcpt .switch.dialog-nav-button").waitFor();
-
-  // Without Cheer-ready there is no gem to hide: disabled (NOT unchecked, so the choice
-  // comes back with the cheer), and the free message carries no span at all.
-  await page.locator("#cheer").uncheck();
-  assert.equal(await page.locator("#cheerTuck").isDisabled(), true);
-  assert.equal(await page.locator("#cheerTuck").isChecked(), true, "turning Cheer-ready off reset the tuck");
-  assert.equal(await page.locator(".rcpt .switch").count(), 0);
-  const free = await copyPayload(page);
-  assert.ok(free.startsWith(" ") && !free.includes("<span"), "a non-cheer message got the tuck span: " + free);
-
-  // The size ruler is never tucked: it proves the SIZE, so it looks like any other cheer.
-  await page.locator("#cheer").check();
   await page.click("#rulerBtn");
   const ruler = await copyPayload(page);
   assert.match(ruler, /^Cheer100 <br><b class=title>1<br>/);
-  assert.ok(!ruler.includes("<span"), "the ruler was tucked");
   assert.equal((ruler.match(/<b class=title>/g) || []).length, (ruler.match(/<\/b>/g) || []).length);
   assert.equal((ruler.match(/<b class=title>/g) || []).length, 13);
   assert.ok(len(ruler) <= C.MAX_CHARS);
+  assert.equal(await page.locator("#parts .part").count(), 1);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -665,21 +612,6 @@ test("Emote layout previews placeholders and never fetches an emote", async () =
   // Each name a whitespace-delimited word, case intact, or Twitch never reports it as an emote.
   const payload = await copyPayload(page);
   for (const n of names) assert.match(payload, new RegExp("(^|\\s)" + n + "(?=\\s|$)"), n + " is glued to markup: " + payload);
-
-  // Under the tuck the emote body keeps its ONE leading <br>. Its first line is padded
-  // with a space so Twitch sees a whole word; at a line start that space collapses, but
-  // after the tuck's nbsp it prints (real engine: line 1 shoved 27px out of line with line
-  // 2). So no strip, no second <br>, and the preview does not draw the body inline.
-  await page.locator("#cheerTuck").check();
-  await page.locator(".rcpt .switch.dialog-nav-button").waitFor();
-  const tucked = await copyPayload(page);
-  assert.match(tucked, /^\u00A0<span class="switch dialog-nav-button"> Cheer100 <\/span><br><b class=/);
-  assert.ok(!tucked.includes("<br><br>"), "a doubled <br> prints a blank line: " + tucked);
-  for (const n of names) assert.match(tucked, new RegExp("(^|\\s)" + n + "(?=\\s|$)"), n + " is glued to markup: " + tucked);
-  assert.equal(await page.locator(".rcpt .rw-giant").count(), 1);
-  assert.equal(await page.locator(".rcpt .rw-giant.rw-inline").count(), 0, "the preview drew the tucked emote body inline");
-  assert.ok(len(tucked) <= C.MAX_CHARS);
-  await page.locator("#cheerTuck").uncheck();
 
   await page.check("#thermalView");
   await page.locator("canvas.rcpt-thermal").waitFor({ timeout: 8000 });
@@ -726,15 +658,11 @@ test("saved Hanzi and Type blocks are not migrated: same render, same payload af
     [["hanzi", false, false], ["type", false, false]], "saved blocks were migrated");
   assert.deepEqual(await bodies(), before, "a reload changed a saved block's payload");
 
-  // Under the tuck a Hanzi band starts on a fresh line (the nbsp shares line 1 otherwise,
-  // shifting the wrap), and the band must STILL fit: it is sized against the longer lead.
-  await page.locator("#cheerTuck").check();
-  // HELLO, not something shorter: only a FULL band (32 rows x 15) can overflow, and a
-  // band sized for the 12-character lead goes out at 544 under the 60-character one.
-  const tucked = await copyAll(page);
-  for (const p of tucked) assert.ok(len(p) <= C.MAX_CHARS, "a tucked part is over " + C.MAX_CHARS + ": " + len(p));
-  assert.ok(tucked.some((p) => len(p) > 450), "no full Hanzi band here, so the budget check above proves nothing");
-  assert.match(tucked[0], /^ <span class="switch dialog-nav-button"> Cheer100 <\/span><br>[㐀-鿿]/);
+  // Every band fits its message: HELLO makes a FULL band (32 rows x 15), the one that
+  // would go over 500 if it were sized for a shorter lead than the one sent.
+  const parts = await copyAll(page);
+  for (const p of parts) assert.ok(len(p) <= C.MAX_CHARS, "a part is over " + C.MAX_CHARS + ": " + len(p));
+  assert.ok(parts.some((p) => len(p) > 450), "no full Hanzi band here, so the budget check above proves nothing");
 
   // And the nudge does what it says.
   await cards(page).nth(0).getByRole("button", { name: "Switch this block" }).click();
@@ -781,7 +709,7 @@ test("the repeat number: off by default, two digits when on, kept across a reloa
   const box = page.locator("#cheerNonce");
   const partNote = (i) => page.locator("#parts .part").nth(i).locator(".parts-note");
   const twinBodies = (budget) => [0, 1].flatMap(() =>
-    C.buildGiantBodies("HELLO", { layout: "auto", size: "fit1", budget, tuck: false }));
+    C.buildGiantBodies("HELLO", { layout: "auto", size: "fit1", budget }));
   assert.equal(await box.isChecked(), false, "the repeat number must be off by default");
   assert.equal(await box.isEnabled(), true);
   await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 2);
@@ -798,7 +726,6 @@ test("the repeat number: off by default, two digits when on, kept across a reloa
   // On: two digits after the cheer, different in each part, the note gone, and byte for byte
   // the core's answer for the digits each part carries (its budget is 3 characters smaller).
   await box.check();
-  assert.match(await page.textContent("#cheerTuckHint"), /two repeat digits/, "the tuck hint ignores the digits");
   const on = await copyAll(page);
   for (const p of on) assert.match(p, /^Cheer100 \d\d <br><b class=/, "no digits with the repeat number on: " + p);
   assert.notEqual(on[0], on[1], "the two parts should differ by their digits");
@@ -817,11 +744,6 @@ test("the repeat number: off by default, two digits when on, kept across a reloa
   await page.reload();
   await page.waitForSelector("#blockList");
   assert.equal(await box.isChecked(), true, "the repeat number did not survive a reload");
-
-  // Tucked, the digits ride inside the corner span with the token.
-  await page.locator("#cheerTuck").check();
-  assert.match(await copyPayload(page, 0), /^ <span class="switch dialog-nav-button"> Cheer100 \d\d <\/span><b class=/);
-  await page.locator("#cheerTuck").uncheck();
 
   // Without Cheer-ready there is nothing to put the digits after: disabled, NOT unchecked,
   // and the free messages are identical again, so the note comes back without the toggle.

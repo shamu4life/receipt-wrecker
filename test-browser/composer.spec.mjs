@@ -862,6 +862,27 @@ test("a stale answer from the preview frame is dropped: only the newest request 
   assert.match(drawn.event.message, /CCC/);
   assert.deepEqual(errors, []);
   await ctx.close();
+
+  // The Thermal view's job is debounced 120 ms. A part that loses its frame inside that window
+  // (its text cleared the moment the drawing lands) used to throw when the timer fired, because
+  // the job read the part's request then instead of when it was scheduled.
+  const t = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" })], controls: { ...SETTINGS, thermalView: true } });
+  await t.page.waitForSelector("#parts .part[data-thermal=done]", { timeout: 15000 });
+  await t.page.evaluate(() => new Promise((res) => {
+    const area = document.querySelector("#blockList textarea"), part = document.querySelector("#parts .part");
+    const mo = new MutationObserver(() => {
+      if (part.getAttribute("data-render") === "done" && part.getAttribute("data-thermal") === "pending") {
+        mo.disconnect();
+        area.value = ""; area.dispatchEvent(new Event("input", { bubbles: true }));
+        res();
+      }
+    });
+    mo.observe(part, { attributes: true });
+    area.value = "HELLO WORLD"; area.dispatchEvent(new Event("input", { bubbles: true }));
+  }));
+  await t.page.waitForTimeout(500);
+  assert.deepEqual(t.errors, [], "the Thermal job threw after its part lost its frame");
+  await t.ctx.close();
 });
 
 test("an upward sideways part says when this browser can't draw writing-mode: sideways-lr", async () => {

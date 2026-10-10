@@ -132,7 +132,8 @@ What follows from that, as rules:
   The Real picture card says so plainly ("SassyTP's bot only prints pictures from emote
   servers, and this channel's chat filter blocks the picture tag…") and offers Glyph-art.
 - No example, probe or doc snippet contains an `<img` tag. Naming the blocked token in this
-  record is the only exception.
+  record is the one exception, along with the CHANGELOG's history: its older entries describe
+  the state at their release, picture tags included, and are kept as written.
 
 ### THE RULE
 
@@ -143,11 +144,13 @@ A channel blocking a form is the moderators saying no.
 - **If a form is blocked, fall back to the plain form** (Han tiling). Never cycle variants,
   and never swap in another tag or structure to get the same effect past a block. The UI
   must never suggest either.
-- **The words, too.** Stack (one letter a line), sideways text and Han tiling take a word
-  apart on the paper, so a word filter never sees it as typed. That is a side effect of
-  fitting the paper, not a feature: never describe or advertise it as a way past a filter.
-  If chat holds a message for its words, that is the channel's moderation working; don't
-  respace, split or rework the words to get them through, and don't build anything that does.
+- **The words, too.** Stack (one letter a line) splits a word and Han tiling draws it as a
+  picture, so a word filter never sees it as typed. (Sideways text sends each line's words
+  whole: a long line is cut at a space, and only a word too long for one part is split.) That is a side effect of fitting the paper, not
+  a feature: never describe or advertise it as a way past a filter. If chat holds a message
+  for its words, that is the channel's moderation working; don't respace, split or rework the
+  words to get them through, don't send them again in another form (Han tiling included), and
+  don't build anything that does. The UI's "Held or blocked by chat?" note says so.
 - **Every user character that goes into markup goes through `escapeHtml` / `escapeAttr`.**
 
 ## The one file that matters
@@ -259,7 +262,7 @@ while the payload said `Cheer100`. `makeNonce(i)` is two visible digits.
 
 **The target and the streamer's settings.** `paperSpec(mm)` → `{mm, cssWidth, contentW,
 dots}`: 80 → 272 / 244 / 576, 58 → 181 / 153 / 384. `hrThresholdOf` (0..1,000,000, junk → 25),
-`bitsPerInchOf` (> 0 else 0), `maxInchesOf` (0 < x ≤ 40 else 0). `printMode({cheer, bits,
+`bitsPerInchOf` (> 0 else 0), `maxInchesOf` (> 0, clamped to 40, as the renderer's min(maxIn, 40); else 0). `printMode({cheer, bits,
 hrThreshold})` is `"raw"` when cheering and the threshold is above 0 and reached, else
 `"plain"`. `buildMode` is what the app builds: `printMode` when cheering, and `"raw"` with
 Cheer-ready off (a free chat test of the High Roller markup). `contentLimitPx` →
@@ -360,6 +363,12 @@ nothing that prints).
   most 193 × contentW / 244. On 80 mm that is 280 / 150 / 99 / 73 / 58 px for 1-5 lines of
   capitals. The comma, semicolon and Q are not capitals here (their tails clipped at the paper
   edge in review).
+- Known and accepted: an LH 1.15 column's line box is centred, but its baseline sits 0.35em
+  off the line's centre and lowercase leaves the cap zone empty, so mixed-case ink lands toward
+  the descender side, about 16px (4 mm) off centre on 80 mm ("Rise, up": 48 / 16px gaps).
+  Nothing clips (the width rule keeps 6px on the worse side); capitals-only (LH .8) columns are
+  centred within 1-2px. A dir-dependent `position:relative` nudge could centre it, but it needs
+  the edge-reach rule re-derived and both directions benched first. The README says so.
 - Length = S × the line's em width + 0.5 px a glyph: an upper bound (kerning makes the real run
   1-18px shorter on the bench).
 - A long line is cut into segments at word boundaries, by height and by an equal share of the
@@ -369,10 +378,11 @@ nothing that prints).
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
-- `cjk` → **R1** `<div style=width:<C>.2em;font-size:<K>vw;line-height:1>` + the cells, no
-  `<br>` (the row breaks itself at C cells; the .2em slack lets C fit and not C+1). K =
+- `cjk` → **R1** `<div style=width:<C>.2em;font-size:<K>vw;line-height:1;margin:auto>` + the
+  cells, no `<br>` (the row breaks itself at C cells; the .2em slack lets C fit and not C+1). K =
   floor(100 × 152 / (1.81 × (C + 0.2))) / 100. C is 12..30. vw is the page width, so the same
-  message fits both papers.
+  message fits both papers. `margin:auto` centres the grid: a block with a width sits flush left
+  whatever `text-align` says, about 8px (2 mm) left of centre on 80 mm (benched).
 - `ascii`, `asciifull`, `safe` → **R4** `<pre style="font:<K>vw/1.2 'Courier New';margin:0">`
   rows joined by `<br>`, each row escaped. Courier New is 0.6em on the rig and the bench; `<pre>`
   keeps the ASCII ramps' spaces. K = floor(100 × 152 / (C × 0.6 × 1.81)) / 100. C is 8..48. The
@@ -398,7 +408,9 @@ opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R
 - The token goes last, after a space. Each part rides **alone** (any text before the grid
   shifts every row) and repeats the header and the token. Rows per cheer =
   min(floor((500 − trail − header) / C), floor(limit / 21.6) − lines for header and token):
-  31 on 80 mm, 53 on 58 mm. Height = (header + rows + token line) × 21.6.
+  at most 31 on 80 mm, 53 on 58 mm. The rows are spread evenly over the cheers that takes
+  (ceil(R / parts) each), so no cheer carries a lone row. Height = (header + rows + token
+  line) × 21.6.
 - Text: the glue's `designTTextGrid` draws the text rotated 90° clockwise down a column C cells
   wide (cells 16 × 21.6, so letters keep their shape), quantized to the cjk ramp without
   dither. It reads by turning the receipt anticlockwise. Pictures: `buildDesignTPicture`

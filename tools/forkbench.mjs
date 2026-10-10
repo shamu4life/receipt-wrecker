@@ -62,7 +62,10 @@
 // Text the app pins to Arial lands on Liberation Sans, which has Arial's metrics.
 //
 // Licence: printer-bot is MIT-licensed (Copyright (c) 2026 SassyTP). This tool fetches the page at
-// run time and never commits a copy of it; do not add one (or any font) to this repo.
+// run time and never commits the upstream page verbatim; do not add it (or any font) to this repo.
+// The one sanctioned copy is the edited block tools/vendor-renderer.mjs writes into
+// public/index.html. forkDither below is a port of the bot's C# Ditherer and carries the licence
+// notice with it.
 // Dev-only: not part of `npm test` or CI, and no test imports this file.
 
 import { createHash } from "node:crypto";
@@ -205,6 +208,30 @@ async function resolveRenderer(o) {
 }
 
 // ---- the bot's dither: a line-for-line port of printer-bot 2.5.4's C# Ditherer ---------------------
+// Ported from SassyTP's printer-bot (https://github.com/SassyTP/printer-bot), under its licence:
+//
+//   MIT License
+//
+//   Copyright (c) 2026 SassyTP
+//
+//   Permission is hereby granted, free of charge, to any person obtaining a copy
+//   of this software and associated documentation files (the "Software"), to deal
+//   in the Software without restriction, including without limitation the rights
+//   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//   copies of the Software, and to permit persons to whom the Software is
+//   furnished to do so, subject to the following conditions:
+//
+//   The above copyright notice and this permission notice shall be included in all
+//   copies or substantial portions of the Software.
+//
+//   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//   SOFTWARE.
+//
 // (plus DecodePngToGray's luma). Integer arithmetic and arithmetic right shifts, exactly as the C#.
 // rgba: the screenshot's RGBA bytes, w x h. outWidth: 576 (80 mm) or 384 (58 mm).
 // mode: "floyd" | "atkinson" | "threshold". The diffusion modes force >= 250 to white and <= 5 to

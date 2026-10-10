@@ -55,7 +55,7 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   | node tools/forkbench.mjs --paper 58 --bits 100 --threshold 25
 ```
 
-`tools/payload.mjs` builds a message with the app's own code; `tools/forkbench.mjs` (`npm run bench`) renders it through SassyTP's receipt page at a pinned commit (fetched once, checked by sha256, cached in the gitignored `.render/`) and writes the screenshot, the 1-bit dithered version and a JSON report. Never commit a font or a copy of the upstream page. Details in `CLAUDE.md`, "Measuring: the bench".
+`tools/payload.mjs` builds a message with the app's own code; `tools/forkbench.mjs` (`npm run bench`) renders it through SassyTP's receipt page at a pinned commit (fetched once, checked by sha256, cached in the gitignored `.render/`) and writes the screenshot, the 1-bit dithered version and a JSON report. Never commit a font or the upstream page verbatim: the edited block `tools/vendor-renderer.mjs` writes into `public/index.html` is the one sanctioned copy. Details in `CLAUDE.md`, "Measuring: the bench".
 
 ---
 

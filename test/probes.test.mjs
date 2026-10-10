@@ -59,6 +59,10 @@ test("Plain test: one bit under the threshold, a Design T HI grid, the token las
   }
   assert.equal(C.buildPlainProbe({ hrThreshold: 0 }).bits, 1, "High Roller off: every cheer is plain");
   assert.equal(C.buildPlainProbe({ hrThreshold: 0 }).mode, "plain");
+  // With High Roller off there is no threshold for 1 bit to be under.
+  assert.match(C.buildPlainProbe({ hrThreshold: 0 }).note, /^One 1-bit cheer\. High Roller is off, so every cheer prints plain/);
+  assert.doesNotMatch(C.buildPlainProbe({ hrThreshold: 0 }).note, /under the threshold/);
+  assert.match(C.buildPlainProbe({ hrThreshold: 25 }).note, /^One 24-bit cheer, one under the threshold\./);
   const one = C.buildPlainProbe({ hrThreshold: 1 });
   assert.equal(one.mode, "raw");
   assert.match(one.note, /no plain test/);

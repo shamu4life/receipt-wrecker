@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { imageKeyFor } from "../src/worker.js";
 
-// Uploaded-image links are PAYLOAD: they get pasted into a Twitch message with a hard
-// 500-char cap, alongside markup that is already most of the budget. The link went from
-// 67 chars (/i/<32 hex>.png) to 45 (/<12 hex>.png), which is the difference between a
-// fake cheer sending as one cheer or two. This file guards the routing that allows it.
+// The Worker's image routes. Since 1.0.0 no payload carries an uploaded link (a Real picture
+// sends nothing on SassyTP's bot, and glyph-art is characters): the links matter for the Real
+// picture card's thumbnail and for saved presets. Every link shape ever minted, the short root
+// form (/<12 hex>.png) and the older /i/<hex> forms, must keep resolving, because a preset saved
+// by an older build may still hold one. This file guards that routing.
 
 const HEX12 = "a1b2c3d4e5f6";
 const HEX32 = "0123456789abcdef0123456789abcdef";

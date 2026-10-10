@@ -70,9 +70,12 @@ test("B1: every builder and both probes, 80 and 58 mm: only div, pre and br; nev
 });
 
 test("B1: a typed picture tag arrives as text, escaped, in every text builder", () => {
+  // Each builder's bodies together (a long line may be cut into several bodies at a space).
   const t = '<img src="x"> <SVG> <iframe>';
-  for (const b of C.buildBigBodies(t, { layout: "lines" }).concat(C.buildSideBodies(t, {}))) {
-    assert.ok(b.html.includes("&lt;img") && b.html.includes("&lt;SVG&gt;"), b.html);
+  for (const bodies of [C.buildBigBodies(t, { layout: "lines" }), C.buildSideBodies(t, {})]) {
+    const all = bodies.map((b) => b.html).join("");
+    assert.ok(all.includes("&lt;img") && all.includes("&lt;SVG&gt;") && all.includes("&lt;iframe&gt;"), all);
+    assert.doesNotMatch(all, /<\s*(img|svg|iframe)/i, all);
   }
 });
 

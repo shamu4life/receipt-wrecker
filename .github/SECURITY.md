@@ -66,9 +66,9 @@ don't report them.
   to bypass. Note that there *is* a backend (`src/worker.js`), and it is in scope
   above.
 - Uploaded images are readable by anyone with the link. That is the design: an
-  unguessable 48-bit key, alive for 15 minutes, so a payload can point a printer at
-  it. Guessing one is impractical; being able to read one you were *given* is not a
-  bug.
+  unguessable 48-bit key, alive for 15 minutes, so the Real picture card can show the
+  upload (no message carries one any more). Guessing one is impractical; being able to
+  read one you were *given* is not a bug.
 - The only storage is four `localStorage` keys: `rw_controls_v1` (your settings),
   `rw_nonce_seq` (the repeat-number counter), `rw_blocks_v1` (your block stack) and
   `rw_presets_v1` (your presets), each wrapped in `try/catch`. What you type stays in

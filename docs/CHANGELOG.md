@@ -62,9 +62,11 @@ page, built into the app and run in a sandboxed frame with no network access.
 - **The streamer's printer-bot settings**: Paper width (80 or 58 mm), High Roller threshold
   (default 25; 0 = off), Bits per inch and Maximum length (both off by default). They decide
   how wide the paper is, whether a cheer prints styled or plain, and how long a High Roller
-  message may be. Saved as fields of `rw_controls_v1`; no new storage key.
+  message may be. Saved as fields of `rw_controls_v1`; no new storage key. When Bits per inch
+  leaves a cheer no room after the Cheer line, the notice above the parts says so, with how
+  much receipt the streamer gives per bit.
 - **Big text** (High Roller): `<div style="font:700 <px>px/<lh> Arial">` in bold Arial, sized
-  from Arial Bold's real advance widths. Layouts *Auto*, *Lines as you typed them*, *Stack the
+  from Arial Bold's real advance widths (every printable ASCII and Latin-1 character measured). Layouts *Auto*, *Lines as you typed them*, *Stack the
   letters* and *Each line its own size*; sizes *Auto* (biggest in one cheer), *Fill the
   paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
   1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
@@ -76,10 +78,12 @@ page, built into the app and run in a sandboxed frame with no network access.
   (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC).
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
   plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
-  a line to itself, and the cheer word at the end. Each plain part is its own cheer.
-- **Glyph-art forms for this bot**: Han characters as a square grid sized in `vw` so one
-  message fits both papers (12 to 30 columns); ASCII and blocks as Courier New rows in a
-  `<pre>` (8 to 48 columns); Braille (marked as needing a test print).
+  a line to itself, and the cheer word at the end. Each plain part is its own cheer, and a run
+  that needs several spreads its rows evenly over them (no cheer for a lone row).
+- **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
+  one message fits both papers (12 to 30 columns); ASCII and blocks as Courier New rows in a
+  `<pre>` (8 to 48 columns); Braille, with its rows sized for its narrow cell so a picture keeps
+  its shape (marked as needing a test print).
 - **Plain mode, automatically.** Below the threshold every block prints in its plain form
   (text as Han tiling, Glyph-art as a plain Han grid), and a notice above the parts says why
   and how to change it.
@@ -96,7 +100,8 @@ page, built into the app and run in a sandboxed frame with no network access.
   and anything the bot's sanitizer would remove.
 - **Thermal preview from the bot's page**: the receipt at the printer's dot width (576 / 384),
   dithered with a port of the bot's own C# Ditherer, with **Detailed / Soft / Crisp** (the
-  dock's names for Floyd-Steinberg, Atkinson and threshold).
+  dock's names for Floyd-Steinberg, Atkinson and threshold). Its caption says it is what the
+  printer gets give or take fonts and a dot or two of position.
 - **Tools**: `tools/forkbench.mjs` (`npm run bench`) renders a message through SassyTP's real
   receipt page at a pinned commit and dithers it the bot's way; `tools/vendor-renderer.mjs`
   writes or `--check`s the vendored renderer block (the "SassyTP shipped a new version"
@@ -117,8 +122,10 @@ page, built into the app and run in a sandboxed frame with no network access.
 - **Real picture** blocks send nothing. SassyTP's bot only prints pictures from emote
   servers, and this channel's chat filter blocks the picture tag, so the card says the upload
   can't print as a picture and offers **Switch to Glyph-art**. Upload, rotate and
-  brightness/contrast stay on the card. New Image blocks start as Glyph-art (Han characters,
-  20 columns). A stack whose only content is a Real picture gives no copyable cheer.
+  brightness/contrast stay on the card; the card shows the picture only while it is a Real
+  picture, a pasted link through `/px` (the browser never asks the link's own host). New Image
+  blocks start as Glyph-art (Han characters, 20 columns). A stack whose only content is a Real
+  picture gives no copyable cheer.
 - **The repeat number** (two digits after the cheer word) is still off by default and still
   saved in `rw_controls_v1`.
 - **Network**: the app now has four `fetch` call sites (two `/px`, two `/upload`), down from
@@ -172,7 +179,7 @@ blocks a form, the answer is the plain form, never a reworked message.
 - **Preview vs bench**: the in-app preview and the bench agree on height, cut and sanitizer
   notes in every case compared; plain and glyph grids match dot for dot; big and sideways text
   differ only in a few edge dots, and header text sits a dot or two lower.
-- **Tests**: 160 unit tests and 17 browser tests, including the tag allow-list test and the
+- **Tests**: 162 unit tests and 18 browser tests, including the tag allow-list test and the
   contract test against the vendored renderer.
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig
   yet. The bench cannot see the rig's fonts (Segoe UI, Arial, the CJK face, Courier New, the

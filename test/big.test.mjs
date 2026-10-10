@@ -17,12 +17,23 @@ const J = (x) => JSON.parse(JSON.stringify(x));
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, (msg || "") + ": " + a + " vs " + b);
 
 test("BIG_W is Arial Bold's exact, case-aware advance table", () => {
-  assert.equal(Object.keys(C.BIG_W).length, 75, "the 75 measured characters");
+  assert.equal(Object.keys(C.BIG_W).length, 189, "printable ASCII and Latin-1, every one measured");
+  for (let c = 0x20; c <= 0xff; c++) {
+    if (c > 0x7e && c < 0xa1 || c === 0xad) continue;   // C1 controls, NBSP and the soft hyphen
+    assert.ok(Object.prototype.hasOwnProperty.call(C.BIG_W, String.fromCharCode(c)), "BIG_W lacks U+" + c.toString(16));
+  }
   const spot = { H: 0.722, E: 0.667, L: 0.611, O: 0.778, M: 0.833, W: 0.944, I: 0.278, " ": 0.278, "5": 0.556,
-                 a: 0.556, i: 0.278, m: 0.889, r: 0.389, z: 0.5, "@": 0.975, ",": 0.278, "'": 0.238 };
+                 a: 0.556, i: 0.278, m: 0.889, r: 0.389, z: 0.5, "@": 0.975, ",": 0.278, "'": 0.238,
+                 ";": 0.333, "+": 0.584, "(": 0.333, ")": 0.333, "%": 0.889, "*": 0.389, "=": 0.584, "$": 0.556,
+                 "_": 0.556, "É": 0.667, "é": 0.556, "Ñ": 0.722, "ß": 0.611, "Æ": 1 };
   for (const [ch, w] of Object.entries(spot)) assert.equal(C.BIG_W[ch], w, JSON.stringify(ch));
   close(C.bigLineEm("HELLO"), 3.389, "HELLO (bench c01: 240.61 = 3.389 x 71)");
   close(C.bigLineEm("MMMMM"), 4.165, "MMMMM (bench c13)");
+  // A ';' used to count 1em: "QUIZ; Q&A" read 5.889em against Arial Bold's real 5.222, and fit1
+  // printed it at 40px on 80 mm where 45 fits (fitPx 237.5 / 5.222).
+  close(C.bigLineEm("QUIZ; Q&A"), 5.222, "QUIZ; Q&A");
+  assert.equal(C.bigFit("QUIZ; Q&A\nok?", { layout: "lines", paperMm: 80 }).px, 45);
+  assert.equal(C.bigFit("QUIZ; Q&A\nok?", { layout: "lines", paperMm: 58 }).px, 28);
   assert.ok(C.bigLineEm("hello") < C.bigLineEm("HELLO"), "never uppercased: lowercase is narrower");
   assert.equal(C.bigLineEm("ж"), C.BIG_W_DEFAULT, "an unlisted character errs wide");
   assert.equal(C.bigLineEm("🔥"), C.BIG_W_EMOJI);

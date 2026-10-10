@@ -25,7 +25,7 @@ const rowsOf = (html, open, close, sep) => html.slice(open.length, html.length -
 
 test("R1: the vw-sized CJK grid, open tag pinned, a row inside 153px and 244px", () => {
   eq(C.buildCjkGrid(disc(12, 2, CJK), {}).map((b) => b.html.slice(0, b.html.indexOf(">") + 1)),
-     ["<div style=width:12.2em;font-size:6.88vw;line-height:1>"]);
+     ["<div style=width:12.2em;font-size:6.88vw;line-height:1;margin:auto>"]);
   for (let c = 12; c <= 30; c++) {
     const K = C.cjkGridK(c);
     assert.ok(K * 1.81 * (c + 0.2) <= 152 + 1e-9, "58 mm row, C=" + c);
@@ -56,11 +56,13 @@ test("R1: bands by characters and height, every row exactly C cells, height R x 
       for (const p of C.packStackBodies(b, k)) assert.ok(p.chars <= 500 && p.contentPx <= k.limit.px + 1e-6, where);
     }
   }
-  // The brief's largest single cheers fit, with the closing tag: 12 x 35 at Cheer100.
+  // The largest single cheer fits, with the closing tag: 12 x 34 at Cheer100 (the brief's
+  // 12 x 35 was before margin:auto, 12 characters a band, centred the grid on 80 mm).
   const k = ctx();
-  const b = C.buildCjkGrid(disc(12, 35, CJK), opts(k));
+  const b = C.buildCjkGrid(disc(12, 34, CJK), opts(k));
   assert.equal(b.length, 1);
-  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 55 + 420 + 6);
+  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 67 + 408 + 6);
+  assert.equal(C.buildCjkGrid(disc(12, 35, CJK), opts(k)).length, 2, "35 rows band into two");
   assert.ok(Math.abs(C.buildCjkGrid(disc(12, 36, CJK), opts(k)).reduce((t, x) => t + x.heightPx, 0) - 36 * 6.88 * 2.72) < 1e-3,
     "12x36 at 80 mm is about 674px");
 });
@@ -162,8 +164,16 @@ test("Design T bands: 31 rows a cheer on 80 mm, 53 on 58 mm; every part repeats 
     const cols = C.hanziCols(C.paperSpec(mm).contentW);
     const grid = disc(cols, 80, CJK);
     const o = { mode: "plain", paperMm: mm, cheer: true, bits, noNonce };
+    const where = mm + " mm, Cheer" + bits + (noNonce ? "" : " + digits");
+    // `per` rows is one cheer, one more is two, and the rows are spread evenly over the cheers
+    // (no last cheer carrying a lone row): every band within one row of the others.
+    assert.deepEqual(Array.from(C.buildDesignT(disc(cols, per, CJK), o), (x) => x.hanzi.rows), [per], where);
+    assert.deepEqual(Array.from(C.buildDesignT(disc(cols, per + 1, CJK), o), (x) => x.hanzi.rows),
+      [Math.ceil((per + 1) / 2), Math.floor((per + 1) / 2)], where);
     const b = C.buildDesignT(grid, o);
-    assert.equal(b[0].hanzi.rows, per, mm + " mm, Cheer" + bits + (noNonce ? "" : " + digits"));
+    assert.equal(b.length, Math.ceil(80 / per), where);
+    const sizes = b.map((x) => x.hanzi.rows);
+    assert.ok(Math.max(...sizes) <= per && Math.max(...sizes) - Math.min(...sizes) <= 1, where + ": " + sizes);
     const parts = C.packStackBodies(b, { cheer: true, bits, noNonce, nonceFn: (i) => C.makeNonce(i) });
     assert.equal(parts.length, b.length);
     const h = C.designTHeader(mm, "plain");
@@ -180,9 +190,9 @@ test("Design T bands: 31 rows a cheer on 80 mm, 53 on 58 mm; every part repeats 
   // In a High Roller part the box may be the streamer's bits-per-inch limit: 384px holds
   // header + 15 rows + token.
   const k = ctx({ bitsPerInch: 25 });
-  const hr = C.buildDesignT(disc(15, 40, CJK), { mode: "raw", paperMm: 80, cheer: true, bits: 100, noNonce: true, limitPx: k.limit.px });
+  const hr = C.buildDesignT(disc(15, 45, CJK), { mode: "raw", paperMm: 80, cheer: true, bits: 100, noNonce: true, limitPx: k.limit.px });
   assert.equal(hr[0].hanzi.header, 15);
-  assert.equal(hr[0].hanzi.rows, 15);
+  assert.deepEqual(Array.from(hr, (x) => x.hanzi.rows), [15, 15, 15]);
   for (const x of hr) assert.ok(x.heightPx <= 384 + 1e-9);
   // Cheer-ready off: no token, so no token line, and a full header.
   const off = C.buildDesignT(disc(15, 4, CJK), { mode: "raw", paperMm: 80, cheer: false });

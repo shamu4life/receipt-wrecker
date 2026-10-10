@@ -131,6 +131,10 @@ Cheer100 <div style="writing-mode:vertical-rl;font:700 150px/.8 Arial;white-spac
 quarter turn to the left) and it reads left to right, line 1 on top. *Bottom to top*: turn it
 **clockwise**.
 
+Capitals sit in the middle of the paper. Lowercase and punctuation with tails take more line
+height, and the letters sit toward the side their tails point to: about 4 mm off centre on
+80 mm. Nothing is cut off.
+
 Bottom to top uses `writing-mode: sideways-lr`, which needs Edge 132 or newer on the
 streamer's PC. If UP lies flat on the [High Roller test](#test-cheaply-first), their Edge is
 older: use Top to bottom. (On an old Edge, `vertical-rl` turned with `rotate:180deg` would look
@@ -166,7 +170,7 @@ The picture as a grid of characters. Pick the characters:
   cell is the same width in any CJK font, so rows line up on both paper widths.
 
   ```text
-  Cheer100 <div style=width:12.2em;font-size:6.88vw;line-height:1>丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶三青直二二直青三丶丶丶二龍鬱鬱齒齒鬱鬱龍二丶丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶丶三麤鬱鬱鬱鬱鬱鬱麤三丶丶丶鬼鬱鬱鬱鬱鬱鬱鬼丶丶丶丶二鼎鬱鬱鬱鬱鼠丿丶丶丶丶丶二麥鬱鬱麥二丶丶丶丶丶丶丶丶革革丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶</div>
+  Cheer100 <div style=width:12.2em;font-size:6.88vw;line-height:1;margin:auto>丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶三青直二二直青三丶丶丶二龍鬱鬱齒齒鬱鬱龍二丶丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶丶三麤鬱鬱鬱鬱鬱鬱麤三丶丶丶鬼鬱鬱鬱鬱鬱鬱鬼丶丶丶丶二鼎鬱鬱鬱鬱鼠丿丶丶丶丶丶二麥鬱鬱麥二丶丶丶丶丶丶丶丶革革丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶丶</div>
   ```
 
 - **ASCII letters**, **ASCII full detail** and **Blocks ░▒▓█**: rows in Courier New, 8 to 48
@@ -214,8 +218,9 @@ this app builds).
 **Thermal preview** shows the receipt the way the printer gets it: the bot's page at the
 printer's dot width (576 dots on 80 mm, 384 on 58 mm), turned to black and white with the
 same dither the bot uses. Pick the one the streamer's dock is set to: **Detailed** (the
-bot's default), **Soft** or **Crisp**. It is what the printer gets, give or take fonts: this
-computer's fonts may differ from the streamer's.
+bot's default), **Soft** or **Crisp**. It is what the printer gets, give or take fonts and a
+dot or two: this computer's fonts may differ from the streamer's, and the header and some big
+or sideways lines land a dot or two off where the bot puts them.
 
 ---
 
@@ -251,7 +256,9 @@ computer's fonts may differ from the streamer's.
 
 That is the channel's moderation saying no, so don't rework the message to get it past: no
 respacing, no swapped tags, no look-alike characters. If a channel blocks the big-text
-markup, Han tiling, which is plain text, is the fallback. On the channel this was built for,
+markup, Han tiling, which is plain text, is the fallback. If chat held the message for its
+words, don't send those words again in another form, Han tiling included: that is the
+moderators saying no to the words. On the channel this was built for,
 the chat filter blocks the picture tag (checked again on 2026-10-10), which is why pictures
 print only as glyph-art.
 

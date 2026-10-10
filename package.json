@@ -1,15 +1,14 @@
 {
   "name": "receipt-wrecker",
-  "version": "0.12.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "node --test",
-    "render": "python3 tools/rig.py",
     "payload": "node tools/payload.mjs",
-    "printerbot": "node tools/printerbot.mjs",
+    "bench": "node tools/forkbench.mjs",
     "test:browser": "node --test test-browser/composer.spec.mjs"
   },
   "devDependencies": {

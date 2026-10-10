@@ -11,12 +11,10 @@ const {
 } = C;
 
 const STACK = [
-  { id: 1, type: "text", text: "HELLO", size: 90 },
+  { id: 1, type: "text", text: "HELLO", size: 90, fmt: { weight: 900, italic: true } },
   { id: 2, type: "image", url: "https://i.uwutoowo.com/0123456789ab.png", width: 70 },
-  { id: 3, type: "takeover", anchor: "top", pullPt: 240, items: [
-    { kind: "pic", url: "https://i.uwutoowo.com/ffeeddccbbaa.png", width: 120 },
-    { kind: "text", text: "50000 BITS", size: 24 },
-  ] },
+  { id: 3, type: "text", render: "hanzi", text: "50000 BITS", cols: 15 },
+  { id: 4, type: "image", imgKind: "glyph", url: "https://i.uwutoowo.com/ffeeddccbbaa.png", tier: "cjk", cols: 40 },
 ];
 
 test("a preset strips runtime-only fields and deep-copies the stack", () => {
@@ -108,20 +106,19 @@ test("only OUR minted links are treated as expirable", () => {
     "a suffixed lookalike host must not be taken for ours");
 });
 
-test("the URL walker finds pictures in BOTH surfaces that can hold one", () => {
-  // If a picture surface is missed here it escapes the expiry check entirely and prints
-  // blank paper with no warning — the exact failure the flag exists to prevent.
+test("the URL walker finds every image block's picture, of either kind, in stack order", () => {
+  // If a picture is missed here it escapes the expiry check entirely: a glyph-art block
+  // whose upload expired decodes nothing, with no warning.
   const urls = presetImageUrls(STACK);
   eq(urls, [
     "https://i.uwutoowo.com/0123456789ab.png",
     "https://i.uwutoowo.com/ffeeddccbbaa.png",
-  ], "an image block's url and a takeover item's url must both be found, in stack order");
+  ], "both image blocks' urls must be found, in stack order");
 
   eq(presetImageUrls([]), []);
   eq(presetImageUrls(null), []);
-  eq(presetImageUrls([{ type: "text", text: "no pictures here" }]), []);
-  // A text item with a url-ish field is not a picture.
-  eq(presetImageUrls([{ type: "takeover", items: [{ kind: "text", text: "x", url: "u" }] }]), []);
+  eq(presetImageUrls([{ type: "text", text: "no pictures here", url: "u" }]), [],
+    "a url-ish field on a text block is not a picture");
 });
 
 test("cleanBlocks is the single definition of what a saved block is", () => {
@@ -131,4 +128,57 @@ test("cleanBlocks is the single definition of what a saved block is", () => {
   eq(cleanBlocks(b), [{ keep: 1 }]);
   eq(cleanBlocks(null), []);
   assert.notEqual(cleanBlocks(b)[0], b[0], "cleanBlocks must copy, not alias");
+});
+
+test("import never replaces: a name taken by a saved setup, or by one added earlier in the same import, gets a number", () => {
+  const { importPresets } = C;
+  const saved = [makePreset("Stream", [{ id: 1, type: "text", text: "MINE" }], 1)];
+  const incoming = parsePresets(serializePresets([
+    makePreset("Stream", [{ id: 1, type: "text", text: "FIRST" }], 2),
+    makePreset("Stream", [{ id: 1, type: "text", text: "SECOND" }], 3),
+    makePreset("Other", [{ id: 1, type: "text", text: "THIRD" }], 4),
+  ])).presets;
+  const r = importPresets(saved, incoming);
+  eq(r.presets.map((p) => [p.name, p.blocks[0].text]),
+    [["Stream", "MINE"], ["Stream (2)", "FIRST"], ["Stream (3)", "SECOND"], ["Other", "THIRD"]]);
+  assert.equal(r.added, 3);
+  eq(r.renamed, [{ from: "Stream", to: "Stream (2)" }, { from: "Stream", to: "Stream (3)" }]);
+  // Neither input changes, and an empty saved list still numbers a duplicate within the file.
+  assert.equal(saved.length, 1);
+  eq(incoming.map((p) => p.name), ["Stream", "Stream", "Other"]);
+  const fresh = importPresets([], incoming.slice(0, 2));
+  eq(fresh.presets.map((p) => p.name), ["Stream", "Stream (2)"]);
+  eq(fresh.renamed, [{ from: "Stream", to: "Stream (2)" }]);
+  // An export imported straight back (Export leaves its JSON beside Import) adds nothing: a
+  // preset already saved with the same name and the same blocks is left out, whatever order
+  // its fields are in, and listed in `same`. The same blocks under another name are added.
+  const back = importPresets(r.presets, parsePresets(serializePresets(r.presets)).presets);
+  assert.equal(back.added, 0);
+  eq(back.same, ["Stream", "Stream (2)", "Stream (3)", "Other"]);
+  eq(back.renamed, []);
+  assert.equal(back.presets.length, 4);
+  const shuffled = { v: 1, name: "Other", savedAt: 99, blocks: [{ text: "THIRD", type: "text", id: 1 }] };
+  eq(importPresets(r.presets, [shuffled]).same, ["Other"]);
+  const renamedCopy = importPresets(r.presets, [{ ...shuffled, name: "Other copy" }]);
+  assert.equal(renamedCopy.added, 1);
+  eq(renamedCopy.same, []);
+  // Same name, different blocks: still added, under a free name.
+  eq(importPresets(r.presets, [{ ...shuffled, blocks: [{ id: 1, type: "text", text: "CHANGED" }] }]).renamed, [{ from: "Other", to: "Other (2)" }]);
+  // Polish 4: the same file imported AGAIN, after its names clashed: the copies the first
+  // Import renamed are recognised (same blocks under "Stream (2)" / "Stream (3)") and nothing
+  // is added. Matching the name exactly added the first file's "Stream" again as "Stream (4)".
+  // `same` names the SAVED setups that matched, not the incoming names: the identical ones are
+  // "Stream (2)" and "Stream (3)", and the saved "Stream" holds other text (final review 2).
+  const again = importPresets(r.presets, incoming);
+  assert.equal(again.added, 0);
+  eq(again.same, ["Stream (2)", "Stream (3)", "Other"]);
+  eq(again.presets.map((p) => p.name), ["Stream", "Stream (2)", "Stream (3)", "Other"]);
+  // A renamed form only: "Stream (2)" never matches "Stream 2", "Stream (1)" or another base.
+  const one = [makePreset("Stream (1)", [{ id: 1, type: "text", text: "FIRST" }], 5), makePreset("Streamer (2)", [{ id: 1, type: "text", text: "FIRST" }], 6)];
+  assert.equal(importPresets(one, [incoming[0]]).added, 1);
+  // The 60-character cut freePresetName makes is matched too.
+  const long = "L".repeat(60), ren = importPresets([makePreset(long, [{ id: 1, type: "text", text: "A" }], 1)],
+    [makePreset(long, [{ id: 1, type: "text", text: "B" }], 2)]);
+  eq(ren.renamed, [{ from: long, to: "L".repeat(56) + " (2)" }]);
+  assert.equal(importPresets(ren.presets, [makePreset(long, [{ id: 1, type: "text", text: "B" }], 2)]).added, 0);
 });

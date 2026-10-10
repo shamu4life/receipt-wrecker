@@ -35,11 +35,16 @@ body:
       label: Area
       description: Which part of the app is affected?
       options:
-        - Big Text mode
-        - Image mode
-        - Tier selection (Blocks / CJK / Braille / Big text)
-        - Census (Print test strip)
-        - Cheer-ready output (Cheer100 + nonce)
+        - Big text
+        - Sideways text
+        - Han tiling / plain cheers
+        - Glyph-art (picture as characters)
+        - Real picture card / upload
+        - Preview / Thermal preview
+        - High Roller test / Plain test
+        - Streamer settings (paper, threshold, bits per inch, maximum length)
+        - Cheer-ready / bits / repeat number
+        - Presets / saved work
         - Output / copy button / character budget
         - Web UI / layout
         - Other / not sure
@@ -66,6 +71,6 @@ body:
     id: context
     attributes:
       label: Additional context
-      description: Console errors, the exact text/image that misformatted, the options you used (tier, columns, quantize mode), a photo of the actual receipt print if relevant, screenshots or screen recordings, anything that helps.
+      description: Console errors, the exact text/image that misformatted, the options you used (render, layout, size, characters, columns, the streamer settings), a photo of the actual receipt print if relevant, screenshots or screen recordings, anything that helps.
     validations:
       required: false

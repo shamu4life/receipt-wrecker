@@ -1,20 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadCore } from "./_harness.mjs";
+import { loadCore, appScript } from "./_harness.mjs";
 const C = loadCore();
 
-// Task 1: bits amount -> Cheer<N> token. packageCheer already supports opts.cheerToken;
-// pin it so the bits control can rely on it.
-test("packageCheer swaps in a custom cheer token (the bit amount)", () => {
-  assert.equal(C.packageCheer("X", { cheer: true, cheerToken: "Cheer500", nonce: "07" }), "X Cheer500 07");
-  assert.equal(C.packageCheer("X", { cheer: true, cheerToken: "Cheer100", nonce: "07" }), "X Cheer100 07");
-});
-
-test("packageCheer with no cheer returns the body unchanged (bits irrelevant)", () => {
-  assert.equal(C.packageCheer("X", { cheer: false, cheerToken: "Cheer500" }), "X");
-});
-
-// Task 2: packStackBodies — dual char + height budget packing.
+// packStackBodies — dual char + height budget packing.
 const body = (chars, heightPx, html) => ({ chars, heightPx, html: html || "x".repeat(chars) });
 
 test("packs small bodies together, splits when the char budget is exceeded", () => {
@@ -26,7 +15,7 @@ test("packs small bodies together, splits when the char budget is exceeded", () 
 });
 
 test("splits on the physical height budget even when chars are tiny", () => {
-  // Two ~900px-tall strips (few chars each) can't share one ~1500px page.
+  // Two 900px-tall bodies (few chars each) can't share the bot's default 1600px box.
   const parts = C.packStackBodies([body(10,900), body(10,900)], { bits: 100, cheer: true });
   assert.equal(parts.length, 2);
 });
@@ -59,20 +48,17 @@ test("no-cheer payload keeps the nbsp lead guard (may start with '<')", () => {
 // 0.12.0: the repeat number (the two nonce digits) is opt-in. `noNonce: true` is what the
 // app passes when it is off, which is its default.
 test("noNonce: every lead is the bare token, and its reservation is exactly 3 smaller", () => {
-  for (const bits of [100, 1000, 10000]) {
-    for (const tuck of [false, true]) {
-      const on = { cheer: true, bits, tuck }, off = { ...on, noNonce: true };
-      const what = "bits " + bits + (tuck ? ", tucked" : "");
-      assert.equal(C.leadLength(off), C.leadLength(on) - 3, what + ": the digits and their space");
-      const parts = C.packStackBodies([body(300, 50), body(300, 50)], off);
-      assert.equal(parts.length, 2, what);
-      const bare = tuck ? C.LEAD_GUARD + C.TUCK_OPEN + " Cheer" + bits + " " + C.TUCK_CLOSE : "Cheer" + bits + " ";
-      for (const p of parts) {
-        assert.equal(p.nonce, "", what);
-        assert.equal(p.lead, bare, what);
-        assert.equal(p.lead, C.buildLead(off, ""), what);
-        assert.notEqual(p.payload[0], "<", what);
-      }
+  for (const bits of [1, 25, 100, 1000, 10000]) {
+    const on = { cheer: true, bits }, off = { ...on, noNonce: true };
+    const what = "bits " + bits;
+    assert.equal(C.leadLength(off), C.leadLength(on) - 3, what + ": the digits and their space");
+    const parts = C.packStackBodies([body(300, 50), body(300, 50)], off);
+    assert.equal(parts.length, 2, what);
+    for (const p of parts) {
+      assert.equal(p.nonce, "", what);
+      assert.equal(p.lead, "Cheer" + bits + " ", what);
+      assert.equal(p.lead, C.buildLead(off, ""), what);
+      assert.notEqual(p.payload[0], "<", what);
     }
   }
   // Not cheering, there was never a nonce: the nbsp guard either way.
@@ -86,42 +72,28 @@ test("noNonce never asks for a nonce, so the app's counter (a storage write per 
   assert.equal(calls, 0);
 });
 
-test("noNonce: a body sized to the smaller reservation still lands at exactly 500, tucked or not", () => {
-  for (const tuck of [false, true]) {
-    const opts = { cheer: true, bits: 100, tuck, noNonce: true };
-    const budget = C.MAX_CHARS - C.leadLength(opts);
-    const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
-    assert.equal(one.length, 1);
-    assert.equal(one[0].chars, C.MAX_CHARS, tuck ? "tucked" : "untucked");
-  }
-});
-
-test("noNonce leaves untucked bands where they were (the 14 floor) and gives a tucked band its 3", () => {
-  // Untucked, the band reserve's floor of 14 still applies, so toggling the digits never
-  // re-bands a Hanzi or glyph grid. Tucked, the reserve IS the lead, so it shrinks with it.
-  assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, noNonce: true })), 14);
-  const tucked = (o) => C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, tuck: true, ...o }));
-  assert.equal(tucked({ noNonce: true }), tucked({}) - 3);
+test("noNonce: a body sized to the smaller reservation still lands at exactly 500", () => {
+  const opts = { cheer: true, bits: 100, noNonce: true };
+  const budget = C.MAX_CHARS - C.leadLength(opts);
+  const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
+  assert.equal(one.length, 1);
+  assert.equal(one[0].chars, C.MAX_CHARS);
 });
 
 test("noNonce absent or false packs byte-identically: callers written before the toggle are unchanged", () => {
   const bodies = [body(200, 50), body(150, 700, "丶二土"), body(260, 900)];
   for (const cheer of [true, false]) {
-    for (const tuck of [false, true]) {
-      const a = C.packStackBodies(bodies, { cheer, bits: 100, tuck, nonceFn: (i) => C.makeNonce(i) });
-      const b = C.packStackBodies(bodies, { cheer, bits: 100, tuck, noNonce: false, nonceFn: (i) => C.makeNonce(i) });
-      assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
-    }
+    const a = C.packStackBodies(bodies, { cheer, bits: 100, nonceFn: (i) => C.makeNonce(i) });
+    const b = C.packStackBodies(bodies, { cheer, bits: 100, noNonce: false, nonceFn: (i) => C.makeNonce(i) });
+    assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
   }
 });
 
-// The bug this pins: the lead is CONTENT. It occupies a line in the bot's
-// #receipt-content, above the first body, which shifts a lifted takeover DOWN by that
-// line's height and leaves the top of the header uncovered. The preview used to render
-// the bodies without it, so it showed a covered header the tape never produced — the
-// shortfall only appeared on paper, after the bits were spent. Exposing `lead` is what
-// lets the preview render exactly what the message carries; asserting that the payload
-// is literally lead + bodies is what stops the two being built separately again.
+// The lead is CONTENT: the bot prints it as a line of text in #receipt-content, above the
+// first body, and the height model counts that line. A preview built from the bodies alone
+// would show a receipt the tape never produces. Exposing `lead` is what lets the preview
+// render exactly what the message carries; asserting that the payload is literally
+// lead + bodies is what stops the two being built separately again.
 test("each part exposes the lead it carries, and the payload is literally lead + bodies", () => {
   for (const cheer of [true, false]) {
     const parts = C.packStackBodies([body(120, 50, "<a>"), body(120, 50, "<b>")], { bits: 100, cheer });
@@ -142,157 +114,192 @@ test("the lead is the cheer token when cheering and the nbsp guard when not", ()
   assert.equal(bare.lead.charCodeAt(0), 0x00A0);
 });
 
-// ── THE LEAD, AND THE CHEER-GEM TUCK ──
+// ── THE LEAD ──
 // buildLead is the ONE builder of a part's lead; leadLength is what the packer and the
-// band builders reserve for it. The tuck moves the cheer token into a corner box:
-// LEAD_GUARD + <span class="switch dialog-nav-button"> Cheer100 nn </span>, 60 characters
-// against the plain lead's 12.
-const TUCK_RE = /^\u00A0<span class="switch dialog-nav-button"> Cheer100 \d\d <\/span>$/;
-
-test("the plain lead is unchanged: 'Cheer100 07 ', and the old token.length + 4 to the character", () => {
-  // Byte-identical with the tuck off is a hard requirement: every untucked payload the
-  // app sent before must still be the payload it sends now. The packer used to reserve
-  // `"Cheer" + bits` + 4 inline; leadLength has to agree with that at every bit amount.
+// band builders reserve for it.
+test("the plain lead is 'Cheer<bits> 07 ' for ANY amount from 1 up, and leadLength is token.length + 4", () => {
+  // The packer used to reserve `"Cheer" + bits` + 4 inline; leadLength has to agree with
+  // that at every bit amount. There is no 100-bit floor any more: a floor made the Bits
+  // control say 25 while the payload sent (and spent) Cheer100. Absent, zero, negative or
+  // junk falls back to the 100 default; a fraction is floored.
   assert.equal(C.buildLead({ cheer: true, bits: 100 }, "07"), "Cheer100 07 ");
-  assert.equal(C.buildLead({ cheer: true, bits: 500, tuck: false }, "07"), "Cheer500 07 ");
+  assert.equal(C.buildLead({ cheer: true, bits: 500 }, "07"), "Cheer500 07 ");
+  assert.equal(C.buildLead({ cheer: true, bits: 25 }, "07"), "Cheer25 07 ");
+  assert.equal(C.buildLead({ cheer: true, bits: 1 }, ""), "Cheer1 ");
   assert.equal(C.buildLead({ cheer: false }, "07"), C.LEAD_GUARD);
-  for (const bits of [undefined, 0, 1, 99, 100, 101, 500, 1000, 9999, 10000, 99999]) {
-    const token = "Cheer" + (bits && bits >= 100 ? bits : 100);
+  const want = (bits) => (typeof bits === "number" && bits >= 1 ? Math.floor(bits) : 100);
+  for (const bits of [undefined, 0, -5, NaN, 1, 2.9, 24, 25, 99, 100, 101, 500, 1000, 9999, 10000, 99999]) {
+    const token = "Cheer" + want(bits);
+    assert.equal(C.cheerBits(bits), want(bits), "bits " + bits);
     assert.equal(C.leadLength({ cheer: true, bits }), token.length + 4, "bits " + bits);
+    assert.equal(C.leadLength({ cheer: true, bits, noNonce: true }), token.length + 1, "bits " + bits + ", no nonce");
     assert.equal(C.leadLength({ cheer: false, bits }), C.LEAD_GUARD.length, "bits " + bits);
   }
+  // Strings (a saved setting, a <select> value) parse the same way.
+  assert.equal(C.cheerBits("25"), 25);
+  assert.equal(C.cheerBits("junk"), 100);
   assert.equal(C.leadLength({ cheer: true, bits: 100 }), 12);
 });
 
-test("tucked, the lead is the corner span after LEAD_GUARD, and never starts with '<'", () => {
-  for (const bits of [100, 1000, 10000]) {
-    const lead = C.buildLead({ cheer: true, bits, tuck: true }, "07");
-    assert.match(lead.replace("Cheer" + bits, "Cheer100"), TUCK_RE, lead);
-    assert.equal(lead.charCodeAt(0), 0x00A0, "the tucked lead must start with LEAD_GUARD, not '<'");
-    // 60/61/62, plus the 4-character <br> the packer may add to a first body.
-    const n = { 100: 60, 1000: 61, 10000: 62 }[bits];
-    assert.equal(C.payloadLength(lead), n, "tucked lead at " + bits);
-    assert.equal(C.leadLength({ cheer: true, bits, tuck: true }), n + 4, "reserve at " + bits);
-  }
-  // The token keeps a space on BOTH sides inside the span: Twitch only charges (and
-  // printer-bot only turns into a gem) a standalone "Cheer100".
-  assert.match(C.buildLead({ cheer: true, bits: 100, tuck: true }, "07"), /(^|\s)Cheer100(?=\s)/);
-});
-
-test("the tuck means nothing without a cheer: no token, no span, the nbsp guard", () => {
-  const lead = C.buildLead({ cheer: false, tuck: true }, "07");
-  assert.equal(lead, C.LEAD_GUARD);
-  assert.equal(C.leadLength({ cheer: false, tuck: true }), C.LEAD_GUARD.length);
-  const parts = C.packStackBodies([body(120, 50, "<b>x</b>")], { cheer: false, tuck: true });
-  assert.equal(parts[0].lead, C.LEAD_GUARD);
-  assert.ok(!parts[0].payload.includes("<span"), parts[0].payload);
-  assert.equal(parts[0].payload, C.LEAD_GUARD + "<b>x</b>", "an uncheered body must not gain a <br> either");
-});
-
-test("tuck OFF packs byte-identically to no tuck option at all", () => {
-  const bodies = [body(200, 50), body(150, 700, "丶二土"), body(260, 900), body(90, 10, "<br><b>x</b><br>")];
-  bodies[3].leadBr = true;
-  for (const cheer of [true, false]) {
-    for (const bits of [100, 1000]) {
-      const a = C.packStackBodies(bodies, { cheer, bits, nonceFn: (i) => C.makeNonce(i) });
-      const b = C.packStackBodies(bodies, { cheer, bits, tuck: false, nonceFn: (i) => C.makeNonce(i) });
-      assert.deepEqual(b.map((p) => p.payload), a.map((p) => p.payload));
-      for (const p of a) {
-        // Untucked, the packer touches no body: a leadBr body keeps its <br>.
-        assert.equal(p.payload, p.lead + p.bodies.map((x) => x.html).join(""));
+test("the lead's real overhead is reserved: a body filling the budget lands at exactly 500, one more splits", () => {
+  // The mutation this exists for: a reservation smaller than the lead the packer then
+  // sends lets a part go over Twitch's limit, so the whole message is rejected and
+  // nothing prints. Every amount from 1 up, with the repeat digits on and off.
+  for (const bits of [1, 25, 100, 1000, 10000]) {
+    for (const noNonce of [false, true]) {
+      const opts = { cheer: true, bits, noNonce };
+      const what = "bits " + bits + (noNonce ? ", no nonce" : "");
+      const budget = C.MAX_CHARS - C.leadLength(opts);
+      const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
+      assert.equal(one.length, 1, what);
+      assert.equal(one[0].chars, C.MAX_CHARS, what + ": a full-budget body");
+      const half = Math.floor(budget / 2);
+      const two = C.packStackBodies([body(half, 10), body(budget - half + 1, 10)], opts);
+      assert.equal(two.length, 2, what + ": " + two.map((p) => p.chars).join("/"));
+      for (const p of two) {
+        assert.ok(p.chars <= C.MAX_CHARS, what + ": a part is " + p.chars + " characters");
+        assert.equal(p.chars, C.payloadLength(p.payload));
+        assert.equal(p.lead, C.buildLead(opts, p.nonce), what + ": the part's lead is not buildLead's");
       }
     }
   }
 });
 
-test("the tuck lead's real overhead is reserved: two 230-char bodies are TWO parts, each <= 500", () => {
-  // The mutation this exists for: reserving the old `token.length + 4` (12) instead of
-  // leadLength (64 tucked) lets 230 + 230 share one part at 60 + 460 = 520 characters,
-  // over Twitch's limit, so the whole message is rejected and nothing prints.
-  for (const bits of [100, 1000, 10000]) {
-    const opts = { cheer: true, tuck: true, bits };
-    const parts = C.packStackBodies([body(230, 10), body(230, 10)], opts);
-    assert.equal(parts.length, 2, "bits " + bits + ": " + parts.map((p) => p.chars).join("/"));
-    for (const p of parts) {
-      assert.ok(p.chars <= C.MAX_CHARS, "bits " + bits + ": a part is " + p.chars + " characters");
-      assert.equal(p.chars, C.payloadLength(p.payload));
-      assert.equal(p.lead, C.buildLead(opts, p.nonce), "the part's lead is not buildLead's");
-      assert.notEqual(p.payload[0], "<");
+test("the packer never touches a body: no <br> is added or stripped, whatever opens it", () => {
+  // A big-text chunk carried over a word gap opens with its own <br>; a glyph grid opens with
+  // a tag or a glyph. Both go out exactly as built, after exactly the lead.
+  const gap = body(200, 600, "<br><div style=\"font:700 64px/.8 Arial\">GG</div>" + "x".repeat(152));
+  const grid = body(200, 600, "丶".repeat(200));
+  for (const cheer of [true, false]) {
+    const parts = C.packStackBodies([gap, grid, grid, gap], { cheer, bits: 100, heightPx: 5000 });
+    assert.equal(parts.length, 2, parts.map((p) => p.chars).join("/"));
+    for (const p of parts) assert.equal(p.payload, p.lead + p.bodies.map((b) => b.html).join(""));
+    assert.equal(parts[1].payload, parts[1].lead + grid.html + gap.html);
+  }
+});
+
+test("a full Han tiling (Design T) band fits its message at every lead, on both papers", () => {
+  // buildDesignT bands a grid by characters (500, its trailing token included) and by the
+  // message box, and every plain part rides alone: the packer never splits one, so a band
+  // sized for a shorter token than the one sent goes over 500 and Twitch rejects the cheer.
+  for (const paperMm of [80, 58]) {
+    const Cc = C.hanziCols(C.paperSpec(paperMm).contentW);
+    const grid = Array.from({ length: 200 }, () => Array.from({ length: Cc }, () => "鬱"));
+    for (const bits of [1, 24, 100, 10000, 99999]) {
+      for (const noNonce of [true, false]) {
+        const ctx = C.stackContext({ cheer: true, bits, noNonce, hrThreshold: 1000000, paperMm });
+        assert.equal(ctx.mode, "plain");
+        const bodies = C.buildDesignT(grid, { mode: ctx.mode, paperMm, cheer: true, bits, noNonce, limitPx: ctx.limit.px });
+        const parts = C.packStackBodies(bodies, ctx);
+        assert.equal(parts.length, bodies.length, "a plain band shared a part");
+        for (const p of parts) {
+          assert.ok(p.chars <= C.MAX_CHARS, `${paperMm} mm, ${bits} bits: ${p.chars} characters`);
+          assert.ok(p.contentPx <= ctx.limit.px + 1e-6, `${paperMm} mm, ${bits} bits: ${p.contentPx}px`);
+          assert.ok(p.payload.endsWith(" Cheer" + bits + (noNonce ? "" : " " + p.nonce)), p.payload.slice(-12));
+        }
+      }
     }
   }
 });
 
-test("the tuck's <br> is reserved too: a body filling the whole budget still lands at exactly 500", () => {
-  // A body WITHOUT its own leading <br> (Hanzi, glyph-art) gains one under the tuck, and
-  // leadLength counts those 4 characters. Drop them from the reserve and a body sized to
-  // the budget lands at 504. Two bodies sharing the budget pay the <br> once.
-  const opts = { cheer: true, bits: 100, tuck: true };
-  const budget = C.MAX_CHARS - C.leadLength(opts);
-  const one = C.packStackBodies([body(budget, 10, "丶".repeat(budget))], opts);
-  assert.equal(one.length, 1);
-  assert.equal(one[0].chars, C.MAX_CHARS, "a full-budget body under the tuck");
-  const half = Math.floor(budget / 2);
-  const two = C.packStackBodies([body(half, 10, "丶".repeat(half)), body(budget - half, 10, "二".repeat(budget - half))], opts);
-  assert.equal(two.length, 1);
-  assert.ok(two[0].chars <= C.MAX_CHARS, two[0].chars);
+test("the glue builds every block against the stack context it packs with (a structural check: it needs a canvas)", () => {
+  // hanziBodies and glyphImageBodies rasterize on a <canvas>, which the null-DOM sandbox
+  // cannot run. This pins that they, renderBlockBodies and packStack still hand the builders
+  // the ONE stackContext the packer then packs with: a body sized for another budget or
+  // another box than its part's goes over 500 (Twitch rejects it) or past the bot's box.
+  const src = appScript();
+  const fn = (name) => {
+    const m = src.match(new RegExp("function " + name + "\\(([^)]*)\\)\\s*\\{[\\s\\S]*?\\n    \\}\\n"));
+    assert.ok(m, "could not find " + name + " in index.html");
+    return m[0];
+  };
+  const hz = fn("hanziBodies");
+  assert.ok(/buildDesignT\(/.test(hz) && /limitPx: ctx\.limit\.px/.test(hz) && /mode: ctx\.mode/.test(hz), "hanziBodies: " + hz);
+  for (const k of ["cheer", "bits", "noNonce", "paperMm"]) assert.ok(new RegExp(k + ": ctx\\." + k).test(hz), "hanziBodies drops ctx." + k);
+  const gl = fn("glyphImageBodies");
+  assert.ok(/buildGlyphBodies\([^;]*budget: ctx\.budget[^;]*heightPx: ctx\.room[^;]*paperMm: ctx\.paperMm/.test(gl), "glyphImageBodies: " + gl);
+  assert.ok(/buildDesignTPicture\(/.test(gl), "glyphImageBodies lost the plain picture");
+  // The band reservation is the real lead's and nothing more (no extra LEAD_GUARD on top).
+  assert.ok(!/LEAD_GUARD/.test(gl), "glyphImageBodies reserves more than the lead");
+  const rbb = fn("renderBlockBodies");
+  for (const b of ["buildBigBodies", "buildSideBodies"]) {
+    assert.ok(new RegExp(b + "\\([^;]*budget: ctx\\.budget[^;]*heightPx: ctx\\.room[^;]*contentW: ctx\\.contentW").test(rbb), b + " in " + rbb);
+  }
+  assert.ok(/ctx\.mode === "plain"/.test(rbb), "renderBlockBodies no longer falls back to the plain form");
+  const ps = fn("packStack");
+  assert.ok(/stackContext\(opts\)/.test(ps) && /renderBlockBodies\(blocks\[i\], ctx\)/.test(ps), "packStack: " + ps);
+  assert.ok(/for \(k in ctx\) po\[k\] = ctx\[k\]/.test(ps) && /packStackBodies\(bodies, po\)/.test(ps), "packStack packs with another context");
 });
 
-test("tucked, the FIRST body of every part is fixed up: a leadBr body loses its <br>, any other gains one", () => {
-  // A giant body opens with <br> only to end the lead's line. Tucked, the lead is an nbsp
-  // plus a box pinned out of the flow, so keeping that <br> leaves a blank line exactly as
-  // tall as the gem line it hid (real engine: 156px either way); dropping it saves the
-  // line (133px). A Hanzi/glyph grid has no <br>, and would share line 1 with the nbsp,
-  // shifting its wrap and shearing the grid, so it gains one instead.
-  // Pinned to one 500mm page (heightPx): this test is about the leadBr fix-up and CHARACTER
-  // packing, so it uses a page long enough that two 600px bodies share a part by height and
-  // only the character budget decides the split — not the A4 receipt-length default.
-  const opts = { cheer: true, bits: 100, tuck: true, nonceFn: (i) => C.makeNonce(i), heightPx: C.heightBudget(500) };
-  const giant = (n) => Object.assign(body(n, 600, "<br><b class=title>" + "G".repeat(n - 27) + "</b><br>"), { leadBr: true });
-  const hanzi = (n) => body(n, 600, "丶".repeat(n));
-  const g1 = giant(200), h1 = hanzi(200), g2 = giant(200), h2 = hanzi(200);
-  const parts = C.packStackBodies([g1, h1, h2, g2], opts);
-  assert.equal(parts.length, 2, parts.map((p) => p.chars).join("/"));
-  // Part 1 starts with the giant body minus its <br>; the hanzi body after it is untouched.
-  assert.equal(parts[0].payload, parts[0].lead + g1.html.slice(4) + h1.html);
-  // Part 2 starts with a hanzi body, which gains a <br>; the giant body after it keeps its own.
-  assert.equal(parts[1].payload, parts[1].lead + "<br>" + h2.html + g2.html);
-  // An EMPTY body ahead of the first real one changes nothing on paper, so it must not
-  // absorb the fix-up.
-  const empty = { html: "", chars: 0, heightPx: 0 };
-  const e = C.packStackBodies([empty, hanzi(100)], opts);
-  assert.equal(e[0].payload, e[0].lead + "<br>" + "丶".repeat(100));
-  const eg = C.packStackBodies([empty, giant(100)], opts);
-  assert.equal(eg[0].payload, eg[0].lead + giant(100).html.slice(4));
-  // A body that opens with its own <br> but does NOT offer it (leadBr false: a giant body
-  // in emote layout) already starts on a clean line. Adding the usual <br> would double
-  // it into a blank line; stripping it would print its padded first line off-centre.
-  const kept = body(200, 600, "<br><b class=title> Kappa </b><br>" + "x".repeat(200 - 34));
-  const k = C.packStackBodies([kept], opts);
-  assert.equal(k[0].payload, k[0].lead + kept.html);
-  assert.ok(!k[0].payload.includes("<br><br>"), k[0].payload);
+// The core runs in its own vm realm, so its objects are compared as plain JSON.
+const same = (a, b) => assert.deepEqual(JSON.parse(JSON.stringify(a)), b);
+
+// Final review 2: a word in the user's text that Twitch charges as a cheer of its own. The card
+// said so; the parts, their total and the preview ignored it, so a free test carrying "Cheer50"
+// was called free three times while Twitch would charge 50 bits and the bot would print it.
+test("a cheer word in the text: the part, the total, the notice and the preview say what Twitch charges", () => {
+  const free = C.buildBigBodies("HAPPY Cheer50 DAY", { layout: "lines", cheer: false, bits: 100 });
+  const ex = C.extraCheers(free);
+  same(ex, { sure: ["Cheer50"], maybe: [], bits: 50 });
+  // Every occurrence is charged; a non-global prefix is only a maybe; a word glued to a tag is
+  // not standalone, and a stack (one letter a line) holds none.
+  same(C.extraCheers([{ html: "<div>x Kappa10 x Kappa10 PS5 y</div>" }, { html: "a<br>Cheer9<br>b <div>Cheer5</div>" }]),
+    { sure: ["Kappa10"], maybe: ["PS5"], bits: 20 });
+  same(C.extraCheers(C.buildBigBodies("Cheer50", { layout: "stack", cheer: true, bits: 100 })), { sure: [], maybe: [], bits: 0 });
+  // The part's own line: red for a certain charge, a plain hedge otherwise.
+  const off = C.extraCheerLines({ cheer: false, bits: 100, extra: ex }), on = C.extraCheerLines({ cheer: true, bits: 100, extra: ex });
+  assert.equal(off.length, 1); assert.equal(off[0].warn, true);
+  assert.match(off[0].text, /^Not free: Twitch reads “Cheer50” in it as a cheer, so sending it spends 50 bits and the bot prints it\./);
+  assert.match(on[0].text, /^Costs 150 bits, not 100: Twitch reads “Cheer50” in it as another cheer\./);
+  const maybe = C.extraCheerLines({ cheer: true, bits: 100, extra: { sure: [], maybe: ["PS5"], bits: 0 } });
+  assert.equal(maybe.length, 1); assert.equal(maybe[0].warn, false);
+  assert.match(maybe[0].text, /^If “PS5” is a cheer name on this channel/);
+  same(C.extraCheerLines({ cheer: true, bits: 100, extra: { sure: [], maybe: [], bits: 0 } }), []);
+  // The total: never "free" over a paid word, and the bits add up.
+  const none = { sure: [], maybe: [], bits: 0 };
+  same(C.partsCostWords([{ cheer: false, bits: 100, extra: none }]),
+    { warn: false, text: "One message, free: with Cheer-ready off nothing prints; chat's filters still see it." });
+  const f1 = C.partsCostWords([{ cheer: false, bits: 100, extra: ex }]);
+  assert.equal(f1.warn, true); assert.doesNotMatch(f1.text, /, free|nothing prints/); assert.match(f1.text, /^Not free: .*spends 50 bits/);
+  assert.equal(C.partsCostWords([{ cheer: true, bits: 100, extra: none }]).text, "One 100-bit cheer. Paste it into chat and send it.");
+  assert.match(C.partsCostWords([{ cheer: true, bits: 100, extra: ex }]).text, /^One 150-bit cheer, not 100: Twitch also charges 50 bits for “Cheer50” in your text\./);
+  const three = C.partsCostWords([{ cheer: true, bits: 100, extra: none }, { cheer: true, bits: 100, extra: ex }, { cheer: true, bits: 100, extra: none }]);
+  assert.match(three.text, /in part 2 \(3 × 100 \+ 50 = 350 bits total\)/);
+  assert.match(C.partsCostWords([{ cheer: false, bits: 100, extra: none }, { cheer: false, bits: 100, extra: ex }]).text,
+    /^Paste the parts into chat in order: 2 messages, but not free\. Twitch reads “Cheer50” in part 2 as a cheer/);
+  assert.match(C.paidTestNotice(["Cheer50"]), /^Not a free test: Twitch reads “Cheer50” in your text as a cheer/);
+  // The preview draws the cheer Twitch would send: a free test with a paid word is a real cheer of
+  // that word's bits, and a cheer adds them to its own (the header's BITS and the High Roller test).
+  same(C.partCheer({ cheer: false, bits: 100, extra: ex }), { cheer: true, bits: 50 });
+  same(C.partCheer({ cheer: true, bits: 100, extra: ex }), { cheer: true, bits: 150 });
+  same(C.partCheer({ cheer: false, bits: 100, extra: none }), { cheer: false, bits: 100 });
+  same(C.partCheer({ cheer: true, bits: 100, extra: { sure: [], maybe: ["PS5"], bits: 0 } }), { cheer: true, bits: 100 });
+  // The card: a free test holding the word is not "free", and its note says why.
+  const rep = C.bigReport(free, { cheers: 1, bits: 100, free: true });
+  assert.match(rep, /^Capitals ≈ [\d.]+ cm · 1 message, not free: Twitch reads a word in it as a cheer \(see below\)$/m);
+  assert.match(rep, /as a cheer and charge for it, so this test isn't free: it spends the bits and the bot prints it\./);
+  assert.doesNotMatch(rep, /never prints/);
+  assert.match(C.bigReport(free, { cheers: 1, bits: 100 }), /as another cheer and charge for it too\./);
 });
 
-test("a full 15-column Hanzi band is resized for the tuck instead of going out over 500", () => {
-  // hanziBodies sizes a band as floor((MAX_CHARS - bandReserve(budget)) / cols) rows of
-  // pure text, and the packer never splits a band. Untucked that is 32 rows (480 chars,
-  // 492 with "Cheer100 nn "), exactly as before; with the tuck's 60 + <br> a 32-row band
-  // would be 544 and Twitch would reject it, so the reserve has to grow to the real lead.
-  // (hanziBodies itself needs a canvas, so its formula is replayed here from the two
-  // exported pieces it uses; giant.test.mjs checks it still calls them.)
-  const rowsFor = (opts, cols) =>
-    Math.max(1, Math.floor((C.MAX_CHARS - C.bandReserve(C.MAX_CHARS - C.leadLength(opts))) / cols));
-  for (const opts of [{ cheer: true, bits: 100 }, { cheer: true, bits: 10000 }, { cheer: false }, { cheer: false, tuck: true }]) {
-    assert.equal(rowsFor(opts, 15), 32, "untucked band changed for " + JSON.stringify(opts));
-    assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength(opts)), 14, "untucked reserve must stay 14");
-  }
-  for (const bits of [100, 1000, 10000]) {
-    const opts = { cheer: true, bits, tuck: true };
-    for (const cols of [8, 15, 23, 48]) {
-      const rows = rowsFor(opts, cols), band = "丶".repeat(rows * cols);
-      const parts = C.packStackBodies([body(rows * cols, rows * 18, band)], opts);
-      assert.equal(parts.length, 1);
-      assert.ok(parts[0].chars <= C.MAX_CHARS,
-        cols + "-column band at " + bits + " bits, tucked: " + parts[0].chars + " characters");
-    }
-  }
+test("a part too wide for the paper says so, and the total stops saying 'send it'; no-room notes fit Han tiling parts", () => {
+  const none = { sure: [], maybe: [], bits: 0 };
+  assert.equal(C.wideLine([]), "");
+  assert.equal(C.wideLine([2]), "Too wide for the paper: what runs past its edge wraps or is cut off. Block 2's card says how to fix it.");
+  assert.match(C.wideLine([1, 3]), /The cards of blocks 1 and 3 say how to fix it\.$/);
+  const one = C.partsCostWords([{ cheer: true, bits: 100, extra: none, wide: [1] }]);
+  assert.equal(one.warn, true); assert.doesNotMatch(one.text, /Paste it into chat and send it/);
+  assert.match(C.partsCostWords([{ cheer: true, bits: 100, extra: none, wide: [] }, { cheer: true, bits: 100, extra: none, wide: [2] }]).text,
+    /^Part 2 is too wide for the paper, so it wraps or is cut off/);
+  // A Han tiling part has no Cheer line at its top: with no room, it prints its light first row.
+  const ht = { html: "x" }, part = (alone) => ({ alone, bodies: [ht] });
+  assert.equal(C.partsShape([part(true), part(true)]), "plain");
+  assert.equal(C.partsShape([part(true), part(false)]), "mixed");
+  assert.equal(C.partsShape([part(false)]), "");
+  const s = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 500 };
+  assert.match(C.modeNotice(s, "plain"), /shorter than one line of text, so each Han tiling part prints only its light first row/);
+  assert.doesNotMatch(C.modeNotice(s, "plain"), /Cheer line fills/);
+  assert.match(C.modeNotice(s, "mixed"), /the Cheer line fills it, so nothing after it prints\. A Han tiling part prints only its light first row\./);
+  assert.match(C.noRoomAdvice(s, "plain"), /^Nothing worth sending: every part would print only its light first row\./);
+  assert.match(C.noRoomAdvice(s), /^Nothing worth sending: every part would print only its Cheer line\./);
 });

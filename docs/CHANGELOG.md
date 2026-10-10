@@ -5,8 +5,361 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 **Entries describe the state at that release, not today.** The 0.1.0 notes below say
 the app makes no network calls and emits only plain Unicode glyphs. Both were true
-then and neither is true now. For current behaviour see the
-[README](../README.md) and [`public/llms.txt`](../public/llms.txt).
+then and neither is true now. Everything before 1.0.0 targeted nutty.gg's printer-bot,
+not SassyTP's. The design specs and plans older entries mention lived in
+`docs/superpowers/`, removed in 1.0.0; git history keeps them. For current behaviour see
+the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
+
+---
+
+## [1.0.0] - 2026-10-10
+
+### The short version
+
+**Rebuilt for SassyTP's printer-bot (2.5.4).** Receipt Wrecker now targets
+[SassyTP's printer-bot](https://github.com/SassyTP/printer-bot), which draws every cheer on
+a receipt page in headless Edge and prints a screenshot of it. That bot prints a cheer one
+of two ways: a cheer of at least the streamer's **High Roller** threshold (default 25 bits)
+is read as HTML and its inline styles print; a smaller cheer prints as **plain** text in
+quote marks, tags and all. So the app now asks for the streamer's settings, builds big text,
+sideways text and glyph-art for High Roller cheers, and automatically builds every block in
+its plain form (Han tiling) when the cheer is below the threshold.
+
+Everything built for the previous target, nutty.gg's printer-bot (printed through
+wkhtmltopdf), is gone: Giant type, the cheer-gem tuck, Receipt length, the Takeover and
+Fake cheer, continuation covers, real-picture carriers, SVG Big Text and the old bench.
+Saved work is converted on first load, and the stack as it was is kept once as a preset.
+
+The preview is now drawn by **SassyTP's printer-bot renderer** (MIT), the bot's own receipt
+page, built into the app and run in a sandboxed frame with no network access.
+
+### Removed
+
+- **Giant type** (nested borrowed `.title` classes) and everything that served it: the
+  borrowed-class table (`PB_CLASSES`, `pbClass`, `classAttr`, `pbPreviewCss`), the Emote
+  names layout, the **Print size ruler**, and the **Receipt length** control with its A4
+  height model (`heightBudget`, `HEIGHT_RESERVE_PX` and friends).
+- **Hide the cheer gem** (the `tuck` setting). It worked by borrowing two of the old bot's
+  classes; on this bot it would need a message that starts with a tag, which the app never
+  sends.
+- **Takeover** and **Fake cheer** (SVG lifted over the old bot's header) and the
+  **continuation covers** for multi-part runs. SassyTP's bot prints neither SVG nor anything
+  outside its message box.
+- **Real-picture carriers**: the carrier table (`EMBEDS`, `buildImageEmbed`) and the **Find
+  what still sends** probe. See "Changed" for what a Real picture block does now.
+- **SVG Big Text** ("Type", straight and sideways), the rotated span and its CSS-escape trick,
+  the binary text tier, and the **Census** (Print test strip).
+- `breakRuns`, which reworked art to get past a repetition filter. Removed on principle.
+- The hidden single-mode UI left from before the block composer, its builders and its
+  duplicate uploader.
+- The **100-bit floor** on Bits per cheer.
+- Tools for the old bot: `tools/rig.py`, `tools/printerbot.mjs`, `tools/calibrate.py`, and the
+  `npm run render` / `npm run printerbot` scripts. The design specs and plans in
+  `docs/superpowers/` (git history keeps them).
+
+### Added
+
+- **The streamer's printer-bot settings**: Paper width (80 or 58 mm), High Roller threshold
+  (default 25; 0 = off), Bits per inch and Maximum length (both off by default). They decide
+  how wide the paper is, whether a cheer prints styled or plain, and how long a High Roller
+  message may be. Saved as fields of `rw_controls_v1`; no new storage key. When Bits per inch
+  leaves a cheer no room after the Cheer line, the notice above the parts says so, with how
+  much receipt the streamer gives per bit.
+- **Big text** (High Roller): `<div style="font:700 <px>px/<lh> Arial">` in bold Arial, sized
+  from Arial Bold's real advance widths (every printable ASCII and Latin-1 character measured;
+  Han, kana and Hangul count 1.05em, so a stack of them stays inside the paper). Layouts *Auto*,
+  *Lines as you typed them*, *Words wrapped to the paper*, *Stack the letters* and *Each line
+  its own size*; Auto also tries the typed lines with the words wrapped
+  to the paper (balanced, every word whole), so a long sentence typed on one line prints wrapped
+  rather than tiny, and keeps whichever is biggest in one cheer. A short sentence still stacks
+  when its stacked letters come out even slightly bigger, which can take most of the 42 cm box
+  ("You are the best streamer": 61 px stacked over about 42 cm, 56 px wrapped in about 6 cm), so
+  *Words wrapped* is offered on its own, one pick away. A line too wide at a fixed size is counted by the lines its words really wrap to, and a
+  word too wide for the paper that the page can break inside (Han, kana, emoji, a hyphen) by the
+  most lines it could print as, so the next block is never packed into a part the bot will cut;
+  sizes *Auto* (biggest in one cheer), *Fill the
+  paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
+  1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
+  print as grey dots; invisible characters are left out and the card says so. The width also
+  leaves room for the ink a few letters draw past their own space at a line's ends (a j's hook,
+  an f's arm, an r's ear, the accented dotless i's), which the bot's box used to clip: "jeff"
+  now prints at 150px, where 160px cut 5.5px off the j. Every option is
+  labelled with what it prints (capitals in cm, the message's length in cm, cheers); in *Each
+  line its own size* a fixed size is a cap, labelled "up to N px" with the capitals each line
+  really gets. A stacked word too tall for one receipt at the size picked is named, with the
+  cheers it breaks across.
+- **Sideways text** (High Roller): `writing-mode` turns the text so it runs down the tape, as
+  big as the paper's width allows; each typed line is a column. *Top to bottom*
+  (`vertical-rl` with `text-orientation:sideways`, so Han characters and emoji turn with the
+  letters; read by turning the receipt anticlockwise) or *Bottom to top*
+  (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC). Auto
+  tries every size (the cheer count is not monotonic in the size), and a block with more lines
+  than fit across the paper says which lines are cut off. The text is centred across the paper
+  by its INK: `margin:auto` centres the line box, and lowercase and mixed text sat toward the
+  descender side ('gg' 34.5px off centre on 80 mm), so the block gets a small
+  `position:relative;left` shift worked out from each letter's ink in Arial Bold, the
+  streamer's font. Capitals, digits, Q and Ç follow Arial Bold's own outlines (the bench's
+  Liberation Sans Bold has shorter capitals and a far longer Q tail), so capitals move about
+  3px at 300px too. With Arial on the bench, 548 blocks (capitals, lowercase, mixed, digits,
+  kana and emoji, 20 to 300px) came within 2.4px of centre at both widths and in both
+  directions (within 1.2px from 130px up), and at least 4.7px from either edge. A column whose
+  bottom end is such a letter (an f or r at the end, top to bottom; a j at the start, bottom to
+  top) gets a `padding-bottom` for its ink, so the bot's box no longer cuts it ("just" bottom to
+  top lost 2.5 mm of its hook). One line of capitals goes up to the width rule
+  (300px on 80 mm, 190px on 58 mm), where it used to stop at 280px and call 281-300px too wide.
+  A long line Auto had to shrink gets a hint to press Enter for more, bigger columns.
+- **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
+  plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
+  a line to itself, and the cheer word at the end. Each plain part is its own cheer, and a run
+  that needs several spreads its rows evenly over them (no cheer for a lone row). Up to 50
+  typed lines a block (it was 24, silently); past that the card says how many are left out.
+- **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
+  one message fits both papers (12 to 30 columns), every row its own `<div>` so none
+  can reflow: Chromium 156 rounds each Han character's width to a whole pixel, and a grid
+  that relied on a fixed width to break its rows came out slanted there (the same rounding
+  still makes the picture up to about 10% wider or narrower from one Chromium version to the
+  next, and the tier hint says so); ASCII and blocks as Courier New rows in a
+  `<pre>` (8 to 48 columns); Braille, with its rows sized for its narrow cell so a picture keeps
+  its shape (marked as needing a test print). When the streamer's bits per inch leaves a cheer
+  less room than one row, the card says the bot cuts every part.
+- **Plain mode, automatically.** Below the threshold every block prints in its plain form
+  (text as Han tiling, Glyph-art as a plain Han grid), and a notice above the parts says why
+  and how to change it.
+- **High Roller test** and **Plain test** buttons, replacing the Census and the ruler: one
+  cheer at exactly the threshold (BIG, MMMMM at the width limit, "jog", an upside-down BIG
+  and an upward UP) and one cheer one bit under it (HI in a plain Han grid and a row of
+  tones), each with a note on how to read the print.
+- **The preview is SassyTP's own renderer.** `v/2.5.0/renderer.html` at commit `b9f12b0`
+  (version 202610090056) is kept in `public/index.html` as inert text, with SassyTP's MIT
+  notice, and loaded into one sandboxed frame per part (`allow-scripts` only, no network:
+  its page policy allows nothing to load). Three edits, each marked `RW-EDIT`: the Twitch,
+  YouTube and Kick logos are one grey box, the page policy allows no network, and its closing
+  script tag is escaped. Under each part: the receipt's length (and what a found profile
+  picture adds: about 4.8 cm on 80 mm, 4.0 cm on 58 mm; the preview never asks for one), where
+  and why the bot cuts it, and anything the bot's sanitizer would remove. Each part's frame is
+  drawn when it scrolls near the screen, one at a time, so a stack of 80 parts stays quick;
+  Copy and the part's notes are there at once.
+- **Thermal preview from the bot's page**: the receipt at the printer's dot width (576 / 384),
+  dithered with a port of the bot's own C# Ditherer, with **Detailed / Soft / Crisp** (the
+  dock's names for Floyd-Steinberg, Atkinson and threshold). Its caption says it is what the
+  printer gets give or take fonts and a dot or two of position.
+- **Tools**: `tools/forkbench.mjs` (`npm run bench`) renders a message through SassyTP's real
+  receipt page at a pinned commit and dithers it the bot's way; `tools/vendor-renderer.mjs`
+  writes or `--check`s the vendored renderer block (the "SassyTP shipped a new version"
+  routine; without `--ref` it follows the commit the committed block names, so a plain run can
+  never put an older renderer back). `tools/payload.mjs` has new kinds: `big`, `side`, `glyph`, `plain`, `hrprobe`,
+  `plainprobe` (and `raw`), and takes `"paper": 58`.
+- **Tests**: a tag allow-list test (every builder, both probes, 80 and 58 mm, hostile input:
+  only `div`, `pre` and `style`, never a picture tag or a `<br>` in any case); the MANDATORY
+  browser contract test, which runs every mode's Copy payload through the vendored renderer
+  and checks that nothing is taken out, nothing is cut that the app didn't warn about, and the
+  height matches the prediction.
+
+### Changed
+
+- **Bits per cheer** is any whole number from 1. A floor of 100 would have made the control
+  say 25 while the message said `Cheer100`. An entry that isn't an amount (0, a negative
+  number, an emptied field) goes back to the last amount the field held, and its hint says so.
+- **A plain part carries its cheer word last** (`… Cheer24`). The old "token leads" rule
+  still holds for High Roller messages, which never start with `<`.
+- **Real picture** blocks send nothing. SassyTP's bot only prints pictures from emote
+  servers, and this channel's chat filter blocks the picture tag, so the card says the upload
+  can't print as a picture and offers **Switch to Glyph-art**. Upload, rotate and
+  brightness/contrast stay on the card; the card shows the picture only while it is a Real
+  picture, a pasted link through `/px` (the browser never asks the link's own host). New Image
+  blocks start as Glyph-art (Han characters, 16 columns: a square picture fits one cheer). A stack whose only content is a Real
+  picture gives no copyable cheer.
+- **The repeat number** (two digits after the cheer word) is still off by default and still
+  saved in `rw_controls_v1`.
+- **Network**: the app now has four `fetch` call sites (two `/px`, two `/upload`), down from
+  six. The Thermal preview no longer fetches anything. The Worker (`src/worker.js`) and
+  `wrangler.jsonc` are byte-identical.
+- **Settings blob**: `rw_controls_v1` now holds `cheer`, `bits`, `hrThreshold`,
+  `bitsPerInch`, `maxInches`, `paperMm`, `nonce`, `thermalView` and `thermalDither`. Old fields
+  (`tuck`, `covers`, `receiptLen`, the single-mode fields) are ignored and dropped on the next
+  save.
+- The test harness picks the app's script by its id (`<script id="rw-app">`), because the
+  vendored page has a `<script>` of its own.
+- **Copy** is a full-size button in each part's header ("N / 500 characters" beside it), which
+  stays in view while a tall preview scrolls past. It says **Copied** only when the clipboard
+  took the text; when the browser refuses (in-app browsers, say), the part shows its text,
+  selected, to copy by hand. A probe's view has a **Back to my stack** button, and pressing a
+  probe or Back scrolls to the result and focuses its Copy.
+- **No room after the Cheer line**: when the streamer's length settings leave a cheer nothing
+  after its Cheer line, every part says so, its Copy is disabled, the line under the parts
+  says what to change instead of totalling bits, and the cards say the block prints nothing
+  instead of pricing it (Han tiling and Glyph-art too, and no card says how many cheers the run
+  needs). That line and the notice above the parts have a button that goes to the field to
+  change (**Change Bits per cheer**, or the streamer's setting): on a phone it is far below the
+  parts.
+- **Every part cut**: when the streamer's bits-per-inch (or maximum length) leaves each part
+  less room than it needs, a red line above the total says the bot cuts every one and what to
+  change, not only each card.
+- **A word Twitch charges as a cheer is counted everywhere.** A standalone `Cheer50` (or any
+  global cheermote word) in Big or Sideways text is a cheer of its own to Twitch. Only the
+  block's card said so: with Cheer-ready off the notice, the part and the total all called the
+  message a free test that never prints, while Twitch would charge 50 bits and the bot would
+  print it, and with Cheer-ready on the total and the preview's header said 100 bits where
+  Twitch charges 150. Now the part says what it really costs (or that the test isn't free), the
+  total adds the bits in, the notice above the parts turns red ("Not a free test"), the card's
+  summary says "not free", and the preview draws the cheer Twitch would send. A word that is
+  only shaped like a cheer name on some channels gets a hedged line.
+- **Letters too wide for the paper** are named on the part as well as the card, and the line
+  under the parts no longer says "Paste it into chat and send it" over them.
+- **No room after the Cheer line, for Han tiling**: a Han tiling part has no Cheer line at its
+  top, so its card and the notices now say it prints only its light first row, not that the
+  Cheer line fills the box. The Big and Sideways cards no longer quote a size there either.
+- **A test stays on screen** while a picture read, an adjust or an upload finishes, so its Copy
+  still copies the test; before, the stack's parts replaced it under the pointer. An upload on
+  a Real picture card puts its link in the card's Image URL field (also when the cards were
+  redrawn while it was uploading: the link and "Uploaded ✓" used to land on the old card), and
+  an expired-link check no longer takes the cursor out of the box being typed in.
+- **× has an Undo.** Removing a block leaves "Removed a Text block (…). Undo" in its place
+  until the next change to the stack; on a phone the card's ↑ ↓ × buttons are full-size touch
+  targets, with × set apart.
+- **Copy** takes the first click after a number field (Detail, Bits) is changed: the button is
+  no longer rebuilt under the pointer. "Copied" and the copy-by-hand box stay with the part and
+  the text they were about, so they no longer turn up on another view's part.
+- **Presets**: saving under a taken name asks before replacing it; a rename onto a taken name
+  is refused; Load, Rename and Delete act on the preset picked even when two share a name; Load
+  says whether its Glyph-art blocks' uploaded pictures still load (counted on the converted
+  stack, so an old Takeover's picture is checked too) and explains what converting an old
+  preset changed; Load asks first when the blocks on screen are in no preset (a Real picture
+  counts: it prints nothing, but its upload and adjustments are work to lose); Import never
+  replaces a saved setup: a name taken by one (or repeated in the file) is added with a number
+  after it (kept within the 60 characters a name holds), and the note says which; a setup
+  already saved exactly as it is is left out, so importing what was just exported adds
+  nothing, and neither does importing the same file twice when its names clashed (the note then
+  names the saved copies that matched, such as "Party (2)"). After Delete
+  or Import the name box shows the preset the list picked; after a conversion the list picks
+  the "Before 1.0.0" backup the banner names.
+- **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
+  card says a reload or a preset won't keep it, and asks for it again when one didn't. A link
+  that can't be read says so (and isn't fetched again on every edit). Clearing or changing a
+  link while it is still being read cancels that read: it used to land a moment later and print
+  the picture the field no longer named. **Rotate** works for
+  glyph-art too. Grids that need several cheers are spread evenly over them. The Detail field
+  shows the columns the grid really uses.
+- A free test counts messages, not bits, and below the threshold it says the real cheer
+  prints as Han tiling instead; with High Roller off the cards say so; number fields show the
+  value the app uses once committed (a streamer field given something that isn't a number of 0
+  or more keeps its last value, and a value past the bot's limit is capped, each said beside
+  the field: a negative threshold used to become 25 without a word); lengths in a part's verdict are in cm; one part says what
+  it costs too. The Layout hint describes the layout picked; longer card explanations and the
+  Thermal caption's detail fold behind "What's this?"; the ↑ and ↓ buttons are disabled at the
+  ends of the stack; the Image card's file input empties after each pick; the "nothing to
+  print" notice is wrapped text. The Auto layout is named "the layout that prints biggest";
+  the preview's menu is **Thermal dither** and says why it is off; on a Glyph-art card,
+  **Darkness** (centred on 0) and **Smooth shading (photos)** replace "Contrast 128" and a
+  second "Dither"; a too-wide note says how many lines it didn't name; the box's length is in
+  cm to one decimal, as in the part's verdict; the tests say they are real cheers even with
+  Cheer-ready off; a long preset name wraps instead of widening the page on a phone.
+- **On a phone** the preview and its Copy buttons come right after the blocks, before the
+  presets and the settings (they were about 1,900px further down). Every card control has a
+  label a screen reader can read, and the ↑ ↓ × and ↺ buttons say what they do.
+- An expired upload link is worded for the block: a Glyph-art block asks for the file again
+  (it stays on the device) or another link; a Real picture only says why the picture is gone
+  from the card. A Glyph-art block whose picture was read before its link expired still prints
+  from that copy until a reload, and its card says so (in grey, not the red "prints nothing").
+  The notice above the parts says "expired" too, as soon as the check finds it. An over-length part says how to fix it for what it holds (text has no
+  columns), and the line under the parts says to fix it before pasting instead of "send it".
+- **A picture the parts leave out is named.** A Glyph-art picture with a link or a picked file
+  that isn't in the parts (still loading, a link or file that can't be read, an expired upload,
+  a picked file to pick again after a reload or a preset) gets a red line above the parts;
+  while one is still loading nothing can be copied, because the parts change when it arrives.
+  The Image card names the picked file it is using.
+- When bits per inch leaves room after the Cheer line but less than even the smallest letters
+  need, the Big and Sideways notes say to raise Bits per cheer (or that the maximum length is
+  too short) instead of "Pick a smaller size", and no longer say "fits". The repeat number
+  counts only while its checkbox is enabled, so the tests carry no digits with Cheer-ready off.
+  While a test is shown the cards keep describing the stack. The Text box grows with its lines;
+  an emptied Detail field changes nothing until a number is typed; after ↑, ↓ or Undo the
+  keyboard stays on the card. When bits per inch leaves room after the Cheer line but too little
+  for the High Roller test's BIG, its note says how many mm are left instead of "the Cheer line
+  fills it". A long word quoted in a card's note is cut to 23 characters, and notes wrap, so a
+  phone's page no longer scrolls sideways. The Thermal caption says the view is scaled to fit
+  the column, so on a screen that isn't high-density some dots are skipped: zoom in to see
+  every dot. Typing in a long Big text no longer freezes the page: the Layout and Size labels
+  catch up 250 ms after the last key (or as soon as a select is opened). An emoji in a
+  sideways column is no longer moved off centre (the bench put an emoji-only column within
+  0.9 px of centre unmoved, and 8 px off with the old shift). The converted-stack banner says a
+  Takeover's lines print one line each and that Auto prints them bigger. The preset name box
+  and list have names a screen reader can say.
+
+### Migration of saved work
+
+The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
+
+- A **Takeover** or **Fake cheer** becomes ordinary blocks, in order: each text line a Big
+  text block (lines as typed, the biggest size that fits one cheer), each picture a Glyph-art
+  Image block with the same link. Each new block gets a fresh id. An empty one is dropped.
+- A **Giant type** block becomes Big text with its layout (the Emote names layout becomes
+  Lines) and its level as a size: level n is round(16 × 1.2ⁿ) px. An Emote-layout block takes
+  Auto (the biggest size that fits one cheer) instead: its level sized an emote picture, and
+  as letters it printed cut off at the paper's edge.
+- A **Type** block becomes Big text (straight), Big text upside down (180°), or Sideways text
+  top to bottom (90°) or bottom to top (270°).
+- An Image block loses its carrier pick; everything else, the upload link included, stays.
+  A Glyph-art block made from a Takeover picture gets 16 columns.
+- A note above the blocks says what changed (including that emote names now print as words
+  and the old fonts and italics are gone), on the load that converts the stack, until
+  dismissed or the next reload. Loading an older preset converts it the same way and says
+  the same in the presets note; the preset itself stays as it was. A Giant block in the
+  Emote layout takes the biggest size that fits one cheer: its level sized an emote
+  picture, not letters.
+- When anything was rewritten, the stack as it was is saved **once** as the preset
+  **Before 1.0.0** (or "Before 1.0.0 (2)" if that name is taken), merged into your presets
+  after they load, never over one of yours and never over a presets list that can't be read
+  (then the note says the backup couldn't be saved and puts the old stack's JSON in the box
+  under Presets, ready to copy). Stored presets themselves are not rewritten; a preset is
+  converted when it is loaded.
+
+### Field note: this channel's chat filter (2026-10-10)
+
+The channel owner reported on 2026-10-10 that the channel's blocked-terms list from the
+nutty.gg days is unchanged, and that a paste test whose message carried an `<img` tag (an emote
+picture after a styled div) was held by AutoMod. That matches the older record, in which the
+list ate `<object`, then `<image`, then `<img` (confirmed 2026-09-15). So no builder emits a
+picture tag, there is no emote or inline-picture feature, and uploads print only as
+glyph-art.
+
+The same day, of the sideways paste tests, the one with two lines (a `<br>` between HAPPY and
+BIRTHDAY) was held by AutoMod, and the ones without a `<br>` went through. So `<br` is
+presumed on the list too. **By the owner's decision, no message carries a `<br>`:** every line
+of big and sideways text, every glyph-art row and every stacked letter is its own `<div>`, and
+a blank line is a `<div>` holding a no-break space. That prints the same heights, and it gets
+line breaks onto the paper without the blocked token: the owner chose that knowingly, and it
+is the only such exception. A line or row costs 11 characters where a `<br>` cost 4, so fewer
+fit a cheer (a 12-column Han grid: 19 rows, not 27; a stacked letter costs 11 characters), and
+a new Glyph-art block starts at 16 columns, so a square picture still fits one cheer.
+
+Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`) is not known: a
+free test (Cheer-ready off) answers it before any bits are spent. If a channel blocks a form,
+the answer is the plain form, never a reworked message.
+
+### How sure
+
+- **Bench**: every mode was rendered through SassyTP's real receipt page at the pinned commit
+  in Chromium (`tools/forkbench.mjs`), at 80 and 58 mm: 38 cases built by the app's own code,
+  all rendered with no sanitizer notes, no page-policy violations, no ink touching either edge
+  and nothing trimmed. Horizontal text and grids came within 0.21 px of the predicted height;
+  sideways text came in 1 to 18 px under the prediction, which is deliberately an upper bound.
+  Real Copy payloads from the page (mixed big, sideways and Han-grid parts at 80 mm; ASCII
+  grids and an upside-down each-line block at 58 mm; plain and Han tiling) were benched too,
+  and the 1-bit prints checked by eye.
+- **Preview vs bench**: the in-app preview and the bench agree on height, cut and sanitizer
+  notes in every case compared; plain text and 80 mm Han grids match dot for dot; big and
+  sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
+  Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
+  caption says their texture is approximate.
+- **Tests**: 187 unit tests and 48 browser tests, including the tag allow-list test and the
+  contract test against the vendored renderer (which carries the *Words wrapped* layout and a
+  Han and an emoji run at a fixed size too wide for the paper).
+- **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig
+  yet. The bench cannot see the rig's fonts (Segoe UI, Arial, the CJK face, Courier New, the
+  Braille and emoji faces), the streamer's Edge version, their settings or `theme.css`, or the
+  channel's chat filter. The High Roller test and the Plain test are one cheer each; send them
+  first. Braille and the blocks tier (thin seams between rows on the bench) most need checking.
 
 ---
 

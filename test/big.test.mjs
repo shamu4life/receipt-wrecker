@@ -282,7 +282,7 @@ test("fit1's binary search finds what a linear scan finds", () => {
   let n = 0;
   for (const k of ctxs) {
     for (const t of texts) {
-      for (const layout of ["lines", "stack", "each"]) {
+      for (const layout of ["lines", "wrap", "stack", "each"]) {
         for (const flip of [false, true]) {
           const o = { layout, flip, budget: k.budget, heightPx: k.room, contentW: k.contentW };
           const fast = C.bigFit(t, o), slow = C.bigFit(t, { ...o, linear: true });
@@ -294,7 +294,7 @@ test("fit1's binary search finds what a linear scan finds", () => {
       }
     }
   }
-  assert.ok(n >= 400);
+  assert.ok(n >= 600);
 });
 
 test("upside down: ;rotate:180deg on every div, divs and chunks go out last first", () => {

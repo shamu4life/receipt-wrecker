@@ -37,7 +37,8 @@ in.
 ## What it outputs
 
 - Big text (High Roller): the words in bold Arial, as large as the paper's width allows, as
-  typed, stacked one letter per line, or each line at its own size; optionally upside down.
+  typed, with the words wrapped to the paper, stacked one letter per line, or each line at its
+  own size; optionally upside down.
   Example: `Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>`.
 - Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
   typed line becomes a column. Top to bottom (read by turning the receipt anticlockwise) or

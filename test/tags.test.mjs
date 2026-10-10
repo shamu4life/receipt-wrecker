@@ -24,7 +24,7 @@ function everyPayload(mm) {
       C.packStackBodies(bodies, k).forEach((p) => out.push([what + " payload", p.payload]));
     };
     for (const t of TEXTS) {
-      for (const layout of ["auto", "lines", "stack", "each"]) {
+      for (const layout of ["auto", "lines", "wrap", "stack", "each"]) {
         for (const flip of [false, true]) add("big " + layout + (flip ? " flipped" : ""), C.buildBigBodies(t, { ...o, layout, flip }));
       }
       for (const dir of ["down", "up"]) add("side " + dir, C.buildSideBodies(t, { ...o, dir }));

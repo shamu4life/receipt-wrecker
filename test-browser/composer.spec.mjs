@@ -531,6 +531,9 @@ const EVERY_MODE = () => [
   // counted as one line. (Han, kana and emoji widths depend on the fonts this machine has, so
   // they are benched with tools/forkbench.mjs rather than held to a pixel tolerance here.)
   BIG({ id: 21, text: "ONE\n" + new Array(8).fill("WW").join(" "), bigLayout: "each", bigSize: "fit1" }),
+  // Words wrapped to the paper, a block's own layout: mixed case, and capitals upside down.
+  BIG({ id: 22, text: "Thanks for the raid everyone", bigLayout: "wrap", bigSize: "fit1" }),
+  BIG({ id: 23, text: "WE ARE SO BACK", bigLayout: "wrap", bigSize: "fit1", bigFlip: true }),
   { id: 6, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "HELLO\nWORLD" },
   { id: 7, type: "text", render: "sideways", sideDir: "up", sideSize: 64, text: "Rise, up" },
   { id: 8, type: "text", render: "hanzi", text: "HI", hanziWeight: 400 },

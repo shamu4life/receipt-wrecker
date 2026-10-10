@@ -1363,7 +1363,7 @@
   function bigPickUniform(m, size, budget, room, flip, linear) {
     return bigPickSize(function (px) { return bigEvalUniform(m, px, budget, room, flip); }, size, m.minPxW, linear);
   }
-  // The WRAPPED candidate (Auto only): the lines as typed, each one broken at its spaces where
+  // The WRAPPED layout (one of Auto's candidates, and a block's own pick): the lines as typed, each one broken at its spaces where
   // it is too wide at px (bigWrapWords), then fitted like Lines. A sentence typed on one line
   // used to have no good layout: as one line it is tiny, and stacked it is a column of small
   // letters most of a receipt long. Every word stays whole on its line. The breaks depend on
@@ -1423,9 +1423,9 @@
   // it, and buildBigBodies builds from it. opts = {layout, size, flip, budget, heightPx (one
   // part's room after the lead), contentW | paperMm, linear}.
   // "auto" tries three candidates, in this order: the lines as typed, the same lines with the
-  // words wrapped to the paper (layout "wrap", which only Auto produces), and one letter a
-  // line; bigBetter decides, and a tie goes to the earlier one (as typed reads best). "each"
-  // is never picked automatically.
+  // words wrapped to the paper (layout "wrap", which is also a layout a block can pick for
+  // itself), and one letter a line; bigBetter decides, and a tie goes to the earlier one (as
+  // typed reads best). "each" is never picked automatically.
   function bigPlan(text, opts) {
     opts = opts || {};
     var o = bigOpts({ bigLayout: opts.layout, bigSize: opts.size, bigFlip: opts.flip === true });
@@ -3266,8 +3266,8 @@
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "glyph", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0,
         tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
-      // Big text, Auto layout (the bigger of lines as typed and one letter a line), at the
-      // biggest size that fits ONE cheer.
+      // Big text, Auto layout (the biggest of lines as typed, the words wrapped to the paper and
+      // one letter a line), at the biggest size that fits ONE cheer.
       return { id: blockIdSeq++, type: "text", render: "big", bigLayout: "auto", bigSize: "fit1", text: "" };
     }
     function blockHasContent(b) {

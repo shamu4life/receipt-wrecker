@@ -334,23 +334,26 @@ nothing that prints).
   → space. It reports what it dropped. `bigGraphemes` uses `Intl.Segmenter` with a fallback.
 - `bigLines(text, layout)`: `stack` is one grapheme a line with each whitespace run as one
   blank line (a word gap); `lines` and `each` keep the lines as typed.
-- Layouts (`bigOpts`): `auto`, `lines`, `stack`, `each` (every line its own size and line
-  height; an explicit px acts as a cap). `auto` tries three candidates in order, `lines`, then
-  `wrap`, then `stack`, and `bigBetter` decides: a layout whose letters are cut off never wins,
-  then a clean one, then the bigger type when both fit one cheer (or the size is `width`), else
-  the fewer cheers; a tie keeps the earlier; it never picks `each`. `wrap` (`bigWrapPlan`,
-  Auto only, never a block's own layout) is the typed lines with each too-wide line broken at
-  its spaces by `bigWrapWords` at the size being tried, then fitted like `lines`; the size it
-  settles on is then balanced (the same number of lines, each as short as it can be: "WE ARE /
-  SO BACK", not "WE ARE SO / BACK"), which changes neither the height nor the characters. It is
-  what a sentence typed on one line gets: as one line it was tiny, and stacked a long column of
-  small letters. A short phrase whose stacked letters come out bigger still stacks (Auto keeps
-  the biggest); the card's Layout hint says to press Enter and pick Lines for breaks of one's
-  own. `bigFit(...).layout` can therefore read `wrap`. Sizes (`bigSizeOf`): `fit1` (the
-  biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
+- Layouts (`BIG_LAYOUTS`, read through `bigOpts`): five, all a block's own pick. `auto`;
+  `lines` (as typed); `wrap` ("Words wrapped to the paper"); `stack` (one letter a line);
+  `each` (every line its own size and line height; an explicit px acts as a cap, so the card
+  labels a numeric size "up to N px" with the capitals each line really gets). `auto` tries
+  three candidates in order, `lines`, then `wrap`, then `stack`, and `bigBetter` decides: a
+  layout whose letters are cut off never wins, then a clean one, then the bigger type when both
+  fit one cheer (or the size is `width`), else the fewer cheers; a tie keeps the earlier; it
+  never picks `each`. `wrap` (`bigWrapPlan`) is the typed lines with each too-wide line broken
+  at its spaces by `bigWrapWords` at the size being tried, then fitted like `lines`; the size
+  it settles on is then balanced (the same number of lines, each as short as it can be: "WE
+  ARE / SO BACK", not "WE ARE SO / BACK"), which changes neither the height nor the characters.
+  It is what a sentence typed on one line gets: as one line it was tiny, and stacked a long
+  column of small letters. A short phrase whose stacked letters come out bigger still stacks
+  under Auto (it keeps the biggest), so `wrap` is also offered on its own, one pick away; a
+  line with no space to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
+  `lines` then. Under Auto, `bigFit(...).layout` can read `wrap`. Sizes (`bigSizeOf`): `fit1`
+  (the biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
   (fill the paper, any number of cheers) or a whole px 20..400.
-- `fit1` is a binary search (`bigSearch`) that a test checks against a linear scan on 450
-  cases. A size whose chunks are `over` (one chunk longer than a message can be) or `tall`
+- `fit1` is a binary search (`bigSearch`) that a test checks against a linear scan on 600
+  cases (`lines`, `wrap`, `stack` and `each`). A size whose chunks are `over` (one chunk longer than a message can be) or `tall`
   (taller than the box) ranks below every size without.
 - `each`: every line's height is `bigLineH` at its own px, so a spaced line too wide even at
   the smallest size counts the lines it wraps to, as in `lines` (counted as one line, a long

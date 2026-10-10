@@ -2668,9 +2668,9 @@
         .filter(function (l) { return l.length; });
       if (!lines.length) lines = [" "];
       var N = lines.length;
-      factor = factor || getSizeFactor();
+      factor = factor || 0.9;   // newBlock's default size (90%)
       var colW = Math.max(1, Math.round((PAPER_PX / N) * factor)), S = Math.max(8, Math.round(colW * 1.3));
-      var T = len || getRotateLen();
+      var T = len || 800;       // newBlock's default rotateLen
       var perLine = lines.map(function (l) { return segmentLine(l, S, T, cssFont, weight, italic); });
       var maxSegs = perLine.reduce(function (m, s) { return Math.max(m, s.length); }, 1);
       var bodies = [];
@@ -2685,7 +2685,7 @@
     // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
     // proven on the real engine). Default transform-origin (centre) so it flips in place.
     function bigTypeBodies(text, factor, orient, fmt) {
-      var svg = buildBigTextSvg(text || " ", factor || getSizeFactor(), fmt);
+      var svg = buildBigTextSvg(text || " ", factor || 0.9, fmt);
       var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
       var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
       return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
@@ -3796,7 +3796,7 @@
         var go = giantOpts(block);
         return buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, tuck: !!tuck, heightPx: heightPx });
       }
-      var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : getSizeFactor();
+      var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : 0.9;
       if (render === "hanzi") return hanziBodies(text, block.cols, factor, block.hanziWeight, budget);
       var orient = block.orient || 0;
       if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient, block.fmt);
@@ -4016,23 +4016,6 @@
     }
 
     // --- render pipeline -----------------------------------------------------
-    // Build the on-screen preview: wrap the glyph grid at the real column width so it
-    // looks like the actual narrow receipt strip, not one screen-wrapping line.
-    function previewText(payload) {
-      var cols = getCols();
-      var sp = payload.indexOf(" ");
-      var grid = sp >= 0 ? payload.slice(0, sp) : payload;   // glyphs before the footer
-      var foot = sp >= 0 ? payload.slice(sp + 1) : "";       // "Cheer100 <nonce>"
-      // Only wrap true glyph grids — skip the "(choose an image…)" placeholder and the
-      // census (both start with an ASCII char; grid glyphs are all >= U+2500).
-      if (grid.length >= cols && grid.charCodeAt(0) > 0x2000 && grid.indexOf(" ") < 0) {
-        var lines = [];
-        for (var i = 0; i < grid.length; i += cols) lines.push(grid.slice(i, i + cols));
-        return lines.join("\n") + (foot ? "\n" + foot : "");
-      }
-      return payload;
-    }
-
     // Wrap the visual preview in a printer-bot-style receipt: avatar, 100 BITS, the
     // streamer name, the content, the Twitch mark, a date. The header/footer values
     // are placeholders — they exist so you see your text/image IN CONTEXT (modelled
@@ -4386,7 +4369,7 @@
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";
-          pre.textContent = previewText(item.payload);
+          pre.textContent = item.payload;
           card.appendChild(pre);
         }
         // A part's own one-line explanation (the size ruler says what to look for).
@@ -4573,7 +4556,10 @@
         return;
       }
       var t = newBlock("text");
-      t.text = (els.textInput && els.textInput.value) || "HELLO";   // migrate old single-text state
+      // Carry over the old single-mode text, read from the saved settings blob: this runs
+      // before the first saveControls(), which no longer writes a `text` field.
+      var sc = loadSavedControls();
+      t.text = (sc && typeof sc.text === "string" && sc.text) || "HELLO";
       blocks = [t];
     }
     // STRUCTURE CHANGES MUST SAVE, exactly like value edits do. These three used to call only
@@ -6037,7 +6023,7 @@
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {
-      currentKind = currentMode;
+      currentKind = "compose";
       refresh();
       saveControls();
     }
@@ -6049,10 +6035,7 @@
     function copyPart(index) {
       // Only with the repeat number on: off, no payload carries a nonce, and advancing the
       // counter would only spend a storage write.
-      if (getNonce() && (currentKind === "text" || currentKind === "image" || currentKind === "census"
-          || currentKind === "probe" || currentKind === "ruler")) {
-        partNonces[index] = nextNonce();
-      }
+      if (getNonce()) partNonces[index] = nextNonce();
       refresh();
       var item = lastParts[index];
       if (!item) return;
@@ -6108,7 +6091,7 @@
       partNonces = [];
       lastParts = [];
       sessionNonceCounter = 0;
-      currentKind = "text";
+      currentKind = "compose";
       els = {
         tabText: document.getElementById("tabText"),
         tabImage: document.getElementById("tabImage"),
@@ -6276,8 +6259,8 @@
           refresh();
         });
       }
-      // Both diagnostics live outside the normal render (update() resets currentKind to
-      // the mode), so any edit to a control drops you back to your actual payload.
+      // The diagnostics live outside the normal render (update() resets currentKind to
+      // "compose"), so any edit to a control drops you back to your actual payload.
       els.probeBtn.addEventListener("click", function () {
         currentKind = "probe";
         refresh();
@@ -6291,7 +6274,7 @@
       els.imgWidthVal.textContent = els.imgWidth.value;
 
       // Composer: seed the block stack (migrating old single-text state), draw the
-      // cards, and wire the add buttons. Seed BEFORE setMode so its refresh composes.
+      // cards, and wire the add buttons. Seed BEFORE the first update() so it composes.
       seedBlocks();
       // A stack restored from localStorage has exactly the same problem a preset does —
       // an uploaded link older than 15 minutes is dead — so it gets the same check. The
@@ -6303,7 +6286,7 @@
       document.getElementById("addImageBtn").addEventListener("click", function () { addBlock("image"); });
       document.getElementById("addTakeoverBtn").addEventListener("click", function () { addBlock("takeover"); });
 
-      setMode(currentMode);   // calls applyVisibility() -> syncSizeLabel(); refreshes preview
+      update();   // the first compose: draws the parts and saves the settings
     }
 
     document.addEventListener("DOMContentLoaded", init);

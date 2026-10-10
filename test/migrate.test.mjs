@@ -1,8 +1,8 @@
-// migrateBlocks: saved stacks and presets from the nutty.gg builds, brought to blocks that
+// migrateBlocks: saved stacks and presets from the builds before 1.0.0, brought to blocks that
 // still exist. Pure, idempotent and shape-based: it runs on every load (seedBlocks) and on
 // every preset load (applyPreset), so a stack from any older build arrives the same way.
 //
-// The takeover (and its Fake-cheer style) was an SVG lifted over printer-bot's header.
+// The takeover (and its Fake-cheer style) was an SVG lifted over the old bot's header.
 // SassyTP's bot prints neither, so a saved one is converted, never just deleted: its lines
 // become Text blocks and its pictures Glyph-art Image blocks, each with a FRESH id.
 import test from "node:test";

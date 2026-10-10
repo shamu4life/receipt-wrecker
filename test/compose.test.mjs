@@ -15,7 +15,7 @@ test("packs small bodies together, splits when the char budget is exceeded", () 
 });
 
 test("splits on the physical height budget even when chars are tiny", () => {
-  // Two ~900px-tall strips (few chars each) can't share one ~1500px page.
+  // Two 900px-tall bodies (few chars each) can't share the bot's default 1600px box.
   const parts = C.packStackBodies([body(10,900), body(10,900)], { bits: 100, cheer: true });
   assert.equal(parts.length, 2);
 });
@@ -89,13 +89,11 @@ test("noNonce absent or false packs byte-identically: callers written before the
   }
 });
 
-// The bug this pins: the lead is CONTENT. It occupies a line in the bot's
-// #receipt-content, above the first body, which shifts a lifted takeover DOWN by that
-// line's height and leaves the top of the header uncovered. The preview used to render
-// the bodies without it, so it showed a covered header the tape never produced — the
-// shortfall only appeared on paper, after the bits were spent. Exposing `lead` is what
-// lets the preview render exactly what the message carries; asserting that the payload
-// is literally lead + bodies is what stops the two being built separately again.
+// The lead is CONTENT: the bot prints it as a line of text in #receipt-content, above the
+// first body, and the height model counts that line. A preview built from the bodies alone
+// would show a receipt the tape never produces. Exposing `lead` is what lets the preview
+// render exactly what the message carries; asserting that the payload is literally
+// lead + bodies is what stops the two being built separately again.
 test("each part exposes the lead it carries, and the payload is literally lead + bodies", () => {
   for (const cheer of [true, false]) {
     const parts = C.packStackBodies([body(120, 50, "<a>"), body(120, 50, "<b>")], { bits: 100, cheer });

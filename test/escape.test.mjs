@@ -1,15 +1,16 @@
 // ESCAPING — the single chokepoint every user string passes through on its way into
-// markup, and until now the only part of the pure core with no test at all.
+// markup.
 //
-// It matters more here than in an ordinary web app. The payload is inserted into
-// printer-bot's page with raw `innerHTML`, unsanitised, then re-serialised and parsed a
-// SECOND time by wkhtmltopdf. A string that escapes its context does not produce a
-// broken-looking preview and a shrug — it produces markup that a stranger's machine
-// parses and prints, and the tool's whole premise is that the payload is exactly what
-// the author intended.
+// It matters more here than in an ordinary web app. In a High Roller cheer the bot parses
+// the message as HTML on the streamer's machine and prints what survives its sanitizer. A
+// string that escapes its context does not produce a broken-looking preview and a shrug —
+// it produces markup that a stranger's machine parses and prints, and the tool's whole
+// premise is that the payload is exactly what the author intended.
 //
-// These tests assert against the REAL builders as well as the helpers, because the
-// helpers being correct is worth nothing if a call site forgets to use them.
+// These pin the helpers. That every builder actually USES them is pinned where the builders
+// are tested: the big and side tests strip our own tags from hostile input and find no "<"
+// left, the glyph tests check that R4 rows are escaped, and tags.test feeds typed tags to
+// every builder at both paper widths.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadCore } from "./_harness.mjs";

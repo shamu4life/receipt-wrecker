@@ -1,5 +1,5 @@
-// The two rig probes that replace the Census and the Print size ruler (1.0.0): one cheer at
-// exactly the streamer's High Roller threshold, and one plain cheer just under it.
+// The two rig probes (1.0.0): one cheer at exactly the streamer's High Roller threshold, and
+// one plain cheer just under it.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadCore, scanTags } from "./_harness.mjs";

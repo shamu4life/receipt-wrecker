@@ -274,7 +274,7 @@ test("the app boots with the defaults, one Big text block, and Copy sends exactl
     assert.equal(await page.locator("#" + id).count(), 0, "#" + id + " is still on the page");
   }
   assert.deepEqual([await copyPayload(page)], expectNode([BIG({ id: 1 })]));
-  // The Layout and Size options say what they print, and no Type/Hanzi-only control shows.
+  // The Layout and Size options say what they print, and no formatting row or slider shows.
   assert.match(await card.locator('.sel-size option[value="fit1"]').textContent(), /capitals \d+\.\d cm · 1 cheer$/);
   assert.match(await card.locator('.sel-size option[value="64"]').textContent(), /^64 px · capitals 1\.2 cm · 1 cheer$/);
   assert.equal(await card.locator(".fmt-row, input[type=range]:visible, input[type=number]:visible").count(), 0);

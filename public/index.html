@@ -314,14 +314,13 @@
   // The bits a cheer spends, as the Cheer<N> token states them: any whole number from 1 up.
   // Absent, zero or junk falls back to 100. The ONE place the amount is validated: the lead,
   // the card's bits total, the Bits control and the saved settings all read it through here.
-  // (A ">= 100" floor used to be repeated in each of them, a nutty.gg-era rule. SassyTP's bot
-  // prints a cheer of any size, so a floor only made the UI say 25 while the payload sent
-  // Cheer100 and spent 100.)
+  // SassyTP's bot prints a cheer of any size, so there is no floor: a floor here would make
+  // the Bits control say 25 while the payload sent Cheer100 and spent 100.
   function cheerBits(b) {
     var n = typeof b === "number" ? b : parseFloat(b);
     return isFinite(n) && n >= 1 ? Math.floor(n) : 100;
   }
-  var NONCE_ALPHABET = ["0","1","2","3","4","5","6","7","8","9"]; // digits: visible, non-collapsing, and NOT symbols (so a CJK grid trips no block-symbol/% filters)
+  var NONCE_ALPHABET = ["0","1","2","3","4","5","6","7","8","9"]; // digits: visible and non-collapsing
   function makeNonce(i) {
     var a = NONCE_ALPHABET, base = a.length * a.length;
     var n = ((i % base) + base) % base;
@@ -415,9 +414,9 @@
   }
 
   // ── THE LEAD (and the plain parts' trailing token) ──
-  // A leading "<" gets some messages blocked before they send; any non-"<" first
-  // character defuses it. A non-breaking space is invisible on the print and, unlike
-  // a normal leading space, isn't trimmed away before the filter sees it.
+  // A message must never START with "<": some sends that do are dropped outright. When not
+  // cheering, a non-breaking space leads instead. It is invisible on the print and, unlike
+  // a normal leading space, is not trimmed off before the message is sent.
   var LEAD_GUARD = "\u00A0";
   // Every High Roller message starts with a lead the packer owns: the cheer token and, when
   // the "Add a repeat number" toggle is on, the nonce; or LEAD_GUARD when not cheering. An
@@ -527,13 +526,14 @@
       if (!cur.length) return;
       var nonce = partNonce();
       var html = cur.map(function (b) { return b.html; }).join("");
-      // Cheer token + nonce LEAD the message: they survive any trailing-strip the bot/
-      // filter does to a long HTML blob, and a leading "Cheer…" is a non-"<" first char,
-      // so the separate LEAD_GUARD isn't needed when cheering.
+      // The cheer token (and the repeat digits, when on) LEAD a High Roller message: a
+      // leading "Cheer…" means it never starts with "<", so LEAD_GUARD isn't needed when
+      // cheering.
       //
-      // THAT LEAD IS NOT FREE, and it is why `lead` is exposed rather than inlined. It is
-      // content in the receipt's message box, so it occupies a line ABOVE the first body.
-      // The preview renders exactly this string, so preview and print cannot drift.
+      // THAT LEAD IS NOT FREE, and it is why `lead` is exposed rather than inlined. The bot
+      // prints the whole message, token included, so the lead is one 21.6px line of text ABOVE
+      // the first body in the message box. The preview renders exactly this payload, so
+      // preview and print cannot drift.
       var lead = buildLead(leadOpts, nonce);
       var payload = lead + html;
       parts.push({ payload: payload, lead: lead, trail: "", chars: payloadLength(payload), heightPx: curH,
@@ -1867,10 +1867,10 @@
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
-  // An Image block's glyph-art fields. tier: one of the five picture tiers (the "text" tier
-  // is the old binary tier and never a picture's), default "cjk"; contrast 0..255, default
-  // 128; dither on unless false; invert off unless true. The columns depend on the tier's
-  // form and on the paper, so they are read with glyphCols where the paper is known.
+  // An Image block's glyph-art fields. tier: one of the five picture tiers (TIERS), anything
+  // else "cjk"; contrast 0..255, default 128; dither on unless false; invert off unless true.
+  // The columns depend on the tier's form and on the paper, so they are read with glyphCols
+  // where the paper is known.
   var GLYPH_TIERS = ["cjk", "ascii", "asciifull", "safe", "braille"];
   function glyphOpts(block) {
     var b = block || {}, c = typeof b.contrast === "number" ? b.contrast : parseFloat(b.contrast);
@@ -2042,12 +2042,10 @@
     // TWO useful settings however it is spelled. MEASURED in Chromium against this same
     // code path, one word at 15 columns: 600, 700 and 900 produce a BYTE-IDENTICAL grid
     // (mean ramp index 17.86 for all three), while 400 comes out markedly lighter (12.74)
-    // with the letters' counters still open instead of blobbed shut. That is the same
-    // clamp CLAUDE.md records for the print engine — Arial has no true 900 face, so
-    // everything at or above bold resolves to the one bold face it does have. So this is
-    // offered as Regular/Bold rather than a 100-900 slider, which would be theatre on
-    // nine tenths of its travel. It defaults to bold, which is what the hardcoded "900"
-    // here was really producing all along.
+    // with the letters' counters still open instead of blobbed shut. Arial has no true 900
+    // face, so everything at or above bold resolves to the one bold face it does have. So
+    // Han tiling offers Regular/Bold rather than a 100-900 slider, which would be theatre on
+    // nine tenths of its travel. It defaults to bold.
     // `cellAspect` is a cell's height over its width: 1 for a square cell (the default), and
     // BASE_LH (1.35) for a plain Han cell, which prints 16px wide on a 21.6px line. The rows
     // follow it, so the letters keep their shape on the paper (Design T).
@@ -2094,8 +2092,8 @@
     // the lines STACK down the paper feed (the receiptify approach), so every line
     // keeps full resolution. The old scheme split the width side-by-side among lines,
     // which halved each line's detail for 2 lines (quartered for 4) — the main reason
-    // multi-line hanzi looked coarser than receiptify. Trade-off: more lines = a
-    // longer strip (banding just adds receipts). Blank rows separate stacked lines,
+    // multi-line Han tiling looked coarser than receiptify. Trade-off: more lines = a
+    // longer strip (buildDesignT bands it into more cheers). Blank rows separate stacked lines,
     // and line order is top-to-bottom in the feed = the order they were typed.
     // Returns a combined luma grid (rows × totalCols).
     function textColumnsLuma(text, totalCols, sizeFactor, weight, cellAspect) {
@@ -2171,10 +2169,10 @@
       return makeNonce(i);
     }
 
-    // Each displayed part (a text band, the single image payload, or the census)
-    // gets its own nonce, lazily assigned the first time that part is rendered and
-    // cached so recomputing on every keystroke doesn't burn the sequence — only
-    // Copy (see copyPart below) advances a given part's nonce.
+    // Each displayed part gets its own nonce (only while "Add a repeat number" is on),
+    // lazily assigned the first time that part is rendered and cached so recomputing on
+    // every keystroke doesn't burn the sequence — only Copy (see copyPart below) advances
+    // a given part's nonce.
     function nonceForPart(i) {
       if (partNonces[i] == null) partNonces[i] = nextNonce();
       return partNonces[i];
@@ -3163,7 +3161,8 @@
     // Bake pixel adjustments (rotation + brightness + contrast) into a real image: fetch via
     // /px (so a cross-origin image isn't canvas-tainted), apply on a canvas, re-encode PNG,
     // upload → block.outUrl. Always processes FROM block.url so repeats never compound. The
-    // printer can't do CSS filters/transforms, so it's all baked into the pixels.
+    // glyph grid is sampled from those pixels, so a CSS filter on the thumbnail would change
+    // nothing that prints: it's all baked in.
     function processImage(block, setStatus) {
       var deg = block.rotate || 0, br = block.adjBright || 0, ct = block.adjContrast || 0;
       if (!block.url || (!deg && !br && !ct)) { block.outUrl = null; block.aspect = null; return; }
@@ -3278,8 +3277,9 @@
       // --- Real-picture controls ---
       // Said plainly, first, and in red: a Real picture sends NOTHING. SassyTP's bot loads a
       // picture only from an emote server, and this channel's chat filter blocks the picture
-      // tag (field-confirmed), so no upload can arrive as a picture. That is the mods' and
-      // the bot's call, and the card offers the one thing that prints instead.
+      // tag (the channel owner's report, 2026-10-10), so no upload can arrive as a picture.
+      // That is the mods' and the bot's call, and the card offers the one thing that prints
+      // instead.
       var realWrap = mkEl("div");
       realWrap.appendChild(mkEl("div", { "class": "over-note" },
         "This won't print as a picture. SassyTP's bot only prints pictures from emote servers, "
@@ -3510,9 +3510,9 @@
       return null;
     }
     // Ground truth, not arithmetic: ask the link whether it still resolves. An <img>
-    // load is the right probe — it needs no CORS grant and adds no fetch call site, and
-    // "the browser could not load this picture" is exactly the condition that makes the
-    // receipt print blank. Only OUR minted links are probed; a pasted third-party URL
+    // load is the right check — it needs no CORS grant and adds no fetch call site, and
+    // "the browser could not load this picture" is exactly the condition that leaves a
+    // Glyph-art block nothing to draw. Only OUR minted links are checked; a pasted third-party URL
     // has no 15-minute clock on it and is left alone.
     // The spec says the block is marked "until it's fixed" — and the FIXING half is the
     // half that was missing. The first version only ever SET the mark: re-uploading the
@@ -3522,8 +3522,8 @@
     // ignore, which costs more than never having shown it.
     //
     // So this re-derives the whole answer every time rather than accumulating: clear,
-    // probe every minted link, re-mark from the results, and repaint ONCE, only if the
-    // set of flagged blocks actually changed. Waiting for every probe to settle before
+    // check every minted link, re-mark from the results, and repaint ONCE, only if the
+    // set of flagged blocks actually changed. Waiting for every check to settle before
     // repainting is what keeps a clear-then-re-flag from flickering the card.
     function probeStackExpiry() {
       var before = blocks.map(function (b) { return !!b._expired; });
@@ -3531,7 +3531,7 @@
       var dead = {}, jobs = [];
       blocks.forEach(function (b) {
         presetImageUrls([b]).filter(isMintedImageUrl).forEach(function (u) {
-          if (dead[u] != null) return;         // one probe per distinct URL, not per block
+          if (dead[u] != null) return;         // one check per distinct URL, not per block
           dead[u] = false;
           jobs.push(new Promise(function (done) {
             var im = new Image();
@@ -3554,7 +3554,7 @@
     // Hung off saveBlocks rather than off the three or four places a picture URL can
     // change, because that list is exactly what a later edit forgets to update — and a
     // missed one leaves the stuck-alarm bug back in place. Debounced, so typing a URL
-    // doesn't fire a probe per keystroke.
+    // doesn't fire a check per keystroke.
     var expiryTimer = null;
     function scheduleExpiryProbe() {
       if (expiryTimer) clearTimeout(expiryTimer);

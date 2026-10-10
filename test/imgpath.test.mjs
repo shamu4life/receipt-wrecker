@@ -24,9 +24,9 @@ test("links minted before the change keep resolving", () => {
 });
 
 test("every extension the printer's engine tolerates is stripped", () => {
-  // wkhtmltopdf escalates a failed subresource to a FATAL page error unless the
-  // extension is in its hardcoded media list — so links carry one, and serving must
-  // ignore it rather than 404 on it.
+  // Minted links carry an image extension (the printer engine before 1.0.0 failed the whole
+  // print on a subresource with an unknown one), and links minted then may still be in saved
+  // presets, so serving must ignore the extension rather than 404 on it.
   for (const ext of ["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "PNG", "JpEg"]) {
     assert.equal(imageKeyFor("/" + HEX12 + "." + ext), HEX12, "failed on ." + ext);
   }

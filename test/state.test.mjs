@@ -1,6 +1,6 @@
 // The app's state, read through sanitizers (1.0.0): the settings panel (rw_controls_v1), the
 // block fields the cards and builders read, the notice above the parts, the bot's ditherer
-// the Thermal preview draws with, and the interim preview's vw -> px helper.
+// the Thermal preview draws with, and the preview's request to SassyTP's renderer and its verdict.
 //
 // Settings and block fields arrive from saved blobs, presets, imported JSON and form controls
 // (as strings), so every reader goes through these, and these never trust their input.
@@ -147,12 +147,46 @@ test("forkDither: the bot's grey, its clamps, and threshold at 128", () => {
   }
 });
 
-test("previewHtml turns vw inside OUR tags into px at the paper's page width, and leaves text alone", () => {
-  const cjk = '<div style=width:12.2em;font-size:6.88vw;line-height:1>丶丶 5vw</div>';
-  assert.equal(C.previewHtml(cjk, 80), '<div style=width:12.2em;font-size:18.714px;line-height:1>丶丶 5vw</div>');
-  assert.equal(C.previewHtml(cjk, 58), '<div style=width:12.2em;font-size:12.453px;line-height:1>丶丶 5vw</div>');
-  const mono = "<pre style=\"font:5.83vw/1.2 'Courier New';margin:0\">a<br>b</pre>";
-  assert.equal(C.previewHtml(mono, 80), "<pre style=\"font:15.858px/1.2 'Courier New';margin:0\">a<br>b</pre>");
-  const big = '<div style="font:700 70px/.8 Arial">10vw &lt;b&gt;</div>';
-  assert.equal(C.previewHtml(big, 80), big, "a payload with no vw is unchanged");
+test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's settings, no userName", () => {
+  const payload = 'Cheer25 <div style="font:700 60px/.8 Arial">BIG</div>';
+  eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
+    event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
+    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false } });
+  // No userName (the renderer would start an avatar lookup), and the message is never touched.
+  const e = C.previewEvent({ payload: "  " + payload + "  ", bits: "7", cheer: true, hrThreshold: "0" });
+  assert.ok(!("userName" in e.event));
+  assert.equal(e.event.message, "  " + payload + "  ");
+  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false });
+  assert.equal(e.event.bits, 7);
+  // A free test never prints; it is drawn as the High Roller cheer whose markup it tests.
+  assert.equal(C.previewEvent({ payload, bits: 100, cheer: false, hrThreshold: 500 }).options.highRollerBits, 1);
+  // Junk settings read through the same sanitizers as the panel.
+  eq(C.previewEvent({ payload: null, bits: "x", hrThreshold: -5, bitsPerInch: "y", maxInches: 99 }).options,
+     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false });
+});
+
+test("previewVerdict says what the bot's renderer said, in plain words", () => {
+  const texts = (d, o) => Array.from(C.previewVerdict(d, o), (l) => (l.warn ? "! " : "") + l.text);
+  const ok = (extra) => ({ result: { ok: true, height: 295, trimmed: null, security: [] }, measure: { contentPx: 69.6, fullPx: 69.6 }, violations: 0, ...extra });
+  // A part that prints in full: its length, and nothing to warn about.
+  assert.deepEqual(texts(ok(), {}), ["About 7.8 cm of receipt (295 px), header and footer included."]);
+  // render()'s own cut: the streamer's bits-per-inch limit, or the maximum length.
+  const bits = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 3, fullIn: 4.38, by: "bits" }, security: [] } }), { bits: 300, warned: true });
+  assert.match(bits[1], /^! The bot cuts this message at 3 in, all that 300 bits buy at the streamer's bits-per-inch setting\. The whole message is 4\.38 in, so its end fades out\.$/);
+  const cap = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 2, fullIn: 4.38, by: "cap" }, security: [] } }), { warned: false });
+  assert.match(cap[1], /^! The bot cuts this message at the streamer's maximum length, 2 in\..* This app expected it to fit: this computer's fonts may differ/);
+  // The 1600px box cuts hard and render() never reports it: the frame's own measurement does.
+  const box = texts(ok({ measure: { contentPx: 1600, fullPx: 1700 } }), { warned: true });
+  assert.match(box[1], /^! The bot's message box cuts this message off at 42\.3 cm, with no fade\. The whole message is 45\.0 cm\.$/);
+  assert.equal(texts(ok({ measure: { contentPx: 100, fullPx: 100.9 } }), {}).length, 1, "sub-pixel is not a cut");
+  // Anything the sanitizer took out, a blocked request, a browser that can't draw sideways-lr.
+  assert.match(texts(ok({ result: { ok: true, height: 9, trimmed: null, security: ["css value", "untrusted image"] } }), {})[1],
+    /^! The bot's sanitizer would take something out of this message \(css value, untrusted image\)\. .*please report it\.$/);
+  assert.match(texts(ok({ violations: 2 }), {})[1], /^! The preview's page blocked 2 requests/);
+  assert.match(texts(ok(), { upUnsupported: true })[1], /^! This browser can't draw upward sideways text \(writing-mode: sideways-lr\).*Edge/);
+  // A free test says so first; a failed render says why, and nothing else.
+  assert.match(texts(ok(), { free: true })[0], /^Free test: this message never reaches the printer\./);
+  assert.deepEqual(texts({ result: { ok: false, reason: "skipped" } }, {}), ["! SassyTP's renderer could not draw this part (skipped)."]);
+  assert.deepEqual(texts({ error: "boom" }, {}), ["! SassyTP's renderer could not draw this part (boom)."]);
+  assert.deepEqual(texts(null, null), ["! SassyTP's renderer could not draw this part (no answer)."]);
 });

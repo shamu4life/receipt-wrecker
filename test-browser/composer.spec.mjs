@@ -18,8 +18,10 @@
 // Anything needing the Worker (/px, /upload) is NOT faked here — see _serve.mjs. Pictures
 // are data: URLs, which the app decodes without a request.
 //
-// The preview is an interim one until the bot's own renderer draws it, so the assertions on
-// it are kept light.
+// The preview is SassyTP's own receipt page, vendored into index.html and loaded into one
+// sandboxed frame per part (AMENDMENT A). The MANDATORY contract test drives every mode's Copy
+// payload through it and holds the app to what the bot's renderer does with it: nothing taken
+// out, cut only where the app said it would be, and as tall as the core predicted.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
@@ -147,7 +149,7 @@ function expectNode(blocks, s = SETTINGS) {
 // renderBlockBodies: below the threshold every block prints its plain form; a Real picture
 // sends nothing; otherwise the block's render or tier. `digits`: the repeat digits each part
 // carried, when the repeat number is on.
-async function expectPage(page, blocks, s = SETTINGS, digits = null) {
+async function expectParts(page, blocks, s = SETTINGS, digits = null) {
   return page.evaluate(async ([blocks, so, digits]) => {
     const K = window.module.exports, ctx = K.stackContext(so), all = [];
     const plainOpts = (mode) => ({ mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
@@ -173,9 +175,68 @@ async function expectPage(page, blocks, s = SETTINGS, digits = null) {
       for (const x of bodies) all.push(x);
     }
     const po = Object.assign({}, ctx, digits ? { nonceFn: (i) => digits[i] } : {});
-    return K.packStackBodies(all, po).map((p) => p.payload);
+    // Each part's predicted height (the packer's contentPx: the lead line plus the bodies, or a
+    // plain part's whole grid), and whether the app itself says it will be cut: taller than the
+    // bot's box (one body taller than the box gets a part of its own, and its card warns).
+    return K.packStackBodies(all, po).map((p) => ({ payload: p.payload, contentPx: p.contentPx,
+      warned: p.contentPx > ctx.limit.px + 1 || p.bodies.some((b) => !!b.tall) }));
   }, [blocks, stackOptsOf(s), digits]);
 }
+const expectPage = async (...a) => (await expectParts(...a)).map((p) => p.payload);
+
+// Wait until part i's frame has drawn exactly `payload` (and the app has shown that answer),
+// and return what the frame last drew plus the verdict under the preview.
+async function drawnPart(page, i, payload) {
+  const card = page.locator("#parts .part").nth(i);
+  const frame = await (await card.locator("iframe.rcpt-frame").elementHandle()).contentFrame();
+  await frame.waitForFunction((p) => !!(window.__rwPreview && window.__rwPreview.event.message === p), payload, { timeout: 10000 });
+  await page.waitForFunction((i) => document.querySelectorAll("#parts .part")[i].getAttribute("data-render") === "done", i, { timeout: 10000 });
+  return { frame, card, last: await frame.evaluate(() => window.__rwPreview), verdict: await card.locator(".rcpt-verdict").innerText() };
+}
+// The contract, checked INSIDE the vendored page after render(): parse what was SENT the way
+// the bot's sanitizer parses it (an inert DOMParser document) and compare it with what the
+// sanitizer KEPT in the receipt. Same elements in the same order, same text; every style
+// declaration kept with its exact value after CSSOM normalisation (both sides are the
+// browser's own longhands). The one thing the bot's allow-list leaves out is the implicit
+// resets of the `font` shorthand (font-kerning, font-feature-settings, ...), and for each of
+// those the check is that dropping it changes nothing: the printed element's computed value
+// is exactly what was sent. Plain parts print as text: the text must be the payload itself.
+function frameContract(frame, sent) {
+  return frame.evaluate((sent) => {
+    const part = document.querySelector("#receipt-content > .part");
+    const out = { partClass: part ? part.className : "", problems: [], noOps: 0, violations: window.PrinterBot.violations() };
+    if (!part) { out.problems.push("no part in the receipt"); return out; }
+    if (!/\braw\b/.test(part.className)) {
+      if (part.textContent !== sent) out.problems.push("plain text differs: " + JSON.stringify(part.textContent.slice(0, 80)));
+      return out;
+    }
+    const allowed = new Set(window.PrinterBot.internals.allowedCss());
+    const doc = new DOMParser().parseFromString("<!DOCTYPE html><body>" + sent, "text/html");
+    if (doc.body.textContent !== part.textContent) out.problems.push("text differs");
+    const a = Array.from(doc.body.querySelectorAll("*")), b = Array.from(part.querySelectorAll("*"));
+    const tags = (l) => l.map((e) => e.localName).join(",");
+    if (tags(a) !== tags(b)) { out.problems.push("tags: sent " + tags(a) + ", kept " + tags(b)); return out; }
+    out.tags = tags(a);
+    a.forEach((el, k) => {
+      const got = b[k], cs = getComputedStyle(got);
+      const attrs = (e) => Array.from(e.attributes, (x) => x.name).sort().join(",");
+      if (attrs(el) !== attrs(got)) out.problems.push(el.localName + " attributes: sent " + attrs(el) + ", kept " + attrs(got));
+      for (let i = 0; i < el.style.length; i++) {
+        const p = el.style[i], v = el.style.getPropertyValue(p), pr = el.style.getPropertyPriority(p);
+        if (allowed.has(p)) {
+          if (got.style.getPropertyValue(p) !== v || got.style.getPropertyPriority(p) !== pr) {
+            out.problems.push(el.localName + " " + p + ": sent " + JSON.stringify(v) + ", kept " + JSON.stringify(got.style.getPropertyValue(p)));
+          }
+        } else if (cs.getPropertyValue(p) !== v) {
+          out.problems.push(el.localName + " " + p + ": " + JSON.stringify(v) + " was dropped, and the printed value is " + JSON.stringify(cs.getPropertyValue(p)));
+        } else out.noOps++;
+      }
+      for (let i = 0; i < got.style.length; i++) if (!el.style.getPropertyValue(got.style[i])) out.problems.push(el.localName + " gained " + got.style[i]);
+    });
+    return out;
+  }, sent);
+}
+
 // AMENDMENT B1, on what Copy really hands over: only the tags the app uses, only the style
 // attribute, never a picture-ish tag in any letter case, never a leading "<".
 function assertTags(payload) {
@@ -574,21 +635,41 @@ test("cheer counts, empty blocks and labels all match the parts Copy sends", asy
   }
 });
 
-test("the preview is one page of the paper wide, and no request leaves the origin (thermal preview on)", async () => {
-  for (const [paperMm, contentW, dots] of [[80, 244, 576], [58, 153, 384]]) {
+test("the preview is SassyTP's renderer in a sandboxed frame, one page of the paper wide; nothing leaves the origin; the thermal view is the printer's dots", async () => {
+  for (const [paperMm, pageW, contentW, dots] of [[80, 272, 244, 576], [58, 181, 153, 384]]) {
     for (const viewport of [undefined, { width: 390, height: 844 }]) {
       const blocks = withPic([BIG({ id: 1 }), { id: 2, type: "text", render: "sideways", sideDir: "up", text: "UP" },
         { id: 3, type: "image", imgKind: "glyph", url: "PIC", tier: "cjk", cols: 14, dither: true, contrast: 128 }]);
       const { page, ctx, errors, requests } = await freshPage({ blocks, viewport, controls: { ...SETTINGS, paperMm } });
       await settled(page);
       const label = paperMm + " mm at " + (viewport ? viewport.width + "px" : "the default viewport");
-      const m = await page.evaluate(() => ({ cw: document.querySelector(".rcpt-body").clientWidth,
-                                             sw: document.documentElement.scrollWidth, iw: innerWidth }));
-      assert.ok(Math.abs(m.cw - contentW) <= 1, label + ": the message box is " + m.cw + "px, not " + contentW);
-      assert.ok(m.sw <= m.iw, `horizontal scroll at ${label}: ${m.sw} > ${m.iw}`);
+      const n = await page.locator("#parts .part").count();
+      for (let i = 0; i < n; i++) {
+        const payload = await copyPayload(page, i);
+        const { frame, card, last } = await drawnPart(page, i, payload);
+        const el = card.locator("iframe.rcpt-frame");
+        // Sandboxed with scripts only: an opaque origin that cannot reach this page.
+        assert.equal(await el.getAttribute("sandbox"), "allow-scripts", label);
+        assert.ok((await el.evaluate((f) => f.srcdoc.length)) > 100000, label + ": the frame is not the vendored page");
+        const inside = await frame.evaluate(() => {
+          let reach;
+          try { reach = window.parent.document ? "reached the app" : "?"; } catch (e) { reach = "blocked"; }
+          return { reach, origin: window.origin, vw: document.documentElement.clientWidth,
+                   box: document.getElementById("receipt-content").clientWidth, version: window.PrinterBot.version,
+                   violations: window.PrinterBot.violations() };
+        });
+        assert.deepEqual(inside, { reach: "blocked", origin: "null", vw: pageW, box: contentW,
+                                   version: await page.getAttribute("#sassytp-renderer", "data-version"), violations: 0 }, label);
+        // As wide as the bot's page, as tall as render() says the receipt is.
+        assert.equal(await el.evaluate((f) => f.clientWidth), pageW, label);
+        assert.equal(await el.evaluate((f) => f.clientHeight), Math.ceil(last.result.height), label);
+      }
+      const sw = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth }));
+      assert.ok(sw.sw <= sw.iw, `horizontal scroll at ${label}: ${sw.sw} > ${sw.iw}`);
+      // The thermal view: the frame's receipt at the printer's dot width, dithered to 1 bit.
       await page.check("#thermalView");
+      await page.waitForFunction(() => Array.from(document.querySelectorAll("#parts .part")).every((c) => c.getAttribute("data-thermal") === "done"), null, { timeout: 10000 });
       const c = page.locator("canvas.rcpt-thermal").first();
-      await c.waitFor({ timeout: 8000 });
       assert.equal(await c.evaluate((cv) => cv.width), dots, label + ": thermal dots");
       const ink = await c.evaluate((cv) => {
         const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
@@ -597,12 +678,164 @@ test("the preview is one page of the paper wide, and no request leaves the origi
         return { black, other };
       });
       assert.ok(ink.black > 1000 && ink.other === 0, label + ": not a 1-bit raster " + JSON.stringify(ink));
+      // Dithered the way the bot does it: the canvas is forkDither of the same raster, so
+      // switching the dither changes the dots.
+      await page.selectOption("#thermalDither", "threshold");
+      await page.waitForFunction(() => Array.from(document.querySelectorAll("#parts .part")).every((c) => c.getAttribute("data-thermal") === "done"), null, { timeout: 10000 });
+      const crisp = await page.locator("canvas.rcpt-thermal").first().evaluate((cv) => {
+        const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+        let black = 0; for (let i = 0; i < d.length; i += 4) if (d[i] === 0) black++;
+        return black;
+      });
+      assert.notEqual(crisp, ink.black, label + ": the dither select changed nothing");
       const origin = new URL(server.url).origin;
       const away = requests.filter((u) => !/^(data|blob|about):/.test(u) && new URL(u).origin !== origin);
       assert.deepEqual(away, [], label + ": a request left the app's origin");
       assert.deepEqual(errors, [], label);
       await ctx.close();
     }
+  }
+});
+
+// The tolerance the core's height model is held to against the bot's renderer, per part (the
+// whole message, measured in the frame with the box's limit lifted, against the packer's
+// contentPx): never more than HEIGHT_OVER px taller than predicted (the packer's promise that a
+// part fits the bot's box) and, for most modes, never more than HEIGHT_OVER px shorter either.
+// A part with sideways text may come in up to HEIGHT_UNDER_SIDEWAYS px under: its length is
+// predicted from a conservative width table and kerning shortens it. Measured when this was
+// written: every other part within 0.4px, sideways 1 to 6.5px under (the bench saw up to 18px
+// on long lines).
+const HEIGHT_OVER = 1, HEIGHT_UNDER_SIDEWAYS = 20;
+
+test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot.render: nothing taken out, cut only where warned, as tall as predicted", async () => {
+  const configs = [
+    { ...SETTINGS },                                              // High Roller, 80 mm
+    { ...SETTINGS, paperMm: 58 },                                 // High Roller, 58 mm
+    { ...SETTINGS, bits: 300, bitsPerInch: 100, maxInches: 5 },   // the streamer's length limits: render() trims
+    { ...SETTINGS, bits: 24 },                                    // one under the threshold: plain
+    { ...SETTINGS, bits: 24, paperMm: 58, nonce: true },          // plain on 58 mm, repeat digits on
+    { ...SETTINGS, cheer: false },                                // a free test, drawn as a High Roller cheer
+  ];
+  const heights = [];
+  let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0;
+  const check = async (page, i, payload, want, s, label) => {
+    const { frame, last, verdict } = await drawnPart(page, i, payload);
+    const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+    assert.deepEqual(last.event, JSON.parse(JSON.stringify(pe.event)), label + ": the frame was not handed the part's exact payload");
+    assert.deepEqual(last.options, JSON.parse(JSON.stringify(pe.options)), label);
+    assert.ok(!("userName" in last.event), label);
+    const r = last.result;
+    assert.equal(r.ok, true, label + ": " + JSON.stringify(r));
+    assert.deepEqual(r.security, [], label + ": the bot's sanitizer took something out");
+    const k = await frameContract(frame, payload);
+    assert.deepEqual(k.problems, [], label + ": " + payload.slice(0, 80));
+    assert.equal(k.violations, 0, label + ": a securitypolicyviolation in the frame");
+    noOps += k.noOps;
+    // The renderer, not the app, decides raw or plain: it must agree with the app's mode.
+    const raw = /\braw\b/.test(k.partClass);
+    if (raw) rawSeen++; else plainSeen++;
+    assert.equal(raw, want.raw, label + ": drawn as " + k.partClass);
+    // Cut only where the app itself said it would be.
+    const cut = !!r.trimmed || last.measure.fullPx > last.measure.contentPx + 1;
+    if (cut) { trimmedSeen++; assert.ok(want.warned, label + ": the bot cuts a part the app expected to fit: " + JSON.stringify(r.trimmed)); }
+    assert.ok(!/expected it to fit/.test(verdict), label + ": " + verdict);
+    // As tall as the core predicted.
+    if (want.contentPx != null) {
+      const d = last.measure.fullPx - want.contentPx;
+      heights.push({ label, d: Math.round(d * 100) / 100 });
+      const under = /writing-mode:/.test(payload) ? HEIGHT_UNDER_SIDEWAYS : HEIGHT_OVER;
+      assert.ok(d <= HEIGHT_OVER && d >= -under, label + ": the message is " + last.measure.fullPx + "px, the core predicted " + want.contentPx);
+    }
+  };
+  for (const s of configs) {
+    // Under the length limits, one letter set at 400px is taller than the bot's box (288px for
+    // 300 bits at 100 bits per inch): the app warns about it, and the bot must cut that part.
+    const blocks = withPic(s.bitsPerInch ? [...EVERY_MODE(), BIG({ id: 20, text: "I", bigLayout: "lines", bigSize: 400 })] : EVERY_MODE());
+    const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true });
+    await settled(page);
+    const got = await copyAll(page);
+    const digits = s.nonce ? got.map((p) => p.match(/Cheer\d+ (\d\d)/)[1]) : null;
+    const want = await expectParts(page, blocks, s, digits);
+    assert.deepEqual(got, want.map((w) => w.payload));
+    // The bot prints a message raw (High Roller) at or above the threshold; a free test is drawn
+    // as a High Roller cheer. A Han tiling part in a High Roller cheer is raw too: plain text.
+    const raw = !s.cheer || C.printMode(stackOptsOf(s)) === "raw";
+    for (let i = 0; i < got.length; i++) {
+      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, part: i + 1 });
+      await check(page, i, got[i], { ...want[i], raw }, s, label);
+    }
+    const origin = new URL(server.url).origin;
+    assert.deepEqual(requests.filter((u) => !/^(data|blob|about):/.test(u) && new URL(u).origin !== origin), []);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  // Both probes, on both papers.
+  for (const paperMm of [80, 58]) {
+    const s = { ...SETTINGS, paperMm, hrThreshold: 30 };
+    const { page, ctx, errors } = await freshPage({ controls: s });
+    for (const [btn, probe, raw] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 30, bits: 100, paperMm }), true],
+                                     ["#plainProbeBtn", C.buildPlainProbe({ hrThreshold: 30, paperMm, noNonce: true }), false]]) {
+      await page.click(btn);
+      const payload = await copyPayload(page);
+      const pctx = C.stackContext({ ...stackOptsOf(s), cheer: true, bits: probe.bits, mode: probe.mode });
+      const part = C.packStackBodies(probe.bodies, pctx)[0];
+      assert.equal(payload, part.payload);
+      await check(page, 0, payload, { bits: probe.bits, cheer: true, raw, warned: false, contentPx: part.contentPx }, s, btn + " " + paperMm + " mm");
+    }
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  assert.ok(rawSeen > 20 && plainSeen > 4, "fixture: too few parts of each kind (" + rawSeen + " raw, " + plainSeen + " plain)");
+  assert.ok(trimmedSeen > 0, "fixture: the length-limit config should make the bot cut a part the app warned about");
+  assert.ok(noOps > 0, "fixture: no font shorthand reset was checked");
+  if (process.env.RW_HEIGHTS) console.log(JSON.stringify(heights));
+});
+
+test("a stale answer from the preview frame is dropped: only the newest request is shown", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "AAA", bigLayout: "lines" })] });
+  await settled(page);
+  await drawnPart(page, 0, await copyPayload(page));
+  // Slow the renderer down inside the frame, then ask for two drawings back to back: the first
+  // answer arrives while the second is outstanding and must not be shown.
+  const frame = await (await page.locator("#parts .part iframe").elementHandle()).contentFrame();
+  await frame.evaluate(() => {
+    const real = window.PrinterBot.render;
+    window.PrinterBot.render = (e, o) => new Promise((r) => setTimeout(r, 400)).then(() => real(e, o));
+  });
+  const ta = cards(page).first().locator("textarea");
+  await ta.fill("BBB");
+  await ta.fill("CCC");
+  const last = await copyPayload(page);
+  assert.match(last, /CCC/);
+  // ~400 ms: BBB's answer is in, CCC's is not. The card must still be waiting.
+  await frame.waitForFunction(() => window.__rwPreview && /BBB/.test(window.__rwPreview.event.message), null, { timeout: 5000 });
+  await page.waitForTimeout(50);
+  assert.equal(await page.locator("#parts .part").first().getAttribute("data-render"), "pending", "a stale answer was shown");
+  const { last: drawn } = await drawnPart(page, 0, last);
+  assert.match(drawn.event.message, /CCC/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("an upward sideways part says when this browser can't draw writing-mode: sideways-lr", async () => {
+  const up = { id: 1, type: "text", render: "sideways", sideDir: "up", text: "UP" };
+  for (const supported of [true, false]) {
+    const ctx = await browser.newContext();
+    await ctx.addInitScript(installClipboardStub);
+    await ctx.addInitScript(([k, v]) => { try { if (!localStorage.getItem(k)) localStorage.setItem(k, v); } catch (e) {} }, ["rw_blocks_v1", JSON.stringify([up])]);
+    if (!supported) {
+      await ctx.addInitScript(() => {
+        if (window.parent !== window) return;   // the app's page only, not the preview frame
+        const real = CSS.supports.bind(CSS);
+        CSS.supports = (p, v) => (/sideways-lr/.test(String(p) + String(v)) ? false : real(p, v));
+      });
+    }
+    const page = await ctx.newPage();
+    await page.goto(server.url);
+    await settled(page);
+    const { verdict } = await drawnPart(page, 0, await copyPayload(page));
+    assert.equal(/can't draw upward sideways text/.test(verdict), !supported, verdict);
+    await ctx.close();
   }
 });
 

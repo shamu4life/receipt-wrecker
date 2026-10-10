@@ -24,10 +24,11 @@ const NO_NETWORK = "default-src 'none'; script-src 'unsafe-inline'; style-src 'u
 
 test("the harness runs the app's own script, never the vendored renderer (A5)", () => {
   const src = appScript();
-  // The hazard is real: the vendored page has a <script> of its own, so "the first <script>"
-  // (the harness's old match) would find the renderer, not the app.
+  // The hazard is real: the vendored page has a bare <script> of its own, so "the first
+  // <script>" (the harness's old match) finds the renderer, or a fragment, never the app.
+  assert.ok(/<script>\n\/\/ =+\n\/\/ Printer Bot renderer/.test(block[2]), "fixture: the vendored page should hold a bare <script>");
   const naive = html.match(/<script>([\s\S]*?)<\/script>/);
-  assert.ok(naive && /window\.PrinterBot = \(function/.test(naive[1]), "fixture: the vendored page should hold a bare <script>");
+  assert.ok(!naive || naive[1] !== src, "fixture: a bare <script> match should not be the app");
   // The harness takes the one script with the app's id, and that is the app.
   assert.ok(src.includes("module.exports = {") && src.includes("BROWSER GLUE"), "the harness's script is not the app's");
   assert.ok(!/window\.PrinterBot\s*=|const ICONS|sanitizeRich/.test(src), "the harness's script holds the renderer");
@@ -36,6 +37,28 @@ test("the harness runs the app's own script, never the vendored renderer (A5)", 
   const C = loadCore();
   for (const k of ["packStackBodies", "buildBigBodies", "stackContext", "forkDither"]) assert.equal(typeof C[k], "function", k);
   for (const k of ["setTheme", "loadAvatarCache", "clearAvatarCache", "internals", "eventTypes"]) assert.equal(C[k], undefined, "the core exports the renderer's " + k);
+});
+
+test("the app's own script can't be ended early by the HTML tokenizer", () => {
+  // The app builds the preview frame's page, so its source holds a literal "<script>" (in a
+  // string). In a script element's raw text, "<!--" followed later by "<script" puts the HTML
+  // tokenizer in its double-escaped state, where the element's real end tag no longer ends it
+  // and the rest of the page is swallowed as script. So the app's source never holds "<!--",
+  // and every closing script tag in it is written "<\/script>".
+  const src = appScript();
+  assert.ok(!src.includes("<!--"), "an HTML comment opener in the app's script");
+  // The WHATWG script-data states (data, escaped, double escaped), walked over the app's
+  // source: the end tag that follows it must be the one that ends the element.
+  let state = "data";
+  for (let i = 0; i < src.length; i++) {
+    if (src.startsWith("<!--", i) && state === "data") { state = "escaped"; i += 3; }
+    else if (src.startsWith("-->", i) && state !== "data") { state = "data"; i += 2; }
+    else if (state === "escaped" && /^<script[\s/>]/i.test(src.slice(i, i + 8))) state = "double";
+    else if (/^<\/script[\s/>]/i.test(src.slice(i, i + 9))) assert.fail("the app's script would end at character " + i);
+  }
+  assert.notEqual(state, "double", "the app's real end tag would not end it");
+  assert.match(src, /module\.exports = \{[\s\S]*\};\n  \}\n$/, "the app's script does not end with its export hook");
+  assert.ok(html.includes(src + "</script>\n<!-- BEGIN vendored SassyTP printer-bot renderer"), "the vendored block should follow the app's script");
 });
 
 test("the vendored renderer is inert text: one block, after the app, closed only by its own end tag", () => {

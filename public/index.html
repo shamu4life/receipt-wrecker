@@ -31,28 +31,21 @@
     margin: 0 0 .5rem; align-self: flex-start; max-width: 100%; box-sizing: border-box;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
   }
-  /* INTERIM receipt preview: one page of the streamer's paper wide (the width is set inline:
-     272 CSS px on 80 mm, 181 on 58 mm) with 14px of padding each side, so a message has the
-     244 / 153 px it has on the tape. The header and footer are placeholders. RCPT_CSS in the
-     script repeats these rules for the thermal raster (page CSS does not reach into it).
-     View-only, so pointer-events:none. Paper has an edge and the printer honours it, so the
-     preview clips there too. */
-  .rcpt {
-    box-sizing: border-box; margin: 0 0 .5rem; padding: 16px 14px 14px; background: #fff; color: #000;
-    outline: 1px solid #bbb; border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
-    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
-    font-size: 16px; line-height: 1.35; pointer-events: none; position: relative; overflow: hidden;
-  }
-  .rcpt-av { width: 11.5em; max-width: 100%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; margin: 0 auto; }
-  .rcpt-title { font-weight: 700; font-size: 1.35em; line-height: 1.15; letter-spacing: .06em; text-transform: uppercase; margin: .4em 0 0; }
-  .rcpt-sub { font-size: 1em; margin: 0 0 .4em; }
-  .rcpt-body { border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0; overflow: hidden; }
-  .rcpt-plain { overflow-wrap: anywhere; white-space: normal; }
-  .rcpt-date { font-size: .75em; margin: .5em 0 0; }
-  /* 1-bit thermal render of a receipt frame (see thermalize()). Shown at print-dot
-     resolution; pixelated so the dither texture survives any responsive down-scale. */
-  .rcpt-thermal { display: block; margin: 0 0 .5rem; max-width: 100%; height: auto;
-    image-rendering: pixelated; background: #fff; border: 1px solid #bbb; }
+  /* The receipt preview: each part is drawn by SassyTP's own receipt page in a sandboxed frame
+     (see "THE PREVIEW" in the script). The frame is one page of the paper wide (set inline: 272
+     CSS px on 80 mm, 181 on 58 mm) and as tall as the bot's renderer says the receipt is; the
+     page inside hides its own overflow. With the Thermal preview on, the dithered canvas (one
+     pixel per printer dot) is shown in its place and the frame stays laid out underneath it,
+     invisible, because it still draws every change. */
+  .rcpt-stage { position: relative; margin: 0 0 .35rem; max-width: 100%; overflow: hidden; }
+  .rcpt-frame { display: block; box-sizing: content-box; border: 1px solid #bbb; background: #fff; color-scheme: light; }
+  .rcpt-stage.thermal-on .rcpt-frame { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; }
+  .rcpt-thermal { display: block; max-width: 100%; height: auto; image-rendering: pixelated; background: #fff;
+    border: 1px solid #bbb; box-sizing: border-box; }
+  /* What the bot's renderer said about the part, under its preview. */
+  .rcpt-verdict { font-size: .8rem; margin: 0 0 .45rem; font-variant-numeric: tabular-nums; }
+  .rcpt-verdict .rv-info { opacity: .75; }
+  .rcpt-verdict .rv-warn { color: #a60; }
   .thermal-toggle { display: flex; align-items: center; gap: .4rem; font-size: .85rem; margin: 0 0 .7rem; cursor: pointer; }
   .thermal-toggle input { width: auto; margin: 0; }
   /* Hints sit snug under the label they explain — but ONLY under a label. The
@@ -175,7 +168,7 @@
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
       <label class="thermal-toggle">Dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select></label>
-      <div class="hint">What the printer gets, give or take fonts: this computer's fonts may differ from the streamer's. Pick the dither the streamer's dock is set to.</div>
+      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from, with a grey box where the Twitch logo goes. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's. Pick the dither the streamer's dock is set to.</div>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
@@ -2121,17 +2114,67 @@
     }
     return out;
   }
-  // INTERIM PREVIEW HELPER (until the preview draws through the bot's own renderer). The
-  // glyph grids size their font in vw, which on the bot is the PAGE's width (its window is
-  // exactly one page wide: 272 or 181 CSS px), but in this app's page it would be the app's
-  // window. For the preview only, every vw inside OUR tags becomes px at the paper's page
-  // width. Tags only: user text is escaped, so it holds no "<", and "5vw" typed as text is
-  // left alone. The payload itself is never touched.
-  function previewHtml(html, paperMm) {
-    var w = paperSpec(paperMm).cssWidth;
-    return String(html).replace(/<[^>]*>/g, function (tag) {
-      return tag.replace(/(\d+(?:\.\d+)?)vw\b/g, function (m, n) { return Math.round(parseFloat(n) * w * 10) / 1000 + "px"; });
-    });
+  // ── THE PREVIEW: what SassyTP's renderer is asked, and what it said ──────────
+  // The preview draws every part with the bot's own receipt page (vendored at the bottom of
+  // this file; see the browser glue's "THE PREVIEW"). These two pure helpers are the app's half
+  // of that conversation, kept here so they are unit-tested and the browser tests can use the
+  // very same request.
+  //
+  // previewEvent: the event and options for one part, built exactly the way the bot's C#
+  // routine (and tools/forkbench.mjs) builds them: a TwitchCheer with the part's bits and its
+  // EXACT payload as the message (the literal "Cheer<N>" word included), and the streamer's
+  // High Roller settings. No userName, so the renderer never starts an avatar lookup, and the
+  // header's sender is "viewer". The renderer, not this app, then decides High Roller or plain,
+  // the length limit and the fade. o: payload, bits, cheer, hrThreshold, bitsPerInch, maxInches.
+  // A free test (cheer false) never reaches the printer; it is drawn as the High Roller cheer
+  // whose markup it tests (threshold 1), and previewVerdict says so.
+  function previewEvent(o) {
+    o = o || {};
+    return {
+      event: { __source: "TwitchCheer", bits: cheerBits(o.bits), user: "viewer", message: String(o.payload == null ? "" : o.payload) },
+      options: { highRollerBits: o.cheer === false ? 1 : hrThresholdOf(o.hrThreshold), highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch),
+                 highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false }
+    };
+  }
+  // previewVerdict: what the renderer said about one part, in plain words, for the line under
+  // its preview. d = the preview frame's answer: {result: render()'s {ok, height, trimmed,
+  // security} (or {ok: false, reason}), measure: {contentPx, fullPx}, violations} or {error}.
+  // `measure` is the message box as drawn (contentPx) and as tall as the message is with the
+  // box's limit lifted (fullPx), measured the way render() measures its own cut: render()
+  // reports a cut (`trimmed`) only for the streamer's bits-per-inch and maximum-length limits,
+  // never for its built-in 1600px box, which cuts hard and silently. o: free (a free test), bits, warned (the app
+  // itself expected this part to be cut), upUnsupported (an upward sideways part, in a browser
+  // without writing-mode: sideways-lr). Returns [{text, warn}].
+  function previewVerdict(d, o) {
+    d = d || {}; o = o || {};
+    var r = d.result, out = [];
+    var cm = function (px) { return (Math.round(px / PX_PER_INCH * 25.4) / 10).toFixed(1); };
+    if (o.free) out.push({ text: "Free test: this message never reaches the printer. It is drawn the way a High Roller cheer would print it.", warn: false });
+    if (d.error || !r || r.ok !== true) {
+      out.push({ text: "SassyTP's renderer could not draw this part (" + String(d.error || (r && r.reason) || "no answer") + ").", warn: true });
+      return out;
+    }
+    var h = Math.round(Number(r.height) || 0);
+    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included.", warn: false });
+    var cut = "";
+    if (r.trimmed) {
+      var t = r.trimmed;
+      cut = (t.by === "cap"
+        ? "The bot cuts this message at the streamer's maximum length, " + t.limitIn + " in"
+        : "The bot cuts this message at " + t.limitIn + " in, all that " + cheerBits(o.bits) + " bits buy at the streamer's bits-per-inch setting")
+        + ". The whole message is " + t.fullIn + " in, so its end fades out.";
+    } else if (d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
+      cut = "The bot's message box cuts this message off at " + cm(d.measure.contentPx) + " cm, with no fade. The whole message is " + cm(d.measure.fullPx) + " cm.";
+    }
+    if (cut) out.push({ text: cut + (o.warned ? "" : " This app expected it to fit: this computer's fonts may differ from the streamer's."), warn: true });
+    if (r.security && r.security.length) {
+      out.push({ text: "The bot's sanitizer would take something out of this message (" + r.security.join(", ") + "). Nothing this app builds should do that: please report it.", warn: true });
+    }
+    if (d.violations > 0) out.push({ text: "The preview's page blocked " + d.violations + " request" + (d.violations === 1 ? "" : "s") + " (its page policy lets nothing load from the network).", warn: true });
+    if (o.upUnsupported) {
+      out.push({ text: "This browser can't draw upward sideways text (writing-mode: sideways-lr), so this preview shows it wrong. The streamer's Edge draws it the way it prints.", warn: true });
+    }
+    return out;
   }
 
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
@@ -3718,207 +3761,340 @@
       if (els.thermalDither) els.thermalDither.value = s.thermalDither;
     }
 
-    // --- render pipeline -----------------------------------------------------
-    // INTERIM PREVIEW. The receipt box is one page of the streamer's paper wide (272 CSS px on
-    // 80 mm, 181 on 58 mm) with 14px of padding each side, so a message gets the same 244 /
-    // 153 px it gets on the tape. The header and footer are placeholders. A High Roller part
-    // shows its lead as text and its bodies as the very HTML the cheer carries (our own
-    // markup; every user character is escaped), a plain part shows its message as text.
-    // This is not a model of the bot's receipt: the preview is to be drawn by the bot's own
-    // renderer, and until then this only shows the parts sensibly.
-    function receiptFrame(bodyNode, bits, paperMm) {
-      var p = paperSpec(paperMm), r = document.createElement("div");
-      r.className = "rcpt";
-      r.style.width = p.cssWidth + "px";
-      r.setAttribute("data-dots", String(p.dots));
-      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">' + cheerBits(bits) + ' BITS</div><div class="rcpt-sub">viewer</div>';
-      bodyNode.className = "rcpt-body";
-      r.appendChild(bodyNode);
-      r.insertAdjacentHTML("beforeend", '<div class="rcpt-date">Sat Oct 10 2026 20:05</div>');
-      return r;
+    // ── THE PREVIEW: SassyTP's own receipt page ─────────────────────────────
+    // Every part is drawn by the bot's renderer itself (AMENDMENT A): the receipt page vendored
+    // at the bottom of this file (#sassytp-renderer, inert text; see tools/vendor-renderer.mjs)
+    // loaded into a frame of its own and driven the way the bot's routine drives it:
+    // PrinterBot.render(previewEvent(...)) with the part's exact payload. This app keeps no
+    // second model of the receipt. The pure core's width and height models only choose sizes
+    // and split parts, and a browser test holds them to what render() reports.
+    //
+    // The frame: srcdoc, sandbox="allow-scripts" WITHOUT allow-same-origin, so it runs with an
+    // opaque origin and can't reach this page, its storage or its cookies; its page policy
+    // (RW-EDIT 2) lets nothing load from the network. One page of the paper wide (272 / 181 CSS
+    // px), so vw units and the 244 / 153 px message box are the bot's, and as tall as render()
+    // says the receipt is. Our glue (previewGlue, appended after the renderer's own script) and
+    // this page talk by postMessage only, and each end checks event.source. A frame is kept per
+    // part across re-renders, so typing re-renders instead of re-loading 140 KB a keystroke;
+    // every request carries a sequence number and an answer to an older one is dropped.
+    //
+    // previewGlue runs INSIDE the frame: its source text is what gets appended (toString), so it
+    // must stay self-contained. It renders one request at a time and answers with render()'s
+    // result, the message box measured (see previewVerdict), the page policy's violation count,
+    // and the receipt serialised for the Thermal preview (the page's style sheets and its
+    // #receipt-container as XHTML). window.__rwPreview is its own record of what it last drew,
+    // for the browser tests.
+    function previewGlue() {
+      "use strict";
+      var host = window.parent, chain = Promise.resolve(), X = new XMLSerializer();
+      function measure() {
+        var box = document.getElementById("receipt-content"), part = box ? box.firstElementChild : null;
+        var shown = box ? box.getBoundingClientRect().height : 0, full = shown;
+        if (box) {
+          var mh = box.style.getPropertyValue("max-height"), pr = box.style.getPropertyPriority("max-height");
+          try {
+            box.style.setProperty("max-height", "none", "important");
+            full = box.getBoundingClientRect().height;
+          } finally {
+            if (mh) box.style.setProperty("max-height", mh, pr); else box.style.removeProperty("max-height");
+          }
+        }
+        return { contentPx: shown, fullPx: full, partClass: part ? part.className : "",
+                 viewportW: document.documentElement.clientWidth };
+      }
+      // The receipt as XHTML, for the Thermal preview's raster. That raster is an SVG image whose
+      // viewport is not this page's, so every vw in an inline style (the glyph grids size their
+      // font in vw) is written out in px at this page's own width, in the copy only.
+      function serialise() {
+        var css = "", sheets = document.querySelectorAll("style"), i, j;
+        for (i = 0; i < sheets.length; i++) css += X.serializeToString(sheets[i]);
+        var root = document.getElementById("receipt-container"), copy = root.cloneNode(true);
+        var from = root.querySelectorAll("[style]"), to = copy.querySelectorAll("[style]"), vw = document.documentElement.clientWidth / 100;
+        for (i = 0; i < from.length && i < to.length; i++) {
+          var st = from[i].style;
+          for (j = 0; j < st.length; j++) {
+            var v = st.getPropertyValue(st[j]);
+            if (/vw/.test(v)) to[i].style.setProperty(st[j], v.replace(/(-?[\d.]+)vw/g, function (m, n) { return (parseFloat(n) * vw) + "px"; }), st.getPropertyPriority(st[j]));
+          }
+        }
+        return { css: css, html: X.serializeToString(copy) };
+      }
+      window.addEventListener("message", function (ev) {
+        if (ev.source !== host) return;
+        var m = ev.data;
+        if (!m || m.rw !== "render") return;
+        chain = chain.then(function () {
+          return window.PrinterBot.render(m.event, m.options).then(function (result) {
+            var ok = !!(result && result.ok);
+            var out = { rw: "result", seq: m.seq, result: result, measure: ok ? measure() : null,
+                        violations: window.PrinterBot.violations(), doc: ok ? serialise() : null };
+            window.__rwPreview = { seq: m.seq, event: m.event, options: m.options, result: result, measure: out.measure };
+            host.postMessage(out, "*");
+          });
+        }).then(null, function (e) {
+          host.postMessage({ rw: "result", seq: m.seq, error: String(e && e.message || e) }, "*");
+        });
+      });
+      host.postMessage({ rw: "ready", version: window.PrinterBot ? window.PrinterBot.version : "" }, "*");
+    }
+    // The frame's page: the vendored text with the backslash taken out of its closing script
+    // tag (RW-EDIT 3), and the glue added right after the renderer's script. Built once.
+    var previewSrcCache = null;
+    function previewSrc() {
+      if (previewSrcCache !== null) return previewSrcCache;
+      var el = document.getElementById("sassytp-renderer");
+      var page = el ? el.textContent.replace(/^\n/, "").replace(/<\\(\/script)/gi, "<$1") : "";
+      var glue = "<script>(" + previewGlue.toString() + ")();<\/script>\n";
+      var at = page.lastIndexOf("</body>");
+      previewSrcCache = at >= 0 ? page.slice(0, at) + glue + page.slice(at) : page + glue;
+      return previewSrcCache;
+    }
+    // One part's card, kept across renders (the frame in its stage must not be re-created by
+    // every keystroke). renderParts refills everything else in it each time.
+    var partCards = [];
+    function makePartCard() {
+      var pc = { el: mkEl("div", { "class": "part" }), stage: mkEl("div", { "class": "rcpt-stage" }),
+                 verdict: mkEl("div", { "class": "rcpt-verdict" }), frame: null, ready: false, seq: 0, key: "",
+                 want: null, got: null, canvas: null, thermalKey: "", thermalTimer: null, resent: 0 };
+      pc.el.appendChild(pc.stage);
+      pc.el.appendChild(pc.verdict);
+      return pc;
+    }
+    function dropFrame(pc) {
+      if (pc.frame && pc.frame.parentNode) pc.frame.parentNode.removeChild(pc.frame);
+      if (pc.canvas && pc.canvas.parentNode) pc.canvas.parentNode.removeChild(pc.canvas);
+      pc.frame = null; pc.canvas = null; pc.ready = false; pc.key = ""; pc.want = null; pc.got = null; pc.thermalKey = "";
+      pc.verdict.textContent = "";
+      pc.stage.className = "rcpt-stage";
+      pc.el.removeAttribute("data-thermal");
+    }
+    // Ask the frame to draw this part (when the request changed since the last one).
+    function previewPart(pc, item) {
+      var s = getSettings(), p = paperSpec(item.paperMm);
+      var pe = previewEvent({ payload: item.payload, bits: item.bits, cheer: item.cheer, hrThreshold: s.hrThreshold,
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+      if (!pc.frame) {
+        var f = document.createElement("iframe");
+        f.className = "rcpt-frame";
+        f.setAttribute("sandbox", "allow-scripts");
+        f.setAttribute("title", "Receipt preview, drawn by SassyTP's printer-bot renderer");
+        f.setAttribute("scrolling", "no");
+        f.setAttribute("tabindex", "-1");
+        f.style.height = "160px";
+        f.srcdoc = previewSrc();
+        pc.frame = f; pc.ready = false;
+        pc.stage.insertBefore(f, pc.stage.firstChild);
+      }
+      pc.frame.style.width = p.cssWidth + "px";
+      var key = JSON.stringify([pe, p.mm]);
+      if (key !== pc.key) {
+        pc.key = key; pc.seq++; pc.resent = 0;
+        pc.want = { seq: pc.seq, pe: pe, pageW: p.cssWidth, paperMm: p.mm, cheer: item.cheer, bits: item.bits, warned: !!item.warned,
+                    up: /writing-mode:\s*sideways-lr/.test(item.payload) };
+        pc.el.setAttribute("data-render", "pending");
+        if (pc.ready) postPreview(pc);
+      } else {
+        thermalPart(pc);   // the same drawing: only the Thermal view or its dither may have changed
+      }
+    }
+    function postPreview(pc) {
+      if (!pc.frame || !pc.frame.contentWindow || !pc.want) return;
+      void pc.frame.offsetWidth;   // lay this page out first, so the frame has its new width before it draws
+      pc.frame.contentWindow.postMessage({ rw: "render", seq: pc.want.seq, event: pc.want.pe.event, options: pc.want.pe.options }, "*");
+    }
+    function onPreviewMessage(ev) {
+      var d = ev.data;
+      if (!d || typeof d !== "object" || (d.rw !== "ready" && d.rw !== "result")) return;
+      for (var i = 0; i < partCards.length; i++) {
+        var pc = partCards[i];
+        if (!pc.frame || ev.source !== pc.frame.contentWindow) continue;
+        if (d.rw === "ready") { pc.ready = true; if (pc.want) postPreview(pc); }
+        else if (d.seq === pc.seq) showPreview(pc, d);
+        return;
+      }
+    }
+    function showPreview(pc, d) {
+      var w = pc.want, r = d.result || {};
+      // A frame whose new width had not reached it yet drew at the old one: ask again.
+      if (r.ok && d.measure && d.measure.viewportW !== w.pageW && pc.resent < 3) {
+        pc.resent++;
+        setTimeout(function () { if (pc.want === w) postPreview(pc); }, 60);
+        return;
+      }
+      pc.got = d;
+      if (r.ok) pc.frame.style.height = Math.max(1, Math.ceil(Number(r.height) || 0)) + "px";
+      pc.verdict.textContent = "";
+      previewVerdict(d, { free: !w.cheer, bits: w.bits, warned: w.warned, upUnsupported: w.up && !sidewaysLrSupported() }).forEach(function (l) {
+        pc.verdict.appendChild(mkEl("div", { "class": l.warn ? "rv-warn" : "rv-info" }, l.text));
+      });
+      pc.el.setAttribute("data-render", "done");
+      pc.thermalKey = "";
+      thermalPart(pc);
     }
 
     // ── THERMAL PREVIEW ────────────────────────────────────────────────────
-    // The preview the way the printer gets it: the receipt rasterized at the printer's dot
-    // width (576 dots on 80 mm, 384 on 58 mm: deviceScaleFactor 576/272 or 384/181, as the
-    // bot screenshots it), turned to grey and dithered with the bot's own Ditherer
-    // (forkDither, in the mode the select names). Approach (no libraries, CSP-safe):
-    // serialize the receipt node -> SVG <foreignObject> data URL scaled to the dot width ->
-    // draw to canvas -> forkDither.
-    // Page CSS does NOT cascade into a serialized-SVG foreignObject, so the receipt styling
-    // rides along as an embedded <style>, kept in sync with the .rcpt* rules above.
-    var RCPT_CSS =
-      '.rcpt{box-sizing:border-box;padding:16px 14px 14px;background:#fff;color:#000;overflow:hidden;text-align:center;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.35;position:relative;}' +
-      '.rcpt-av{width:11.5em;max-width:100%;aspect-ratio:1;border-radius:50%;background:#dcdcdc;margin:0 auto;}' +
-      '.rcpt-title{font-weight:700;font-size:1.35em;line-height:1.15;letter-spacing:.06em;text-transform:uppercase;margin:.4em 0 0;}' +
-      '.rcpt-sub{font-size:1em;margin:0 0 .4em;}' +
-      '.rcpt-body{border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0;overflow:hidden;}' +
-      '.rcpt-plain{overflow-wrap:anywhere;white-space:normal;}' +
-      '.rcpt-date{font-size:.75em;margin:.5em 0 0;}';
-    // Rasterize a receipt node and REPLACE it with a 1-bit dithered <canvas>. The frame
-    // holds no picture, so the canvas stays un-tainted and getImageData works; the
-    // try/catch is a belt-and-braces guard that keeps the plain raster rather than crash.
-    function thermalize(node, mode) {
-      return Promise.resolve().then(function () {
-        var rect = node.getBoundingClientRect();
-        var w0 = rect.width, h0 = rect.height;
-        if (!w0 || !h0) throw new Error("node not laid out");
-        var W = parseInt(node.getAttribute("data-dots"), 10) || PAPERS[80].dots;
-        var S = W / w0, targetH = Math.max(1, Math.round(h0 * S));
-        var clone = node.cloneNode(true);
-        clone.style.margin = "0"; clone.style.background = "#fff"; clone.style.width = w0 + "px";
-        return new Promise(function (resolve, reject) {
-          var xhtml = new XMLSerializer().serializeToString(clone);
-          var svg =
-            '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + targetH + '">' +
-              '<g transform="scale(' + S + ')">' +
-                '<foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
-                  '<div xmlns="http://www.w3.org/1999/xhtml"><style>' + RCPT_CSS + '</style>' + xhtml + '</div>' +
-                '</foreignObject>' +
-              '</g>' +
-            '</svg>';
-          var img = new Image();
-          img.onload = function () {
-            var canvas = document.createElement("canvas");
-            canvas.width = W; canvas.height = targetH;
-            var ctx = canvas.getContext("2d", { willReadFrequently: true });
-            ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, targetH);
-            ctx.drawImage(img, 0, 0);
-            try {
-              var data = ctx.getImageData(0, 0, W, targetH), d = data.data;
-              var dots = forkDither(d, W, targetH, W, mode);
-              for (var i = 0; i < dots.length; i++) {
-                var v = dots[i] ? 0 : 255;
-                d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255;
-              }
-              ctx.putImageData(data, 0, 0);
-            } catch (e) { /* still tainted somehow: keep the un-dithered raster */ }
-            canvas.className = "rcpt-thermal";
-            if (node.parentNode) node.parentNode.replaceChild(canvas, node);
-            resolve(canvas);
-          };
-          img.onerror = function () { reject(new Error("svg raster failed")); };
-          img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-        });
+    // The preview the way the printer gets it (AMENDMENT A3). The bot screenshots its receipt
+    // page at the printer's dot width (deviceScaleFactor 576/272 on 80 mm, 384/181 on 58 mm),
+    // turns it grey ((77R + 151G + 28B) >> 8) and dithers it with its C# Ditherer. Here: the
+    // frame's serialised receipt goes into an SVG <foreignObject> scaled to the dot width,
+    // drawn onto a canvas, then forkDither (the port of that Ditherer) in the mode the select
+    // names. Shown at the printer's dots, one canvas pixel per dot. The SVG image's viewport is
+    // the dot width, not the bot's page, so the frame writes every vw out in px before it hands
+    // the receipt over (previewGlue's serialise). Compared with the bot's own screenshot of the
+    // same page (tools/forkbench.mjs, the pristine pinned renderer): the same height, plain and
+    // glyph grids dot for dot, big and sideways text the same shapes with a few edge dots
+    // dithered differently; the header and footer text sit a dot or two lower, because this
+    // page lays the receipt out at 1 CSS px per px and then scales it, where the bot lays it
+    // out at its dot scale. The grey logo placeholder prints as dots in Detailed and Soft, and
+    // not at all in Crisp (it is lighter than Crisp's cut-off).
+    function thermalCanvas(doc, h0, paperMm, mode) {
+      var p = paperSpec(paperMm), w0 = p.cssWidth, W = p.dots, H = Math.max(1, Math.round(h0 * W / w0));
+      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '">' +
+        '<g transform="scale(' + (W / w0) + ')"><foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
+        '<div xmlns="http://www.w3.org/1999/xhtml" style="width:' + w0 + 'px;background:#fff">' + doc.css + doc.html + '</div>' +
+        '</foreignObject></g></svg>';
+      return new Promise(function (resolve, reject) {
+        var img = new Image();
+        img.onload = function () {
+          var canvas = document.createElement("canvas");
+          canvas.width = W; canvas.height = H;
+          var ctx = canvas.getContext("2d", { willReadFrequently: true });
+          ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+          ctx.drawImage(img, 0, 0);
+          // A browser that taints a canvas for any foreignObject keeps the plain raster.
+          try {
+            var data = ctx.getImageData(0, 0, W, H), px = data.data, dots = forkDither(px, W, H, W, mode);
+            for (var i = 0; i < dots.length; i++) {
+              var v = dots[i] ? 0 : 255;
+              px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = v; px[i * 4 + 3] = 255;
+            }
+            ctx.putImageData(data, 0, 0);
+          } catch (e) { /* tainted: keep the grey raster */ }
+          canvas.className = "rcpt-thermal";
+          resolve(canvas);
+        };
+        img.onerror = function () { reject(new Error("the receipt would not rasterise")); };
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
       });
     }
-    // The pictures that print are characters (glyph-art), so a receipt frame never holds an
-    // <img>, and the raster needs no remote bytes: nothing here fetches anything.
-    // decodeGlyphImage and processImage still read a pasted link through our own Worker
-    // (/px), because reading a cross-origin image's pixels is exactly what CORS forbids.
+    // Show this card's Thermal preview (or take it away), once its drawing is current. Debounced
+    // a little, so typing doesn't dither every keystroke's receipt.
+    function thermalPart(pc) {
+      var s = getSettings(), d = pc.got;
+      if (!s.thermalView || !d || !d.doc || !(d.result && d.result.ok)) {
+        if (pc.canvas && pc.canvas.parentNode) pc.canvas.parentNode.removeChild(pc.canvas);
+        pc.canvas = null; pc.thermalKey = "";
+        pc.stage.className = "rcpt-stage";
+        pc.el.removeAttribute("data-thermal");
+        return;
+      }
+      var key = pc.seq + " " + s.thermalDither;
+      if (key === pc.thermalKey) return;
+      pc.thermalKey = key;
+      pc.el.setAttribute("data-thermal", "pending");
+      if (pc.thermalTimer) clearTimeout(pc.thermalTimer);
+      pc.thermalTimer = setTimeout(function () {
+        var seq = pc.seq;
+        thermalCanvas(d.doc, Math.max(1, Math.ceil(Number(d.result.height) || 1)), pc.want.paperMm, s.thermalDither).then(function (canvas) {
+          if (pc.thermalKey !== key || pc.seq !== seq || !pc.frame) return;   // a newer drawing or setting won
+          if (pc.canvas && pc.canvas.parentNode) pc.canvas.parentNode.replaceChild(canvas, pc.canvas);
+          else pc.stage.appendChild(canvas);
+          pc.canvas = canvas;
+          pc.stage.className = "rcpt-stage thermal-on";
+          pc.el.setAttribute("data-thermal", "done");
+        })["catch"](function () { pc.el.setAttribute("data-thermal", "failed"); });
+      }, 120);
+    }
+    // The pictures that print are characters (glyph-art), so a receipt never holds a picture
+    // that needs fetching, and nothing in the preview goes to the network. decodeGlyphImage
+    // and processImage still read a pasted link through our own Worker (/px), because reading
+    // a cross-origin image's pixels is exactly what CORS forbids.
     function proxied(url) {
       if (/^data:/i.test(url)) return url;
       try { if (new URL(url, location.href).origin === location.origin) return url; } catch (e) {}
       return "/px?u=" + encodeURIComponent(url);
     }
-    // Debounced pass: after a render settles, replace each thermalable frame with its
-    // dithered canvas. Debounced so live typing doesn't rasterize per keystroke.
-    var thermalTimer = null;
-    function scheduleThermal() {
-      if (!(els.thermalView && els.thermalView.checked)) return;
-      if (thermalTimer) clearTimeout(thermalTimer);
-      thermalTimer = setTimeout(function () {
-        var ready = (typeof document !== "undefined" && document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-        var mode = getSettings().thermalDither;
-        ready.then(function () {
-          var frames = els.parts.querySelectorAll(".rcpt[data-thermalable]");
-          for (var i = 0; i < frames.length; i++) thermalize(frames[i], mode)["catch"](function () {});
-        });
-      }, 220);
-    }
     // Render 1..N parts into #parts: the stack's notice first (why it prints the way it does,
-    // when that needs saying), then each part with a header (the "Part i of N" prefix is
-    // omitted when there's only one part), its receipt and, unless it's a non-copyable
-    // placeholder, its own Copy button. lastParts mirrors what's on screen so copyPart() can
-    // look up the exact payload it just (re)computed.
+    // when that needs saying), then each part's card: a header (the "Part i of N" prefix is
+    // omitted when there's only one part), its preview drawn by the bot's renderer with that
+    // renderer's verdicts under it (or the placeholder text, for a part with nothing to print),
+    // and, unless it's a non-copyable placeholder, its own Copy button. Cards are kept and
+    // refilled, never rebuilt (see partCards). lastParts mirrors what's on screen so copyPart()
+    // can look up the exact payload it just (re)computed.
     function renderParts(items, notice) {
       var container = els.parts;
-      container.textContent = "";
+      var mn = document.getElementById("modeNote");
       if (notice) {
-        var mn = document.createElement("div");
-        mn.className = "mode-note";
-        mn.id = "modeNote";
+        if (!mn) { mn = mkEl("div", { "class": "mode-note", id: "modeNote" }); }
         mn.textContent = notice;
-        container.appendChild(mn);
+        if (container.firstChild !== mn) container.insertBefore(mn, container.firstChild);
+      } else if (mn) mn.parentNode.removeChild(mn);
+      var total = document.getElementById("partsTotal");
+      if (total) total.parentNode.removeChild(total);
+      while (partCards.length > items.length) {
+        var gone = partCards.pop();
+        dropFrame(gone);
+        if (gone.el.parentNode) gone.el.parentNode.removeChild(gone.el);
       }
       var n = items.length;
       items.forEach(function (item, i) {
-        var card = document.createElement("div");
-        card.className = "part";
-        if (item.showHead !== false) {
-          var head = document.createElement("div");
-          head.className = "part-head";
-          var count = document.createElement("span");
-          count.className = "part-count" + (item.chars > MAX_CHARS ? " over" : "");
-          count.textContent = (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : "")
-            + item.chars + " / " + MAX_CHARS;
-          head.appendChild(count);
-          if (item.kindLabel) head.appendChild(mkEl("span", { "class": "part-kind" }, item.kindLabel));
-          card.appendChild(head);
-        }
-        // Twitch rejects (doesn't truncate) an over-length message, so an over-budget part
-        // would silently fail to send: say why and how to fix it.
-        if (item.chars > MAX_CHARS) {
-          var warn = document.createElement("div");
-          warn.className = "over-note";
-          warn.textContent = "Too long for Twitch (500 characters). Shorten the text, use fewer columns, or pick a smaller size.";
-          card.appendChild(warn);
-        }
-        if (item.bodies) {
-          var body = document.createElement("div");
-          if (item.alone) {
-            // A plain part: the message as text. Below the threshold the bot prints it inside
-            // quote marks; in a High Roller cheer a Han tiling block is text all the same.
-            var pl = document.createElement("div");
-            pl.className = "rcpt-plain";
-            pl.textContent = item.mode === "plain" && item.cheer ? "“" + item.payload + "”" : item.payload;
-            body.appendChild(pl);
-          } else {
-            // The lead is text (the cheer token, its digits, or the nbsp guard), never markup.
-            if (item.lead) body.appendChild(document.createTextNode(item.lead));
-            body.insertAdjacentHTML("beforeend", previewHtml(item.bodies.map(function (b) { return b.html; }).join(""), item.paperMm));
-          }
-          var frame = receiptFrame(body, item.bits, item.paperMm);
-          frame.setAttribute("data-thermalable", "1");
-          card.appendChild(frame);
-        } else {
-          var pre = document.createElement("pre");
-          pre.className = "receipt";
-          pre.textContent = item.payload;
-          card.appendChild(pre);
-        }
-        // A part's own one-line explanation (a probe says how to read it; a repeated part
-        // says why it has to wait).
-        if (item.note) {
-          var inote = document.createElement("p");
-          inote.className = "parts-note";
-          inote.textContent = item.note;
-          card.appendChild(inote);
-        }
-        if (item.copyable) {
-          var btn = document.createElement("button");
-          btn.type = "button";
-          // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
-          // refresh(), which rebuilds this whole container, so the button you clicked is detached
-          // by the time the copy resolves.
-          var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
-          btn.textContent = justCopied ? "Copied" : "Copy";
-          if (justCopied) btn.className = "copied";
-          btn.addEventListener("click", function () { copyPart(i); });
-          card.appendChild(btn);
-        }
-        container.appendChild(card);
+        var pc = partCards[i] || (partCards[i] = makePartCard());
+        if (!pc.el.parentNode) container.appendChild(pc.el);
+        fillPartCard(pc, item, i, n);
       });
       var copyable = items.filter(function (it) { return it.copyable; });
       if (copyable.length > 1) {
-        var bits = copyable[0].bits, note = document.createElement("p");
-        note.className = "parts-note";
-        note.textContent = "Paste the parts into chat in order. Each is a separate " + bits
+        var bits = copyable[0].bits;
+        container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" },
+          "Paste the parts into chat in order. Each is a separate " + bits
           + "-bit cheer (" + copyable.length + " × " + bits + " = " + (copyable.length * bits) + " bits total), "
-          + "and the bot prints its header between them.";
-        container.appendChild(note);
+          + "and the bot prints its header between them."));
       }
-      scheduleThermal();   // if the toggle is on, swap thermalable frames for their dithered render
+    }
+    function fillPartCard(pc, item, i, n) {
+      var card = pc.el, kids = Array.prototype.slice.call(card.childNodes);
+      kids.forEach(function (k) { if (k !== pc.stage && k !== pc.verdict) card.removeChild(k); });
+      var before = [], after = [];
+      if (item.showHead !== false) {
+        var head = mkEl("div", { "class": "part-head" });
+        head.appendChild(mkEl("span", { "class": "part-count" + (item.chars > MAX_CHARS ? " over" : "") },
+          (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : "") + item.chars + " / " + MAX_CHARS));
+        if (item.kindLabel) head.appendChild(mkEl("span", { "class": "part-kind" }, item.kindLabel));
+        before.push(head);
+      }
+      // Twitch rejects (doesn't truncate) an over-length message, so an over-budget part
+      // would silently fail to send: say why and how to fix it.
+      if (item.chars > MAX_CHARS) {
+        before.push(mkEl("div", { "class": "over-note" },
+          "Too long for Twitch (500 characters). Shorten the text, use fewer columns, or pick a smaller size."));
+      }
+      // The preview: a part with something to print is drawn by the bot's renderer; anything
+      // else (an empty stack, a picture still loading) shows its placeholder text.
+      var pre = pc.stage.querySelector("pre.receipt");
+      if (item.bodies && item.bodies.some(function (b) { return b.html; })) {
+        if (pre) pc.stage.removeChild(pre);
+        previewPart(pc, item);
+      } else {
+        dropFrame(pc);
+        card.removeAttribute("data-render");
+        if (!pre) { pre = mkEl("pre", { "class": "receipt" }); pc.stage.appendChild(pre); }
+        pre.textContent = item.payload;
+      }
+      // A part's own one-line explanation (a probe says how to read it; a repeated part
+      // says why it has to wait).
+      if (item.note) after.push(mkEl("p", { "class": "parts-note" }, item.note));
+      if (item.copyable) {
+        // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
+        // refresh(), which refills this card, so the button you clicked is gone by the time the
+        // copy resolves.
+        var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
+        var btn = mkEl("button", { type: "button" }, justCopied ? "Copied" : "Copy");
+        if (justCopied) btn.className = "copied";
+        btn.addEventListener("click", function () { copyPart(i); });
+        after.push(btn);
+      }
+      before.forEach(function (el) { card.insertBefore(el, pc.stage); });
+      after.forEach(function (el) { card.appendChild(el); });
     }
     // ============ COMPOSER (block stack) ============
     var blocks = [], blockIdSeq = 1, BLOCKS_KEY = "rw_blocks_v1";
@@ -4862,6 +5038,12 @@
                    + " Same-named setups were replaced.");
       });
     }
+    // Whether this app already says a part will be cut: it is taller than the bot's message box
+    // (one body taller than the box gets a part of its own, and its card warns). The preview's
+    // verdict adds "this app expected it to fit" to a cut the bot makes anywhere else.
+    function partWarned(p, ctx) {
+      return p.contentPx > ctx.limit.px + 1 || p.bodies.some(function (b) { return !!b.tall; });
+    }
     function composeParts() {
       if (!blocks.some(blockHasContent)) {
         var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph" && b.url; });
@@ -4874,6 +5056,7 @@
       return parts.map(function (p, i) {
         var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
                      alone: !!p.alone, mode: ctx.mode, cheer: ctx.cheer, bits: ctx.bits, paperMm: ctx.paperMm,
+                     warned: partWarned(p, ctx),
                      kindLabel: !ctx.cheer ? "free test" : p.alone || ctx.mode === "plain" ? "plain text" : "High Roller" };
         // A part with nothing printable in it (a picture still decoding) would be a cheer that
         // prints only the lead: it is shown, but it can't be copied until there is ink.
@@ -4914,7 +5097,7 @@
       var works = kind === "hrprobe" ? s.hrThreshold > 0 : pr.mode === "plain";
       return packStackBodies(pr.bodies, po).map(function (p) {
         return { payload: p.payload, chars: p.chars, copyable: works, bodies: p.bodies, lead: p.lead, alone: !!p.alone,
-                 mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note,
+                 mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note, warned: partWarned(p, ctx),
                  kindLabel: kind === "hrprobe" ? "High Roller test" : "Plain test" };
       });
     }
@@ -4994,6 +5177,8 @@
 
       restoreControls();
       syncModeUi();
+      // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
+      window.addEventListener("message", onPreviewMessage);
 
       [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm].forEach(function (el) {
         if (!el) return;
@@ -5006,8 +5191,8 @@
       // currentKind to "compose").
       els.hrProbeBtn.addEventListener("click", function () { currentKind = "hrprobe"; refresh(); });
       els.plainProbeBtn.addEventListener("click", function () { currentKind = "plainprobe"; refresh(); });
-      // Toggling the thermal view or its dither just re-renders: renderParts rebuilds clean
-      // frames, then scheduleThermal() dithers them when the box is checked (no-op when off).
+      // Toggling the thermal view or its dither just refreshes: each card keeps its drawing and
+      // shows (or takes away) its dithered canvas (thermalPart).
       els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
       els.thermalDither.addEventListener("change", function () { saveControls(); refresh(); });
 
@@ -5081,7 +5266,7 @@
       // The app's state, read through sanitizers; the plain-mode notice; the bot's ditherer.
       THERMAL_DITHERS: THERMAL_DITHERS, normalizeControls: normalizeControls, hanziWeightOf: hanziWeightOf,
       GLYPH_TIERS: GLYPH_TIERS, glyphOpts: glyphOpts, modeNotice: modeNotice, forkDither: forkDither,
-      previewHtml: previewHtml,
+      previewEvent: previewEvent, previewVerdict: previewVerdict,
       // Canvas-backed glue, exported for the browser tests only (a null DOM can't run them).
       designTTextGrid: designTTextGrid, glyphGrid: glyphGrid,
       bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,

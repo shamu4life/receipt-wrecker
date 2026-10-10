@@ -149,4 +149,19 @@ test("import never replaces: a name taken by a saved setup, or by one added earl
   const fresh = importPresets([], incoming.slice(0, 2));
   eq(fresh.presets.map((p) => p.name), ["Stream", "Stream (2)"]);
   eq(fresh.renamed, [{ from: "Stream", to: "Stream (2)" }]);
+  // An export imported straight back (Export leaves its JSON beside Import) adds nothing: a
+  // preset already saved with the same name and the same blocks is left out, whatever order
+  // its fields are in, and listed in `same`. The same blocks under another name are added.
+  const back = importPresets(r.presets, parsePresets(serializePresets(r.presets)).presets);
+  assert.equal(back.added, 0);
+  eq(back.same, ["Stream", "Stream (2)", "Stream (3)", "Other"]);
+  eq(back.renamed, []);
+  assert.equal(back.presets.length, 4);
+  const shuffled = { v: 1, name: "Other", savedAt: 99, blocks: [{ text: "THIRD", type: "text", id: 1 }] };
+  eq(importPresets(r.presets, [shuffled]).same, ["Other"]);
+  const renamedCopy = importPresets(r.presets, [{ ...shuffled, name: "Other copy" }]);
+  assert.equal(renamedCopy.added, 1);
+  eq(renamedCopy.same, []);
+  // Same name, different blocks: still added, under a free name.
+  eq(importPresets(r.presets, [{ ...shuffled, blocks: [{ id: 1, type: "text", text: "CHANGED" }] }]).renamed, [{ from: "Other", to: "Other (2)" }]);
 });

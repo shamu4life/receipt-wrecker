@@ -306,6 +306,12 @@ test("migrationNote says what changed and names the backup", () => {
   assert.match(l, /^This setup had a Takeover.* Its text blocks were made for the old printer-bot/);
   assert.match(l, /The preset "Old" itself is unchanged: loading it converts it again, and Export JSON keeps it as it was\.$/);
   assert.match(C.migrationNote([GIANT], "Old", true), /^This setup's text blocks were made/);
+  // No backup could be written (the saved presets can't be read): the note says so and where
+  // the old stack's JSON is, and never names a preset that doesn't exist.
+  const u = C.migrationNote([ITEMS_TK], "Before 1.0.0", false, true);
+  assert.match(u, /^Your saved stack had a Takeover/);
+  assert.match(u, /The stack as it was could not be saved as a preset, because your saved presets can't be read\. Its JSON is in the box under Presets: copy it and keep it somewhere safe\.$/);
+  assert.ok(!/"Before 1\.0\.0"/.test(u), u);
 });
 
 test("freePresetName never hands back a name the user already has", () => {
@@ -318,4 +324,21 @@ test("freePresetName never hands back a name the user already has", () => {
   const list = ps("Before 1.0.0");
   const merged = C.upsertPreset(list, C.makePreset(C.freePresetName(list, "Before 1.0.0"), [], 1));
   assert.equal(merged.length, 2);
+  // A name holds 60 characters, and the renamed one must survive the next load's cut at 60:
+  // "A"×60 + " (2)" came back as "A"×60, the very name it was renamed away from.
+  const a60 = "A".repeat(60);
+  for (const [taken, want] of [[[a60], "A".repeat(56) + " (2)"], [[a60, "A".repeat(56) + " (2)"], "A".repeat(56) + " (3)"]]) {
+    const got = C.freePresetName(ps(...taken), a60);
+    assert.equal(got, want);
+    const reloaded = C.parsePresets(C.serializePresets([...ps(...taken), { v: 1, name: got, savedAt: 0, blocks: [] }]));
+    assert.equal(new Set(reloaded.presets.map((p) => p.name)).size, taken.length + 1, "a renamed preset reloaded as a taken name");
+  }
+  // A base cut at a space doesn't keep the space before the number.
+  assert.equal(C.freePresetName(ps("A".repeat(55) + " BCDE"), "A".repeat(55) + " BCDE"), "A".repeat(55) + " (2)");
+  // Names that are Object.prototype's members are free until a preset has one.
+  for (const n of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]) {
+    assert.equal(C.freePresetName([], n), n);
+    assert.equal(C.freePresetName(ps(n), n), n + " (2)");
+  }
+  assert.equal(C.importPresets([], [{ v: 1, name: "toString", savedAt: 0, blocks: [] }]).renamed.length, 0);
 });

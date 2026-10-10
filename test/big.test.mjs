@@ -413,6 +413,34 @@ test("tall: one line taller than the box is flagged and explained, never silentl
     /no warning/);
 });
 
+test("a box with room after the Cheer line, but less than the smallest letters need: no 'fits', and the advice is more bits, not a smaller size", () => {
+  // 100 bits at 300 bits per inch: a 32px box, 10.4px after the Cheer line. Capitals at 20px and
+  // line height .8 need 16px: every size is cut. The note said "fits 1 cheer" and "Pick a
+  // smaller size", at 20px too (polish review 3).
+  const k = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, bitsPerInch: 300, paperMm: 80 });
+  assert.ok(k.room > 0 && k.room < 16, "room " + k.room);
+  for (const size of ["fit1", 20, 64]) {
+    const b = build("HELLO", { size }, k), msg = C.bigReport(b, { bits: 100, limit: k.limit, cheers: 1 });
+    assert.match(msg.split("\n")[0], /^Capitals ≈ [\d.]+ cm · 1 cheer, but cut off \(see below\)$/, size + ": " + msg);
+    assert.match(msg, /Even the smallest letters are too tall for what is left after the Cheer line \(this cheer gets about 8 mm of receipt from the streamer’s bits-per-inch setting\), so the bot cuts them off at any size\. Set Bits per cheer higher for more room\./);
+    assert.doesNotMatch(msg, /fits 1 cheer|Pick a smaller size/, size + ": " + msg);
+    const s = C.buildSideBodies("HI", { size, budget: k.budget, heightPx: k.room, contentW: k.contentW });
+    const sr = C.sideReport(s, { bits: 100, limit: k.limit, cheers: 1 });
+    assert.match(sr, /cm down the tape · 1 cheer, but cut off \(see below\)\nEven the smallest letters are too tall/, size + ": " + sr);
+    assert.doesNotMatch(sr, /fits 1 cheer|Pick a smaller size/);
+  }
+  // Under a maximum length, more bits buy nothing: the note says so.
+  const c = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, maxInches: 0.3, paperMm: 80 });
+  assert.equal(c.limit.by, "cap");
+  assert.match(C.bigReport(build("HELLO", {}, c), { bits: 100, limit: c.limit }),
+    /\(the streamer’s maximum length is about 7 mm\), so the bot cuts them off at any size\. Only a longer maximum length would let them print whole\./);
+  // Room enough for small letters but not these: a smaller size is the right advice, as before.
+  const r = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, bitsPerInch: 200, paperMm: 80 });
+  const big = C.bigReport(build("HELLO", { size: 64 }, r), { bits: 100, limit: r.limit, cheers: 1 });
+  assert.match(big, /One line is taller than this cheer’s part of the receipt.*Pick a smaller size\./);
+  assert.match(big.split("\n")[0], /1 cheer, but cut off/);
+});
+
 test("a box no taller than the Cheer line is NO room, not the default 1600px box", () => {
   // bits 40 at 200 bits per inch: a 19px box, 2.6px less than the lead's 21.6px line. It used to
   // read as "unset" and size and pack the stack for 1600px: 310px capitals, "fits 1 cheer", no

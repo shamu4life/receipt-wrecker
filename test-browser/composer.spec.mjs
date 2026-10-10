@@ -1366,12 +1366,18 @@ test("round 3: an old preset's uploaded picture is checked on Load, explained, a
   assert.equal((await note.textContent()).trim(), "");
   // Import adds, and never replaces: a taken name gets a number, and the note says so.
   await page.click("#presetImport");
-  await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, savedAt: 3 }, { ...keep, name: "New", savedAt: 4 }] }));
+  const other = [{ id: 1, type: "text", render: "big", text: "NOT KEEP" }];
+  await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, savedAt: 3, blocks: other }, { ...keep, name: "New", savedAt: 4 }] }));
   await page.click("#presetImport");
   assert.equal(await note.textContent(), 'Imported 2 setups. "Keep" was already taken, so it was added as "Keep (2)".');
   await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, name: "Newer", savedAt: 5 }] }));
   await page.click("#presetImport");
   assert.equal(await note.textContent(), "Imported 1 setup.");
+  // The very same setup again (Export leaves the JSON in the box beside Import): left out,
+  // never added as "Keep (3)".
+  await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, savedAt: 9 }] }));
+  await page.click("#presetImport");
+  assert.equal(await note.textContent(), 'Nothing imported. "Keep" is already saved exactly as it is.');
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -1867,6 +1873,216 @@ test("polish 2: new Glyph-art at 18 columns, the Auto layout's name, hints that 
   await page.check("#cheer");
   await page.click("#plainProbeBtn");
   assert.ok(!/Cheer-ready off/.test(await page.textContent("#modeNote")));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("polish 3: a Glyph-art picture the parts leave out is named in red above them, and while one loads nothing is copyable", async () => {
+  const IMG = (o) => ({ type: "image", imgKind: "glyph", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                        tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, ...o });
+  // A picked file a reload didn't keep, beside text that prints: the text's part is still a
+  // real cheer, but the page says plainly that the picture isn't in it.
+  const { page, ctx, errors } = await freshPage({ blocks: [IMG({ id: 1, fileName: "smiley.png" }), BIG({ id: 2, text: "HAPPY BIRTHDAY" })] });
+  await settled(page);
+  assert.equal(await page.locator("#parts .part .copy-btn").count(), 1);
+  assert.match(await page.textContent("#pictureNote"),
+    /^The picture in block 1 from the top \(smiley\.png\) isn't in these parts: a picked file isn't kept after a reload or in a preset\. Pick it again on its card\.$/);
+  // It sits at the top of the parts, under the mode notice if there is one, above every part.
+  assert.equal(await page.evaluate(() => {
+    const kids = Array.from(document.getElementById("parts").children), pn = document.getElementById("pictureNote");
+    return kids.indexOf(pn) < kids.findIndex((k) => k.classList.contains("part"));
+  }), true);
+  // Picking the file again puts the picture back in the parts, and the notice goes.
+  await cards(page).first().locator("input[type=file]").setInputFiles({ name: "smiley.png", mimeType: "image/png",
+    buffer: Buffer.from(PIC.split(",")[1], "base64") });
+  await page.waitForFunction(() => !document.getElementById("pictureNote"), null, { timeout: 8000 });
+  await settled(page);
+  assert.match(await copyPayload(page, 0), /^Cheer100 <div style=font-size:[\d.]+vw;line-height:1>/);
+  await ctx.close();
+
+  // A link that can't be read (the test server has no /px): named, with what to do.
+  const { page: p2, ctx: c2 } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG({ id: 2, url: "https://example.com/dead.png" })] });
+  await p2.waitForFunction(() => /link can't be read/.test((document.getElementById("pictureNote") || {}).textContent || ""), null, { timeout: 8000 });
+  assert.equal(await p2.textContent("#pictureNote"),
+    "The picture in block 2 from the top isn't in these parts: its link can't be read. Check the link, or pick the file instead.");
+  assert.equal(await p2.locator("#parts .part .copy-btn").count(), 1, "the text's part can still be sent");
+  await c2.close();
+
+  // A link still being read: the parts will change when it lands, so no part is copyable until
+  // then (a part with text in it used to be, and said "Paste it into chat and send it").
+  const { page: p3, ctx: c3 } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY BIRTHDAY" }), IMG({ id: 2 })] });
+  await settled(p3);
+  assert.equal(await p3.locator("#pictureNote").count(), 0, "a block with no picture yet is not 'left out'");
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await c3.route("**/px?u=*", async (route) => {
+    await held;
+    await route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from(PIC.split(",")[1], "base64") });
+  });
+  await cards(p3).nth(1).locator("input[type=url]").fill("https://example.com/slow.png");
+  await p3.waitForFunction(() => /still loading/.test((document.getElementById("pictureNote") || {}).textContent || ""), null, { timeout: 5000 });
+  assert.equal(await p3.textContent("#pictureNote"),
+    "The picture in block 2 from the top is still loading, so these parts don't have it yet. Copy comes back once it has loaded.");
+  assert.equal(await p3.locator("#parts .part").count(), 1);
+  assert.equal(await p3.locator("#parts .part .copy-btn").count(), 0, "a part was copyable while a picture was loading");
+  assert.equal(await p3.locator("#partsTotal").count(), 0, "the total still said to send it");
+  release();
+  await p3.waitForFunction(() => !document.getElementById("pictureNote"), null, { timeout: 8000 });
+  await settled(p3);
+  const sent = await copyAll(p3);
+  assert.ok(sent.some((s) => /line-height:1>/.test(s)), "the picture isn't in the parts once it has loaded");
+  assert.deepEqual(errors, []);
+  await c3.close();
+});
+
+test("polish 3: the repeat number follows its checkbox in the tests too; a test leaves the cards' notes alone; an over-length part is never 'send it'", async () => {
+  // Cheer-ready off shows "Add a repeat number" disabled: the tests (real cheers) still put the
+  // digits in their payloads, and the free test's Copy advanced the counter.
+  const { page, ctx, errors } = await freshPage({ controls: { ...SETTINGS, cheer: false, nonce: true },
+    blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }, BIG({ id: 2, text: "HELLO WORLD" })] });
+  assert.equal(await page.locator("#cheerNonce").isDisabled(), true);
+  assert.equal(await page.locator("#cheerNonce").isChecked(), true);
+  assert.match(await page.textContent("#cheerNonceHint"), /which is why it is off by default\. Without it, wait 30 seconds/);
+  await page.click("#hrProbeBtn");
+  assert.match(await copyPayload(page), /^Cheer25 <div/, "the High Roller test carried the repeat digits");
+  await page.click("#plainProbeBtn");
+  assert.match(await copyPayload(page), / Cheer24$/, "the Plain test carried the repeat digits");
+  assert.equal(await page.evaluate(() => localStorage.getItem("rw_nonce_seq")), null, "a copy advanced the hidden counter");
+  // Cheer-ready back on brings the user's choice back: digits in the tests too.
+  await page.click("#backToStack");
+  await page.check("#cheer");
+  await page.click("#hrProbeBtn");
+  assert.match(await copyPayload(page), /^Cheer25 \d\d <div/);
+
+  // While a test is shown, the cards still describe the stack (they went blank, or lost their
+  // "whole stack" line, read against the test's parts).
+  await page.click("#backToStack");
+  await page.uncheck("#cheerNonce");
+  await settled(page);
+  const notes = () => cards(page).locator(".text-note").allInnerTexts();
+  const before = await notes();
+  assert.match(before[0], /^Han tiling: \d+ rows of 15 Han characters/);
+  assert.match(before.join("\n"), /Your whole stack needs \d+ cheers/);
+  await page.click("#hrProbeBtn");
+  assert.deepEqual(await notes(), before, "a test rewrote the cards' notes");
+  await page.click("#plainProbeBtn");
+  assert.deepEqual(await notes(), before);
+  await page.click("#backToStack");
+  assert.deepEqual(await notes(), before);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // A part over 500 characters: its card says Twitch rejects it, and the total no longer says
+  // to send it (or counts it as a paid cheer).
+  const long = BIG({ id: 1, bigLayout: "lines", text: "THANKS FOR THE RAID ".repeat(30).trim() });
+  const { page: p2, ctx: c2 } = await freshPage({ blocks: [long] });
+  await settled(p2);
+  assert.ok(Number((await p2.locator("#parts .part .part-count").first().textContent()).match(/(\d+) \/ 500/)[1]) > 500, "fixture: one part over 500");
+  const total = await p2.textContent("#partsTotal");
+  assert.equal(total, "This message is too long for Twitch to send (500 characters at most), so Twitch would reject it. Fix it before pasting it.");
+  assert.ok(!/send it\./.test(total));
+  // With a second, sendable part, the total names the long one and still says nothing about bits.
+  await p2.click("#addTextBtn");
+  await cards(p2).nth(1).locator("textarea").fill("HI");
+  await p2.waitForFunction(() => document.querySelectorAll("#parts .part").length === 2);
+  assert.equal(await p2.textContent("#partsTotal"),
+    "Part 1 is too long for Twitch to send (500 characters at most), so Twitch would reject it. Fix it before pasting the parts.");
+  await c2.close();
+});
+
+test("polish 3: the cards: which picked file prints, the Detail field while retyped, the text box's rows, focus after ↑ ↓ and Undo, and words that name real controls", async () => {
+  const IMG = { id: 2, type: "image", imgKind: "glyph", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG] });
+  const img = cards(page).nth(1);
+  // A picked file: the input is emptied (so picking it again fires), and the card names it.
+  assert.equal(await img.locator(".file-use").isVisible(), false);
+  await img.locator("input[type=file]").setInputFiles({ name: "smiley.png", mimeType: "image/png",
+    buffer: Buffer.from(PIC.split(",")[1], "base64") });
+  await page.waitForFunction(() => /Using “smiley\.png”/.test(document.querySelectorAll("#blockList .block-card")[1].innerText), null, { timeout: 8000 });
+  assert.equal(await img.locator(".file-use").textContent(), "Using “smiley.png”, read on this device (not uploaded).");
+  // As a Real picture there is nothing to show, and the card says why.
+  await img.locator(".sel-kind").selectOption("real");
+  assert.equal(await img.locator(".file-use").textContent(),
+    "“smiley.png” was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it.");
+  assert.match(await img.innerText(), /Glyph-art has its own Darkness setting\./);
+  assert.ok(!/own Contrast/.test(await img.innerText()));
+  await img.locator(".sel-kind").selectOption("glyph");
+  await settled(page);
+
+  // Detail: an emptied field changes nothing while it is retyped (it jumped to 20 columns, two
+  // cheers for a square picture); left empty, it takes the default 18, as ↺ does.
+  const cols = img.locator("input.num-cols");
+  await cols.fill("24");
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 24);
+  await cols.fill("");
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 24, "an empty field changed the columns");
+  await cols.blur();
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 18);
+  assert.equal(await cols.inputValue(), "18");
+
+  // The text box grows with the typed lines, 2 to 8 rows.
+  const ta = cards(page).first().locator("textarea");
+  assert.equal(await ta.getAttribute("rows"), "2");
+  await ta.fill("THANKS\nFOR THE\nRAID");
+  assert.equal(await ta.getAttribute("rows"), "3");
+  await ta.fill(Array.from({ length: 12 }, (_, i) => "L" + i).join("\n"));
+  assert.equal(await ta.getAttribute("rows"), "8");
+  await ta.fill("HI");
+  assert.equal(await ta.getAttribute("rows"), "2");
+
+  // ↑ and ↓ keep the focus on the moved card: the same button, or the other one at an end.
+  const label = () => page.evaluate(() => document.activeElement && document.activeElement.getAttribute("aria-label"));
+  const focusedCardText = () => page.evaluate(() => {
+    const c = document.activeElement && document.activeElement.closest(".block-card");
+    return c ? c.querySelector(".bc-type").textContent : null;
+  });
+  await cards(page).first().getByRole("button", { name: "Move block down" }).focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await label(), "Move block up", "the focus fell off the moved card");
+  assert.equal(await focusedCardText(), "Text");
+  assert.equal(await cards(page).nth(1).locator(".bc-type").textContent(), "Text", "the block didn't move down");
+  await page.keyboard.press("Enter");
+  assert.equal(await label(), "Move block down");
+  assert.equal(await cards(page).first().locator(".bc-type").textContent(), "Text");
+  // Undo puts the focus on the restored card's first control.
+  await cards(page).first().getByRole("button", { name: "Remove block" }).click();
+  assert.equal(await label(), null);
+  assert.equal(await page.evaluate(() => document.activeElement.id), "undoRemove");
+  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(() => document.activeElement.tagName), "TEXTAREA");
+  assert.equal(await cardCount(page), 2);
+
+  // The settings' hint talks lengths, not px.
+  assert.match(await page.locator("#streamer").innerText(), /it gets the bot's longest message, about 42 cm\./);
+  assert.ok(!/1600px/.test(await page.locator("#streamer").innerText()));
+  // Below the threshold, the note names Detail too: it does nothing there.
+  await page.fill("#hrThreshold", "200");
+  await page.waitForFunction(() => /whatever Characters and Detail \(columns\) say above/.test(document.querySelectorAll("#blockList .block-card")[1].innerText), null, { timeout: 8000 });
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("polish 3: a pre-1.0.0 stack converted while the saved presets can't be read: the banner says so, and the old stack's JSON is ready to copy", async () => {
+  const old = [{ id: 1, type: "takeover", tkStyle: "cheer", cBits: "500", cName: "Bob", cNote: "thanks", f1: { font: "serif" } }];
+  const { page, ctx, errors } = await freshPage({ blocks: old, init: () => {
+    try { if (window.parent === window && !localStorage.getItem("rw_presets_v1")) localStorage.setItem("rw_presets_v1", "{not json"); } catch (e) {}
+  } });
+  // The stack is converted (the words survive as Big text blocks)...
+  assert.deepEqual(await cards(page).locator("textarea").evaluateAll((els) => els.map((e) => e.value)), ["500 BITS", "Bob", "thanks"]);
+  // ...the unreadable presets are left as they were, never written over...
+  assert.equal(await page.evaluate(() => localStorage.getItem("rw_presets_v1")), "{not json");
+  // ...and the user is told, with the old stack ready to copy.
+  const note = await page.textContent("#migrationNote");
+  assert.match(note, /had a Takeover/);
+  assert.match(note, /The stack as it was could not be saved as a preset, because your saved presets can't be read\. Its JSON is in the box under Presets: copy it and keep it somewhere safe\./);
+  assert.ok(!/is saved as the preset/.test(note), note);
+  assert.equal(await page.locator("#presetJson").isVisible(), true);
+  const kept = C.parsePresets(await page.inputValue("#presetJson"));
+  assert.ok(kept.ok, kept.error);
+  assert.equal(kept.presets.length, 1);
+  assert.equal(kept.presets[0].name, "Before 1.0.0");
+  assert.deepEqual(JSON.parse(JSON.stringify(kept.presets[0].blocks)), old, "the JSON is not the stack as it was");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

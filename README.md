@@ -259,7 +259,7 @@ still print), so judge those with the thermal view off.
 - **Add a repeat number** (off by default) puts two rotating digits after the cheer word
   (`Cheer100 07`). Twitch won't send the same message twice in a row within 30 seconds (it
   just isn't sent, and no bits are spent); the digits make each copy different. They also
-  print, which is why this is off. If two parts in a row are identical, the second one says
+  print, which is why they are off by default. If two parts in a row are identical, the second one says
   so: wait 30 seconds, or turn the digits on.
 - **Too much for one cheer** tapes into more. Each part is a separate cheer (500 characters
   at most, Twitch's limit), and the bot prints its header between them. Paste them in order.

@@ -81,7 +81,7 @@
   .rcpt-placeholder { font-size: .9rem; margin: 0 0 .5rem; padding: .5rem .7rem; border: 1px dashed #bbb; border-radius: 4px;
     white-space: normal; overflow-wrap: anywhere; max-width: 100%; box-sizing: border-box; }
   .parts-note.part-note { margin: 0 0 .45rem; }
-  .parts-note.no-room { color: #d33; opacity: 1; font-weight: 700; }
+  .parts-note.no-room, .parts-note.too-long { color: #d33; opacity: 1; font-weight: 700; }
   .mode-note button { margin: .4rem .4rem 0 0; }
   #composer { margin: 0 0 1rem; }
   .composer-h { font-size: 1rem; margin: 0 0 .5rem; }
@@ -122,6 +122,9 @@
   .text-note.over .note-sum { color: #d33; font-weight: 700; }
   /* Why the stack prints the way it does (plain text below the threshold, a free test). */
   .mode-note { font-size: .85rem; border: 1px solid #c90; background: rgba(204,153,0,.1); border-radius: 4px; padding: .45rem .6rem; margin: 0 0 .8rem; }
+  /* A Glyph-art picture these parts leave out (still loading, unreadable, expired, to pick again). */
+  .mode-note.picture-note { border-color: #d33; background: rgba(221,51,51,.08); color: #d33; font-weight: 600; overflow-wrap: anywhere; }
+  .picture-note > div + div { margin-top: .3rem; }
   .part-kind { font-size: .75rem; opacity: .75; border: 1px solid #999; border-radius: 999px; padding: 0 .45rem; }
   #streamer { margin-top: .9rem; border-top: 1px solid #ddd; padding-top: .7rem; }
   .block-card .bc-val { font-weight: 700; }
@@ -199,7 +202,7 @@
       <div class="hint" id="bitsHint">How many bits each cheer spends (1 or more). Each taped part is its own cheer, so a run of parts costs bits &times; parts; the total is under the preview.</div>
 
       <label><input type="checkbox" id="cheerNonce"> Add a repeat number</label>
-      <div class="hint" id="cheerNonceHint">Puts two rotating digits after the cheer ("Cheer100 07"). Twitch won't send the same message twice in a row within 30 seconds (it just isn't sent, and no bits are spent), and the digits make each copy different. They also print on the receipt, which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.</div>
+      <div class="hint" id="cheerNonceHint">Puts two rotating digits after the cheer ("Cheer100 07"). Twitch won't send the same message twice in a row within 30 seconds (it just isn't sent, and no bits are spent), and the digits make each copy different. They also print on the receipt, which is why it is off by default. Without it, wait 30 seconds before sending the same thing again.</div>
 
       <div id="streamer">
         <div class="composer-h">The streamer's printer-bot settings</div>
@@ -209,7 +212,7 @@
         <div class="hint">A cheer of at least this many bits is a High Roller cheer, and the bot prints its big text, sideways text and glyph-art. Below it the bot prints plain text, so every block prints as Han tiling. 0 = High Roller off (every cheer prints as plain text).</div>
         <label>Bits per inch: <input type="number" id="bitsPerInch" min="0" step="any" value="0" style="width:7em"></label>
         <label>Maximum length: <input type="number" id="maxInches" min="0" max="40" step="any" value="0" style="width:7em"> inches</label>
-        <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's 1600px box, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
+        <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's longest message, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
       </div>
     </section>
   </div>
@@ -703,29 +706,54 @@
     return out;
   }
   // A preset name nobody has used yet: `base`, or `base (2)`, `base (3)`… Used for the
-  // one-time migration backup, which must never replace a setup the user saved.
+  // one-time migration backup, which must never replace a setup the user saved, and by Import.
+  // A name holds 60 characters (makePreset cuts it there on every load), so the base is cut to
+  // leave room for the number: "AAA…A (2)" at 64 came back from the next load as the very name
+  // it was renamed away from. `taken` has no prototype, so "constructor" or "toString" is
+  // taken only when a preset has it (polish review 3).
   function freePresetName(presets, base) {
-    var taken = {}, i, n, name;
+    var taken = Object.create(null), i, n, name, suffix;
+    base = String(base == null ? "" : base);
     for (i = 0; i < (presets || []).length; i++) if (presets[i]) taken[presets[i].name] = true;
     if (!taken[base]) return base;
-    for (n = 2; ; n++) { name = base + " (" + n + ")"; if (!taken[name]) return name; }
+    for (n = 2; ; n++) {
+      suffix = " (" + n + ")";
+      name = base.slice(0, Math.max(0, 60 - suffix.length)).replace(/\s+$/, "") + suffix;
+      if (!taken[name]) return name;
+    }
   }
 
+  // JSON with every object's keys sorted, so the order fields were written in doesn't matter
+  // (an undefined field counts as absent, as JSON.stringify has it). Presets compare by it.
+  function canonJson(v) {
+    if (Array.isArray(v)) return "[" + v.map(canonJson).join(",") + "]";
+    if (v && typeof v === "object") {
+      return "{" + Object.keys(v).sort().filter(function (k) { return v[k] !== undefined; })
+        .map(function (k) { return JSON.stringify(k) + ":" + canonJson(v[k]); }).join(",") + "}";
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
   // Import never overwrites: each imported preset is ADDED, and one whose name is taken (by a
   // saved setup, or by one this same import already added: an exported list can hold two of
   // one name) gets a free one (freePresetName: "Stream (2)"). Upserting them lost setups: the
   // second "Stream" of an import replaced the first, and a saved one went without a question.
-  // Returns {presets (the new list), added, renamed: [{from, to}]}; neither input is changed.
+  // A preset that is already in the list exactly (same name, same blocks) is skipped and listed
+  // in `same`: Export leaves its JSON in the box beside Import, and pressing Import next added
+  // every setup again as "Name (2)", doubling the list in one click (polish review 3).
+  // Returns {presets (the new list), added, renamed: [{from, to}], same: [name]}; neither input
+  // is changed.
   function importPresets(presets, incoming) {
-    var out = (presets || []).slice(), renamed = [], i, p, name;
+    var out = (presets || []).slice(), renamed = [], same = [], i, p, name, key;
     for (i = 0; i < (incoming || []).length; i++) {
       p = incoming[i];
       if (!p || typeof p !== "object") continue;
+      key = canonJson(p.blocks);
+      if (out.some(function (q) { return q && q.name === p.name && canonJson(q.blocks) === key; })) { same.push(p.name); continue; }
       name = freePresetName(out, p.name);
       if (name !== p.name) renamed.push({ from: p.name, to: name });
       out.push({ v: p.v, name: name, savedAt: p.savedAt, blocks: p.blocks });
     }
-    return { presets: out, added: out.length - (presets || []).length, renamed: renamed };
+    return { presets: out, added: out.length - (presets || []).length, renamed: renamed, same: same };
   }
 
   // ── MIGRATION (1.0.0): SAVED STACKS FROM THE BUILDS BEFORE 1.0.0 ─────────
@@ -814,7 +842,7 @@
     function glyphBlock(url) {
       return { id: nextId++, type: "image", imgKind: "glyph", url: url, width: 70,
                rotate: 0, adjBright: 0, adjContrast: 0,
-               tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
+               tier: "cjk", cols: GLYPH_COLS_DEFAULT, dither: true, contrast: 128, invert: false };
     }
     function fromTakeover(tk) {
       var made = [], items = [], j, it, t, u;
@@ -900,7 +928,12 @@
   // What the one-time backup note says: what changed (including what the conversion could not
   // carry over: Giant type's emotes, and the old text's fonts and italics), and where the old
   // stack went, and that loading that backup converts it again (Export keeps it as it was).
-  function migrationNote(blocks, name, loaded) {
+  // `unsaved`: the backup could not be written (rw_presets_v1 holds something that can't be
+  // read, and writing the backup would replace it, or storage refused it). The note says so
+  // and points at the box under Presets, where the glue puts the old stack's JSON: the stack is
+  // already converted, and a note that named a backup that doesn't exist, or said nothing at
+  // all (as it did), left the old stack gone without a word (polish review 3).
+  function migrationNote(blocks, name, loaded, unsaved) {
     var list = Array.isArray(blocks) ? blocks : [], out = [];
     var styled = function (f) { return !!f && typeof f === "object" && (!!f.font || !!f.italic); };
     if (list.some(function (b) { return !!b && b.type === "takeover"; })) {
@@ -923,6 +956,8 @@
     }
     out.push(loaded
       ? "The preset \"" + name + "\" itself is unchanged: loading it converts it again, and Export JSON keeps it as it was."
+      : unsaved
+      ? "The stack as it was could not be saved as a preset, because your saved presets can't be read. Its JSON is in the box under Presets: copy it and keep it somewhere safe."
       : "The stack as it was is saved as the preset \"" + name + "\". Loading it converts it again; Export JSON keeps it as it was.");
     return out.join(" ");
   }
@@ -1635,10 +1670,15 @@
       : [];
   }
   // The message box, in words, for a "taller than the box" warning. limit = contentLimitPx().
+  // A length in px as words: one decimal of a cm, like the part's verdict beside it ("2.5 cm",
+  // where this said "3 cm"), or whole mm under a centimetre.
+  function lenWords(px) {
+    var mm = px * MM_PER_PX;
+    return mm < 10 ? Math.max(1, Math.round(mm)) + " mm" : (Math.round(mm) / 10).toFixed(1) + " cm";
+  }
   function boxWords(limit) {
     var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
-    // One decimal, like the part's verdict beside it ("2.5 cm", where this said "3 cm").
-    var mm = l.px * MM_PER_PX, cm = mm < 10 ? Math.max(1, Math.round(mm)) + " mm" : (Math.round(mm) / 10).toFixed(1) + " cm";
+    var cm = lenWords(l.px);
     if (l.by === "bits") return "this cheer’s part of the receipt (about " + cm + ", from the streamer’s bits-per-inch setting), where the bot fades it out";
     if (l.by === "cap") return "the streamer’s maximum length (about " + cm + "), where the bot fades it out";
     return "the bot’s message box (about " + cm + "), where it is cut off" + (l.fades ? " and faded" : " with no warning");
@@ -1646,10 +1686,21 @@
   // Whether a High Roller box leaves no room after the Cheer line (a small cheer under a high
   // bits-per-inch, or a tiny maximum length): no size fits, so "pick a smaller size" is wrong.
   function boxNoRoom(limit) { return !!limit && limit.px <= LEAD_LINE_PX + PX_EPS; }
-  function tallWords(what, limit) {
-    return boxNoRoom(limit)
-      ? "Nothing after the Cheer line prints: that line fills this cheer’s whole part of the receipt. See the note above the parts."
-      : what + " is taller than " + boxWords(limit) + ". Pick a smaller size.";
+  // `minPx` (optional): how tall the block's line (big text) or longest letter (sideways) is at
+  // the SMALLEST size. When even that is taller than the room after the Cheer line, no size
+  // prints whole, so "Pick a smaller size" was wrong advice, given even at 20px: only more room
+  // helps (polish review 3; the Glyph-art and Han tiling notes already said so).
+  function tallWords(what, limit, minPx) {
+    if (boxNoRoom(limit)) return "Nothing after the Cheer line prints: that line fills this cheer’s whole part of the receipt. See the note above the parts.";
+    var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
+    if (minPx > l.px - LEAD_LINE_PX + PX_EPS && l.by !== "ceiling") {
+      return "Even the smallest letters are too tall for what is left after the Cheer line ("
+        + (l.by === "cap" ? "the streamer’s maximum length is about " + lenWords(l.px)
+                          : "this cheer gets about " + lenWords(l.px) + " of receipt from the streamer’s bits-per-inch setting")
+        + "), so the bot cuts them off at any size. "
+        + (l.by === "cap" ? "Only a longer maximum length would let them print whole." : "Set Bits per cheer higher for more room.");
+    }
+    return what + " is taller than " + boxWords(limit) + ". Pick a smaller size.";
   }
   // What a block costs, for a card's summary line: "fits 1 cheer", or "needs 3 cheers (300
   // bits); ..." In a free test (Cheer-ready off) nothing is spent and nothing prints, so it
@@ -1657,10 +1708,11 @@
   // `noRoom`: the box leaves nothing after the Cheer line (boxNoRoom), so no count of cheers or
   // bits means anything: the parts say "Nothing worth sending" and their Copy is off, and a
   // card that priced the block (200 bits) beside them contradicted them.
-  function costWords(cheers, bits, free, cut, noRoom) {
+  // `tall`: a line or letter is taller than the box, so the bot cuts it: it doesn't "fit" either.
+  function costWords(cheers, bits, free, cut, noRoom, tall) {
     if (free) return (cheers === 1 ? "1 message" : cheers + " messages") + ", free: a test with Cheer-ready off never prints";
     if (noRoom) return "prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)";
-    if (cheers === 1) return cut ? "1 cheer, but too wide for the paper (see below)" : "fits 1 cheer";
+    if (cheers === 1) return tall ? "1 cheer, but cut off (see below)" : cut ? "1 cheer, but too wide for the paper (see below)" : "fits 1 cheer";
     return "needs " + cheers + " cheers (" + cheers * cheerBits(bits) + " bits); the bot prints its header between the pieces";
   }
   // Plain-language report for a big text block: the card's text. Pass one body or all of a
@@ -1677,8 +1729,8 @@
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
     var lo = bigCapCm(g.pxMin).toFixed(1), hi = g.capCm.toFixed(1);
     var size = g.layout === "each" && lo !== hi ? "Capitals ≈ " + lo + "–" + hi + " cm" : "Capitals ≈ " + hi + " cm";
-    var noRoom = !opts.free && boxNoRoom(opts.limit);
-    out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom));
+    var noRoom = !opts.free && boxNoRoom(opts.limit), tall = gs.some(function (x) { return x.tall; });
+    out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom, tall && !opts.free));
     if (!g.fits) {
       // At most two named, and how many more: a stack too big for the paper is cut off on
       // nearly every letter, and naming two alone read as if only those two were.
@@ -1705,8 +1757,9 @@
     if (gs.some(function (x) { return x.over; })) {
       out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
     }
-    if (gs.some(function (x) { return x.tall; }) && !noRoom) {
-      out.push(tallWords("One line", opts.limit));
+    if (tall && !noRoom) {
+      // One line at 20px: in Each a capitals line takes .8, so that is the least any line needs.
+      out.push(tallWords("One line", opts.limit, BIG_MIN_PX * parseFloat(g.layout === "each" ? BIG_LH_CAPS : g.lh)));
     }
     if ((g.splitWords || []).length && !gs.some(function (x) { return x.tall; })) {
       // A stacked word taller than one receipt at this size is spread over cheers, the bot's
@@ -1991,9 +2044,12 @@
   // buildSideBodies(text, opts) -> Body[] (opts as sidePlan), each with `joinPx` and a `side`
   // record for the card.
   function buildSideBodies(text, opts) {
-    var p = sidePlan(text, opts), k = p.pick;
+    var p = sidePlan(text, opts), k = p.pick, widestEm = 0;
+    // The longest letter down the tape, in em, for the report's "even the smallest letters".
+    p.lines.forEach(function (l) { bigGraphemes(l).forEach(function (c) { widestEm = Math.max(widestEm, bigGlyphEm(c)); }); });
     function info(ci, n, r, words) {
       return { dir: p.dir, size: p.size, px: k ? k.px : 0, shift: k ? k.shift : 0, lh: p.lh, columns: p.lines.length, maxPx: p.maxPx,
+               widestEm: widestEm,
                capCm: k ? bigCapCm(k.px) : 0,
                lengthCm: k ? k.chunks.reduce(function (t, x) { return t + x.heightPx; }, 0) * MM_PER_PX / 10 : 0,
                chunkIndex: ci, chunkCount: n, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
@@ -2018,9 +2074,9 @@
     var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
     if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it running down the tape.";
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
-    var noRoom = !opts.free && boxNoRoom(opts.limit);
+    var noRoom = !opts.free && boxNoRoom(opts.limit), tall = gs.some(function (x) { return x.tall; });
     out.push("Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
-      + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom));
+      + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom, tall && !opts.free));
     if (!g.fits) {
       // A block wider than the paper can't be centred: it sits against the left edge and the
       // right edge cuts it. Top to bottom puts line 1 on the right, so the FIRST lines go;
@@ -2041,7 +2097,10 @@
       out.push("Press Enter between words to make more columns: each line becomes its own column, and fewer words per line print bigger.");
     }
     if (gs.some(function (x) { return x.over; })) out.push("One piece is too long for a single Twitch message, so that cheer would be rejected. Use fewer lines.");
-    if (gs.some(function (x) { return x.tall; }) && !noRoom) out.push(tallWords("One letter", opts.limit));
+    if (tall && !noRoom) {
+      // The longest letter at 20px, down the tape (sideSegLen's rule: S x em + 0.5 a glyph).
+      out.push(tallWords("One letter", opts.limit, SIDE_MIN_PX * (g.widestEm || 0) + 0.5));
+    }
     if (g.dir === "up" && cheers > 1) out.push("Read bottom to top, so the pieces go out last first: the tape reads in order once you turn it.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
     out = out.concat(drop);
@@ -2082,6 +2141,9 @@
   // Braille is not here because its aspect follows its font size: see glyphAspect.
   var GLYPH_ASPECT = { cjk: 1, mono: 0.5, plain: 16 / 21.6 };
   var CJK_COLS_MIN = 12, CJK_COLS_MAX = 30, GLYPH_COLS_MIN = 8, GLYPH_COLS_MAX = 48;
+  // A new Glyph-art block's Detail (newBlock, a takeover's picture in migrateBlocks, the card's
+  // ↺ and an emptied field): 18 Han columns make a square picture one cheer (see newBlock).
+  var GLYPH_COLS_DEFAULT = 18;
   var BRAILLE_ADV = 0.733, BRAILLE_MIN_PX = 6, BRAILLE_MAX_PX = 12;
   // The columns a form can take on this paper: R1 12..30; the others 8..48, and Braille no
   // more than fit the paper at its smallest font.
@@ -2727,7 +2789,10 @@
     };
 
     // --- state (assigned only inside init()/handlers, never at load time) --
-    var els, partNonces, lastParts, currentKind, sessionNonceCounter;
+    // lastParts: what #parts shows (the stack's parts, or a probe's). stackParts: the stack's
+    // own last parts, which the cards' notes read, so a probe shown in #parts never rewrites
+    // them (they went blank: no body of the probe is any block's).
+    var els, partNonces, lastParts, stackParts, currentKind, sessionNonceCounter;
     var STORAGE_KEY = "rw_controls_v1";
     var NONCE_KEY = "rw_nonce_seq";
 
@@ -2906,9 +2971,10 @@
       });
     }
     // What a stack is built and packed with (stackContext's options): the settings, the
-    // repeat number as `noNonce`, and any `extra` (a probe's bits and mode).
+    // repeat number as `noNonce` (getNonce: only while its checkbox is enabled), and any
+    // `extra` (a probe's bits and mode).
     function stackOpts(extra) {
-      var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
+      var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !getNonce(), hrThreshold: s.hrThreshold,
         bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm }, k;
       for (k in (extra || {})) o[k] = extra[k];
       return o;
@@ -2920,8 +2986,12 @@
     // Absent control or unchecked = off, and off is the default: the digits print on the
     // receipt, and all they do is make repeat copies differ (Twitch won't send the same
     // message twice in a row within 30 seconds), which a cheer rarely needs.
+    // On only while Cheer-ready is too: without it the checkbox is shown disabled ("Needs
+    // Cheer-ready", syncNonceUi), and the tests, which cheer anyway, still put the digits in
+    // their payloads while the page showed the option as off (polish review 3). The checked
+    // state itself is kept (getSettings saves it), so Cheer-ready back on brings it back.
     function getNonce() {
-      return !!(els && els.cheerNonce && els.cheerNonce.checked);
+      return !!(els && els.cheerNonce && els.cheerNonce.checked && els.cheer && els.cheer.checked);
     }
     // The repeat-number checkbox's state and hint: disabled (not unchecked) without
     // Cheer-ready, since a message with no cheer has no token to put the digits after, and
@@ -2935,7 +3005,7 @@
         + "Puts two rotating digits after the cheer (\"Cheer" + getBits() + " 07\"). Twitch won't send "
         + "the same message twice in a row within 30 seconds (it just isn't sent, and no bits are "
         + "spent), and the digits make each copy different. They also print on the receipt, "
-        + "which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.";
+        + "which is why it is off by default. Without it, wait 30 seconds before sending the same thing again.";
     }
     // The Bits hint says what this amount gets from the streamer's bot.
     function syncModeUi() {
@@ -3361,7 +3431,10 @@
     // `notice`: a string, or {text, back} for a probe's view, which carries the button back to
     // the stack (the block cards still describe the stack while a probe is shown, and nothing
     // else on the page leads back to it).
-    function renderParts(items, notice) {
+    // `alert`: lines for the red notice under it, one per Glyph-art picture the parts leave out
+    // (pictureAlert); rewritten only when the words change, so a screen reader isn't told the
+    // same thing again on every keystroke.
+    function renderParts(items, notice, alert) {
       var container = els.parts;
       var mn = document.getElementById("modeNote");
       var nt = notice && typeof notice === "object" ? notice : { text: notice || "" };
@@ -3375,7 +3448,19 @@
           mn.appendChild(back);
         }
         if (container.firstChild !== mn) container.insertBefore(mn, container.firstChild);
-      } else if (mn) mn.parentNode.removeChild(mn);
+      } else if (mn) { mn.parentNode.removeChild(mn); mn = null; }
+      var pn = document.getElementById("pictureNote");
+      if (alert && alert.length) {
+        var words = alert.join("\n");
+        if (!pn) pn = mkEl("div", { "class": "mode-note picture-note", id: "pictureNote", role: "status" });
+        if (pn.getAttribute("data-words") !== words) {
+          pn.textContent = "";
+          alert.forEach(function (t) { pn.appendChild(mkEl("div", null, t)); });
+          pn.setAttribute("data-words", words);
+        }
+        var at = mn ? mn.nextSibling : container.firstChild;
+        if (at !== pn) container.insertBefore(pn, at);
+      } else if (pn) pn.parentNode.removeChild(pn);
       var total = document.getElementById("partsTotal");
       if (total) total.parentNode.removeChild(total);
       while (partCards.length > items.length) {
@@ -3394,6 +3479,20 @@
       // No room after the Cheer line: nothing is worth sending, so no total, and what to change.
       if (copyable.length && copyable[0].noRoom) {
         container.appendChild(mkEl("p", { "class": "parts-note no-room", id: "partsTotal" }, noRoomAdvice(getSettings())));
+        return;
+      }
+      // A part over 500 characters is rejected by Twitch (its card says so in red), so the total
+      // doesn't tell anyone to send it, or count it as a paid cheer (polish review 3).
+      var tooLong = [];
+      items.forEach(function (it, k) { if (it.copyable && it.chars > MAX_CHARS) tooLong.push(k + 1); });
+      if (tooLong.length) {
+        var nums = tooLong.length === 1 ? String(tooLong[0])
+          : tooLong.slice(0, -1).join(", ") + " and " + tooLong[tooLong.length - 1];
+        var it1 = tooLong.length === 1 ? "it" : "them";
+        container.appendChild(mkEl("p", { "class": "parts-note too-long", id: "partsTotal" }, n === 1
+          ? "This message is too long for Twitch to send (500 characters at most), so Twitch would reject it. Fix it before pasting it."
+          : (tooLong.length === 1 ? "Part " + nums + " is" : "Parts " + nums + " are") + " too long for Twitch to send "
+            + "(500 characters at most), so Twitch would reject " + it1 + ". Fix " + it1 + " before pasting the parts."));
         return;
       }
       // One part says what it costs too (the hints point here for the cost); a test part's own
@@ -3543,7 +3642,7 @@
       // with the bot's header between them (polish review 2).
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "glyph", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0,
-        tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
+        tier: "cjk", cols: GLYPH_COLS_DEFAULT, dither: true, contrast: 128, invert: false };
       // Big text, Auto layout (the biggest of lines as typed, the words wrapped to the paper and
       // one letter a line), at the biggest size that fits ONE cheer.
       return { id: blockIdSeq++, type: "text", render: "big", bigLayout: "auto", bigSize: "fit1", text: "" };
@@ -3625,9 +3724,16 @@
       if (!r) return;
       removedBlock = null;
       // Ids only ever count up (newBlock, applyPreset), so the kept block's id is still its own.
-      blocks.splice(Math.min(r.index, blocks.length), 0, r.block);
+      var at = Math.min(r.index, blocks.length);
+      blocks.splice(at, 0, r.block);
       saveBlocks(); renderComposer(); update();
+      // The Undo button is gone with the redraw: the focus goes to the restored card's first
+      // control, not to the page body (a keyboard or screen-reader user lost their place).
+      var c = blockCard(at), ctl = c && c.querySelector("select, textarea, input");
+      if (ctl) ctl.focus();
     }
+    // The card of the block at `i` (the Undo note sits among the cards, so not children[i]).
+    function blockCard(i) { return document.querySelectorAll("#blockList > .block-card")[i] || null; }
     // "Removed a Text block (HAPPY BIRTHDAY TO…)": what the note says was removed.
     function removedWords(b) {
       if (b.type !== "image") {
@@ -3651,6 +3757,15 @@
       removedBlock = null;
       var t = blocks[i]; blocks[i] = blocks[j]; blocks[j] = t;
       saveBlocks(); renderComposer(); update();
+      // The redraw replaced every card, and the focus fell to the page body: it goes back to
+      // the same button on the moved card, or to its other one when the move reached an end
+      // and that button is now disabled, so ↓ can be pressed again and again.
+      var c = blockCard(j);
+      if (!c) return;
+      var same = c.querySelector(dir < 0 ? "[aria-label='Move block up']" : "[aria-label='Move block down']");
+      var other = c.querySelector(dir < 0 ? "[aria-label='Move block down']" : "[aria-label='Move block up']");
+      var b = same && !same.disabled ? same : other && !other.disabled ? other : null;
+      if (b) b.focus();
     }
     // Card builders. Value inputs mutate the block in place + save + update() but do NOT
     // re-render the composer (that would drop focus mid-type); add/remove/move save AND re-render.
@@ -3794,7 +3909,11 @@
       // text never uppercases it), and "correcting" shouted text is never wanted.
       var ta = mkEl("textarea", { rows: "2", autocapitalize: "off", autocorrect: "off", spellcheck: "false" });
       ta.value = block.text || "";
-      ta.addEventListener("input", function () { block.text = ta.value; saveBlocks(); update(); });
+      // As many rows as typed lines, 2 to 8: Lines and Sideways ask for Enter between words, and
+      // a three-line text in a two-row box hid a line that prints (polish review 3).
+      var fitRows = function () { ta.rows = Math.max(2, Math.min(8, String(ta.value).split("\n").length)); };
+      fitRows();
+      ta.addEventListener("input", function () { block.text = ta.value; fitRows(); saveBlocks(); update(); });
       card.appendChild(ta);
       // Render: every branch goes through blockRender, the SAME decision renderBlockBodies
       // makes, so the select can never show one render while the payload is another.
@@ -4066,7 +4185,7 @@
       render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
       applyRender();
       costSyncs.push(syncText);
-      syncText(lastParts);
+      syncText(stackParts);
       labelControls(card);
       return card;
     }
@@ -4196,6 +4315,12 @@
       card.appendChild(mkEl("label", null, "… or pick a file"));
       var file = mkEl("input", { type: "file", accept: "image/*" });
       card.appendChild(file);
+      // Which picked file the block is using: the input itself is emptied once its file is
+      // taken (below), so it said "No file chosen" beside a picture that prints, and the link
+      // field is empty then too. Written by syncGlyph (polish review 3).
+      var fileUse = mkEl("div", { "class": "hint file-use" });
+      fileUse.hidden = true;
+      card.appendChild(fileUse);
       // What happens to a picked file depends on the kind: glyph-art reads it on this device
       // and never uploads it, so it lives only in memory (a reload or a preset keeps only a
       // link); a Real picture uploads it to our Worker for a link that lasts 15 minutes.
@@ -4257,7 +4382,7 @@
       costSyncs.push(syncThumb);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
         "Brightness and contrast change only the picture on this card (an adjusted copy is uploaded to show it): "
-        + "a Real picture prints nothing either way. Glyph-art has its own Contrast."));
+        + "a Real picture prints nothing either way. Glyph-art has its own Darkness setting."));
       // Brightness / contrast are baked into the pixels (debounced) and re-uploaded.
       // block.outUrl is cleared while adjusting; the picture above shows a CSS-filter
       // approximation until the baked version lands.
@@ -4293,8 +4418,8 @@
       };
       var tierHint = moreHint();
       glyphWrap.appendChild(tierHint.el);
-      var gcols = mkEl("input", { type: "number", step: "1", "class": "num-cols" }); gcols.value = block.cols || 18;
-      var gcolsRow = sliderRow("Detail (columns)", gcols, 18, "");
+      var gcols = mkEl("input", { type: "number", step: "1", "class": "num-cols" }); gcols.value = block.cols || GLYPH_COLS_DEFAULT;
+      var gcolsRow = sliderRow("Detail (columns)", gcols, GLYPH_COLS_DEFAULT, "");
       glyphWrap.appendChild(gcolsRow);
       // The field shows the columns the grid really uses (glyphCols: 12 to 30 for Han characters,
       // 8 to 48 otherwise, fewer for Braille on 58 mm), never a raw value the grid clamps: a block
@@ -4336,6 +4461,12 @@
         fileHint.textContent = block.imgKind === "glyph"
           ? "A picked file is read on this device and never uploaded, so it isn't kept after a reload or saved in a preset: pick it again then. A link is kept."
           : "A picked file is uploaded to this site's server for a link that lasts 15 minutes.";
+        var picked = !block.url && block.fileName ? "“" + block.fileName + "”" : "";
+        fileUse.textContent = !picked ? ""
+          : block.imgKind !== "glyph"
+          ? picked + " was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it."
+          : block._img ? "Using " + picked + ", read on this device (not uploaded)." : "";
+        fileUse.hidden = !fileUse.textContent;
         if (block.imgKind !== "glyph") return;
         showCols();
         var so = stackOpts(), ctx = stackContext(so), t = hrThresholdOf(so.hrThreshold), where = blockParts(block, parts), lines = [];
@@ -4360,7 +4491,7 @@
         if (ctx.mode === "plain") {
           lines.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so the picture prints"
                             : "The streamer's High Roller is off (threshold 0), so every picture prints")
-            + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever the characters above say.");
+            + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above.");
         } else if (ctx.cheer && boxNoRoom(ctx.limit)) {
           lines.push(tallWords("", ctx.limit));
         } else if (gs.some(function (b) { return b.tall; })) {
@@ -4425,15 +4556,25 @@
         kind.dispatchEvent(new Event("change"));
       });
       tier.addEventListener("change", function () { block.tier = tier.value; syncTier(); saveBlocks(); update(); });
-      gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 20; saveBlocks(); update(); });
-      gcols.addEventListener("change", function () { block.cols = effCols(); showCols(true); saveBlocks(); update(); });
+      // An emptied field is being retyped: the columns stay as they are until a number arrives
+      // (it jumped to 20 at once, two cheers for a square picture). Left empty, it takes the
+      // default, as ↺ does.
+      gcols.addEventListener("input", function () {
+        var v = parseInt(gcols.value, 10);
+        if (!isFinite(v)) return;
+        block.cols = v; saveBlocks(); update();
+      });
+      gcols.addEventListener("change", function () {
+        if (!isFinite(parseInt(gcols.value, 10))) block.cols = GLYPH_COLS_DEFAULT;
+        block.cols = effCols(); showCols(true); saveBlocks(); update();
+      });
       contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10) + 128; saveBlocks(); update(); });
       dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
       applyKind();
       syncTier();
       syncThumb();
-      syncGlyph(lastParts);
+      syncGlyph(stackParts);
       labelControls(card);
       return card;
     }
@@ -4470,14 +4611,7 @@
     // can replace it without asking. Compared the way Load would leave it: the preset migrated,
     // ids aside (Load gives fresh ones), and the Real picture's derived upload (outUrl, aspect)
     // aside; keys sorted, so the order fields were written in doesn't matter.
-    function canonJson(v) {
-      if (Array.isArray(v)) return "[" + v.map(canonJson).join(",") + "]";
-      if (v && typeof v === "object") {
-        return "{" + Object.keys(v).sort().filter(function (k) { return v[k] !== undefined; })
-          .map(function (k) { return JSON.stringify(k) + ":" + canonJson(v[k]); }).join(",") + "}";
-      }
-      return JSON.stringify(v === undefined ? null : v);
-    }
+    // (canonJson is in the pure core, beside importPresets.)
     function stackKey(bs) {
       return canonJson(cleanBlocks(bs).map(function (b) {
         var o = {}, k;
@@ -4501,8 +4635,9 @@
         return parsed.ok ? parsed.presets : [];
       } catch (e) { return []; }
     }
+    // Whether the list reached storage (a full or blocked storage refuses it).
     function persistPresets() {
-      try { localStorage.setItem(PRESETS_KEY, serializePresets(presets)); } catch (e) {}
+      try { localStorage.setItem(PRESETS_KEY, serializePresets(presets)); return true; } catch (e) { return false; }
     }
     // Whether rw_presets_v1 holds something loadPresets could not read. The migration
     // backup is not written over it: persisting would replace that data with one preset.
@@ -4651,12 +4786,23 @@
       if (!els.presetList) return;
       presets = loadPresets();
       // The migration backup, merged into the list just loaded (never written before it,
-      // and never over a preset of the user's: a taken name gets a number).
-      if (pendingBackup && !presetsUnreadable()) {
-        pendingBackup.name = freePresetName(presets, pendingBackup.name);
-        presets = upsertPreset(presets, pendingBackup);
-        persistPresets();
-        migrationBanner(migrationNote(pendingBackup.blocks, pendingBackup.name));
+      // and never over a preset of the user's: a taken name gets a number). Never over an
+      // unreadable rw_presets_v1 either (writing would replace it with this one preset): then,
+      // or when storage refuses the write, the stack as it was goes into the JSON box, ready to
+      // copy, and the banner says so. seedBlocks has already saved the converted stack.
+      if (pendingBackup) {
+        var kept = false;
+        if (!presetsUnreadable()) {
+          pendingBackup.name = freePresetName(presets, pendingBackup.name);
+          presets = upsertPreset(presets, pendingBackup);
+          kept = persistPresets();
+          if (!kept) presets = loadPresets();
+        }
+        if (!kept) {
+          els.presetJson.value = serializePresets([pendingBackup]);
+          els.presetJson.className = "show";
+        }
+        migrationBanner(migrationNote(pendingBackup.blocks, pendingBackup.name, false, !kept));
       }
       pendingBackup = null;
       renderPresetList();
@@ -4781,15 +4927,21 @@
         var res = parsePresets(els.presetJson.value);
         if (!res.ok) { presetNote(res.error, true); return; }
         // Added, never replacing anything: a taken name gets a number (importPresets).
-        var im = importPresets(presets, res.presets), rn = im.renamed;
+        var im = importPresets(presets, res.presets), rn = im.renamed, sm = im.same;
         presets = im.presets;
-        persistPresets(); renderPresetList(presets.length - 1);
+        if (im.added) { persistPresets(); renderPresetList(presets.length - 1); }
         var q = function (x) { return "\"" + x + "\""; };
-        var listed = rn.slice(0, 3).map(function (r) { return q(r.to); });
-        var names = listed.length < 2 ? listed.join("") : listed.slice(0, -1).join(", ") + (rn.length > 3 ? ", " : " and ") + listed[listed.length - 1] + (rn.length > 3 ? " and more" : "");
-        presetNote("Imported " + im.added + (im.added === 1 ? " setup" : " setups") + "."
+        var nameList = function (all) {
+          var listed = all.slice(0, 3).map(q);
+          return listed.length < 2 ? listed.join("") : listed.slice(0, -1).join(", ") + (all.length > 3 ? ", " : " and ") + listed[listed.length - 1] + (all.length > 3 ? " and more" : "");
+        };
+        var left = im.added ? ", so it was left out." : ".", leftN = im.added ? ", so they were left out: " : ": ";
+        presetNote((im.added ? "Imported " + im.added + (im.added === 1 ? " setup" : " setups") + "." : "Nothing imported.")
           + (rn.length === 1 ? " " + q(rn[0].from) + " was already taken, so it was added as " + q(rn[0].to) + "."
-             : rn.length ? " " + rn.length + " had names already in use, so they were added with a number after the name: " + names + "."
+             : rn.length ? " " + rn.length + " had names already in use, so they were added with a number after the name: " + nameList(rn.map(function (r) { return r.to; })) + "."
+             : "")
+          + (sm.length === 1 ? " " + q(sm[0]) + " is already saved exactly as it is" + left
+             : sm.length ? " " + sm.length + " are already saved exactly as they are" + leftN + nameList(sm) + "."
              : ""));
       });
     }
@@ -4801,6 +4953,41 @@
     function partWarned(p, ctx) {
       return p.contentPx > ctx.limit.px + 1 || p.bodies.some(function (b) {
         return !!b.tall || !!(b.big && !b.big.fits) || !!(b.side && !b.side.fits);
+      });
+    }
+    // Glyph-art blocks that have a picture source (a link, or a picked file's name) but are NOT
+    // in the parts: still being read, a link or file that can't be read, an uploaded link that
+    // has expired, or a picked file a reload or a preset didn't keep. Such a block sends nothing,
+    // and as long as another block prints, the parts looked complete: one live Copy and "One
+    // 100-bit cheer. Paste it into chat and send it.", with the only word about it in grey on
+    // the Image card, often far from Copy (polish review 3). `why`: loading | link | file |
+    // expired | repick. Read after packStack, which starts the reads.
+    function missingPictures() {
+      var out = [];
+      blocks.forEach(function (b, i) {
+        if (b.type !== "image" || b.imgKind !== "glyph" || b._img) return;
+        var link = !!(b.url && String(b.url).trim());
+        if (!link && !b.fileName) return;
+        var why = b._decoding ? "loading"
+          : b._expired ? "expired"
+          : b._decodeFailed ? (/^file:/.test(b._decodeFailed) ? "file" : "link")
+          : link ? "loading" : "repick";
+        out.push({ at: i + 1, name: b.fileName || "", why: why });
+      });
+      return out;
+    }
+    // The red notice at the top of the parts, one line per missing picture.
+    function pictureAlert(missing) {
+      return missing.map(function (m) {
+        var who = "The picture in block " + m.at + " from the top" + (m.name && m.why !== "link" ? " (" + m.name + ")" : "");
+        return m.why === "loading"
+          ? who + " is still loading, so these parts don't have it yet. Copy comes back once it has loaded."
+          : who + " isn't in these parts: " + ({
+              link: "its link can't be read. Check the link, or pick the file instead.",
+              file: "that file couldn't be read as a picture. Pick another file.",
+              expired: "its uploaded link has expired (uploads last 15 minutes). Pick the file again or paste another link.",
+              repick: "a picked file isn't kept after a reload or in a preset. Pick it again on its card."
+            })[m.why];
       });
     }
     function composeParts() {
@@ -4821,6 +5008,10 @@
       // The streamer's length settings leave a High Roller cheer no room after its Cheer line:
       // every part prints that line and nothing else, so none is worth its bits (noRoom).
       var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
+      // A picture still loading will change the parts when it lands (it goes into one of them,
+      // and may move the rest), so nothing is copyable until it has: a part copied now would be
+      // a different message from the one the preview settles on.
+      var loading = missingPictures().some(function (m) { return m.why === "loading"; });
       return parts.map(function (p, i) {
         var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
                      alone: !!p.alone, mode: ctx.mode, cheer: ctx.cheer, bits: ctx.bits, paperMm: ctx.paperMm,
@@ -4833,6 +5024,7 @@
           item.payload = "Nothing to print in this part yet: a picture is still loading, or its link can't be read.";
           return item;
         }
+        if (loading) item.copyable = false;
         // Without the repeat number nothing makes two parts differ, so a stack that repeats
         // itself (the same block twice, say) can produce the SAME message twice in a row,
         // and Twitch won't send the same message twice in a row within 30 seconds. Nothing
@@ -4859,7 +5051,7 @@
       var pr = kind === "hrprobe"
         ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm,
                                  bitsPerInch: s.bitsPerInch, maxInches: s.maxInches })
-        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !s.nonce });
+        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !getNonce() });
       var so = stackOpts({ cheer: true, bits: pr.bits, mode: pr.mode, nonceFn: nonceForPart }), ctx = stackContext(so), po = {}, k;
       for (k in ctx) po[k] = ctx[k];
       po.nonceFn = nonceForPart;
@@ -4886,11 +5078,15 @@
       // with Cheer-ready off the notice says the setting doesn't apply: a user who turned it off
       // to spend nothing otherwise copied "Cheer25 …" without a word (polish review 2).
       var st = getSettings();
-      renderParts(lastParts, currentKind === "compose" ? modeNotice(st)
+      // A stack with nothing printable already says what to do in its one placeholder.
+      var compose = currentKind === "compose";
+      renderParts(lastParts, compose ? modeNotice(st)
         : { text: "This is the " + (currentKind === "hrprobe" ? "High Roller test" : "Plain test")
             + ", not your stack. Your blocks are unchanged."
-            + (st.cheer ? "" : " It is a real cheer even with Cheer-ready off: a test has to print to show anything."), back: true });
-      for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
+            + (st.cheer ? "" : " It is a real cheer even with Cheer-ready off: a test has to print to show anything."), back: true },
+        compose && blocks.some(blockHasContent) ? pictureAlert(missingPictures()) : []);
+      if (compose) stackParts = lastParts;
+      for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](stackParts);
     }
     function update() {
       currentKind = "compose";
@@ -4939,6 +5135,7 @@
     function init() {
       partNonces = [];
       lastParts = [];
+      stackParts = [];
       sessionNonceCounter = 0;
       currentKind = "compose";
       els = {

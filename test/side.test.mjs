@@ -257,3 +257,50 @@ test("the ink is centred, not the line box: lowercase and mixed text move toward
   assert.equal(fit("ΑΒΓ").shift, 0);
 });
 
+
+test("polish 4: ink past the end of the run gets room: padding-bottom for an f or r at the bottom (top to bottom) or a j (bottom to top)", () => {
+  // The div is exactly as long as its advances and the bot's box ends with it, so an f's arm at
+  // the end of a top-to-bottom column ("stuff" at 193px: 6.2px) and a j's hook at the start of a
+  // bottom-to-top one ("just": 9.4px, 2.5 mm) were cut off (bench, with Arial Bold). The body now
+  // carries that ink as padding-bottom, rounded up with half a px for the anti-aliased edge, and
+  // its height counts it.
+  assert.equal(C.sidePad(193, [0.031]), 7);
+  assert.equal(C.sidePad(193, [0, 0.047, 0.013]), 10, "the largest column's");
+  assert.equal(C.sidePad(193, [0, 0]), 0);
+  const just = build("just", { dir: "up" });
+  assert.equal(just.length, 1);
+  assert.equal(just[0].side.px, 193);
+  assert.match(just[0].html, /;margin:auto;padding-bottom:10px;position:relative;left:-?\d+px">just<\/div>$/);
+  const stuff = build("stuff", {});
+  assert.match(stuff[0].html, /;margin:auto;padding-bottom:7px;position:relative;left:-?\d+px">stuff<\/div>$/);
+  // Its height is the run plus the padding (sideSegLen's rule: S x em + 0.5 a glyph).
+  const run = 193 * C.bigLineEm("stuff") + 0.5 * 5;
+  assert.ok(Math.abs(stuff[0].heightPx - (run + 7)) < 1e-6, stuff[0].heightPx + " vs " + (run + 7));
+  // Only the end at the BOTTOM counts: top to bottom a j's hook reaches up into the Cheer line,
+  // which is not cut, and bottom to top so does an f's arm.
+  assert.ok(!/padding/.test(build("jog", {})[0].html), "a j at the top of a top-to-bottom column");
+  assert.ok(/padding-bottom:10px/.test(build("jog", { dir: "up" })[0].html), "and at the bottom of a bottom-to-top one");
+  assert.ok(!/padding/.test(build("of", { dir: "up" })[0].html), "an f at the top of a bottom-to-top column");
+  assert.ok(/padding-bottom:7px/.test(build("of", {})[0].html), "and at the bottom of a top-to-bottom one");
+  // Text whose ends stay inside the run is byte-identical to before: no padding.
+  for (const t of ["HELLO", "HAPPY\nBIRTHDAY", "HI, BOB", "happy\nbirthday"]) {
+    for (const dir of ["down", "up"]) assert.ok(!/padding/.test(build(t, { dir }).map((b) => b.html).join("")), t + " " + dir);
+  }
+  // A long run cut into several bodies: each body pads only for its own columns' ends, and the
+  // whole run still fits the box and the 500 characters.
+  const k = ctx(), long = build("stuff and more stuff for you all of it", { size: 120 }, k);
+  assert.ok(long.length >= 2);
+  for (const p of C.packStackBodies(long, k)) {
+    assert.ok(p.chars <= C.MAX_CHARS);
+    assert.ok(p.contentPx <= k.limit.px + 1e-6, p.contentPx);
+  }
+  assert.match(long.map((b) => b.html).join(""), /padding-bottom:\d+px/);
+  // A word too long for one body is cut between letters; a cut that lands after an r or an f
+  // pads too, and the room it needs was kept back.
+  const k2 = ctx({ bitsPerInch: 50 }), cut = build("ffffffffffffffffffffffff", { size: 60 }, k2);
+  assert.ok(cut.length >= 2, "fixture: the word is cut");
+  for (const b of cut) {
+    assert.match(b.html, /padding-bottom:3px/);
+    assert.ok(b.heightPx <= k2.room + 1e-6, b.heightPx + " vs " + k2.room);
+  }
+});

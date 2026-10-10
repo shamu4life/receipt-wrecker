@@ -85,7 +85,9 @@ const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxI
 // `init`: one more init script, run after the clipboard stub (a test that needs the clipboard
 // to refuse, say). `eager: true` sets the app's test hook that draws every part's preview, near
 // the viewport or not (the app draws them lazily, one at a time, as they come near).
-async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core, init, eager } = {}) {
+// `routes(ctx)`: set up request routes before the first load (a test's stand-in for /px or an
+// upload host), so no request the page makes on load can reach the real network first.
+async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core, init, eager, routes } = {}) {
   const ctx = await browser.newContext(viewport ? { viewport } : {});
   await ctx.addInitScript(installClipboardStub);
   if (init) await ctx.addInitScript(init);
@@ -97,6 +99,7 @@ async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core,
       try { if (!localStorage.getItem(k)) localStorage.setItem(k, json); } catch (e) {}
     }, [key, JSON.stringify(value)]);
   }
+  if (routes) await routes(ctx);
   const page = await ctx.newPage();
   const errors = [], requests = [];
   page.on("pageerror", (e) => errors.push(String(e)));
@@ -540,6 +543,11 @@ const EVERY_MODE = () => [
   BIG({ id: 23, text: "WE ARE SO BACK", bigLayout: "wrap", bigSize: "fit1", bigFlip: true }),
   { id: 6, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "HELLO\nWORLD" },
   { id: 7, type: "text", render: "sideways", sideDir: "up", sideSize: 64, text: "Rise, up" },
+  // Polish 4: ink past the advances at the box's edge. A j's hook and an f's arm, big text sized
+  // to the width, and sideways columns whose bottom end carries padding-bottom for that ink.
+  BIG({ id: 24, text: "jeff", bigLayout: "lines", bigSize: "fit1" }),
+  { id: 25, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "stuff" },
+  { id: 26, type: "text", render: "sideways", sideDir: "up", sideSize: "fit1", text: "just" },
   { id: 8, type: "text", render: "hanzi", text: "HI", hanziWeight: 400 },
   ...["cjk", "ascii", "safe", "braille"].map((tier, i) => ({ id: 9 + i, type: "image", imgKind: "glyph", url: "PIC",
     width: 70, rotate: 0, adjBright: 0, adjContrast: 0, tier, cols: tier === "cjk" ? 14 : 20, dither: true, contrast: 128, invert: false })),
@@ -1564,9 +1572,9 @@ test("polish: a probe scrolls into view and takes focus; Back to my stack does t
 });
 
 test("polish: a box with no room after the Cheer line: every part says so, Copy is off, and the total gives the advice", async () => {
-  for (const [s, advice] of [
-    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its Cheer line\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/],
-    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its Cheer line, whatever the bits\./],
+  for (const [s, advice, fix] of [
+    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its Cheer line\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
+    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its Cheer line, whatever the bits\./, ["Go to Maximum length", "maxInches"]],
   ]) {
     const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "text", render: "hanzi", text: "HI" }], controls: s });
     await page.waitForFunction(() => document.querySelectorAll("#parts .part").length >= 2);
@@ -1576,10 +1584,19 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
       assert.equal(await part.locator(".copy-btn").isDisabled(), true, "part " + (i + 1) + " can still be copied");
       assert.match(await part.locator(".over-note").first().textContent(), /^Prints (nothing but the Cheer line|only its light first row)/);
     }
-    const total = await page.textContent("#partsTotal");
+    const total = await page.locator("#partsTotal").evaluate((e) => e.firstChild.textContent);
     assert.match(total, advice);
     assert.ok(!/bits total/.test(total), total);
     assert.match(await page.textContent("#modeNote"), /nothing after it prints/);
+    // Polish 4: both notes carry a button to the field that fixes it (on a phone it is pages
+    // below the parts), and it takes the focus there.
+    for (const where of ["#partsTotal", "#modeNote"]) {
+      const b = page.locator(where + " .fix-btn");
+      assert.equal(await b.textContent(), fix[0], where);
+      await page.evaluate(() => document.body.focus());
+      await b.click();
+      assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), fix[1], where);
+    }
     // The card agrees with the parts: no price for something that can't be sent (polish 2).
     const sum = await cards(page).first().locator(".text-note .note-sum").textContent();
     assert.match(sum, /· prints nothing: the Cheer line fills this cheer’s whole part of the receipt/);
@@ -2085,4 +2102,155 @@ test("polish 3: a pre-1.0.0 stack converted while the saved presets can't be rea
   assert.deepEqual(JSON.parse(JSON.stringify(kept.presets[0].blocks)), old, "the JSON is not the stack as it was");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+test("polish 4: a Glyph-art read still in flight never lands once the block's link has changed", async () => {
+  const IMG = (o) => ({ type: "image", imgKind: "glyph", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                        tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, ...o });
+  const pic = Buffer.from(PIC.split(",")[1], "base64");
+  // The link is cleared while it is being read. The read used to land anyway: Copy sent the
+  // picture the field no longer named, and a reload (url "") then dropped it.
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG({ id: 2 })] });
+  await settled(page);
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await ctx.route("**/px?u=*", async (route) => {
+    if (/slow/.test(route.request().url())) await held;
+    await route.fulfill(/dead/.test(route.request().url()) ? { status: 404, body: "" }
+      : { status: 200, contentType: "image/png", body: pic });
+  });
+  const url = cards(page).nth(1).locator("input[type=url]");
+  await url.fill("https://example.com/slow.png");
+  await page.waitForFunction(() => /still loading/.test((document.getElementById("pictureNote") || {}).textContent || ""), null, { timeout: 5000 });
+  await url.fill("");
+  release();
+  await page.waitForTimeout(600);
+  await settled(page);
+  assert.equal(await page.locator("#parts .part").count(), 1);
+  const sent = await copyPayload(page, 0);
+  assert.ok(!/line-height:1>/.test(sent), "the cleared link's picture printed: " + sent.slice(0, 120));
+  assert.equal(sent, expectNode([BIG({ id: 1, text: "HI" })])[0]);
+  assert.equal(await page.locator("#pictureNote").count(), 0);
+  await ctx.close();
+
+  // The same on a Real picture card: a read started as Glyph-art, the kind switched to Real
+  // picture (which keeps the read: same link), then a new link typed there. Back on Glyph-art
+  // the block must read the NEW link (here one that can't be read), not print the old one.
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG({ id: 2 })] });
+  await settled(p2);
+  let release2;
+  const held2 = new Promise((r) => { release2 = r; });
+  await c2.route("**/px?u=*", async (route) => {
+    if (/slow/.test(route.request().url())) await held2;
+    await route.fulfill(/dead/.test(route.request().url()) ? { status: 404, body: "" }
+      : { status: 200, contentType: "image/png", body: pic });
+  });
+  const card = cards(p2).nth(1);
+  await card.locator("input[type=url]").fill("https://example.com/slow.png");
+  await card.locator(".sel-kind").selectOption("real");
+  await card.locator("input[type=url]").fill("https://example.com/dead.png");
+  release2();
+  await p2.waitForTimeout(600);
+  await card.locator(".sel-kind").selectOption("glyph");
+  await p2.waitForFunction(() => /link can't be read/.test((document.getElementById("pictureNote") || {}).textContent || ""), null, { timeout: 8000 });
+  await settled(p2);
+  const sent2 = await copyAll(p2);
+  assert.ok(!sent2.some((s) => /line-height:1>/.test(s)), "the old link's picture printed for the new link");
+  assert.deepEqual(errors, []);
+  assert.deepEqual(e2, []);
+  await c2.close();
+});
+
+test("polish 4: notes point to the field that fixes them, the preset box follows the list, the backup is picked, and long words wrap", async () => {
+  // A phone, below the threshold: the notice says to raise Bits per cheer, which sits below every
+  // part; its button goes there and takes the focus.
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY BIRTHDAY" })],
+    controls: { ...SETTINGS, bits: 10 }, viewport: { width: 390, height: 844 } });
+  await page.waitForSelector("#modeNote .fix-btn");
+  assert.equal(await page.textContent("#modeNote .fix-btn"), "Change Bits per cheer");
+  await page.click("#modeNote .fix-btn");
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), "bitsAmount");
+  await page.waitForFunction(() => { const r = document.getElementById("bitsAmount").getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }, null, { timeout: 5000 });
+  // High Roller off: the fix is the threshold field. A High Roller stack has no notice.
+  await page.fill("#hrThreshold", "0");
+  await page.waitForFunction(() => /Go to High Roller threshold/.test((document.getElementById("modeNote") || {}).textContent || ""));
+  await page.fill("#hrThreshold", "25");
+  await page.fill("#bitsAmount", "100");
+  await page.waitForFunction(() => !document.getElementById("modeNote"));
+  // A 43-letter word broken across cheers is named cut short, and nothing scrolls sideways.
+  await cards(page).first().locator("textarea").fill("THANKSFORTHERAIDEVERYONEWHOCAMEBYTONIGHTYAY");
+  await cards(page).first().locator(".sel-size").selectOption("width");
+  await page.waitForFunction(() => /too tall for one receipt/.test(document.querySelector("#blockList .text-note").textContent));
+  assert.match(await cards(page).first().locator(".text-note").textContent(), /“THANKSFORTHERAIDEVERYON…” is too tall/);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+    "the page scrolls sideways");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // Delete and Import move the list's pick; the name box follows it.
+  const P = (name, text, at) => ({ v: 1, name, savedAt: at, blocks: [BIG({ id: 1, text })] });
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ presets: { v: 1, presets: [P("raid", "RAID", 1), P("raid again", "AGAIN", 2), P("birthday", "BDAY", 3)] } });
+  await p2.selectOption("#presetList", { label: "raid again" });
+  assert.equal(await p2.inputValue("#presetName"), "raid again");
+  await p2.click("#presetDelete");
+  await p2.click("#presetDelete");
+  assert.equal(await p2.locator("#presetList option:checked").textContent(), "birthday");
+  assert.equal(await p2.inputValue("#presetName"), "birthday", "the box kept the deleted preset's name");
+  await p2.click("#presetImport");
+  await p2.fill("#presetJson", JSON.stringify({ v: 1, presets: [P("raid", "OTHER RAID", 9)] }));
+  await p2.click("#presetImport");
+  assert.equal(await p2.locator("#presetList option:checked").textContent(), "raid (2)");
+  assert.equal(await p2.inputValue("#presetName"), "raid (2)");
+  assert.deepEqual(e2, []);
+  await c2.close();
+
+  // A converted old stack beside the user's own presets: the backup the banner names is the one
+  // picked beside Load.
+  const old = [{ id: 1, type: "text", render: "giant", giantLayout: "lines", giantSize: 10, text: "OLD" }];
+  const { page: p3, ctx: c3, errors: e3 } = await freshPage({ blocks: old, presets: { v: 1, presets: [P("raid", "RAID", 1)] } });
+  assert.match(await p3.textContent("#migrationNote"), /saved as the preset "Before 1\.0\.0"/);
+  assert.deepEqual(await p3.locator("#presetList option").allTextContents(), ["raid", "Before 1.0.0"]);
+  assert.equal(await p3.locator("#presetList option:checked").textContent(), "Before 1.0.0");
+  assert.deepEqual(e3, []);
+  await c3.close();
+});
+
+test("polish 4: an expired upload: the parts' notice says expired too, and a picture already read still prints, said in grey", async () => {
+  const minted = "https://i.uwutoowo.com/0123456789ab.png", pic = Buffer.from(PIC.split(",")[1], "base64");
+  const IMG = (o) => ({ type: "image", imgKind: "glyph", url: minted, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                        tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, ...o });
+  // Dead from the start: the expiry check names it on the card, and the parts' red notice now
+  // says the same (it kept "its link can't be read" until another edit redrew the parts).
+  const { page, ctx } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), IMG({ id: 2 })], routes: async (c) => {
+    await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 404, body: "gone" }));
+    await c.route("**/px?u=*", (r) => r.fulfill({ status: 404, body: "gone" }));
+  } });
+  await page.waitForFunction(() => !!document.querySelector("#blockList .expired-note"), null, { timeout: 8000 });
+  await page.waitForFunction(() => /expired/.test((document.getElementById("pictureNote") || {}).textContent || ""), null, { timeout: 8000 });
+  assert.equal(await page.textContent("#pictureNote"),
+    "The picture in block 2 from the top isn't in these parts: its uploaded link has expired (uploads last 15 minutes). Pick the file again or paste another link.");
+  await ctx.close();
+
+  // Read while the link was alive, then the link dies: the block keeps printing from the copy it
+  // read, so the card says so in grey, not the red "prints nothing", and nothing is "left out".
+  let alive = true;
+  const answer = (r) => r.fulfill(alive ? { status: 200, contentType: "image/png", body: pic } : { status: 404, body: "gone" });
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), IMG({ id: 2 })], routes: async (c) => {
+    await c.route("https://i.uwutoowo.com/**", answer);
+    await c.route("**/px?u=*", answer);
+  } });
+  await settled(p2);
+  await p2.waitForFunction(() => document.querySelectorAll("#parts .part .copy-btn").length >= 1);
+  assert.ok((await copyAll(p2)).some((s) => /line-height:1>/.test(s)), "fixture: the picture is in the parts");
+  alive = false;
+  await cards(p2).first().locator("textarea").fill("HELLO!");   // any edit saves, and the expiry check runs
+  await p2.waitForFunction(() => /expired/.test(document.querySelector("#blockList").textContent), null, { timeout: 8000 });
+  const card = cards(p2).nth(1);
+  assert.equal(await card.locator(".expired-note").count(), 0, "the red 'prints nothing' over parts that print it");
+  assert.match(await card.textContent(), /This uploaded link has expired \(uploads last 15 minutes\)\. The block still prints from the copy read earlier, until you reload or load a preset/);
+  assert.equal(await p2.locator("#pictureNote").count(), 0);
+  await settled(p2);
+  assert.ok((await copyAll(p2)).some((s) => /line-height:1>/.test(s)), "the picture left the parts");
+  assert.deepEqual(e2, []);
+  await c2.close();
 });

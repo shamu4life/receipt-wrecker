@@ -164,4 +164,19 @@ test("import never replaces: a name taken by a saved setup, or by one added earl
   eq(renamedCopy.same, []);
   // Same name, different blocks: still added, under a free name.
   eq(importPresets(r.presets, [{ ...shuffled, blocks: [{ id: 1, type: "text", text: "CHANGED" }] }]).renamed, [{ from: "Other", to: "Other (2)" }]);
+  // Polish 4: the same file imported AGAIN, after its names clashed: the copies the first
+  // Import renamed are recognised (same blocks under "Stream (2)" / "Stream (3)") and nothing
+  // is added. Matching the name exactly added the first file's "Stream" again as "Stream (4)".
+  const again = importPresets(r.presets, incoming);
+  assert.equal(again.added, 0);
+  eq(again.same, ["Stream", "Stream", "Other"]);
+  eq(again.presets.map((p) => p.name), ["Stream", "Stream (2)", "Stream (3)", "Other"]);
+  // A renamed form only: "Stream (2)" never matches "Stream 2", "Stream (1)" or another base.
+  const one = [makePreset("Stream (1)", [{ id: 1, type: "text", text: "FIRST" }], 5), makePreset("Streamer (2)", [{ id: 1, type: "text", text: "FIRST" }], 6)];
+  assert.equal(importPresets(one, [incoming[0]]).added, 1);
+  // The 60-character cut freePresetName makes is matched too.
+  const long = "L".repeat(60), ren = importPresets([makePreset(long, [{ id: 1, type: "text", text: "A" }], 1)],
+    [makePreset(long, [{ id: 1, type: "text", text: "B" }], 2)]);
+  eq(ren.renamed, [{ from: long, to: "L".repeat(56) + " (2)" }]);
+  assert.equal(importPresets(ren.presets, [makePreset(long, [{ id: 1, type: "text", text: "B" }], 2)]).added, 0);
 });

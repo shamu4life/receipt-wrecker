@@ -62,6 +62,14 @@ test("High Roller test: only the shapes the threshold's receipt holds, and the n
   const none = C.buildHighRollerProbe({ hrThreshold: 25, bitsPerInch: 50 });
   assert.equal(none.works, false);
   assert.match(none.note, /can't show anything/);
+  // It says what really happens (polish review 4): 26.4px (7 mm) is left after the Cheer line,
+  // too short for BIG (48px, 13 mm); the bot prints the Cheer line and the top of BIG. Only a
+  // box the Cheer line fills is "the Cheer line fills it".
+  assert.match(none.note, /about 1\.3 cm of receipt, and after the Cheer line only about 7 mm is left, too short for even the test's smallest shape \(BIG, 13 mm tall\), so this test can't show anything\./);
+  assert.ok(!/Cheer line fills it/.test(none.note), none.note);
+  const full = C.buildHighRollerProbe({ hrThreshold: 25, bitsPerInch: 200 });
+  assert.equal(full.works, false);
+  assert.match(full.note, /about 0\.3 cm of receipt, and the Cheer line fills it, so this test can't show anything\./);
 });
 
 test("Plain test: one bit under the threshold, a Design T HI grid, the token last", () => {

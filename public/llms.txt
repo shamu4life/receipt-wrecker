@@ -36,13 +36,16 @@ in.
 
 ## What it outputs
 
-- Big text (High Roller): the words in bold Arial, as large as the paper's width allows, as
+- Big text (High Roller): the words in bold Arial, as large as the paper's width allows
+  (leaving room for a j's hook or an f's arm at a line's ends), as
   typed, with the words wrapped to the paper, stacked one letter per line, or each line at its
   own size; optionally upside down.
   Example: `Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>`.
 - Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
   typed line becomes a column, centred across the paper by its ink, worked out from Arial
-  Bold (most blocks get a small `position:relative;left` shift). Top to bottom (read by turning the receipt
+  Bold (most blocks get a small `position:relative;left` shift; a column whose bottom end is a
+  letter that draws past its own space, such as an f's arm or a j's hook, gets a
+  `padding-bottom` so the bot's box doesn't cut it). Top to bottom (read by turning the receipt
   anticlockwise) or bottom to top (turn it clockwise; needs Edge 132 or newer on the
   streamer's PC).
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square

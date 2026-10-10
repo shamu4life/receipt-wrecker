@@ -82,7 +82,7 @@
     white-space: normal; overflow-wrap: anywhere; max-width: 100%; box-sizing: border-box; }
   .parts-note.part-note { margin: 0 0 .45rem; }
   .parts-note.no-room, .parts-note.too-long { color: #d33; opacity: 1; font-weight: 700; }
-  .mode-note button { margin: .4rem .4rem 0 0; }
+  .mode-note button, .parts-note .fix-btn { margin: .4rem .4rem 0 0; font-weight: 400; }
   #composer { margin: 0 0 1rem; }
   .composer-h { font-size: 1rem; margin: 0 0 .5rem; }
   .block-card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem .7rem; margin: 0 0 .6rem; background: rgba(0,0,0,.02); }
@@ -114,7 +114,7 @@
   .img-thumb { display: block; max-width: 100%; max-height: 220px; margin: .45rem 0; border: 1px solid #ccc; }
   .img-thumb[hidden] { display: none; }   /* display:block above beat the hidden attribute: a 2px bordered speck */
   /* A card's live report: what the block prints, and where it is in the run. */
-  .text-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; }
+  .text-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   @media (prefers-color-scheme: dark) { .text-note { color: #c8c8c8; } }
   .text-note > div { margin: 0 0 .25rem; }
   .text-note .note-warn { color: #a60; }
@@ -167,7 +167,7 @@
       </label>
       <label class="thermal-toggle">Thermal dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select> <span id="thermalDitherOff" class="dither-off">(turn on the thermal preview first)</span></label>
       <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
-      <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
+      <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
@@ -742,13 +742,25 @@
   // every setup again as "Name (2)", doubling the list in one click (polish review 3).
   // Returns {presets (the new list), added, renamed: [{from, to}], same: [name]}; neither input
   // is changed.
+  // "Already saved" also covers a copy an earlier Import renamed: a preset with the same blocks
+  // under freePresetName's form of the name ("Stream (2)", the base cut to keep 60 characters).
+  // Matching the name exactly let a second Import of a file whose names clashed add the same
+  // setup again as "Stream (3)" (polish review 4).
+  function presetNamedFrom(name, base) {
+    name = String(name == null ? "" : name); base = String(base == null ? "" : base);
+    if (name === base) return true;
+    var m = /^(.*) \((\d+)\)$/.exec(name);
+    if (!m || Number(m[2]) < 2) return false;
+    var suffix = " (" + m[2] + ")";
+    return m[1] === base.slice(0, Math.max(0, 60 - suffix.length)).replace(/\s+$/, "");
+  }
   function importPresets(presets, incoming) {
     var out = (presets || []).slice(), renamed = [], same = [], i, p, name, key;
     for (i = 0; i < (incoming || []).length; i++) {
       p = incoming[i];
       if (!p || typeof p !== "object") continue;
       key = canonJson(p.blocks);
-      if (out.some(function (q) { return q && q.name === p.name && canonJson(q.blocks) === key; })) { same.push(p.name); continue; }
+      if (out.some(function (q) { return q && presetNamedFrom(q.name, p.name) && canonJson(q.blocks) === key; })) { same.push(p.name); continue; }
       name = freePresetName(out, p.name);
       if (name !== p.name) renamed.push({ from: p.name, to: name });
       out.push({ v: p.v, name: name, savedAt: p.savedAt, blocks: p.blocks });
@@ -1126,6 +1138,38 @@
   function bigLineEm(line) {
     return bigGraphemes(line).reduce(function (s, g) { return s + bigGlyphEm(g); }, 0);
   }
+  // INK PAST THE ADVANCE BOX. A few glyphs draw outside their own advance: j's hook starts
+  // 0.047em left of it, f's arm ends 0.03em right of it, r's ear 0.013em, and the accented
+  // dotless i's (Ì Í Î Ï ì í î ï) and Æ up to 0.042em. The widths above are advances only, so a
+  // line that starts with j or ends with f, sized to the paper's width, put that ink outside
+  // the bot's message box, which clips it (overflow:hidden): "jeff" at 160px lost 5.5px of the
+  // j's hook and 2.7px of the f's arm, "if" at 394px 9.7px of the arm (polish review 4, with
+  // Arial Bold on the bench). [left, right] in em, measured from the rendered ink at 400px, the
+  // larger of Arial Bold (the rig) and Liberation Sans Bold (the bench and a Linux preview),
+  // rounded up; only overhangs over 0.003em are listed (bigFitPx's margin covers smaller ones).
+  // Capitals, digits and the rest of Latin-1 stay inside their advance in both faces.
+  var BIG_EDGE = {
+    "_": [0.010, 0.009], a: [0, 0.007], f: [0, 0.031], j: [0.047, 0], r: [0, 0.013], "©": [0.006, 0.008],
+    "®": [0.006, 0.008], "¯": [0.010, 0.010], "¼": [0, 0.068], "¾": [0, 0.068], "Æ": [0.042, 0],
+    "Ì": [0.021, 0], "Í": [0, 0.023], "Î": [0.042, 0.042], "Ï": [0.023, 0.029],
+    "ì": [0.033, 0], "í": [0, 0.028], "î": [0.041, 0.042], "ï": [0.025, 0.028]
+  };
+  var BIG_EDGE_NONE = [0, 0];
+  // A grapheme's [left, right] overhang in em (a decomposed accent is looked up composed).
+  function bigEdge(g) {
+    g = String(g == null ? "" : g);
+    if (Object.prototype.hasOwnProperty.call(BIG_EDGE, g)) return BIG_EDGE[g];
+    var n = g.normalize ? g.normalize("NFC") : g;
+    return Object.prototype.hasOwnProperty.call(BIG_EDGE, n) ? BIG_EDGE[n] : BIG_EDGE_NONE;
+  }
+  // The extra width (em) a CENTRED line needs so its first glyph's ink on the left and its last
+  // glyph's on the right stay inside the box: twice the larger of the two, since centring
+  // gives each side half the room. `gs` is the line's graphemes (or a string).
+  function bigEdgeEm(gs) {
+    if (!Array.isArray(gs)) gs = bigGraphemes(gs);
+    if (!gs.length) return 0;
+    return 2 * Math.max(bigEdge(gs[0])[0], bigEdge(gs[gs.length - 1])[1]);
+  }
   // The width a line may use: the content box less 2px, less half a px per glyph in case the
   // rig's DirectWrite rounds each advance up (the bench is exact at the full width).
   function bigFitPx(contentW, glyphs) { return contentW - 2 - 0.5 * glyphs; }
@@ -1185,15 +1229,17 @@
       : paperSpec(o && o.paperMm).contentW;
   }
   // Per-line measurements, once per layout and paper (they do not depend on the size).
+  // `ems` are the advances (what the browser wraps by); `inkEms` add bigEdgeEm, the room the
+  // first and last glyphs' ink needs: the width fit (pxW) and "too wide" (overflow) use those.
   function bigPrep(lines, layout, contentW) {
-    var m = { lines: lines, layout: layout, contentW: contentW, ems: [], lens: [], fit: [], pxW: [],
+    var m = { lines: lines, layout: layout, contentW: contentW, ems: [], inkEms: [], lens: [], fit: [], pxW: [],
               spaced: [], lhs: [], words: [], minPxW: Infinity, ink: 0, emoji: false };
     for (var i = 0; i < lines.length; i++) {
       var l = lines[i], gs = bigGraphemes(l), em = 0, k, w;
       for (k = 0; k < gs.length; k++) { w = bigGlyphEm(gs[k]); em += w; if (w === BIG_W_EMOJI) m.emoji = true; }
-      var fit = bigFitPx(contentW, gs.length);
-      var pw = l === "" ? Infinity : Math.min(BIG_MAX_PX, Math.floor(fit / em));
-      m.ems.push(em); m.lens.push(payloadLength(escapeHtml(l))); m.fit.push(fit); m.pxW.push(pw);
+      var fit = bigFitPx(contentW, gs.length), inkEm = em + bigEdgeEm(gs);
+      var pw = l === "" ? Infinity : Math.min(BIG_MAX_PX, Math.floor(fit / inkEm));
+      m.ems.push(em); m.inkEms.push(inkEm); m.lens.push(payloadLength(escapeHtml(l))); m.fit.push(fit); m.pxW.push(pw);
       m.spaced.push(/ /.test(l)); m.lhs.push(BIG_CAPS_SAFE.test(l) ? BIG_LH_CAPS : BIG_LH_TEXT);
       if (l !== "") { m.ink++; if (pw < m.minPxW) m.minPxW = pw; }
     }
@@ -1201,19 +1247,21 @@
     return m;
   }
   // Greedy word wrap at px, at the spaces only: the lines the Wrap layout sends (every word
-  // stays whole on its line). Words go on a line while it (its spaces included) fits
-  // bigFitPx; a word wider than a whole line sits on a line of its own. How many lines a line
-  // too wide for the paper really PRINTS as is bigWrapCount's job, which also knows the
-  // breaks the page makes inside a word (Han, kana, emoji, a hyphen).
+  // stays whole on its line). Words go on a line while it (its spaces included, and the room
+  // its first and last glyphs' ink needs, bigEdgeEm) fits bigFitPx; a word wider than a whole
+  // line sits on a line of its own. How many lines a line too wide for the paper really PRINTS
+  // as is bigWrapCount's job, which also knows the breaks the page makes inside a word (Han,
+  // kana, emoji, a hyphen).
   function bigWrapWords(line, px, contentW) {
     var words = String(line).split(" ").filter(function (w) { return w !== ""; });
     if (words.length < 2) return [String(line)];
-    var spEm = BIG_W[" "], out = [], cur = words[0], curEm = bigLineEm(cur), curG = bigGraphemes(cur).length;
+    var spEm = BIG_W[" "], out = [], cur = words[0], curGs = bigGraphemes(cur), curEm = bigLineEm(cur), curG = curGs.length;
+    var curL = bigEdge(curGs[0])[0];
     for (var i = 1; i < words.length; i++) {
-      var w = words[i], wEm = bigLineEm(w), wG = bigGraphemes(w).length;
-      var e = curEm + spEm + wEm, g = curG + 1 + wG;
-      if (e * px <= bigFitPx(contentW, g) + PX_EPS) { cur += " " + w; curEm = e; curG = g; }
-      else { out.push(cur); cur = w; curEm = wEm; curG = wG; }
+      var w = words[i], wGs = bigGraphemes(w), wEm = bigLineEm(w), wG = wGs.length;
+      var e = curEm + spEm + wEm, g = curG + 1 + wG, edge = 2 * Math.max(curL, bigEdge(wGs[wG - 1])[1]);
+      if ((e + edge) * px <= bigFitPx(contentW, g) + PX_EPS) { cur += " " + w; curEm = e; curG = g; }
+      else { out.push(cur); cur = w; curEm = wEm; curG = wG; curL = bigEdge(wGs[0])[0]; }
     }
     out.push(cur);
     return out;
@@ -1405,7 +1453,7 @@
       if (!best || bigRank(cand) < bigRank(best)) best = cand;
     });
     var overflow = [];
-    for (var k = 0; k < m.lines.length; k++) if (m.lines[k] !== "" && px > m.pxW[k] && m.ems[k] * px > m.fit[k]) overflow.push(k);
+    for (var k = 0; k < m.lines.length; k++) if (m.lines[k] !== "" && px > m.pxW[k] && m.inkEms[k] * px > m.fit[k]) overflow.push(k);
     best.overflow = overflow; best.fits = !overflow.length;
     return best;
   }
@@ -1421,7 +1469,7 @@
     var units = bigEachUnits(m, pxs, flip);
     var src = bigChunkUnits(units, budget, room), em = bigEmit(src, flip, budget, room);
     var overflow = [];
-    for (var k = 0; k < m.lines.length; k++) if (m.lines[k] !== "" && m.ems[k] * pxs[k] > m.fit[k]) overflow.push(k);
+    for (var k = 0; k < m.lines.length; k++) if (m.lines[k] !== "" && m.inkEms[k] * pxs[k] > m.fit[k]) overflow.push(k);
     var ink = pxs.filter(function (p) { return p > 0; });
     return { px: Math.max.apply(null, ink), pxMin: Math.min.apply(null, ink), pxs: pxs, gap: "blank", units: units,
              chunks: em, cheers: bigCheerCount(em, budget, room), over: em.some(function (r) { return r.over; }),
@@ -1654,8 +1702,15 @@
     "4head", "swiftrage", "notlikethis", "failfish", "vohiyo", "pjsalt", "mrdestructoid", "bday",
     "ripcheer", "shamrock"];
   function cheerWordIsGlobal(w) { return CHEER_GLOBALS.indexOf(String(w).replace(/\d+$/, "").toLowerCase()) >= 0; }
+  // A user's word or line quoted in a card's note, cut to 23 characters and "…" past 24: a
+  // 43-letter word quoted whole ran off the card and scrolled a phone's page sideways (polish
+  // review 4).
+  function quoteCut(t) {
+    var a = Array.from(String(t == null ? "" : t));
+    return "“" + (a.length > 24 ? a.slice(0, 23).join("") + "…" : a.join("")) + "”";
+  }
   function cheerWordNotes(words, fix) {
-    var q = function (ws, sep) { return ws.map(function (w) { return "“" + w + "”"; }).join(sep); };
+    var q = function (ws, sep) { return ws.map(quoteCut).join(sep); };
     var sure = words.filter(cheerWordIsGlobal), maybe = words.filter(function (w) { return !cheerWordIsGlobal(w); }), out = [];
     if (sure.length) out.push("Twitch would read " + q(sure, ", ") + " as another cheer and charge for it too. "
       + fix.charAt(0).toUpperCase() + fix.slice(1));
@@ -1735,10 +1790,7 @@
       // At most two named, and how many more: a stack too big for the paper is cut off on
       // nearly every letter, and naming two alone read as if only those two were.
       var over = g.overflowText.filter(function (l, i, a) { return a.indexOf(l) === i; });
-      var which = over.slice(0, 2).map(function (l) {
-        var a = Array.from(l);
-        return "“" + (a.length > 24 ? a.slice(0, 23).join("") + "…" : l) + "”";
-      }).join(", ") + (over.length > 2 ? " and " + (over.length - 2) + " more" : "");
+      var which = over.slice(0, 2).map(quoteCut).join(", ") + (over.length > 2 ? " and " + (over.length - 2) + " more" : "");
       // In Lines, breaking the line comes first: a long line is usually a sentence, and Auto
       // wraps one. A single word that is too wide can only be stacked. (Auto is cut off only
       // when even its letters are too wide, and the other layouts have no line to break.)
@@ -1765,7 +1817,7 @@
       // A stacked word taller than one receipt at this size is spread over cheers, the bot's
       // header printing between its letters: the size is the user's to change.
       var sw = g.splitWords, one = sw.length === 1, many = sw.reduce(function (m, x) { return Math.max(m, x.pieces); }, 2);
-      var named = sw.slice(0, 2).map(function (x) { return "“" + x.word + "”"; }).join(" and ") + (sw.length > 2 ? " and more" : "");
+      var named = sw.slice(0, 2).map(function (x) { return quoteCut(x.word); }).join(" and ") + (sw.length > 2 ? " and more" : "");
       out.push(named + (one ? " is" : " are") + " too tall for one receipt at this size, so " + (one ? "it breaks" : "they break")
         + " across " + (one && many === 2 ? "two" : one ? many : "several") + " cheers, with the bot's header in between. "
         + "Pick a smaller size to keep " + (one ? "it" : "them") + " whole.");
@@ -1805,9 +1857,28 @@
   // `shift` (px, optional): moves the block across the paper to centre its INK (sideShiftPx).
   // position:relative with left moves the painted box without changing the layout, and both
   // are on the bot's style allow-list (position: static, relative or absolute; left).
-  function sideOpen(S, lh, dir, shift) {
+  // `pad` (px, optional): room below the run for ink that ends past it (sidePad), as
+  // padding-bottom, also on the allow-list.
+  function sideOpen(S, lh, dir, shift, pad) {
     return '<div style="writing-mode:' + (SIDE_DIRS[dir] || SIDE_DIRS.down) + ";font:700 " + S + "px/" + lh
-      + " Arial;white-space:nowrap;margin:auto" + (shift ? ";position:relative;left:" + shift + "px" : "") + '">';
+      + " Arial;white-space:nowrap;margin:auto" + (pad ? ";padding-bottom:" + pad + "px" : "")
+      + (shift ? ";position:relative;left:" + shift + "px" : "") + '">';
+  }
+  // INK PAST THE END OF THE RUN. The div is exactly as long as its longest column's advances,
+  // and the bot's box ends with it, so a glyph whose ink runs past its advance (BIG_EDGE) at
+  // the BOTTOM end of a column was cut off: top to bottom, the last letter's right side (f's
+  // arm, r's ear: "stuff" at 193px lost 6.2px); bottom to top, the first letter's left side
+  // (j's hook: "just" lost 9.4px, 2.5 mm). The other end overhangs into the line above (the
+  // Cheer line or the body before), which is not cut. So a body whose columns end (or, bottom
+  // to top, start) with such a glyph gets padding-bottom of that ink, in whole px, rounded up:
+  // the box then reaches past it, plus half a px for the anti-aliased edge (f at 193px inked
+  // 6.2px past its advance, 0.032em). A column shorter than the longest is centred and needs
+  // less, but the lengths here are upper bounds (kerning), so every column counts in full.
+  //   ends: per column, the em the relevant end glyph overhangs (0 for none).
+  function sidePad(S, ends) {
+    var e = 0;
+    for (var i = 0; i < ends.length; i++) if (ends[i] > e) e = ends[i];
+    return e > 0 ? Math.ceil(S * e + 0.5) : 0;
   }
   // CENTRING THE INK. margin:auto centres a column's LINE BOX, and the baseline sits off the
   // middle of it: half the leading plus Arial's ascent (0.905em) from the side the letter tops
@@ -1822,9 +1893,13 @@
   //    up to 0.719. In a line-height .8 column that ink sits 0.0115em toward the letter tops, so
   //    capitals move the other way (3px at 300px). They took Liberation's 0.70 until polish
   //    review 3 and never moved, and with Arial on the bench they printed 2 to 3.5px off centre,
-  //    3px from the paper's edge on 58 mm; now every one benched within 1.9px (74 blocks, 80 and
-  //    58 mm, down and up). With Liberation they sit up to 4px toward the baseline side instead
-  //    (its capitals are shorter), and so does a Linux or Mac preview that draws Arial with it.
+  //    3px from the paper's edge on 58 mm; then 74 blocks (80 and 58 mm, down and up) benched
+  //    within 1.9px. A wider sweep (polish review 4: 548 blocks, 20 to 300px) found up to 2.4px:
+  //    under about 130px the ink leans 0 to 2px toward the letter tops, changing with the size
+  //    (the line boxes' pixel rounding, not a constant to shift by), where a block that narrow
+  //    is far from both edges; from 130px up it is within 1.2px. With Liberation they sit up to
+  //    4px toward the baseline side instead (its capitals are shorter), and so does a Linux or
+  //    Mac preview that draws Arial with it.
   //    Q's tail drops 0.072em in Arial Bold and 0.197em in Liberation (polish review 2): with
   //    Liberation a Q-led block sits up to 14.6px ("QUIZ" at 193px) toward the descenders' side.
   //  - The other classes (x-height letters, descenders, ascenders, accented capitals,
@@ -1902,7 +1977,7 @@
   // called "too wide for the paper" and printed whole (polish review 2). With Arial Bold on the
   // bench HELLO at 300px prints 11.5 / 10.6px clear of the edges on 80 mm, and at 190px 7.2 /
   // 5.3px on 58 mm: the model keeps 6px, and the bench's rounding takes up to about a px of it
-  // (4.9px at the least, two columns of capitals at 91px on 58 mm; polish review 3).
+  // (4.7px at the least, two columns of capitals at 91px on 58 mm; polish reviews 3 and 4).
   // The comma, the semicolon and Q are NOT capitals here: their tails drop about 0.15em, and
   // at the capitals' sizes they printed clipped at the paper edge or ran into the next column
   // (all three reviews). BIG_CAPS_SAFE leaves them out, so they take the 1.15 rule.
@@ -1940,16 +2015,24 @@
   function sidePrep(line) {
     if (!line) return [];
     return line.split(" ").map(function (w) {
-      return bigGraphemes(w).map(function (g) { return { t: g, em: bigGlyphEm(g), ch: payloadLength(escapeHtml(g)) }; });
+      return bigGraphemes(w).map(function (g) {
+        var e = bigEdge(g);
+        return { t: g, em: bigGlyphEm(g), ch: payloadLength(escapeHtml(g)), l: e[0], r: e[1] };
+      });
     });
   }
-  // A run of text as {t, sp, em, g, ch}: `run` (or nothing) extended by graphemes `gs`, after a
-  // space when `sep`. The advances are summed in reading order, exactly as bigLineEm sums the
-  // whole run, so sideSegLen(run.t, S) === S x run.em + 0.5 x run.g to the last bit.
+  // A run of text as {t, sp, em, g, ch, a, z}: `run` (or nothing) extended by graphemes `gs`,
+  // after a space when `sep`. The advances are summed in reading order, exactly as bigLineEm
+  // sums the whole run, so sideSegLen(run.t, S) === S x run.em + 0.5 x run.g to the last bit.
+  // `a` is the first glyph's left overhang and `z` the last glyph's right one (BIG_EDGE).
   function sideRun(run, gs, sep) {
-    var r = run ? { t: run.t, sp: run.sp, em: run.em, g: run.g, ch: run.ch } : { t: "", sp: false, em: 0, g: 0, ch: 0 };
-    if (sep) { r.t += " "; r.em += BIG_W[" "]; r.g += 1; r.ch += 1; }
-    for (var i = 0; i < gs.length; i++) { r.t += gs[i].t; r.em += gs[i].em; r.g += 1; r.ch += gs[i].ch; }
+    var r = run ? { t: run.t, sp: run.sp, em: run.em, g: run.g, ch: run.ch, a: run.a, z: run.z }
+                : { t: "", sp: false, em: 0, g: 0, ch: 0, a: 0, z: 0 };
+    if (sep) { r.t += " "; r.em += BIG_W[" "]; r.g += 1; r.ch += 1; r.z = 0; }
+    for (var i = 0; i < gs.length; i++) {
+      if (!r.g) r.a = gs[i].l || 0;
+      r.t += gs[i].t; r.em += gs[i].em; r.g += 1; r.ch += gs[i].ch; r.z = gs[i].r || 0;
+    }
     return r;
   }
   // One line (its sidePrep words) cut into segments that each run at most maxLen down the
@@ -1991,22 +2074,38 @@
   // puts it after the previous body. Bottom to top ("up") reads the tape from the bottom,
   // so the bodies go out LAST FIRST and the whole run reads in order. `prep` is sidePrep of
   // every line.
-  function sideEval(prep, S, lh, dir, budget, room, shift) {
-    var N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir, shift));
+  // `edges` = {word, all}: the largest overhang (em), on the side that matters for `dir`
+  // (sidePad), of a glyph that ends a word (top to bottom) or starts one (bottom to top), and
+  // of any glyph at all. A padding that big is kept back in every body, in characters and in
+  // length, so a body's real padding always fits: first the word ends' (segments end at word
+  // ends, unless a word too long for a body is cut between letters), and when a cut letter
+  // needs more, every glyph's. Most text has none of these glyphs at its word ends: nothing is
+  // kept back and the payload is as it was.
+  function sideEval(prep, S, lh, dir, budget, room, shift, edges) {
+    edges = edges || { word: 0, all: 0 };
+    var r = sideEvalAt(prep, S, lh, dir, budget, room, shift, edges.word);
+    if (r.padTop > sidePad(S, [edges.word])) r = sideEvalAt(prep, S, lh, dir, budget, room, shift, edges.all);
+    return r;
+  }
+  function sideEvalAt(prep, S, lh, dir, budget, room, shift, reserveEm) {
+    var padMax = sidePad(S, [reserveEm || 0]), N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir, shift, padMax));
     var maxChars = Math.max(1, Math.floor((budget - 4 - openL - BIG_CLOSE.length - 4 * (N - 1)) / N));
-    var segs = prep.map(function (w) { return sideSegments(w, S, room, maxChars); });
-    var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], k;
+    var segs = prep.map(function (w) { return sideSegments(w, S, room - padMax, maxChars); });
+    var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], pads = [], k;
     for (k = 0; k < K; k++) {
       var c = segs.map(function (s) { return s[k] || null; });
       var sp = c.some(function (x) { return !!(x && x.sp); });
-      var chars = openL + BIG_CLOSE.length + 4 * (N - 1)
+      var pad = sidePad(S, c.map(function (x) { return x && x.t ? (dir === "up" ? x.a : x.z) : 0; }));
+      var chars = payloadLength(sideOpen(S, lh, dir, shift, pad)) + BIG_CLOSE.length + 4 * (N - 1)
         + c.reduce(function (t, x) { return t + (x && x.t ? x.ch : 1); }, 0);
-      var h = c.reduce(function (m, x) { return Math.max(m, x && x.t ? S * x.em + 0.5 * x.g : 0); }, 0);
+      var h = c.reduce(function (m, x) { return Math.max(m, x && x.t ? S * x.em + 0.5 * x.g : 0); }, 0) + pad;
       cols.push(c.map(function (x) { return x ? x.t : ""; }));
+      pads.push(pad);
       src.push({ start: k, end: k + 1, heightPx: Math.round(h * 1000) / 1000, chars: chars, gapBefore: k > 0 && sp });
     }
     var em = bigEmit(src, dir === "up", budget, room);
-    return { px: S, shift: shift || 0, cols: cols, chunks: em, cheers: bigCheerCount(em, budget, room),
+    return { px: S, shift: shift || 0, cols: cols, pads: pads, padTop: Math.max.apply(null, pads), chunks: em,
+             cheers: bigCheerCount(em, budget, room),
              over: em.some(function (r) { return r.over; }), tall: em.some(function (r) { return r.tall; }) };
   }
   // The whole decision for one sideways block. opts = {dir, size, budget, heightPx (one part's
@@ -2025,9 +2124,17 @@
     var caps = lines.every(function (l) { return BIG_CAPS_SAFE.test(l); }), lh = caps ? BIG_LH_CAPS : BIG_LH_TEXT;
     var maxPx = Math.min(SIDE_MAX_PX, sideWidthPx(lines.length, caps, contentW));
     var emoji = lines.some(function (l) { return bigGraphemes(l).some(function (g) { return bigGlyphEm(g) === BIG_W_EMOJI; }); });
-    var prep = lines.map(sidePrep), shiftEm = sideShiftEm(lines, parseFloat(lh));
+    var prep = lines.map(sidePrep), shiftEm = sideShiftEm(lines, parseFloat(lh)), edges = { word: 0, all: 0 };
+    prep.forEach(function (ws) {
+      ws.forEach(function (gs) {
+        if (!gs.length) return;
+        var end = o.dir === "up" ? gs[0].l : gs[gs.length - 1].r;
+        edges.word = Math.max(edges.word, end);
+        gs.forEach(function (g) { edges.all = Math.max(edges.all, o.dir === "up" ? g.l : g.r); });
+      });
+    });
     var ev = function (S) {
-      var c = sideEval(prep, S, lh, o.dir, budget, room, sideShiftPx(shiftEm, S, lines.length, parseFloat(lh), o.dir, contentW));
+      var c = sideEval(prep, S, lh, o.dir, budget, room, sideShiftPx(shiftEm, S, lines.length, parseFloat(lh), o.dir, contentW), edges);
       c.fits = S <= maxPx;
       return c;
     };
@@ -2074,9 +2181,8 @@
                cheerWords: words || [], spaced: p.lines.some(function (l) { return / /.test(l); }) };
     }
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, side: info(0, 0, null, []) }];
-    var open = sideOpen(k.px, p.lh, p.dir, k.shift);
     return k.chunks.map(function (r, ci) {
-      var cols = k.cols[r.start];
+      var cols = k.cols[r.start], open = sideOpen(k.px, p.lh, p.dir, k.shift, k.pads[r.start]);
       var html = (r.br ? "<br>" : "") + open
         + cols.map(function (c) { return c ? escapeHtml(c) : "\u00A0"; }).join("<br>") + BIG_CLOSE;
       return { html: html, chars: payloadLength(html), heightPx: r.heightPx, joinPx: r.joinPx,
@@ -2393,8 +2499,15 @@
     var list = function (xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; };
     var note;
     if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
-    else if (!works) note = "At the streamer's length settings a " + bits + "-bit cheer gets about " + cm + " of receipt, and the "
-      + "Cheer line fills it, so this test can't show anything. Check the bits-per-inch and maximum length above.";
+    // Not working because the box is too short: either the Cheer line fills it (nothing after it
+    // prints at all), or a little is left after it, too little for BIG, the smallest shape. That
+    // case said "the Cheer line fills it" too, under a verdict that the receipt prints the Cheer
+    // line and the top of BIG (polish review 4).
+    else if (!works) note = "At the streamer's length settings a " + bits + "-bit cheer gets about " + cm + " of receipt, and "
+      + (boxNoRoom(lim) ? "the Cheer line fills it"
+         : "after the Cheer line only about " + Math.round(room * MM_PER_PX) + " mm is left, too short for even the test's "
+           + "smallest shape (BIG, " + Math.round(shapes[0].h * MM_PER_PX) + " mm tall)")
+      + ", so this test can't show anything. Check the bits-per-inch and maximum length above.";
     else note = "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bitsWord(bits)
       + (checks.length ? ": check that " + list(checks) : "") + ". If it all prints small inside quote marks, the threshold is "
       + "higher than " + bits + "."
@@ -2891,6 +3004,13 @@
         if (block._decodeKey !== key) return;
         block._decoding = false; block._decodeFailed = src; update();
       });
+    }
+    // The block's picture source changed without a new read starting (the link was emptied,
+    // typed on a Real picture card, or replaced by an upload): the read in flight is for a
+    // source the block no longer has, so it must not land. Without this a cleared link's
+    // picture arrived 1.5 s later and printed, and a reload then dropped it (polish review 4).
+    function cancelDecode(block) {
+      block._decodeKey = ++decodeSeq; block._decoding = false;
     }
     // A glyph-art block's picture, turned by its Rotate setting (block.rotate: 0, 90, 180 or
     // 270), on a canvas of its own: glyph-art reads the decoded picture itself, never the Real
@@ -3451,6 +3571,33 @@
     // `alert`: lines for the red notice under it, one per Glyph-art picture the parts leave out
     // (pictureAlert); rewritten only when the words change, so a screen reader isn't told the
     // same thing again on every keystroke.
+    // Where the fix for the mode notice and the no-room note lives: Bits per cheer, or one of the
+    // streamer's settings. On a phone those fields sit below every part (about five screens down
+    // with four parts, polish review 4), so the notes carry a button that goes there.
+    function settingFix(st) {
+      if (!st.cheer) return null;
+      if (printMode(st) === "raw") {
+        var lim = contentLimitPx(st);
+        if (!boxNoRoom(lim)) return null;
+        return lim.by === "cap" ? { id: "maxInches", label: "Go to Maximum length" } : { id: "bitsAmount", label: "Change Bits per cheer" };
+      }
+      return hrThresholdOf(st.hrThreshold) > 0 ? { id: "bitsAmount", label: "Change Bits per cheer" }
+        : { id: "hrThreshold", label: "Go to High Roller threshold" };
+    }
+    function goToSetting(id) {
+      var el = document.getElementById(id), reduce = false;
+      if (!el) return;
+      try { reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) {}
+      try { el.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" }); } catch (e) { el.scrollIntoView(); }
+      try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+      try { if (el.select) el.select(); } catch (e) {}
+    }
+    function fixButton(fix) {
+      var b = mkEl("button", { type: "button", "class": "fix-btn" }, fix.label);
+      b.setAttribute("data-goto", fix.id);
+      b.addEventListener("click", function () { goToSetting(fix.id); });
+      return b;
+    }
     function renderParts(items, notice, alert) {
       var container = els.parts;
       var mn = document.getElementById("modeNote");
@@ -3463,6 +3610,10 @@
           back.addEventListener("click", function () { update(); revealParts(false); });
           mn.appendChild(document.createElement("br"));
           mn.appendChild(back);
+        }
+        if (nt.fix) {
+          mn.appendChild(document.createElement("br"));
+          mn.appendChild(fixButton(nt.fix));
         }
         if (container.firstChild !== mn) container.insertBefore(mn, container.firstChild);
       } else if (mn) { mn.parentNode.removeChild(mn); mn = null; }
@@ -3495,7 +3646,9 @@
       var copyable = items.filter(function (it) { return it.copyable; });
       // No room after the Cheer line: nothing is worth sending, so no total, and what to change.
       if (copyable.length && copyable[0].noRoom) {
-        container.appendChild(mkEl("p", { "class": "parts-note no-room", id: "partsTotal" }, noRoomAdvice(getSettings())));
+        var nr = mkEl("p", { "class": "parts-note no-room", id: "partsTotal" }, noRoomAdvice(getSettings())), nrFix = settingFix(getSettings());
+        if (nrFix) { nr.appendChild(document.createElement("br")); nr.appendChild(fixButton(nrFix)); }
+        container.appendChild(nr);
         return;
       }
       // A part over 500 characters is rejected by Twitch (its card says so in red), so the total
@@ -3875,14 +4028,16 @@
       return { own: own, inParts: inParts, over: over };
     }
     // The lines every card adds under its own report: a part over 500, and where the block
-    // sits in a run of several cheers.
-    function partLines(where, parts) {
+    // sits in a run of several cheers. Not the run's length when the box leaves no room after
+    // the Cheer line (`noRoom`): the parts say nothing there is worth sending, and "needs 14
+    // cheers" beside them priced it anyway (polish review 4).
+    function partLines(where, parts, noRoom) {
       var out = [], ip = where.inParts;
       if (where.over) {
         out.push((ip.length === 1 ? "Its part is" : "One of its parts is") + " over " + MAX_CHARS
           + " characters, so Twitch rejects that message and it never prints.");
       }
-      if (parts && parts.length > 1 && ip.length) {
+      if (parts && parts.length > 1 && ip.length && !noRoom) {
         // A range of one reads "parts 2 to 2"; that sentence bug has shipped here before.
         out.push("Your whole stack " + (parts[0].cheer === false ? "takes " + parts.length + " messages" : "needs " + parts.length + " cheers")
           + "; this block is in "
@@ -4147,17 +4302,19 @@
         relabel(stackContext(stackOpts(ctx.mode === "plain" && t0 > 0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
         var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
         var lines = [], fine = [], plainNow = ctx.mode === "plain";
+        // The parts' own test for "nothing after the Cheer line prints" (composeParts).
+        var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
         if (r === "hanzi" || plainNow) {
           var hs = where.own.filter(function (b) { return b.hanzi; });
           if (hs.length) {
             var rows = hs.reduce(function (t, b) { return t + b.hanzi.rows; }, 0), gone = hs[0].hanzi.droppedLines || 0;
             lines.push("Han tiling: " + rows + (rows === 1 ? " row" : " rows") + " of " + hs[0].hanzi.cols
-              + " Han characters · " + cheersOf(where.inParts.length || hs.length));
+              + " Han characters · " + (noRoom ? costWords(0, 0, false, false, true) : cheersOf(where.inParts.length || hs.length)));
             if (gone) {
               lines.push("Han tiling draws the first " + HAN_MAX_LINES + " lines only, so the last " + (gone === 1 ? "line is" : gone + " lines are")
                 + " left out. Put the rest in another block.");
             }
-            if (hs.some(function (b) { return b.tall; })) {
+            if (!noRoom && hs.some(function (b) { return b.tall; })) {
               lines.push("Even one row a part (with its light first row and the Cheer line, 3 lines) is taller than "
                 + boxWords(ctx.limit) + ", so the bot cuts every part."
                 + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
@@ -4190,7 +4347,7 @@
               + "which is what the streamer's bot uses, prints it running up the tape.");
           }
         }
-        writeNote(note, lines.concat(partLines(where, parts)), fine, where.over);
+        writeNote(note, lines.concat(partLines(where, parts, noRoom)), fine, where.over);
       };
       var applyRender = function () {
         var r = blockRender(block);
@@ -4309,7 +4466,7 @@
       uploadPngForUrl(file, setStatus, function (url, aspect) {
         // A new link is a new picture: whatever glyph-art decoded before is not it.
         block.url = url; block.outUrl = null; block.aspect = aspect; block._img = null;
-        delete block.fileName; delete block._decodeFailed;
+        delete block.fileName; delete block._decodeFailed; cancelDecode(block);
         if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded, now adjusting…"); processImage(block, setStatus); }
         else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
       });
@@ -4487,11 +4644,13 @@
         if (block.imgKind !== "glyph") return;
         showCols();
         var so = stackOpts(), ctx = stackContext(so), t = hrThresholdOf(so.hrThreshold), where = blockParts(block, parts), lines = [];
+        var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
         var gs = where.own.filter(function (b) { return b.glyph || b.hanzi; });
         if (gs.length) {
           var rows = gs.reduce(function (n, b) { return n + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
           var cols = gs[0].glyph ? gs[0].glyph.cols : designTPictureCols(ctx.paperMm);
-          lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · " + cheersOf(where.inParts.length || gs.length));
+          lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · "
+            + (noRoom ? "prints nothing (see below)" : cheersOf(where.inParts.length || gs.length)));
         } else if (block._decoding) {
           lines.push("Reading the picture…");
         } else if (block._decodeFailed && !block._expired) {
@@ -4509,7 +4668,7 @@
           lines.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so the picture prints"
                             : "The streamer's High Roller is off (threshold 0), so every picture prints")
             + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above.");
-        } else if (ctx.cheer && boxNoRoom(ctx.limit)) {
+        } else if (noRoom) {
           lines.push(tallWords("", ctx.limit));
         } else if (gs.some(function (b) { return b.tall; })) {
           // A box with room, but less than one row: every part is cut, so say what makes rows
@@ -4517,7 +4676,7 @@
           lines.push("One row is taller than " + boxWords(ctx.limit) + ", so the bot cuts every part. Raise Detail (columns), "
             + "which makes the rows shorter" + (ctx.limit.by === "bits" ? ", or set Bits per cheer higher for more room." : "."));
         }
-        writeNote(gnote, lines.concat(partLines(where, parts)), [], where.over);
+        writeNote(gnote, lines.concat(partLines(where, parts, noRoom)), [], where.over);
       };
       costSyncs.push(syncGlyph);
 
@@ -4530,8 +4689,10 @@
       url.addEventListener("input", function () {
         block.url = url.value; block.outUrl = null; block._img = null; block.aspect = null;
         delete block.fileName; delete block._decodeFailed;
-        if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
-        else if (block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
+        // A new read for a glyph-art link; otherwise the read in flight is for the old link.
+        if (block.imgKind === "glyph" && block.url) decodeGlyphImage(block);
+        else cancelDecode(block);
+        if (block.imgKind !== "glyph" && block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
         saveBlocks(); update();
       });
       // The input is emptied once its file is taken (and on a change of kind), so picking the
@@ -4608,11 +4769,17 @@
         // Worded per kind: a Glyph-art block reads a picked file on this device (no upload), so
         // "re-upload" was wrong there; a Real picture prints nothing whatever its link does, so
         // its note is quiet and only says why the picture is missing from the card.
+        // A Glyph-art block whose picture was read before the link died still prints from that
+        // copy (block._img) until a reload or a preset load, so its note says that, in grey: the
+        // red "prints nothing" sat over parts that held the picture and charged for it (polish
+        // review 4).
         if (b._expired) {
           var note = document.createElement("div");
-          var glyph = b.type === "image" && b.imgKind === "glyph";
-          note.className = glyph ? "expired-note" : "hint";
-          note.textContent = glyph
+          var glyph = b.type === "image" && b.imgKind === "glyph", held = glyph && !!b._img;
+          note.className = glyph && !held ? "expired-note" : "hint";
+          note.textContent = held
+            ? "This uploaded link has expired (uploads last 15 minutes). The block still prints from the copy read earlier, until you reload or load a preset; to keep it after that, pick the file again or paste another link."
+            : glyph
             ? "This uploaded link has expired (uploads last 15 minutes), so this block prints nothing. Pick the file again (it stays on this device) or paste another link."
             : "This picture's uploaded link has expired (uploads last 15 minutes), so it can't be shown here. A Real picture can't print either way.";
           card.insertBefore(note, card.firstChild);
@@ -4701,6 +4868,13 @@
       return isFinite(i) && i >= 0 && i < presets.length ? i : -1;
     }
     function selectedPreset() { var i = selectedIndex(); return i >= 0 ? presets[i] : null; }
+    // The name box follows the list's pick after the list moves it (Delete, Import), as a pick by
+    // hand does: it kept the deleted preset's name while Load and Delete acted on the list's new
+    // pick (polish review 4).
+    function syncPresetName() {
+      var p = selectedPreset();
+      els.presetName.value = p ? p.name : "";
+    }
     function presetIndexByName(name) {
       for (var i = 0; i < presets.length; i++) if (presets[i].name === name) return i;
       return -1;
@@ -4747,11 +4921,14 @@
         });
         var changed = blocks.some(function (b, i) { return !!b._expired !== before[i]; })
           || blocks.length !== before.length;
-        if (changed) renderComposer();
-        // How many blocks it flagged (all, and the Glyph-art ones, the only ones a dead link stops
-        // printing), and how many links it checked.
+        // The parts too, not only the cards: their red notice names an expired link as expired
+        // (missingPictures), and it kept the read failure's "can't be read" until some other edit
+        // redrew it (polish review 4).
+        if (changed) { renderComposer(); refresh(); }
+        // How many blocks it flagged (all, and the Glyph-art ones a dead link stops printing: not
+        // one still holding the copy it read earlier), and how many links it checked.
         return { expired: blocks.filter(function (b) { return b._expired; }).length,
-                 glyph: blocks.filter(function (b) { return b._expired && isGlyphBlock(b); }).length, checked: jobs.length };
+                 glyph: blocks.filter(function (b) { return b._expired && isGlyphBlock(b) && !b._img; }).length, checked: jobs.length };
       });
     }
     // Hung off saveBlocks rather than off the three or four places a picture URL can
@@ -4821,8 +4998,11 @@
         }
         migrationBanner(migrationNote(pendingBackup.blocks, pendingBackup.name, false, !kept));
       }
+      // The banner names the backup, so the list shows it picked, beside Load (it picked the
+      // user's first preset, and Load loaded that: polish review 4).
+      var backupAt = pendingBackup && kept ? presetIndexByName(pendingBackup.name) : -1;
       pendingBackup = null;
-      renderPresetList();
+      renderPresetList(backupAt >= 0 ? backupAt : undefined);
       // Save and Delete each ask for a second press when they would destroy something (a preset
       // replaced by this stack, or deleted): a modal confirm() blocks the page, and the button
       // re-labelling says the same thing in place. Any other preset action, or a new pick in
@@ -4916,7 +5096,7 @@
         }
         disarm();
         presets = presets.slice(0, i).concat(presets.slice(i + 1));
-        persistPresets(); renderPresetList(Math.min(i, presets.length - 1));
+        persistPresets(); renderPresetList(Math.min(i, presets.length - 1)); syncPresetName();
         presetNote("Deleted \"" + p.name + "\".");
       });
       els.presetList.addEventListener("change", function () {
@@ -4946,7 +5126,7 @@
         // Added, never replacing anything: a taken name gets a number (importPresets).
         var im = importPresets(presets, res.presets), rn = im.renamed, sm = im.same;
         presets = im.presets;
-        if (im.added) { persistPresets(); renderPresetList(presets.length - 1); }
+        if (im.added) { persistPresets(); renderPresetList(presets.length - 1); syncPresetName(); }
         var q = function (x) { return "\"" + x + "\""; };
         var nameList = function (all) {
           var listed = all.slice(0, 3).map(q);
@@ -5097,7 +5277,7 @@
       var st = getSettings();
       // A stack with nothing printable already says what to do in its one placeholder.
       var compose = currentKind === "compose";
-      renderParts(lastParts, compose ? modeNotice(st)
+      renderParts(lastParts, compose ? { text: modeNotice(st), fix: settingFix(st) }
         : { text: "This is the " + (currentKind === "hrprobe" ? "High Roller test" : "Plain test")
             + ", not your stack. Your blocks are unchanged."
             + (st.cheer ? "" : " It is a real cheer even with Cheer-ready off: a test has to print to show anything."), back: true },
@@ -5265,11 +5445,12 @@
       BIG_LAYOUTS: BIG_LAYOUTS, BIG_CAP_EM: BIG_CAP_EM, MM_PER_PX: MM_PER_PX, bigCapCm: bigCapCm,
       bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, bigClean: bigClean, bigGraphemes: bigGraphemes,
       bigGraphemesFallback: bigGraphemesFallback, bigLineEm: bigLineEm, bigFitPx: bigFitPx,
+      BIG_EDGE: BIG_EDGE, bigEdge: bigEdge, bigEdgeEm: bigEdgeEm,
       bigLineHeight: bigLineHeight, bigWrapWords: bigWrapWords, bigWrapCount: bigWrapCount, bigWrapWordsOf: bigWrapWordsOf, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
       bigCheerCount: bigCheerCount, bigPlan: bigPlan, bigFit: bigFit, buildBigBodies: buildBigBodies,
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
       // Sideways (High Roller).
-      SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen,
+      SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen, sidePad: sidePad,
       sideWidthPx: sideWidthPx, sideLines: sideLines, sideSizeOf: sideSizeOf, sideOpts: sideOpts,
       sidePlan: sidePlan, sideFit: sideFit, buildSideBodies: buildSideBodies, sideReport: sideReport,
       // Glyph-art (High Roller) and Design T (plain).

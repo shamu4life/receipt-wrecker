@@ -79,13 +79,13 @@ test("height is lines x px x LH, width stays inside the paper, and the part fits
   }
   for (const mm of [80, 58]) {
     const k = ctx({ paperMm: mm });
-    for (const t of ["HELLO", "MMMMM", "WWW", "I", "HAPPY BIRTHDAY", "Mixed case words", "100%", "jog"]) {
+    for (const t of ["HELLO", "MMMMM", "WWW", "I", "HAPPY BIRTHDAY", "Mixed case words", "100%", "jog", "jeff", "if", "just\nstuff", "Îles"]) {
       for (const layout of ["lines", "stack", "each"]) {
         const f = C.bigFit(t, { layout, budget: k.budget, heightPx: k.room, contentW: k.contentW });
         if (!f.fits) {
           // Only a line too wide even at the smallest size may overflow, and only as typed.
           assert.notEqual(layout, "stack", mm + "mm " + t);
-          assert.ok(f.overflow.length && f.overflow.every((i) => C.bigLineEm(f.lines[i]) * C.BIG_MIN_PX
+          assert.ok(f.overflow.length && f.overflow.every((i) => (C.bigLineEm(f.lines[i]) + C.bigEdgeEm(f.lines[i])) * C.BIG_MIN_PX
             > C.bigFitPx(k.contentW, C.bigGraphemes(f.lines[i]).length)), mm + "mm " + t + " " + layout);
           continue;
         }
@@ -93,7 +93,8 @@ test("height is lines x px x LH, width stays inside the paper, and the part fits
         f.lines.forEach((l, i) => {
           if (!l) return;
           const n = C.bigGraphemes(l).length;
-          assert.ok(C.bigLineEm(l) * pxs[i] <= C.bigFitPx(k.contentW, n) + 1e-9, mm + "mm " + layout + " " + JSON.stringify(l) + " at " + pxs[i]);
+          // The advances AND the first and last glyphs' ink past them (bigEdgeEm).
+          assert.ok((C.bigLineEm(l) + C.bigEdgeEm(l)) * pxs[i] <= C.bigFitPx(k.contentW, n) + 1e-9, mm + "mm " + layout + " " + JSON.stringify(l) + " at " + pxs[i]);
         });
         for (const p of C.packStackBodies(build(t, { layout }, k), k)) {
           assert.ok(p.contentPx <= k.limit.px + 1e-6, t + " " + layout + ": " + p.contentPx + "px");
@@ -134,7 +135,7 @@ test("auto wraps a sentence at its spaces: every word whole, every line inside t
   assert.ok(f.fits && !f.over && !f.tall);
   assert.ok(f.px > st.px, "bigger than the stack: " + f.px + " vs " + st.px);
   assert.equal(f.lines.join(" "), s, "the words, in order, none of them broken");
-  for (const l of f.lines) assert.ok(C.bigLineEm(l) * f.px <= C.bigFitPx(244, C.bigGraphemes(l).length) + 1e-9, l);
+  for (const l of f.lines) assert.ok((C.bigLineEm(l) + C.bigEdgeEm(l)) * f.px <= C.bigFitPx(244, C.bigGraphemes(l).length) + 1e-9, l);
   const b = build(s, {});
   assert.equal(b.length, 1);
   assert.equal(b[0].html, '<div style="font:700 50px/1.15 Arial">' + f.lines.map(C.escapeHtml).join("<br>") + "</div>");
@@ -534,4 +535,45 @@ test("a stacked word taller than one receipt at this size is named, with how man
   eq(build("HELLO WORLD", { layout: "stack", size: 200 })[0].big.splitWords, []);
   eq(build("THIS IS A VERY LONG MESSAGE", { layout: "lines", size: "width" })[0].big.splitWords, []);
   assert.ok(!/too tall for one receipt/.test(C.bigReport(build("HELLO", { layout: "stack", size: 400 }, ctx({ bitsPerInch: 50 })), {})));
+  // A long word is named the way the too-wide note names a line, cut to 23 characters and "…"
+  // (polish review 4: quoted whole, a 43-letter word ran off the card on a phone).
+  const longWord = "THANKSFORTHERAIDEVERYONEWHOCAMEBYTONIGHTYAY";
+  const lr = C.bigReport(build(longWord, { layout: "stack", size: "width" }), {});
+  assert.match(lr, /^“THANKSFORTHERAIDEVERYON…” is too tall for one receipt at this size/m);
+  assert.ok(!lr.includes(longWord), lr);
+});
+
+test("polish 4: a j's hook, an f's arm and the accented i's stay inside the box: the width counts the ink past the first and last glyphs", () => {
+  // Arial Bold draws a few glyphs outside their advance (bench, with Arial: "jeff" at 160px put
+  // 5.5px of the j's hook past the box's left edge and 2.7px of the f's arm past its right; "if"
+  // at 394px 9.7px of the arm). The fit now leaves twice the larger overhang of the first and last
+  // glyphs, since a centred line splits the room between its sides.
+  close(C.bigEdge("j")[0], 0.047, "j's hook, left"); close(C.bigEdge("f")[1], 0.031, "f's arm, right");
+  close(C.bigEdge("r")[1], 0.013, "r's ear, right");
+  eq(J(C.bigEdge("H")), [0, 0], "capitals stay inside their advance");
+  eq(J(C.bigEdge("i\u0302")), J(C.bigEdge("î")), "a decomposed accent counts like the composed letter");
+  close(C.bigEdgeEm("jeff"), 2 * 0.047, "jeff: the hook is the larger end");
+  close(C.bigEdgeEm("if"), 2 * 0.031);
+  assert.equal(C.bigEdgeEm("fij"), 0, "an f at the start and a j at the end overhang inward");
+  assert.equal(C.bigEdgeEm(""), 0);
+  // Bench-checked sizes (forkbench --fonts with Arial Bold, and the vendored renderer with the
+  // box's clip lifted: every line's ink 2px or more inside both edges after the fix).
+  for (const [t, mm, before, after] of [["jeff", 80, 160, 150], ["just", 80, 134, 128], ["if", 80, 394, 358], ["jj", 80, 400, 370], ["jeff", 58, 99, 93]]) {
+    const k = ctx({ paperMm: mm }), f = C.bigFit(t, { layout: "lines", budget: k.budget, heightPx: k.room, contentW: k.contentW });
+    assert.equal(f.px, after, t + " on " + mm + " mm (it was " + before + "px, cut off)");
+    assert.ok(f.fits);
+  }
+  // Text whose ends draw inside their advance is sized as before.
+  assert.equal(C.bigFit("HELLO", { layout: "lines" }).px, 70);
+  assert.equal(C.bigFit("Happy birthday", { layout: "lines" }).px, 32);
+  // Each: "jeff" on its own line gets the same cap as it does alone; the overflow check agrees.
+  const e = C.bigFit("HAPPY BIRTHDAY\njeff", { layout: "each" });
+  assert.equal(e.pxs[1], 150);
+  assert.ok(e.fits);
+  const tooBig = C.bigFit("jeff", { layout: "lines", size: 160 });
+  assert.equal(tooBig.fits, false, "160px puts the hook outside the box: too wide, said so");
+  eq(tooBig.overflow, [0]);
+  // Wrap: the words on a line include their ends' ink when they are put together.
+  const w = C.bigWrapWords("off jeff", 100, 244);
+  for (const l of w) assert.ok((C.bigLineEm(l) + C.bigEdgeEm(l)) * 100 <= C.bigFitPx(244, C.bigGraphemes(l).length) + 1e-9, l);
 });

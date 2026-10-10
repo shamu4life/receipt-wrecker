@@ -223,7 +223,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **141 keys**. Regenerate the list instead of trusting this one:
+test harness **145 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -235,9 +235,9 @@ test harness **141 keys**. Regenerate the list instead of trusting this one:
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
-`bigFitPx`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
+`bigFitPx`, `BIG_EDGE`, `bigEdge`, `bigEdgeEm`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
 `bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `SIDE_DIRS`,
-`SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
+`SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sidePad`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
 `cjkGridK`, `monoK`, `brailleFontPx`, `glyphAspect`, `buildCjkGrid`, `buildMonoGrid`,
@@ -321,6 +321,18 @@ nothing that prints).
   accents and emoji have ink below the baseline that `.8` clips.
 - Width: a line may use `bigFitPx(contentW, glyphs)` = contentW − 2 − 0.5 per glyph (margin for
   the rig's rounding). Height: lines × px × LH, within 0.15px on the bench.
+- **Ink past the advance.** A few glyphs draw outside their own advance: j's hook 0.047em left of
+  it, f's arm 0.031em right, r's ear 0.013em, Æ and the accented dotless i's (Ì Í Î Ï ì í î ï)
+  up to 0.042em (`BIG_EDGE`, `[left, right]` em: the larger of Arial Bold and Liberation Sans
+  Bold, measured from the rendered ink at 400px, rounded up; only overhangs over 0.003em, which
+  bigFitPx's margin covers). A centred line needs `bigEdgeEm(line)` = 2 × max(its first glyph's
+  left, its last glyph's right) more width, so `bigPrep` keeps `inkEms` (advances + that) beside
+  `ems` (advances): the width fit (`pxW`) and "too wide" (`overflow`) use `inkEms`, the wrap
+  count (`bigLineH`, `bigWrapCount`) uses `ems`, since the browser wraps by advances, and
+  `bigWrapWords` counts the ends of each line it builds. Before polish review 4 the model
+  measured advances only: with Arial Bold on the bench "jeff" at 160px lost 5.5px of the j's
+  hook past the box's left edge and 2.7px of the f's arm past its right, "if" at 394px 9.7px of
+  the arm, while the card said "fits". Now 150 / 358px, ink at least 2px inside both edges.
 - `bigWrapWords(line, px, contentW)` is a greedy word wrap at px against `bigFitPx`, at the
   spaces only: the lines the Wrap layout sends, every word whole.
 - `bigWrapCount(line, px, contentW)` is how many lines a line too wide at an explicit size
@@ -407,7 +419,7 @@ nothing that prints).
   rule is unchanged. In Each, a range of capitals that rounds to one value reads as one.
 
 **Sideways (High Roller).** One literal shape:
-`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;position:relative;left:<X>px]">line 1<br>line 2</div>`.
+`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]">line 1<br>line 2</div>`.
 - `down` = `vertical-rl;text-orientation:sideways` (letter tops toward the right edge: turn
   the receipt anticlockwise to read; works on every Edge). The `text-orientation` is not
   optional: without it `vertical-rl` stands Han, kana, Hangul and emoji upright, so they lie on
@@ -430,7 +442,7 @@ nothing that prints).
   used to be capped at 280 (scaled), below the rule, so 281-300px was called "too wide" while
   it printed whole (polish review 2). With Arial Bold on the bench, HELLO at 300px prints 11.5
   / 10.6px clear of the edges on 80 mm and at 190px 7.2 / 5.3px on 58 mm: the model keeps 6px,
-  and the bench's rounding takes up to about a px of it (4.9px at the least, two columns of
+  and the bench's rounding takes up to about 1.3px of it (4.7px at the least, two columns of
   capitals at 91px on 58 mm). The comma, semicolon and Q are not capitals here (their tails
   clipped at the paper edge in review).
 - **The ink is centred, not the line box.** `margin:auto` centres a column's line box, but the
@@ -463,12 +475,33 @@ nothing that prints).
   ink sits 0.0115em toward the letter tops, so they now move about 3px the other way at 300px,
   and the shift is no longer skipped at 1px. Bench after, with Arial (74 blocks: capitals,
   digits, lowercase, mixed, kana, emoji; 80 and 58 mm, down and up): every one within 1.9px of
-  centre and at least 4.9px from both edges. With the bench's default Liberation, capitals sit
+  centre. A wider sweep (polish review 4: 548 blocks, 12 texts at 15 sizes from 20 to 300px)
+  found up to 2.4px off centre, 6% of them past 2px: under about 130px the ink leans 0 to 2px
+  toward the letter tops, by an amount that changes with the size (the line boxes' pixel
+  rounding, not a constant a shift could take out; folding in a fixed 1px would move the large
+  sizes off centre instead), and a block that narrow is far from both edges. From 130px up
+  every one is within 1.2px, and every block is at least 4.7px from both edges. With the
+  bench's default Liberation, capitals sit
   up to 4px toward the baseline side (its capitals are shorter) and Q-led blocks up to 14.6px
   toward the descenders' side ("QUIZ" at 193px); a Linux or Mac preview drawing Arial with a
   Liberation-like face shows the same.
 - Length = S × the line's em width + 0.5 px a glyph: an upper bound (kerning makes the real run
   1-18px shorter on the bench).
+- **Ink past the end of the run** (`sidePad`). The div is exactly as long as its longest
+  column's advances and the bot's box ends with it, so a glyph whose ink runs past its advance
+  (`BIG_EDGE`) at the column's BOTTOM end was cut: top to bottom the last letter's right side (an
+  f's arm: "stuff" at 193px lost 6.2px), bottom to top the first letter's left side (a j's hook:
+  "just" lost 9.4px, 2.5 mm). The other end reaches into the line above (the Cheer line or the
+  body before), which is not cut. A body whose columns end (bottom to top: start) with such a
+  glyph gets `padding-bottom` = ceil(S × that overhang + 0.5) px (half a px for the anti-aliased
+  edge), and its height counts it; every column counts in full (a shorter column is centred and
+  needs less, but the lengths are upper bounds). `sideEval` keeps that much room back in
+  characters and length so a body's real padding always fits: first the largest overhang at a
+  word end (top to bottom) or word start (bottom to top), since segments end at word boundaries;
+  when a word too long for a body is cut between letters and a cut letter needs more, it runs
+  again with every glyph's. Text with none of these glyphs at its word ends is byte-identical to
+  before. Bench after, with Arial (the vendored renderer with the box's clip lifted): no ink past
+  the box's bottom in any case, 0 to 1.1px inside.
 - A long line is cut into segments at word boundaries, by height and by an equal share of the
   characters; body k takes segment k of every line, and an empty column holds a U+00A0 so the
   others don't move. `up` sends multi-part runs last first. Sizes: `fit1`, `width`, px 20..300.
@@ -560,7 +593,8 @@ one-part stack.
   BIG, jog, MMMMM) while they fit after the Cheer line, printed in their usual order, and the
   note asks only about the ones kept and names the ones left out (`left`). It returns `works`:
   false with High Roller off, or when not even BIG fits (the note says the test can't show
-  anything at these settings), and the glue then offers no Copy.
+  anything at these settings: "the Cheer line fills it" when it does, else how many mm are left
+  after the Cheer line, too short for BIG's 13 mm), and the glue then offers no Copy.
 - `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off): a Design T
   grid with HI in block letters and a row of the ramp's tones. When the threshold is 1, every
   cheer is High Roller and it says there is no plain test.
@@ -624,7 +658,9 @@ name taken by a saved setup or by one added earlier in the same import getting
 `freePresetName`'s "Stream (2)" (upserting lost a setup when a file held two of one name, and
 replaced saved ones without asking); a preset already saved exactly as it is (same name, same
 blocks, compared by `canonJson`, keys sorted) is left out and listed in `same`, so Export then
-Import no longer doubles the list; it returns `{presets, added, renamed, same}` and the note
+Import no longer doubles the list; "same name" includes a copy an earlier Import renamed
+(`presetNamedFrom`: "Stream (2)", the base cut as `freePresetName` cuts it), so importing a file
+whose names clashed a second time adds nothing either; it returns `{presets, added, renamed, same}` and the note
 says which were renamed and which were already saved. `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
 `isMintedImageUrl` matches only this Worker's own upload links, by shape, across all three
 generations; `presetImageUrls` walks a stack's picture links.
@@ -648,7 +684,10 @@ generations; `presetImageUrls` walks a stack's picture links.
   picture → `glyphImageBodies` (decoded once into `block._img` by `decodeGlyphImage`, turned by
   `block.rotate` on a canvas by `glyphSource`; `glyphGrid` samples it for the tier's form, or
   for Design T in plain mode). Runtime-only decode state: `_decoding`, `_decodeKey` (a slow
-  read of an older link never lands over a newer one) and `_decodeFailed` (the source that
+  read of an older link never lands over a newer one; `cancelDecode(block)` retires the read in
+  flight whenever the source changes without a new read starting: the link emptied, typed on a
+  Real picture card, or replaced by an upload, where the old read used to land and print the
+  picture the field no longer named) and `_decodeFailed` (the source that
   could not be read; it is not asked again until the link changes, where every refresh used
   to re-fetch it through /px). A picked file is read on the device and never uploaded, so it
   replaces the link (`url` ""), and its name is kept as `fileName` (a saved field): after a
@@ -721,7 +760,13 @@ generations; `presetImageUrls` walks a stack's picture links.
   lands). When the streamer's settings leave a
   High Roller cheer no room after its Cheer line (`boxNoRoom`), every part is `noRoom`: a red
   note says it prints nothing but that line (a plain grid: only its light first row), its Copy
-  is disabled, and `noRoomAdvice` replaces the bits total. Without the repeat number, a part identical to
+  is disabled, and `noRoomAdvice` replaces the bits total. Every card agrees: Big and Sideways
+  say "prints nothing" in place of a price, the Han tiling and Glyph-art summaries drop their
+  cheer counts, and `partLines(where, parts, noRoom)` leaves out "Your whole stack needs N
+  cheers". The mode notice and the no-room line carry a button to the field that fixes them
+  (`settingFix`, `fixButton`, `goToSetting`: "Change Bits per cheer", or "Go to Maximum length" /
+  "Go to High Roller threshold"), which scrolls there and focuses it: on a phone the settings
+  sit below every part. Without the repeat number, a part identical to
   the one right before it gets a note (Twitch won't send the same message twice in a row
   within 30 seconds). `probeParts(kind)` builds a probe the same way; its view's notice
   carries a "Back to my stack" button (`#backToStack`) and, with Cheer-ready off, says the test
@@ -766,15 +811,20 @@ generations; `presetImageUrls` walks a stack's picture links.
   (`stackIsSaved`: each preset migrated, ids and the Real picture's derived `outUrl` / `aspect`
   aside, keys sorted; a stack with nothing printable has nothing to lose).
   `probeStackExpiry` checks this Worker's upload links (15-minute TTL) by loading each into a
-  `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card, and RETURNS a promise
+  `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card and redraws the parts
+  too (their red notice then says "expired", as the card does), and RETURNS a promise
   of how many it flagged (it once didn't, and Load's "Checking…" never resolved), which Load
   reports for Glyph-art blocks only (counted on the converted stack, so an old Takeover's
   picture counts; a Real picture prints nothing whatever its link does) ("Its uploaded pictures
   still load" / "N pictures' links have expired: pick the file again or paste a fresh link");
-  a preset with no uploaded Glyph-art link promises no check. The preset list is
-  keyed by INDEX, not name (`renderPresetList(pick)`, `selectedIndex`), so a list that holds
+  a preset with no uploaded Glyph-art link promises no check. A Glyph-art block that read its
+  picture before the link died still prints from that copy (`_img`) until a reload or a preset
+  load: its card says so in grey (not the red "prints nothing"), and it is not counted. The
+  preset list is keyed by INDEX, not name (`renderPresetList(pick)`, `selectedIndex`), so a list that holds
   two presets of one name (an older build could save one) still loads, renames and deletes the
   one picked; Rename refuses a name another preset has, and says when the name is unchanged.
+  After Delete or Import moves the list's pick, the name box follows it (`syncPresetName`), and
+  when the migration backup is written the list picks it, since the banner names it.
 
 ## The preview: SassyTP's own renderer
 
@@ -865,7 +915,8 @@ scale has not been done. The caption says all of this plainly (the computer's fo
 differ; small grids on 58 mm and Braille can differ from the print, strokes included, so judge
 them with the thermal view off). The canvas is shown
 at one scale for both papers (`min(576px, 100%)` and `min(384px, 66.67%)`), so 58 mm is two
-thirds of 80 mm, and the Thermal dither select is disabled while the view is off. The grey logo
+thirds of 80 mm (in a column narrower than that on a standard-density screen, some rows and
+columns of dots are skipped on screen, and the caption says so and to zoom in), and the Thermal dither select is disabled while the view is off. The grey logo
 placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 
 ### "SassyTP shipped a new version"
@@ -1081,7 +1132,9 @@ lives in `test-browser/` and is not in the default matcher.
   alike, or the card and the payload will disagree.
 - A card's cheer count is the packed parts', never its own chunk count: the packer shares parts
   between blocks.
-- `.text-note` is the card note's class.
+- `.text-note` is the card note's class. It wraps anywhere, and a note quotes a user's word or
+  line through `quoteCut` (23 characters and "…" past 24): a 43-letter word quoted whole ran off
+  a phone's screen.
 - Migrated text blocks keep `size`, `cols` and `fmt`; they are unused. `fmt.font` is inert.
 - Saved presets in storage are never migrated in place; only the stack loaded from one is.
 - Known limitations, accepted: no keystroke debounce (each keystroke writes the settings key);

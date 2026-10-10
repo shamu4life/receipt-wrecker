@@ -39,6 +39,7 @@
 - [ ] `package.json` `version` updated
 - [ ] `docs/CHANGELOG.md` new section added at the top
 - [ ] `README.md` version badge updated
+- [ ] `public/llms.txt` "Current version" line updated
 
 ### Documentation
 

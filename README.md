@@ -125,7 +125,9 @@ Cheer100 <div style="font:700 69px/.8 Arial">HAPPY</div><div style="font:700 46p
 ```
 
 The font is fixed: the streamer's Windows has Arial, so the sizes in the app are the sizes on
-the tape. Emoji are allowed and print as grey dots (the printer has no colour). Invisible
+the tape. A few letters draw a little past their own space (the hook of a j, the arm of an f),
+so a line that starts or ends with one is sized a touch smaller, to keep that ink on the paper.
+Emoji are allowed and print as grey dots (the printer has no colour). Invisible
 characters from copy-paste (zero-width spaces and the like) are left out, and the card says
 so.
 
@@ -135,8 +137,10 @@ Your words running down the tape, as big as the paper's width allows. Each line 
 becomes a column across the paper:
 
 ```text
-Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>
+Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px">HAPPY<br>BIRTHDAY</div>
 ```
+
+(Built by the app's own code: `node tools/payload.mjs '{"kind":"side","text":"HAPPY\nBIRTHDAY"}'`.)
 
 **How to read it.** *Top to bottom* (the default): turn the receipt **anticlockwise** (a
 quarter turn to the left) and it reads left to right, line 1 on top. *Bottom to top*: turn it
@@ -147,6 +151,9 @@ lowercase and punctuation with tails would sit toward the side their tails point
 capitals a little toward their tops, so the app moves the block back by that much
 (`position:relative;left:…px`), worked out from Arial Bold, the streamer's font. Nothing is cut
 off. (A preview on a computer without Arial can show capitals a few pixels off the middle.)
+A few letters draw a little past their own space, like the hook of a j or the arm of an f. When
+one of them sits at the bottom end of a column, the app adds that much room below the column
+(`padding-bottom:…px`), so the bot's message box doesn't cut it off.
 
 Each line you type is one column, and it never wraps: a sentence on one line prints as one
 thin column. When that makes the capitals small, the card says to press Enter between words:

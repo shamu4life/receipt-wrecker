@@ -115,6 +115,7 @@ A version bump updates all of these in the same PR:
 | `package.json` | `"version"`, the source of truth |
 | `README.md` | Version badge |
 | `docs/CHANGELOG.md` | New section at the top |
+| `public/llms.txt` | The "Current version" line (version and date) |
 
 ---
 

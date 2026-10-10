@@ -78,7 +78,10 @@ page, built into the app and run in a sandboxed frame with no network access.
   sizes *Auto* (biggest in one cheer), *Fill the
   paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
   1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
-  print as grey dots; invisible characters are left out and the card says so. Every option is
+  print as grey dots; invisible characters are left out and the card says so. The width also
+  leaves room for the ink a few letters draw past their own space at a line's ends (a j's hook,
+  an f's arm, an r's ear, the accented dotless i's), which the bot's box used to clip: "jeff"
+  now prints at 150px, where 160px cut 5.5px off the j. Every option is
   labelled with what it prints (capitals in cm, the message's length in cm, cheers); in *Each
   line its own size* a fixed size is a cap, labelled "up to N px" with the capitals each line
   really gets. A stacked word too tall for one receipt at the size picked is named, with the
@@ -95,9 +98,12 @@ page, built into the app and run in a sandboxed frame with no network access.
   `position:relative;left` shift worked out from each letter's ink in Arial Bold, the
   streamer's font. Capitals, digits, Q and Ç follow Arial Bold's own outlines (the bench's
   Liberation Sans Bold has shorter capitals and a far longer Q tail), so capitals move about
-  3px at 300px too. With Arial on the bench, 74 blocks (capitals, lowercase, mixed, kana and
-  emoji) came within 1.9px of centre at both widths and in both directions, at least 4.9px from
-  either edge. One line of capitals goes up to the width rule
+  3px at 300px too. With Arial on the bench, 548 blocks (capitals, lowercase, mixed, digits,
+  kana and emoji, 20 to 300px) came within 2.4px of centre at both widths and in both
+  directions (within 1.2px from 130px up), and at least 4.7px from either edge. A column whose
+  bottom end is such a letter (an f or r at the end, top to bottom; a j at the start, bottom to
+  top) gets a `padding-bottom` for its ink, so the bot's box no longer cuts it ("just" bottom to
+  top lost 2.5 mm of its hook). One line of capitals goes up to the width rule
   (300px on 80 mm, 190px on 58 mm), where it used to stop at 280px and call 281-300px too wide.
   A long line Auto had to shrink gets a hint to press Enter for more, bigger columns.
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
@@ -177,7 +183,10 @@ page, built into the app and run in a sandboxed frame with no network access.
 - **No room after the Cheer line**: when the streamer's length settings leave a cheer nothing
   after its Cheer line, every part says so, its Copy is disabled, the line under the parts
   says what to change instead of totalling bits, and the cards say the block prints nothing
-  instead of pricing it.
+  instead of pricing it (Han tiling and Glyph-art too, and no card says how many cheers the run
+  needs). That line and the notice above the parts have a button that goes to the field to
+  change (**Change Bits per cheer**, or the streamer's setting): on a phone it is far below the
+  parts.
 - **× has an Undo.** Removing a block leaves "Removed a Text block (…). Undo" in its place
   until the next change to the stack; on a phone the card's ↑ ↓ × buttons are full-size touch
   targets, with × set apart.
@@ -192,10 +201,14 @@ page, built into the app and run in a sandboxed frame with no network access.
   replaces a saved setup: a name taken by one (or repeated in the file) is added with a number
   after it (kept within the 60 characters a name holds), and the note says which; a setup
   already saved exactly as it is is left out, so importing what was just exported adds
-  nothing.
+  nothing, and neither does importing the same file twice when its names clashed. After Delete
+  or Import the name box shows the preset the list picked; after a conversion the list picks
+  the "Before 1.0.0" backup the banner names.
 - **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
   card says a reload or a preset won't keep it, and asks for it again when one didn't. A link
-  that can't be read says so (and isn't fetched again on every edit). **Rotate** works for
+  that can't be read says so (and isn't fetched again on every edit). Clearing or changing a
+  link while it is still being read cancels that read: it used to land a moment later and print
+  the picture the field no longer named. **Rotate** works for
   glyph-art too. Grids that need several cheers are spread evenly over them. The Detail field
   shows the columns the grid really uses.
 - A free test counts messages, not bits, and below the threshold it says the real cheer
@@ -215,7 +228,9 @@ page, built into the app and run in a sandboxed frame with no network access.
   label a screen reader can read, and the ↑ ↓ × and ↺ buttons say what they do.
 - An expired upload link is worded for the block: a Glyph-art block asks for the file again
   (it stays on the device) or another link; a Real picture only says why the picture is gone
-  from the card. An over-length part says how to fix it for what it holds (text has no
+  from the card. A Glyph-art block whose picture was read before its link expired still prints
+  from that copy until a reload, and its card says so (in grey, not the red "prints nothing").
+  The notice above the parts says "expired" too, as soon as the check finds it. An over-length part says how to fix it for what it holds (text has no
   columns), and the line under the parts says to fix it before pasting instead of "send it".
 - **A picture the parts leave out is named.** A Glyph-art picture with a link or a picked file
   that isn't in the parts (still loading, a link or file that can't be read, an expired upload,
@@ -228,7 +243,12 @@ page, built into the app and run in a sandboxed frame with no network access.
   counts only while its checkbox is enabled, so the tests carry no digits with Cheer-ready off.
   While a test is shown the cards keep describing the stack. The Text box grows with its lines;
   an emptied Detail field changes nothing until a number is typed; after ↑, ↓ or Undo the
-  keyboard stays on the card.
+  keyboard stays on the card. When bits per inch leaves room after the Cheer line but too little
+  for the High Roller test's BIG, its note says how many mm are left instead of "the Cheer line
+  fills it". A long word quoted in a card's note is cut to 23 characters, and notes wrap, so a
+  phone's page no longer scrolls sideways. The Thermal caption says the view is scaled to fit
+  the column, so on a screen that isn't high-density some dots are skipped: zoom in to see
+  every dot.
 
 ### Migration of saved work
 
@@ -284,7 +304,7 @@ blocks a form, the answer is the plain form, never a reworked message.
   sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
   Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
   caption says their texture is approximate.
-- **Tests**: 183 unit tests and 41 browser tests, including the tag allow-list test and the
+- **Tests**: 185 unit tests and 44 browser tests, including the tag allow-list test and the
   contract test against the vendored renderer (which carries the *Words wrapped* layout and a
   Han and an emoji run at a fixed size too wide for the paper).
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig

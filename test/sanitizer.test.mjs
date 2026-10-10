@@ -89,18 +89,13 @@ test("a CJK/Hanzi glyph grid is pure text — nothing for the sanitizer to strip
   assert.ok(survivesWhole("丶丿二<br>三十土"), "<br>-separated Han rows must survive");
 });
 
-test("the SVG modes are correctly known-dead — they emit tags the sanitizer strips", () => {
-  // Regression guard: if someone re-promotes Big Text's SVG "Type" or the Takeover as
-  // a printing path, this fails. They emit <svg>/<text>/<rect>, none on the allow-list,
-  // so the sanitizer unwraps them to bare text (or nothing) — they do not print.
+test("the SVG Big Text mode is correctly known-dead — it emits tags the sanitizer strips", () => {
+  // Regression guard: if someone re-promotes Big Text's SVG "Type" as a printing path,
+  // this fails. It emits <svg>/<text>, neither on the allow-list, so the sanitizer
+  // unwraps it to bare text — it does not print.
   const big = C.buildBigTextSvg("HELLO", 1, {});
   assert.ok(tagsIn(big).includes("svg"), "buildBigTextSvg should still emit <svg>: " + big);
   assert.ok(!survivesWhole(big), "the SVG big-text path must be known-dead under the sanitizer");
-
-  const tk = C.buildTakeover({ items: [{ kind: "text", text: "TAX LIEN", size: 24 }], pullPt: 240, w: 263 });
-  assert.ok(tagsIn(tk).includes("svg") && tagsIn(tk).includes("rect"),
-    "buildTakeover should still emit <svg>/<rect>: " + tk);
-  assert.ok(!survivesWhole(tk), "the takeover overlay must be known-dead under the sanitizer");
 });
 
 test("the attribute scan reads EVERY occurrence and splits bare names the way a parser does", () => {

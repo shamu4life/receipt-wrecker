@@ -13,9 +13,9 @@
 // header and its High Roller decision will not match the message.
 //
 // NOTE: the kinds below are still the nutty.gg-era ones (Giant type, the Print size ruler,
-// takeovers, covers, carrier embeds) while the app is rebuilt for SassyTP's printer-bot;
-// most of them print nothing styled on it. The rebuild replaces them with big, side,
-// glyph, plain, hrprobe and plainprobe. "raw" is the escape hatch either way.
+// carrier embeds) while the app is rebuilt for SassyTP's printer-bot; most of them print
+// nothing styled on it. The rebuild replaces them with big, side, glyph, plain, hrprobe
+// and plainprobe. "raw" is the escape hatch either way.
 //
 // Specs (all fields optional unless noted):
 //   {"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote",
@@ -32,18 +32,12 @@
 //        the size the app predicts go to stderr. "cheer":false is the free probe message
 //        (no token, never reaches the printer, still passes the chat filter).
 //   {"kind":"ruler","bits":100}                            the Print size ruler (never tucked)
-//   {"kind":"takeover","items":[{"kind":"text","text":"HI","size":24},
-//                               {"kind":"pic","url":"...","width":120}],
-//    "anchor":"top|middle|bottom","pullPt":240,"carrier":"embed|input|iframe","w":263}
-//   {"kind":"cover","pullPt":240,"w":263}                  the continuation cover
 //   {"kind":"embed","url":"...","w":160,"h":160,"carrier":"embed"}   one bare picture
 //   {"kind":"raw","html":"<b>anything</b>"}                escape hatch
 //
-// Add "lead":true to the last four to prefix the real cheer lead ("Cheer100 ", "Cheer100 00 "
-// with "nonce":true, or the tucked one with "tuck":true; "bits" sets the amount). That lead occupies a line in
-// #receipt-content and pushes a lifted takeover DOWN by its height — measuring without it
-// is what made the pull calibration a line short and printed a crescent of the streamer's
-// avatar above the artwork.
+// Add "lead":true to the last two to prefix the real cheer lead ("Cheer100 ", "Cheer100 00 "
+// with "nonce":true, or the tucked one with "tuck":true; "bits" sets the amount). That lead
+// occupies a line of the receipt's message box, so a measurement without it is a line short.
 import { readFileSync, existsSync } from "node:fs";
 import { loadCore } from "../test/_harness.mjs";
 
@@ -79,7 +73,6 @@ const leadOpts = {
 const wrap = (body) => C.packStackBodies([{ html: body, chars: C.payloadLength(body), heightPx: 0 }],
   leadOpts)[0].payload;
 
-const W = spec.w || C.PAPER_PX;
 let html;
 switch (spec.kind) {
   case "giant": {
@@ -123,15 +116,6 @@ switch (spec.kind) {
     console.error("[payload] ruler: 1.." + body.giant.levels + ", predicted height " + body.heightPx + "px");
     break;
   }
-  case "takeover":
-    html = C.buildTakeover({
-      items: spec.items || [], anchor: spec.anchor, carrier: spec.carrier,
-      pullPt: spec.pullPt, w: W,
-    });
-    break;
-  case "cover":
-    html = C.buildStackCover({ pullPt: spec.pullPt, w: W });
-    break;
   case "embed":
     html = C.buildImageEmbed(spec.carrier || C.EMBED_DEFAULT,
       { url: spec.url, w: spec.w || 160, h: spec.h || 160, framed: !!spec.framed });
@@ -141,7 +125,7 @@ switch (spec.kind) {
     break;
   default:
     console.error('unknown kind: ' + JSON.stringify(spec.kind)
-      + ' — expected giant, ruler, takeover, cover, embed or raw');
+      + ' — expected giant, ruler, embed or raw');
     process.exit(2);
 }
 

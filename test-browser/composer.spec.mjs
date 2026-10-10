@@ -7,7 +7,6 @@
 //     on reload. Shipped to production.
 //   * the expired-upload flag was set and never cleared, so the card kept warning after
 //     the user did exactly what it asked.
-//   * the takeover cost line said "Parts 2-2".
 //
 // Since 0.10.0 (Giant type, the cheer-gem tuck) it also holds the cases that need a real
 // layout engine to mean anything: what printer-bot's sanitizer and its borrowed class
@@ -50,16 +49,17 @@ function installClipboardStub() {
   Object.defineProperty(navigator, "clipboard", { configurable: true, get: () => clip });
 }
 
-// `blocks` seeds rw_blocks_v1 before the app's first load, the way a returning user's
-// saved stack is there before the page runs. Only when the key is ABSENT: the app writes
-// it back on every load, so a reload sees the app's own copy, not the seed again.
-async function freshPage({ blocks, viewport } = {}) {
+// `blocks` seeds rw_blocks_v1 (and `presets` rw_presets_v1) before the app's first load,
+// the way a returning user's saved stack is there before the page runs. Only when the key
+// is ABSENT: the app writes it back, so a reload sees the app's own copy, not the seed again.
+async function freshPage({ blocks, presets, viewport } = {}) {
   const ctx = await browser.newContext(viewport ? { viewport } : {});
   await ctx.addInitScript(installClipboardStub);
-  if (blocks) {
-    await ctx.addInitScript((json) => {
-      try { if (!localStorage.getItem("rw_blocks_v1")) localStorage.setItem("rw_blocks_v1", json); } catch (e) {}
-    }, JSON.stringify(blocks));
+  for (const [key, value] of [["rw_blocks_v1", blocks], ["rw_presets_v1", presets]]) {
+    if (!value) continue;
+    await ctx.addInitScript(([k, json]) => {
+      try { if (!localStorage.getItem(k)) localStorage.setItem(k, json); } catch (e) {}
+    }, [key, JSON.stringify(value)]);
   }
   const page = await ctx.newPage();
   const errors = [], requests = [];
@@ -72,10 +72,6 @@ async function freshPage({ blocks, viewport } = {}) {
 
 const cardCount = (page) => page.locator("#blockList > *").count();
 const cards = (page) => page.locator("#blockList > *");
-// Find a card by its type label, not by position: a test that adds blocks moves every
-// positional index, and the default stack's block type has changed under these tests
-// twice already.
-const takeoverCard = (page) => cards(page).filter({ has: page.locator(".bc-type", { hasText: /^takeover$/i }) });
 // A text card's selects, found by an option only that select has. Positional `select`
 // indices are wrong here: the hidden Type/Hanzi/formatting selects come first in the card.
 const RENDER_SEL = 'select:has(option[value="hanzi"])';
@@ -118,7 +114,7 @@ test("a rebuilt stack survives a reload — add, reorder and delete all persist"
   // The exact bug that shipped: addBlock/removeBlock/moveBlock mutated the array and
   // re-rendered without saving, so everything was there until you refreshed.
   const { page, ctx } = await freshPage();
-  await page.click("#addTakeoverBtn");
+  await page.click("#addTextBtn");
   await page.click("#addImageBtn");
   assert.equal(await cardCount(page), 3);
 
@@ -135,95 +131,9 @@ test("a rebuilt stack survives a reload — add, reorder and delete all persist"
   await ctx.close();
 });
 
-test("Seed fake donation fills an empty takeover, and the items are then editable", async () => {
-  const { page, ctx } = await freshPage();
-  await page.click("#addTakeoverBtn");
-  const card = page.locator("#blockList > *").last();
-  await card.getByRole("button", { name: "Seed fake donation" }).click();
-
-  // Four items: the picture, the amount, the name, the italic note.
-  await assert.doesNotReject(card.locator(".tk-item").first().waitFor());
-  assert.equal(await card.locator(".tk-item").count(), 4,
-    "the seed should produce the four-item header arrangement");
-
-  // Ordinary items afterwards — not a frozen template.
-  const before = await card.locator(".tk-item").count();
-  await card.getByRole("button", { name: "+ text" }).click();
-  assert.equal(await page.locator("#blockList > *").last().locator(".tk-item").count(),
-    before + 1, "you should be able to add items around a seeded donation");
-  await ctx.close();
-});
-
-test("the takeover card prices itself, and turns red only when over budget", async () => {
-  const { page, ctx } = await freshPage();
-  await page.click("#addTakeoverBtn");
-  const card = page.locator("#blockList > *").last();
-  await card.getByRole("button", { name: "Seed fake donation" }).click();
-
-  // Scoped to the TAKEOVER card. This used to be `.cost-note.first()`, which only meant
-  // the takeover because nothing above it had a cost line; the default Text block sits
-  // above it and, since 0.10.0, reports its own (as .giant-note, for exactly this reason).
-  // Finding the card by type keeps that coincidence out of the test.
-  assert.equal(await cards(page).first().locator(".cost-note").count(), 0,
-    "the Text card above grew a .cost-note: anything still reading `.cost-note.first()` now reads it");
-  const cost = takeoverCard(page).locator(".cost-note");
-  await cost.waitFor();
-  assert.match(await cost.textContent(), /This takeover is \d+ characters\./);
-  assert.ok(!(await cost.getAttribute("class")).includes("over"),
-    "a seeded donation is well under 500 and must not read as over budget");
-
-  // Push it over by stuffing the item list, and check the warning is real.
-  for (let i = 0; i < 6; i++) await card.getByRole("button", { name: "+ text" }).click();
-  const inputs = page.locator("#blockList > *").last().locator('input[type=text]');
-  for (let i = 0; i < await inputs.count(); i++) {
-    await inputs.nth(i).fill("OVERFLOWING THE TAKEOVER CHARACTER BUDGET " + i);
-  }
-  const after = takeoverCard(page).locator(".cost-note");
-  await assert.doesNotReject(after.locator("xpath=self::*[contains(@class,'over')]").waitFor({ timeout: 4000 }));
-  assert.match(await after.textContent(), /over, so Twitch rejects it/);
-  await ctx.close();
-});
-
-test("the cover surcharge line never says a range of one", async () => {
-  // "Parts 2-2 each spend 106 more" shipped. A range of one is a sentence bug, and the
-  // kind nothing but a real render catches.
-  const { page, ctx } = await freshPage();
-  await page.click("#addTakeoverBtn");
-  const tk = page.locator("#blockList > *").last();
-  await tk.getByRole("button", { name: "Seed fake donation" }).click();
-  // .first(): the card's own move-up, not the per-item ones a seeded takeover also has.
-  await tk.getByRole("button", { name: "↑" }).first().click();  // takeover into part 1
-
-  // Enough text to force a run of cheers. PINNED to Hanzi tiling, because this test only
-  // tests anything when the stack splits, and that has depended on the text block's
-  // DEFAULT render twice now: 0.9.0 moved it to Hanzi (which bands across ~20 receipts),
-  // and 0.10.0 moved it to Giant type, under which this text fits in ONE part next to
-  // the takeover. The old `if (/cheers/.test(text))` guard then skipped every assertion
-  // and the test passed while checking nothing. A test that needs a split now asks for
-  // one, and fails loudly below if it stops getting it.
-  await page.click("#addTextBtn");
-  const added = page.locator("#blockList > *").last();
-  await added.locator(RENDER_SEL).selectOption("hanzi");
-  await added.locator("textarea").fill("WRECK THE RECEIPT COMPLETELY");
-
-  const cost = takeoverCard(page).locator(".cost-note");
-  await cost.filter({ hasText: /cheers/ }).waitFor({ timeout: 4000 }).catch(() => {});
-  const text = await cost.textContent();
-  // Both spellings, because the copy has already changed once underneath this test.
-  // The en-dash form is what 0.7.2 shipped and the " to " form is what it says now; a
-  // guard that only knows the retired spelling is a guard that has quietly stopped
-  // working, which is worse than not having one.
-  assert.ok(!/Parts (\d+)\s*(?:–|to)\s*\1\b/.test(text), "a range of one: " + text);
-  assert.match(text, /cheers/, "the stack no longer splits, so this test checks nothing: " + text);
-  // \d+, not [3-9]: Hanzi tiling bands across far more receipts than one digit counts
-  // ("Parts 2 to 23" when this was written), and pinning the count would only encode it.
-  assert.match(text, /Part 2 spends|Parts 2 to \d+/, "unexpected surcharge phrasing: " + text);
-  await ctx.close();
-});
-
 test("presets round-trip through a reload", async () => {
   const { page, ctx } = await freshPage();
-  await page.click("#addTakeoverBtn");
+  await page.click("#addTextBtn");
   await page.fill("#presetName", "smoke setup");
   await page.click("#presetSave");
   assert.match(await page.textContent("#presetNote"), /Saved "smoke setup" with \d+ blocks?\./);
@@ -245,7 +155,7 @@ test("presets round-trip through a reload", async () => {
 
 test("exported preset JSON is importable into a browser that has never seen it", async () => {
   const { page, ctx } = await freshPage();
-  await page.click("#addTakeoverBtn");
+  await page.click("#addTextBtn");
   await page.fill("#presetName", "portable");
   await page.click("#presetSave");
   await page.click("#presetExport");
@@ -275,6 +185,62 @@ test("bad JSON is refused with a reason instead of half-loading", async () => {
   await page.fill("#presetJson", "{ not json");
   await page.click("#presetImport");
   assert.match(await page.textContent("#presetNote"), /isn't valid JSON/);
+  await ctx.close();
+});
+
+test("a saved 0.12 stack holding takeovers loads as Text and Glyph-art cards, backed up once as a preset", async () => {
+  // The takeover is gone (SassyTP's bot prints no SVG and nothing outside the message box).
+  // A returning user's stack must still load with no page errors, show its words as Text
+  // cards (pictures as Glyph-art), keep their own presets, and get the stack as it was
+  // saved ONCE as a preset, written after the real preset list loaded, never over it.
+  const old = [
+    { id: 1, type: "text", render: "giant", giantLayout: "auto", giantSize: "fit1", orient: 0, text: "HELLO", size: 90, rotateLen: 800, cols: 15 },
+    { id: 2, type: "takeover", anchor: "top", tkV: 1, pullPt: 240, pullV: 3, renderAs: "imgemote", embedV: 4, items: [
+      { kind: "pic", url: "https://example.invalid/avatar.png", width: 120 },
+      { kind: "text", text: "-100000 BITS", size: 24, fmt: { weight: 900 } },
+      { kind: "text", text: "IRS", size: 19 } ] },
+    { id: 3, type: "takeover", tkStyle: "cheer", cBits: "5", cName: "chat", cNote: "", avatar: "", pullPt: 220 },
+  ];
+  const mine = { v: 1, presets: [{ v: 1, name: "mine", savedAt: 1, blocks: [{ id: 1, type: "text", text: "keep me" }] }] };
+  const { page, ctx, errors } = await freshPage({ blocks: old, presets: mine });
+  const types = async () => cards(page).locator(".bc-type").allTextContents();
+  const stored = async (k) => JSON.parse(await page.evaluate((key) => localStorage.getItem(key), k));
+
+  assert.deepEqual((await types()).map((t) => t.toLowerCase()), ["text", "image", "text", "text", "text", "text"]);
+  const texts = await cards(page).locator("textarea").evaluateAll((els) => els.map((e) => e.value));
+  assert.deepEqual(texts, ["HELLO", "-100000 BITS", "IRS", "5 BITS", "chat"]);
+  const saved = await stored("rw_blocks_v1");
+  assert.ok(saved.every((b) => b.type !== "takeover"), "a takeover was saved back");
+  assert.equal(new Set(saved.map((b) => b.id)).size, saved.length, "two blocks share an id");
+  assert.equal(saved[1].imgKind, "glyph");
+  assert.equal(saved[1].url, "https://example.invalid/avatar.png");
+
+  // The user's preset is untouched, and the backup holds the stack exactly as it was.
+  let ps = (await stored("rw_presets_v1")).presets;
+  assert.deepEqual(ps.map((p) => p.name), ["mine", "Before 1.0.0"]);
+  assert.deepEqual(ps[0], mine.presets[0], "the user's own preset changed");
+  assert.deepEqual(ps[1].blocks, old, "the backup is not the stack as it was saved");
+  assert.match(await page.textContent("#presetNote"), /saved as the preset "Before 1\.0\.0"/);
+
+  // Once: a reload converts nothing more and writes no second backup.
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.equal(await cardCount(page), 6);
+  ps = (await stored("rw_presets_v1")).presets;
+  assert.deepEqual(ps.map((p) => p.name), ["mine", "Before 1.0.0"]);
+
+  // Loading the backup converts it again (the stored preset keeps its takeovers).
+  await page.selectOption("#presetList", "Before 1.0.0");
+  await page.click("#presetLoad");
+  await page.waitForFunction(() => document.querySelectorAll("#blockList > *").length === 6);
+  assert.ok((await stored("rw_presets_v1")).presets[1].blocks.some((b) => b.type === "takeover"),
+    "loading the backup rewrote it");
+  const ids = (await stored("rw_blocks_v1")).map((b) => b.id);
+  assert.equal(new Set(ids).size, ids.length, "a loaded preset's blocks share an id");
+  // Each converted card is its own block: removing one removes only that one.
+  await cards(page).nth(2).getByRole("button", { name: "×" }).click();
+  assert.equal(await cardCount(page), 5);
+  assert.deepEqual(errors, []);
   await ctx.close();
 });
 

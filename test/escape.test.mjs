@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { loadCore } from "./_harness.mjs";
 
 const C = loadCore();
-const { escapeHtml, escapeAttr, buildTakeover, buildImageEmbed } = C;
+const { escapeHtml, escapeAttr, buildImageEmbed } = C;
 
 test("escapeHtml neutralises the three characters that can open a tag or an entity", () => {
   assert.equal(escapeHtml("<b>"), "&lt;b&gt;");
@@ -48,21 +48,6 @@ test("escapeAttr also closes the double quote — the attribute escape hatch", (
   assert.equal(escapeAttr("<&>"), "&lt;&amp;&gt;");
 });
 
-test("a takeover line cannot break out of its <text> element", () => {
-  // The call site, not the helper. buildTakeover is where a user's typed line becomes
-  // markup, and this is the string that would end the element early.
-  const html = buildTakeover({
-    items: [{ kind: "text", text: '</text><rect width="999" height="999"/>', size: 24 }],
-    pullPt: 240, w: 263,
-  });
-  assert.ok(!html.includes("</text><rect"),
-    "the line closed its own element and injected a sibling: " + html);
-  assert.ok(html.includes("&lt;/text&gt;"), "the line should appear escaped: " + html);
-  // Exactly one real <text> element — the injected one must not have materialised.
-  assert.equal((html.match(/<text /g) || []).length, 1);
-  assert.equal((html.match(/<rect /g) || []).length, 1, "only the cover's own rect may exist");
-});
-
 test("a crafted picture URL cannot break out of the carrier's src attribute", () => {
   // Every live carrier states the URL inside a double-quoted attribute, so every live
   // carrier has to hold. Looping the table means a carrier added later is covered too.
@@ -73,13 +58,4 @@ test("a crafted picture URL cannot break out of the carrier's src attribute", ()
       e.id + " let a crafted URL open a new attribute: " + html);
     assert.ok(html.includes("&quot;"), e.id + " did not escape the quote: " + html);
   }
-});
-
-test("a takeover picture URL is escaped through the item path too", () => {
-  const html = buildTakeover({
-    items: [{ kind: "pic", url: 'https://x.test/a.png"><script>x</script>', width: 120 }],
-    pullPt: 400, w: 263, carrier: "embed",
-  });
-  assert.ok(!html.includes("<script>"), "a script tag reached the payload: " + html);
-  assert.ok(html.includes("&quot;"), "the quote was not escaped: " + html);
 });

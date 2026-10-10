@@ -11,12 +11,10 @@ const {
 } = C;
 
 const STACK = [
-  { id: 1, type: "text", text: "HELLO", size: 90 },
+  { id: 1, type: "text", text: "HELLO", size: 90, fmt: { weight: 900, italic: true } },
   { id: 2, type: "image", url: "https://i.uwutoowo.com/0123456789ab.png", width: 70 },
-  { id: 3, type: "takeover", anchor: "top", pullPt: 240, items: [
-    { kind: "pic", url: "https://i.uwutoowo.com/ffeeddccbbaa.png", width: 120 },
-    { kind: "text", text: "50000 BITS", size: 24 },
-  ] },
+  { id: 3, type: "text", render: "hanzi", text: "50000 BITS", cols: 15 },
+  { id: 4, type: "image", imgKind: "glyph", url: "https://i.uwutoowo.com/ffeeddccbbaa.png", tier: "cjk", cols: 40 },
 ];
 
 test("a preset strips runtime-only fields and deep-copies the stack", () => {
@@ -108,20 +106,19 @@ test("only OUR minted links are treated as expirable", () => {
     "a suffixed lookalike host must not be taken for ours");
 });
 
-test("the URL walker finds pictures in BOTH surfaces that can hold one", () => {
-  // If a picture surface is missed here it escapes the expiry check entirely and prints
-  // blank paper with no warning — the exact failure the flag exists to prevent.
+test("the URL walker finds every image block's picture, of either kind, in stack order", () => {
+  // If a picture is missed here it escapes the expiry check entirely: a glyph-art block
+  // whose upload expired decodes nothing, with no warning.
   const urls = presetImageUrls(STACK);
   eq(urls, [
     "https://i.uwutoowo.com/0123456789ab.png",
     "https://i.uwutoowo.com/ffeeddccbbaa.png",
-  ], "an image block's url and a takeover item's url must both be found, in stack order");
+  ], "both image blocks' urls must be found, in stack order");
 
   eq(presetImageUrls([]), []);
   eq(presetImageUrls(null), []);
-  eq(presetImageUrls([{ type: "text", text: "no pictures here" }]), []);
-  // A text item with a url-ish field is not a picture.
-  eq(presetImageUrls([{ type: "takeover", items: [{ kind: "text", text: "x", url: "u" }] }]), []);
+  eq(presetImageUrls([{ type: "text", text: "no pictures here", url: "u" }]), [],
+    "a url-ish field on a text block is not a picture");
 });
 
 test("cleanBlocks is the single definition of what a saved block is", () => {

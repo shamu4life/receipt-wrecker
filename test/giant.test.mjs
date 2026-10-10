@@ -522,10 +522,8 @@ test("a line too long to send on its own ranks below every step that sends, in f
 
 // A giant block of only emoji or invisible characters builds ONE body that prints nothing
 // (html "", 0 characters, 0px). The packer's "does it fit" test could still fail for it
-// (0 added to a part that is already over-tall, or the cover's reservation), and flush()
-// then sent a cheer holding the lead and nothing else: "Cheer100 03 ", 100 bits for a
-// receipt with only the gem. After a takeover with the tuck on it was the lead plus a
-// cover the sanitizer strips.
+// (0 added to a part that is already over-tall), and flush() then sent a cheer holding
+// the lead and nothing else: "Cheer100 03 ", 100 bits for a receipt with only the gem.
 test("a body that prints nothing never opens or closes a part of its own", () => {
   const big = C.buildGiantBodies("THANK YOU SO MUCH", { layout: "lines", size: 14 });
   const none = C.buildGiantBodies("🔥🔥");
@@ -535,12 +533,10 @@ test("a body that prints nothing never opens or closes a part of its own", () =>
     const parts = C.packStackBodies(bodies, { cheer: true, bits: 100 });
     assert.equal(parts.length, 1, "an empty body got a cheer of its own: " + JSON.stringify(parts.map((p) => p.payload)));
   }
-  // After a takeover, tucked: every giant chunk is bigger than the room the cover leaves.
-  const cover = C.buildStackCover({ pullPt: C.TAKEOVER_PULL_PT, w: C.PAPER_PX });
-  const takeover = { html: cover, chars: len(cover), heightPx: 0, cover };
+  // A run that splits: every part carries something of ours, the empty body included in one.
   for (const tuck of [false, true]) {
     const budget = budgetFor({ cheer: true, bits: 100, tuck });
-    const bodies = [takeover,
+    const bodies = [
       ...C.buildGiantBodies("HAPPY BIRTHDAY SHAMU", { layout: "stack", size: "width", budget, tuck }),
       ...C.buildGiantBodies("🎉", { budget, tuck })];
     const parts = C.packStackBodies(bodies, { cheer: true, bits: 100, tuck });

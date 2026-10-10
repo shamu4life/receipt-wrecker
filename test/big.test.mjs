@@ -53,7 +53,7 @@ test("line height: .8 only for capitals-safe lines; Q , ; lowercase accents and 
 test("byte pins: the benched payload bodies, 80 and 58 mm", () => {
   const html = (t, o, c) => build(t, o, c).map((b) => b.html);
   eq(html("HELLO", { layout: "lines" }), ['<div style="font:700 70px/.8 Arial">HELLO</div>']);
-  eq(html("HELLO", { layout: "stack" }), ['<div style="font:700 310px/.8 Arial">H<br>E<br>L<br>L<br>O</div>']);
+  eq(html("HELLO", { layout: "stack" }), ['<div style="font:700 310px/.8 Arial"><div>H</div><div>E</div><div>L</div><div>L</div><div>O</div></div>']);
   eq(html("MMMMM", { layout: "lines" }), ['<div style="font:700 57px/.8 Arial">MMMMM</div>']);
   eq(html("HELLO WORLD", { layout: "lines" }), ['<div style="font:700 31px/.8 Arial">HELLO WORLD</div>']);
   eq(html("Happy birthday", { layout: "lines" }), ['<div style="font:700 32px/1.15 Arial">Happy birthday</div>']);
@@ -133,12 +133,14 @@ test("auto wraps a sentence at its spaces: every word whole, every line inside t
   assert.equal(f.layout, "wrap");
   assert.equal(f.cheers, 1);
   assert.ok(f.fits && !f.over && !f.tall);
-  assert.ok(f.px > st.px, "bigger than the stack: " + f.px + " vs " + st.px);
+  // A stacked letter is its own <div> (no <br>), 11 characters, so this stack no longer fits
+  // one cheer at any size: Auto keeps the one-cheer wrap.
+  assert.ok(st.cheers > 1 || f.px > st.px, "better than the stack: " + f.px + " vs " + st.px + " in " + st.cheers);
   assert.equal(f.lines.join(" "), s, "the words, in order, none of them broken");
   for (const l of f.lines) assert.ok((C.bigLineEm(l) + C.bigEdgeEm(l)) * f.px <= C.bigFitPx(244, C.bigGraphemes(l).length) + 1e-9, l);
   const b = build(s, {});
   assert.equal(b.length, 1);
-  assert.equal(b[0].html, '<div style="font:700 50px/1.15 Arial">' + f.lines.map(C.escapeHtml).join("<br>") + "</div>");
+  assert.equal(b[0].html, '<div style="font:700 50px/1.15 Arial">' + f.lines.map((l) => "<div>" + C.escapeHtml(l) + "</div>").join("") + "</div>");
   close(b[0].heightPx, f.lines.length * 50 * 1.15, "height: one line of type per wrapped line");
   // Balanced: as many lines as the greedy wrap needs, each as short as it can be.
   eq(C.bigWrapWords("WE ARE SO BACK", 30, 244), ["WE ARE SO", "BACK"]);
@@ -370,15 +372,21 @@ test("upside down: ;rotate:180deg on every div, divs and chunks go out last firs
   assert.match(C.bigReport(down, { cheers: down.length }), /last first/);
 });
 
-test("a word gap carried over a split: <br> on the next chunk, 21.6px only when it follows another body", () => {
+test("a word gap carried over a split: a blank line div on the next chunk, only when it follows another body", () => {
   const b = build("HAPPY BIRTHDAY", { layout: "stack" });
   assert.equal(b.length, 2, "split at the word gap");
-  assert.ok(b[1].html.startsWith("<br><div"));
+  assert.ok(b[1].html.startsWith("<div style"), "the body itself carries no gap");
+  assert.equal(b[1].joinHtml, "<div>\u00A0</div>");
   assert.equal(b[1].joinPx, C.LEAD_LINE_PX);
   assert.equal(b[0].joinPx, 0);
   const parts = C.packStackBodies(b, ctx());
   assert.equal(parts.length, 1, "the packer puts both words back in one cheer");
+  assert.equal(parts[0].payload, "Cheer100 " + b[0].html + "<div>\u00A0</div>" + b[1].html, "the gap goes in between");
+  assert.equal(parts[0].chars, C.payloadLength(parts[0].payload));
   close(parts[0].heightPx, b[0].heightPx + 21.6 + b[1].heightPx, "the gap is one small line");
+  // First in its part (a box too short for both), the body goes out without the gap.
+  const one = C.packStackBodies([b[1]], ctx());
+  assert.equal(one[0].payload, "Cheer100 " + b[1].html);
   assert.ok(parts[0].contentPx <= 1600);
 });
 

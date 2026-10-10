@@ -22,7 +22,7 @@ test("byte pins: top to bottom and bottom to top, one and two lines, a comma", (
   // the letter tops, and the block moves 3px the other way at 300px (polish review 3).
   eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
   eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:3px">HELLO</div>']);
-  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px">HAPPY<br>BIRTHDAY</div>']);
+  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px"><div>HAPPY</div><div>BIRTHDAY</div></div>']);
   // The comma's tail would clip at the capitals' 280px; with it the column's ink sits 12px
   // toward the descenders' side, so the block moves 12px the other way (see the centring test).
   eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:12px">HI, BOB</div>']);
@@ -91,14 +91,14 @@ test("splitting never truncates: the columns put back together are the text", ()
   const t = "HAPPY BIRTHDAY TO THE BEST STREAMER\nSEE YOU TOMORROW";
   const b = build(t, { size: 50 }, k);
   assert.ok(b.length > 2);
-  const cols = (x) => x.html.replace(/^<br>/, "").replace(/^<div[^>]*>|<\/div>$/g, "").split("<br>");
+  const cols = (x) => Array.from(x.html.replace(/^<div[^>]*>|<\/div>$/g, "").matchAll(/<div>([\s\S]*?)<\/div>/g), (m) => m[1]);
   const lines = [[], []];
   b.forEach((x) => cols(x).forEach((c, i) => { if (c !== "\u00A0") lines[i].push(c); }));
   assert.equal(lines[0].join(" "), "HAPPY BIRTHDAY TO THE BEST STREAMER");
   assert.equal(lines[1].join(" "), "SEE YOU TOMORROW");
-  // A body that continues after a word gap opens with <br>, which costs height only after
-  // another body in the same part.
-  assert.ok(b.slice(1).some((x) => x.html.startsWith("<br><div") && x.joinPx === C.LEAD_LINE_PX));
+  // A body that continues after a word gap carries a blank line div (joinHtml), which the
+  // packer puts in, and pays height for, only after another body in the same part.
+  assert.ok(b.slice(1).some((x) => x.joinHtml === "<div>\u00A0</div>" && x.joinPx === C.LEAD_LINE_PX));
   // A single word longer than the box is cut between letters, not dropped.
   const w = build("A".repeat(60), { size: 100 }, k);
   assert.equal(w.map((x) => x.html.replace(/<[^>]*>/g, "")).join(""), "A".repeat(60));

@@ -15,7 +15,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
 // biggest size that fits one cheer; `id` and `fmt` are checked separately.
 const TEXT_SHAPE = { type: "text", render: "big", bigLayout: "lines", bigSize: "fit1" };
 const GLYPH_SHAPE = { type: "image", imgKind: "glyph", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
-                      tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
+                      tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false };
 function shape(b) { const o = { ...b }; delete o.id; delete o.text; delete o.url; delete o.fmt; return o; }
 
 // The item-list takeover every 0.5+ build saved (picture, then lines, with per-item

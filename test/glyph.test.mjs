@@ -21,7 +21,8 @@ function disc(cols, rows, ramp) {
   }
   return C.quantizeTone(C.sampleLuma(px, W, H, cols, rows), ramp, {});
 }
-const rowsOf = (html, open, close, sep) => html.slice(open.length, html.length - close.length).split(sep);
+// Rows are one <div> each (no <br>, by the owner's decision): the text of each row div.
+const rowsOf = (html, open, close) => Array.from(html.slice(open.length, html.length - close.length).matchAll(/<div>([\s\S]*?)<\/div>/g), (m) => m[1]);
 
 test("R1: the vw-sized CJK grid, open tag pinned, a row inside 153px and 244px even with every cell rounded up", () => {
   eq(C.buildCjkGrid(disc(12, 2, CJK), {}).map((b) => b.html.slice(0, b.html.indexOf(">") + 1)),
@@ -51,7 +52,8 @@ test("R1: bands by characters and height, every row exactly C cells, height R x 
         assert.ok(x.chars <= k.budget, where + ": " + x.chars);
         assert.ok(x.heightPx <= k.room + 1e-6, where + ": " + x.heightPx);
         assert.ok(x.html.startsWith(open) && x.html.endsWith("</div>"), "every band repeats the tag and closes it");
-        const rows = x.html.slice(open.length, -6).split("<br>");
+        assert.ok(!/<br/i.test(x.html), "no <br>");
+        const rows = rowsOf(x.html, open, "</div>");
         assert.ok(rows.every((r) => Array.from(r).length === cols), where + ": a row that is not exactly C cells");
         assert.ok(Math.abs(x.heightPx - rows.length * F) < 1e-3, where);
         all += rows.join("");
@@ -60,19 +62,20 @@ test("R1: bands by characters and height, every row exactly C cells, height R x 
       for (const p of C.packStackBodies(b, k)) assert.ok(p.chars <= 500 && p.contentPx <= k.limit.px + 1e-6, where);
     }
   }
-  // The largest single cheer fits, with the closing tag: 12 x 27 at Cheer100, each row but the
-  // last paying 4 characters for its <br> (it was 12 x 34 when rows broke themselves at a
-  // width, which newer Chromium's whole-pixel advances defeated).
+  // The largest single cheer fits, with the closing tag: 12 x 19 at Cheer100, each row paying
+  // 11 characters for its <div></div> (27 rows with a <br> between rows, which this channel's
+  // chat filter blocks; 34 when rows broke themselves at a width, which newer Chromium's
+  // whole-pixel advances defeated).
   const k = ctx();
-  const b = C.buildCjkGrid(disc(12, 27, CJK), opts(k));
+  const b = C.buildCjkGrid(disc(12, 19, CJK), opts(k));
   assert.equal(b.length, 1);
-  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 42 + 27 * 12 + 26 * 4 + 6);
-  assert.equal(C.buildCjkGrid(disc(12, 28, CJK), opts(k)).length, 2, "28 rows band into two");
+  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 42 + 19 * (12 + 11) + 6);
+  assert.equal(C.buildCjkGrid(disc(12, 20, CJK), opts(k)).length, 2, "20 rows band into two");
   assert.ok(Math.abs(C.buildCjkGrid(disc(12, 36, CJK), opts(k)).reduce((t, x) => t + x.heightPx, 0) - 36 * 6.72 * 2.72) < 1e-3,
     "12x36 at 80 mm is about 658px");
 });
 
-test("R4: Courier New <pre>, rows escaped and joined by <br>, spaces kept", () => {
+test("R4: Courier New <pre>, rows escaped, one <div> each, spaces kept", () => {
   const ascii = C.getTier("ascii").ramp;
   const grid = disc(24, 11, ascii);
   const b = C.buildMonoGrid(grid, opts(ctx()));
@@ -80,17 +83,17 @@ test("R4: Courier New <pre>, rows escaped and joined by <br>, spaces kept", () =
   const open = "<pre style=\"font:5.83vw/1.2 'Courier New';margin:0\">";
   assert.equal(open.length, 52);
   assert.ok(b[0].html.startsWith(open) && b[0].html.endsWith("</pre>"));
-  eq(rowsOf(b[0].html, open, "</pre>", "<br>"), J(grid.map((r) => r.join(""))));
+  eq(rowsOf(b[0].html, open, "</pre>"), J(grid.map((r) => r.join(""))));
   assert.ok(b[0].html.includes(" "), "the lightest cell is a space, and <pre> keeps it");
   assert.ok(Math.abs(b[0].heightPx - 11 * 1.2 * 5.83 * 2.72) < 1e-3);
   // Escaping: a cell that is < & > goes out as an entity, never as markup.
   const hostile = C.buildMonoGrid([["<", "&", ">", "i"], ["a", "b", "<", "s"]], {})[0].html;
-  assert.ok(!/[<>]/.test(hostile.replace(/^<pre[^>]*>|<\/pre>$|<br>/g, "")), hostile);
-  // Rows a cheer: at most 15 at 24 columns with the bare Cheer100 lead, so 40 rows take three
-  // cheers, and the rows are spread evenly over them: 14/14/12, not 15/15/10.
-  assert.equal(Math.floor((491 - 52 - 6 + 4) / 28), 15);
+  assert.ok(!/[<>]/.test(hostile.replace(/^<pre[^>]*>|<\/pre>$|<\/?div>/g, "")), hostile);
+  // Rows a cheer: at most 12 at 24 columns with the bare Cheer100 lead (a row is 24 cells and
+  // its <div></div>), so 40 rows take four cheers, spread evenly over them: 10/10/10/10.
+  assert.equal(Math.floor((491 - 52 - 6) / (24 + 11)), 12);
   const tall = C.buildMonoGrid(disc(24, 40, ascii), opts(ctx()));
-  eq(tall.map((x) => x.glyph.rows), [14, 14, 12]);
+  eq(tall.map((x) => x.glyph.rows), [10, 10, 10, 10]);
   for (const x of tall) assert.ok(x.chars <= 491);
   for (let c = 8; c <= 48; c++) assert.ok(C.monoK(c) * 1.81 * c * 0.6 <= 152 + 1e-9, "58 mm row, C=" + c);
 });
@@ -272,7 +275,7 @@ test("a grid that needs several cheers is spread evenly over them, never a slive
   const b = C.buildMonoGrid(disc(40, 20, ascii), opts(k));
   eq(b.map((x) => x.glyph.rows), [7, 7, 6]);
   for (const x of b) assert.ok(x.chars <= k.budget);
-  const flat = b.flatMap((x) => rowsOf(x.html, x.html.slice(0, x.html.indexOf(">") + 1), "</pre>", "<br>"));
+  const flat = b.flatMap((x) => rowsOf(x.html, x.html.slice(0, x.html.indexOf(">") + 1), "</pre>"));
   eq(flat, J(disc(40, 20, ascii).map((r) => r.join(""))), "every row once, in order");
   // Han characters and Braille band the same way.
   const cj = C.buildCjkGrid(disc(30, 40, C.getTier("cjk").ramp), opts(k));

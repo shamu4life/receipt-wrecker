@@ -8,8 +8,10 @@ import assert from "node:assert/strict";
 import { loadCore, scanTags } from "./_harness.mjs";
 const C = loadCore();
 
-const USED = ["div", "pre", "br"];
-const FORBIDDEN = /<\s*\/?\s*(img|object|image|embed|iframe|svg|input)/i;
+// No <br>, by the owner's decision (2026-10-10): this channel's chat filter held the paste
+// test that carried one. Every line and row is its own <div>.
+const USED = ["div", "pre"];
+const FORBIDDEN = /<\s*\/?\s*(img|object|image|embed|iframe|svg|input|br)\b/i;
 const TEXTS = ["HELLO", "Happy birthday 🎉", '<img src="https://static-cdn.jtvnw.net/x.png"> <IMG SRC=x> <ImAgE> <svg/onload=1>',
   "<object data=x></object> <embed src=x> <iframe src=x> <input type=image src=x>", "A\nB\n\nC", "HI, BOB; QUIZ"];
 
@@ -48,7 +50,7 @@ function everyPayload(mm) {
   return out;
 }
 
-test("B1: every builder and both probes, 80 and 58 mm: only div, pre and br; never a picture tag in any case", () => {
+test("B1: every builder and both probes, 80 and 58 mm: only div and pre; never a picture tag or a <br> in any case", () => {
   const seen = new Set();
   let n = 0;
   for (const mm of [80, 58]) {

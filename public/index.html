@@ -540,8 +540,10 @@
   //    no lead, and its token goes LAST (buildTrail): payload = html + trail. Its heightPx
   //    already counts every printed line, the token's included.
   //  - `joinPx` on a body is height it adds only when it FOLLOWS another body in the same
-  //    part: a body that opens with "<br>" (a word gap carried across a split) costs nothing
-  //    after the lead's text, and one 21.6px line after another block.
+  //    part, and `joinHtml` the markup that buys it (LINE_BLANK: a word gap carried across a
+  //    split). The packer puts it in front of the body only then, and counts its characters
+  //    only then; first in a part, right after the lead's text, the body needs no gap and
+  //    gets none. The builders keep that many characters back, so the budget holds.
   function packStackBodies(bodies, opts) {
     opts = opts || {};
     var leadOpts = { cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce };
@@ -603,10 +605,11 @@
         flushAlone(b);
         continue;
       }
-      var join = curInk && b.joinPx ? b.joinPx : 0;
-      var fits = !curInk || empty || ((curChars + bChars <= maxBody) && (curH + join + bH <= hb + 1e-6));
-      if (!fits) { flush(); join = 0; }
-      cur.push(b); curChars += bChars; curH += join + bH;
+      var join = curInk && b.joinPx ? b.joinPx : 0, jc = join && b.joinHtml ? payloadLength(b.joinHtml) : 0;
+      var fits = !curInk || empty || ((curChars + jc + bChars <= maxBody) && (curH + join + bH <= hb + 1e-6));
+      if (!fits) { flush(); join = 0; jc = 0; }
+      cur.push(jc ? Object.assign({}, b, { html: b.joinHtml + b.html, chars: jc + bChars }) : b);
+      curChars += jc + bChars; curH += join + bH;
       if (!empty) curInk = true;
     }
     // Empty bodies left over after the last printable part ride along in it rather than
@@ -857,7 +860,7 @@
       if (fmt && typeof fmt === "object") tb.fmt = JSON.parse(JSON.stringify(fmt));
       return tb;
     }
-    // A new Glyph-art block's own settings (newBlock's), so its 18 columns are what it prints:
+    // A new Glyph-art block's own settings (newBlock's), so its 16 columns are what it prints:
     // Han characters take 12 to 30, and the 40 an older build used would print as 30.
     function glyphBlock(url) {
       return { id: nextId++, type: "image", imgKind: "glyph", url: url, width: 70,
@@ -1066,6 +1069,15 @@
   var BIG_CAP_EM = 0.716, MM_PER_PX = 25.4 / 96;
   function bigCapCm(px) { return px * BIG_CAP_EM * MM_PER_PX / 10; }
   var BIG_CLOSE = "</div>";
+  // NO <br>, by the owner's decision (2026-10-10): this channel's chat filter held the one
+  // paste test that carried a <br> (two lines of sideways text), so every line, grid row and
+  // stacked letter is its own block, <div>…</div> inside the styled div, and a blank line is
+  // LINE_BLANK, a div holding one no-break space (an empty div has no height; an nbsp one is
+  // one line of whatever font it sits in, as a blank line between two <br>s was). A line costs
+  // LINE_COST characters where a <br> between lines cost 4. See CLAUDE.md, the field record.
+  var LINE_OPEN = "<div>", LINE_CLOSE = "</div>", LINE_COST = 11;
+  var LINE_BLANK = "<div>\u00A0</div>", LINE_BLANK_LEN = 12;
+  function lineDiv(html) { return LINE_OPEN + (html === "" ? "\u00A0" : html) + LINE_CLOSE; }
   function bigOpen(px, lh, flip) {
     return '<div style="font:700 ' + px + "px/" + lh + " Arial" + (flip ? ";rotate:180deg" : "") + '">';
   }
@@ -1353,14 +1365,14 @@
   // the box cuts it) rather than truncating anything.
   //   units: [{blank, chars, open, h}] in source order (see bigUnits); `wordDivs` = the
   //   stack's small-gap form, where each word is its own div and a gap is a bare <br>.
-  // Four characters of every chunk are kept back for a "<br>" it may open with: a chunk that
-  // follows a word gap carries that gap with it, so if the packer puts it after another body
-  // the words stay apart (21.6px), while after the lead's text it costs no height at all.
+  // LINE_BLANK_LEN characters of every chunk are kept back for the gap it may open with: a
+  // chunk that follows a word gap carries that gap with it (joinHtml), so if the packer puts
+  // it after another body the words stay apart (21.6px); after the lead's text it is left out.
   function bigChunkUnits(units, budget, room) {
-    var n = units.length, eff = budget - 4, out = [], i = 0;
+    var n = units.length, eff = budget - LINE_BLANK_LEN, out = [], i = 0;
     function measure(s, e) {
       var h = 0, c = 0, k;
-      for (k = s; k < e; k++) { c += units[k].chars(k === s); h += units[k].h; }
+      for (k = s; k < e; k++) { c += units[k].chars(k - s); h += units[k].h; }
       return { h: Math.round(h * 1000) / 1000, c: c };
     }
     while (i < n) {
@@ -1369,7 +1381,7 @@
       if (i >= n) break;
       var start = i, h = 0, c = 0, j = i, lastBlank = -1;
       while (j < n) {
-        var addH = units[j].h, addC = units[j].chars(j === start);
+        var addH = units[j].h, addC = units[j].chars(j - start);
         if (j > start && (h + addH > room + PX_EPS || c + addC > eff)) break;
         h += addH; c += addC;
         if (units[j].blank) lastBlank = j;
@@ -1391,8 +1403,8 @@
     for (var i = 0; i < n; i++) {
       var br = i > 0 && (flip ? src[n - i].gapBefore : order[i].gapBefore);
       var r = order[i];
-      out.push({ start: r.start, end: r.end, br: br, chars: r.chars + (br ? 4 : 0), heightPx: r.heightPx,
-                 joinPx: br ? LEAD_LINE_PX : 0, over: r.chars + (br ? 4 : 0) > budget, tall: r.heightPx > room + PX_EPS });
+      out.push({ start: r.start, end: r.end, br: br, chars: r.chars, joinChars: br ? LINE_BLANK_LEN : 0, heightPx: r.heightPx,
+                 joinPx: br ? LEAD_LINE_PX : 0, over: r.chars > budget, tall: r.heightPx > room + PX_EPS });
     }
     return out;
   }
@@ -1402,8 +1414,8 @@
   function bigCheerCount(rs, budget, room) {
     var n = 0, c = 0, h = 0;
     for (var i = 0; i < rs.length; i++) {
-      var r = rs[i], j = r.joinPx || 0;
-      if (n && c + r.chars <= budget && h + j + r.heightPx <= room + PX_EPS) { c += r.chars; h += j + r.heightPx; continue; }
+      var r = rs[i], j = r.joinPx || 0, jc = j ? (r.joinChars || 0) : 0;
+      if (n && c + jc + r.chars <= budget && h + j + r.heightPx <= room + PX_EPS) { c += jc + r.chars; h += j + r.heightPx; continue; }
       n++; c = r.chars; h = r.heightPx;
     }
     return n;
@@ -1418,16 +1430,21 @@
           // A gap is the <br> between two word divs (21.6px); a letter opens its word's div
           // when it is the first of the word or of the chunk, and that div's close is paid then.
           u.h = blank ? LEAD_LINE_PX : bigLineH(m, k, px, m.lh);
-          u.chars = function (first) {
-            if (blank) return 4;
-            var opens = first || m.lines[k - 1] === "" || k === 0;
-            return opens ? openL + m.lens[k] + closeL : 4 + m.lens[k];
+          u.chars = function (off) {
+            if (blank) return LINE_BLANK_LEN;
+            var opens = !off || m.lines[k - 1] === "" || k === 0;
+            return (opens ? openL + closeL : 0) + LINE_COST + m.lens[k];
           };
         } else {
           // One div per chunk, its tags paid by the chunk's first line; lines joined by <br>,
           // so a blank line is a whole line of the type's height.
           u.h = bigLineH(m, k, px, m.lh);
-          u.chars = function (first) { return (first ? openL + closeL : 4) + m.lens[k]; };
+          // `off` is the line's place in its chunk: a chunk of ONE line is a bare styled div
+          // (as a single line always was), so the first line's own div is paid only once a
+          // second line joins it.
+          u.chars = function (off) {
+            return (off === 0 ? openL + closeL : off === 1 ? 2 * LINE_COST : LINE_COST) + (blank ? 1 : m.lens[k]);
+          };
         }
         units.push(u);
       })(k);
@@ -1440,7 +1457,7 @@
     var units = [];
     for (var k = 0; k < m.lines.length; k++) {
       (function (k) {
-        if (m.lines[k] === "") { units.push({ blank: true, h: LEAD_LINE_PX, chars: function () { return 4; } }); return; }
+        if (m.lines[k] === "") { units.push({ blank: true, h: LEAD_LINE_PX, chars: function () { return LINE_BLANK_LEN; } }); return; }
         var c = payloadLength(bigOpen(pxs[k], m.lhs[k], flip)) + m.lens[k] + BIG_CLOSE.length;
         // A line still too wide at its size (only at the smallest size, or a fixed size past
         // its width fit) wraps on the bot's page, as in Lines: bigLineH counts the lines it
@@ -1641,18 +1658,19 @@
     var m = p.m, k = p.pick, lines = m.lines.slice(r.start, r.end), flip = p.flip, pieces = [], i;
     if (p.layout === "each") {
       for (i = r.start; i < r.end; i++) {
-        pieces.push(m.lines[i] === "" ? "<br>" : bigOpen(k.pxs[i], m.lhs[i], flip) + escapeHtml(m.lines[i]) + BIG_CLOSE);
+        pieces.push(m.lines[i] === "" ? LINE_BLANK : bigOpen(k.pxs[i], m.lhs[i], flip) + escapeHtml(m.lines[i]) + BIG_CLOSE);
       }
       if (flip) pieces.reverse();
       return pieces.join("");
     }
     var open = bigOpen(k.px, m.lh, flip);
-    if (k.gap !== "small") return open + lines.map(escapeHtml).join("<br>") + BIG_CLOSE;
+    var divs = function (ls) { return ls.map(function (l) { return lineDiv(escapeHtml(l)); }).join(""); };
+    if (k.gap !== "small") return open + (lines.length === 1 ? escapeHtml(lines[0]) : divs(lines)) + BIG_CLOSE;
     var words = [], cur = [];
     lines.forEach(function (l) { if (l === "") { if (cur.length) words.push(cur); cur = []; } else cur.push(l); });
     if (cur.length) words.push(cur);
     if (flip) words.reverse();
-    return words.map(function (w) { return open + w.map(escapeHtml).join("<br>") + BIG_CLOSE; }).join("<br>");
+    return words.map(function (w) { return open + divs(w) + BIG_CLOSE; }).join(LINE_BLANK);
   }
   // buildBigBodies(text, opts) -> Body[] (opts as bigPlan). Each body is one chunk, with its
   // `joinPx` for the packer and a `big` record for the card. The preview IS the payload:
@@ -1691,8 +1709,9 @@
     }
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, big: info(0, 0, null, []) }];
     return k.chunks.map(function (r, ci) {
-      var html = (r.br ? "<br>" : "") + bigChunkHtml(p, r);
+      var html = bigChunkHtml(p, r);
       return { html: html, chars: payloadLength(html), heightPx: r.heightPx, joinPx: r.joinPx,
+               joinHtml: r.br ? LINE_BLANK : "",
                preview: { kind: "html", html: html },
                big: info(ci, k.chunks.length, r, p.layout === "stack" ? [] : cheerWords(html)) };
     });
@@ -2124,7 +2143,7 @@
   // an equal share of the characters, and make body k from segment k of every line, so the
   // columns stay where they are from body to body (an empty column holds an nbsp: a trailing
   // empty line would otherwise vanish and shift the others). A body whose columns pick up
-  // after a word gap opens with "<br>" (joinPx 21.6), so the gap survives when the packer
+  // after a word gap carries LINE_BLANK (joinHtml, joinPx 21.6), so the gap survives when the packer
   // puts it after the previous body. Bottom to top ("up") reads the tape from the bottom,
   // so the bodies go out LAST FIRST and the whole run reads in order. `prep` is sidePrep of
   // every line.
@@ -2143,14 +2162,15 @@
   }
   function sideEvalAt(prep, S, lh, dir, budget, room, shift, reserveEm) {
     var padMax = sidePad(S, [reserveEm || 0]), N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir, shift, padMax));
-    var maxChars = Math.max(1, Math.floor((budget - 4 - openL - BIG_CLOSE.length - 4 * (N - 1)) / N));
+    var colsL = N > 1 ? LINE_COST * N : 0;
+    var maxChars = Math.max(1, Math.floor((budget - LINE_BLANK_LEN - openL - BIG_CLOSE.length - colsL) / N));
     var segs = prep.map(function (w) { return sideSegments(w, S, room - padMax, maxChars); });
     var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], pads = [], k;
     for (k = 0; k < K; k++) {
       var c = segs.map(function (s) { return s[k] || null; });
       var sp = c.some(function (x) { return !!(x && x.sp); });
       var pad = sidePad(S, c.map(function (x) { return x && x.t ? (dir === "up" ? x.a : x.z) : 0; }));
-      var chars = payloadLength(sideOpen(S, lh, dir, shift, pad)) + BIG_CLOSE.length + 4 * (N - 1)
+      var chars = payloadLength(sideOpen(S, lh, dir, shift, pad)) + BIG_CLOSE.length + colsL
         + c.reduce(function (t, x) { return t + (x && x.t ? x.ch : 1); }, 0);
       var h = c.reduce(function (m, x) { return Math.max(m, x && x.t ? S * x.em + 0.5 * x.g : 0); }, 0) + pad;
       cols.push(c.map(function (x) { return x ? x.t : ""; }));
@@ -2237,9 +2257,11 @@
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, side: info(0, 0, null, []) }];
     return k.chunks.map(function (r, ci) {
       var cols = k.cols[r.start], open = sideOpen(k.px, p.lh, p.dir, k.shift, k.pads[r.start]);
-      var html = (r.br ? "<br>" : "") + open
-        + cols.map(function (c) { return c ? escapeHtml(c) : "\u00A0"; }).join("<br>") + BIG_CLOSE;
+      // One column is a bare styled div (as it always was); two or more are a div each.
+      var html = open + (cols.length === 1 ? (cols[0] ? escapeHtml(cols[0]) : "\u00A0")
+        : cols.map(function (c) { return lineDiv(c ? escapeHtml(c) : ""); }).join("")) + BIG_CLOSE;
       return { html: html, chars: payloadLength(html), heightPx: r.heightPx, joinPx: r.joinPx,
+               joinHtml: r.br ? LINE_BLANK : "",
                preview: { kind: "html", html: html }, side: info(ci, k.chunks.length, r, cheerWords(html)) };
     });
   }
@@ -2321,8 +2343,8 @@
   var GLYPH_ASPECT = { cjk: 1, mono: 0.5, plain: 16 / 21.6 };
   var CJK_COLS_MIN = 12, CJK_COLS_MAX = 30, GLYPH_COLS_MIN = 8, GLYPH_COLS_MAX = 48;
   // A new Glyph-art block's Detail (newBlock, a takeover's picture in migrateBlocks, the card's
-  // ↺ and an emptied field): 18 Han columns make a square picture one cheer (see newBlock).
-  var GLYPH_COLS_DEFAULT = 18;
+  // ↺ and an emptied field): 16 Han columns make a square picture one cheer (see newBlock).
+  var GLYPH_COLS_DEFAULT = 16;
   var BRAILLE_ADV = 0.733, BRAILLE_MIN_PX = 6, BRAILLE_MAX_PX = 12;
   // The columns a form can take on this paper: R1 12..30; the others 8..48, and Braille no
   // more than fit the paper at its smallest font.
@@ -2367,8 +2389,8 @@
   // shorter than one row still gets a row a band, and each of those bands is `tall`: the bot
   // cuts every one, and the card says so (it used to report an ordinary multi-cheer run).
   function glyphBand(rows, open, close, sep, rowH, budget, room, info) {
-    var fixed = payloadLength(open) + payloadLength(close), sepL = payloadLength(sep), out = [];
-    var esc = rows.map(function (r) { return escapeHtml(r.join("")); });
+    var fixed = payloadLength(open) + payloadLength(close), sepL = 0, out = [];
+    var esc = rows.map(function (r) { return lineDiv(escapeHtml(r.join(""))); });
     var lens = esc.map(payloadLength), roomH = room > PX_EPS ? room : Infinity;
     function spans(cap) {
       var sp = [], i = 0;
@@ -2386,7 +2408,7 @@
     }
     var greedy = spans(Infinity), even = spans(Math.ceil(rows.length / greedy.length));
     (even.length === greedy.length ? even : greedy).forEach(function (s) {
-      var i = s[0], j = s[1], html = open + esc.slice(i, j).join(sep) + close;
+      var i = s[0], j = s[1], html = open + esc.slice(i, j).join("") + close;
       var hPx = Math.round((j - i) * rowH * 1000) / 1000, tall = room > PX_EPS && hPx > room + PX_EPS;
       out.push({ html: html, chars: payloadLength(html), heightPx: hPx, tall: tall,
                  preview: { kind: "grid", grid: rows.slice(i, j).map(function (r) { return r.join(""); }).join("\n") },
@@ -2401,7 +2423,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, K = cjkGridK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
-    return glyphBand(rows, "<div style=font-size:" + K + "vw;line-height:1>", BIG_CLOSE, "<br>",
+    return glyphBand(rows, "<div style=font-size:" + K + "vw;line-height:1>", BIG_CLOSE, "",
       F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "cjk", cols: C, fontPx: F });
   }
   function buildMonoGrid(grid, opts) {
@@ -2409,7 +2431,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, K = monoK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
-    return glyphBand(rows, "<pre style=\"font:" + K + "vw/1.2 'Courier New';margin:0\">", "</pre>", "<br>",
+    return glyphBand(rows, "<pre style=\"font:" + K + "vw/1.2 'Courier New';margin:0\">", "</pre>", "",
       1.2 * F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "mono", cols: C, fontPx: F });
   }
   function buildBrailleGrid(grid, opts) {
@@ -2417,7 +2439,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, F = brailleFontPx(C, paperSpec(opts.paperMm).contentW);
-    return glyphBand(rows, "<div style=font-size:" + F + "px;line-height:" + (F + 2) + "px>", BIG_CLOSE, "<br>",
+    return glyphBand(rows, "<div style=font-size:" + F + "px;line-height:" + (F + 2) + "px>", BIG_CLOSE, "",
       F + 2, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "braille", cols: C, fontPx: F });
   }
   function buildGlyphBodies(tier, grid, opts) {
@@ -4051,10 +4073,11 @@
     function newBlock(type) {
       // A new Image block is Glyph-art: the picture tiled into characters, which is the
       // only way a picture prints (a Real picture sends nothing; see imageCard). Han
-      // characters by default: uniform-width cells line up at any column count. 18 columns:
-      // a square picture (a face, an avatar) is then 18 rows, 449 characters with the Cheer
-      // word, one cheer. At 20 it was 20 rows, two cheers, and the face printed in two halves
-      // with the bot's header between them (polish review 2).
+      // characters by default: uniform-width cells line up at any column count. 16 columns:
+      // a square picture (a face, an avatar) is then 16 rows, 489 characters with the Cheer
+      // word, one cheer, every row its own <div> (no <br>: this channel's chat filter blocks
+      // it). At 18 that is two cheers, and the face printed in two halves with the bot's header
+      // between them (polish review 2, when 18 was one cheer with <br>s between rows).
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "glyph", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0,
         tier: "cjk", cols: GLYPH_COLS_DEFAULT, dither: true, contrast: 128, invert: false };

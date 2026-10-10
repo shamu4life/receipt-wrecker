@@ -1331,7 +1331,7 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   assert.equal(await cards(page).first().getByLabel("Text").count(), 1, "the Text label names the textarea");
   assert.equal(await cards(page).first().getByLabel("Layout").count(), 1);
   for (const name of ["Move block up", "Move block down", "Remove block"]) assert.equal(await cards(page).first().getByRole("button", { name }).count(), 1, name);
-  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 18" }).count(), 1);
+  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 16" }).count(), 1);
   // Big text says how much tape each choice takes, and the wrapped form is one pick away.
   const layouts = await cards(page).first().locator(".sel-layout option").evaluateAll((os) => os.map((o) => [o.value, o.textContent]));
   assert.deepEqual(layouts.map((l) => l[0]), ["auto", "lines", "wrap", "stack", "each"]);
@@ -1857,17 +1857,18 @@ test("polish 2: Copy takes the first click after a number field is committed; a 
   }
 });
 
-test("polish 2: new Glyph-art at 18 columns, the Auto layout's name, hints that wrap, no thumbnail speck, the tests' cost with Cheer-ready off, and the controls' names", async () => {
+test("polish 2: new Glyph-art at 16 columns, the Auto layout's name, hints that wrap, no thumbnail speck, the tests' cost with Cheer-ready off, and the controls' names", async () => {
   const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "THANKS FOR THE RAID" })], viewport: { width: 390, height: 844 }, core: true });
-  // A new Image block starts at 18 columns: a square picture is then one cheer (20 was two).
+  // A new Image block starts at 16 columns: a square picture is then one cheer (18 is two,
+  // now that every row is its own <div>).
   await page.click("#addImageBtn");
-  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 18);
-  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 18" }).count(), 1);
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 16);
+  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 16" }).count(), 1);
   const square = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = c.height = 64;
     const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, 64, 64); x.fillStyle = "#000"; x.beginPath(); x.arc(32, 32, 24, 0, 7); x.fill();
     return c.toDataURL("image/png"); });
   await cards(page).nth(1).locator("input[type=url]").fill(square);
-  await page.waitForFunction(() => /18 columns × 18 rows · 1 cheer/.test(document.querySelectorAll("#blockList .block-card")[1].innerText), null, { timeout: 8000 });
+  await page.waitForFunction(() => /16 columns × 16 rows · 1 cheer/.test(document.querySelectorAll("#blockList .block-card")[1].innerText), null, { timeout: 8000 });
   // The card's controls: Darkness centred on 0 (the stored field is unchanged), Smooth shading.
   const img = cards(page).nth(1);
   assert.equal(await img.getByRole("slider", { name: "Darkness" }).inputValue(), "0");
@@ -2043,15 +2044,15 @@ test("polish 3: the cards: which picked file prints, the Detail field while rety
   await settled(page);
 
   // Detail: an emptied field changes nothing while it is retyped (it jumped to 20 columns, two
-  // cheers for a square picture); left empty, it takes the default 18, as ↺ does.
+  // cheers for a square picture); left empty, it takes the default 16, as ↺ does.
   const cols = img.locator("input.num-cols");
   await cols.fill("24");
   assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 24);
   await cols.fill("");
   assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 24, "an empty field changed the columns");
   await cols.blur();
-  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 18);
-  assert.equal(await cols.inputValue(), "18");
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 16);
+  assert.equal(await cols.inputValue(), "16");
 
   // The text box grows with the typed lines, 2 to 8 rows.
   const ta = cards(page).first().locator("textarea");

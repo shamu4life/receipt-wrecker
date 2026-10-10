@@ -176,3 +176,14 @@ test("top to bottom turns every character: Han, kana and emoji lie down like the
   const f = C.sideFit("你好 HELLO", {});
   assert.ok(Math.abs(f.lengthPx - 1115) < 1115 * 0.02, "the bench measured 1115px: " + f.lengthPx);
 });
+
+test("a long line with small capitals: the report says Enter makes more columns and bigger letters", () => {
+  const hint = /Press Enter between words to make more columns: each line becomes its own column, and fewer words per line print bigger\./;
+  // One column of a long sentence: Auto shrinks it to 55px (1.0 cm) to fit one cheer.
+  assert.match(C.sideReport(build("this is a really long sideways sentence that goes on and on", {})), hint);
+  // Already as big as the width allows, a single word, a size picked by hand, or big letters: no hint.
+  for (const [t, o] of [["this is a really long\nsideways sentence that\ngoes on and on", {}], ["A\nB\nC\nD", {}],
+                        ["Happy birthday", {}], ["this is a really long sideways sentence that goes on and on", { size: 40 }]]) {
+    assert.ok(!hint.test(C.sideReport(build(t, o))), JSON.stringify(t) + " " + JSON.stringify(o));
+  }
+});

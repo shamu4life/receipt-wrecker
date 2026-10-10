@@ -284,3 +284,18 @@ test("a box the Cheer line fills: the grid is banded by characters, not one chee
   assert.equal(b.length, 1);
   assert.equal(C.packStackBodies(b, k).length, 1);
 });
+
+test("a box with room, but less than one row: every band is flagged tall (the bot cuts each one)", () => {
+  // 25 bits at 50 bits per inch: a 48px box, 26.4px after the Cheer line. An 8-column ASCII row
+  // is 1.2 x 17.49vw = 57.1px tall, so each part prints the top half of one row.
+  const k = ctx({ bits: 25, bitsPerInch: 50 });
+  assert.ok(k.room > 0 && k.room < 57);
+  const grid = Array.from({ length: 8 }, () => Array.from("MMMMMMMM"));
+  const b = C.buildMonoGrid(grid, opts(k));
+  assert.equal(b.length, 8);
+  assert.ok(b.every((x) => x.tall === true && x.glyph.tall === true && x.heightPx > k.room));
+  // Room enough for a row: nothing tall. No room at all (the Cheer line fills the box) is the
+  // other case, banded by characters and said by the notice, so nothing there is tall either.
+  assert.ok(C.buildMonoGrid(grid, opts(ctx())).every((x) => !x.tall));
+  assert.ok(C.buildCjkGrid(disc(14, 11, CJK), opts(ctx({ bits: 1, hrThreshold: 1, bitsPerInch: 1000 }))).every((x) => !x.tall));
+});

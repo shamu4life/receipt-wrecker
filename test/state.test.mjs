@@ -175,7 +175,11 @@ test("previewVerdict says what the bot's renderer said, in plain words", () => {
   const texts = (d, o) => Array.from(C.previewVerdict(d, o), (l) => (l.warn ? "! " : "") + l.text);
   const ok = (extra) => ({ result: { ok: true, height: 295, trimmed: null, security: [] }, measure: { contentPx: 69.6, fullPx: 69.6 }, violations: 0, ...extra });
   // A part that prints in full: its length, and nothing to warn about.
-  assert.deepEqual(texts(ok(), {}), ["About 7.8 cm of receipt (295 px), header and footer included."]);
+  // The preview has no profile picture (no userName); a real cheer's receipt usually does, and
+  // the line says how much it adds: 182px on 80 mm, 151px on 58 mm (#receipt-avatar).
+  assert.deepEqual(texts(ok(), {}), ["About 7.8 cm of receipt (295 px), header and footer included, plus about 4.8 cm if the bot finds the viewer's profile picture."]);
+  assert.deepEqual(texts(ok(), { paperMm: 58 }), ["About 7.8 cm of receipt (295 px), header and footer included, plus about 4.0 cm if the bot finds the viewer's profile picture."]);
+  assert.deepEqual([C.avatarExtraPx(80), C.avatarExtraPx(58)], [182, 151]);
   // render()'s own cut: the streamer's bits-per-inch limit, or the maximum length.
   const bits = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 3, fullIn: 4.38, by: "bits" }, security: [] } }), { bits: 300, warned: true });
   // In cm, like every other length here (3 in = 7.6 cm, 4.38 in = 11.1 cm).

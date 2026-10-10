@@ -1491,15 +1491,36 @@
   // `joinPx` for the packer and a `big` record for the card. The preview IS the payload:
   // every inline style here is one the bot keeps. overflow, overflowText and dropped are
   // block-wide and read-only downstream, so every body shares them.
+  // The words a STACK breaks across bodies (cheers, the bot's header between the pieces): a
+  // body that starts in the middle of a word, i.e. not after a word gap. The size is the user's
+  // to change ("Fill the paper's width" makes the letters as big as the paper allows, however
+  // tall the word); the card names the word so the extra cheer is not a surprise.
+  // Returns [{word, pieces}], `pieces` being how many bodies the word is spread over.
+  function bigSplitWords(p) {
+    var k = p.pick, out = [], at = {};
+    if (!k || p.layout !== "stack") return out;
+    var lines = p.lines, starts = k.chunks.map(function (r) { return r.start; }).sort(function (a, b) { return a - b; });
+    starts.forEach(function (st) {
+      if (st <= 0 || lines[st - 1] === "") return;
+      var a = st - 1;
+      while (a > 0 && lines[a - 1] !== "") a--;
+      if (at[a]) { at[a].pieces++; return; }
+      var b = st;
+      while (b < lines.length && lines[b] !== "") b++;
+      at[a] = { word: lines.slice(a, b).join(""), pieces: 2 };
+      out.push(at[a]);
+    });
+    return out;
+  }
   function buildBigBodies(text, opts) {
-    var p = bigPlan(text, opts), k = p.pick;
+    var p = bigPlan(text, opts), k = p.pick, split = bigSplitWords(p);
     function info(ci, n, r, words) {
       return { layout: p.layout, size: p.size, flip: p.flip, px: k ? k.px : 0, pxMin: k ? (k.pxMin || k.px) : 0,
                pxs: k && k.pxs ? k.pxs : null, lh: p.m.lh, capCm: k ? bigCapCm(k.px) : 0, gap: k ? k.gap : "blank",
                chunkIndex: ci, chunkCount: n, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
                overflow: k ? k.overflow : [], overflowText: k ? k.overflow.map(function (i) { return p.lines[i]; }) : [],
                over: r ? r.over : false, tall: r ? r.tall : false, dropped: p.dropped, emoji: p.m.emoji,
-               cheerWords: words || [] };
+               cheerWords: words || [], splitWords: split };
     }
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, big: info(0, 0, null, []) }];
     return k.chunks.map(function (r, ci) {
@@ -1577,9 +1598,8 @@
     var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
     if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it in big letters.";
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
-    var size = g.layout === "each" && g.pxMin !== g.px
-      ? "Capitals ≈ " + bigCapCm(g.pxMin).toFixed(1) + "–" + bigCapCm(g.px).toFixed(1) + " cm"
-      : "Capitals ≈ " + g.capCm.toFixed(1) + " cm";
+    var lo = bigCapCm(g.pxMin).toFixed(1), hi = g.capCm.toFixed(1);
+    var size = g.layout === "each" && lo !== hi ? "Capitals ≈ " + lo + "–" + hi + " cm" : "Capitals ≈ " + hi + " cm";
     out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits));
     if (!g.fits) {
       var which = g.overflowText.slice(0, 2).map(function (l) {
@@ -1606,6 +1626,15 @@
     }
     if (gs.some(function (x) { return x.tall; })) {
       out.push(tallWords("One line", opts.limit));
+    }
+    if ((g.splitWords || []).length && !gs.some(function (x) { return x.tall; })) {
+      // A stacked word taller than one receipt at this size is spread over cheers, the bot's
+      // header printing between its letters: the size is the user's to change.
+      var sw = g.splitWords, one = sw.length === 1, many = sw.reduce(function (m, x) { return Math.max(m, x.pieces); }, 2);
+      var named = sw.slice(0, 2).map(function (x) { return "“" + x.word + "”"; }).join(" and ") + (sw.length > 2 ? " and more" : "");
+      out.push(named + (one ? " is" : " are") + " too tall for one receipt at this size, so " + (one ? "it breaks" : "they break")
+        + " across " + (one && many === 2 ? "two" : one ? many : "several") + " cheers, with the bot's header in between. "
+        + "Pick a smaller size to keep " + (one ? "it" : "them") + " whole.");
     }
     if (g.flip && cheers > 1) out.push("Upside down, the pieces go out last first, so the tape reads in order once you turn it over.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
@@ -1805,7 +1834,7 @@
                lengthCm: k ? k.chunks.reduce(function (t, x) { return t + x.heightPx; }, 0) * MM_PER_PX / 10 : 0,
                chunkIndex: ci, chunkCount: n, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
                over: r ? r.over : false, tall: r ? r.tall : false, dropped: p.dropped, emoji: p.emoji,
-               cheerWords: words || [] };
+               cheerWords: words || [], spaced: p.lines.some(function (l) { return / /.test(l); }) };
     }
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, side: info(0, 0, null, []) }];
     var open = sideOpen(k.px, p.lh, p.dir);
@@ -1835,6 +1864,13 @@
       out.push(typeof g.size === "number"
         ? "Too many lines to fit across the paper at this size: " + lost + " will be cut off. Pick a smaller size or use fewer lines."
         : "Too many lines to fit across the paper even at the smallest size: " + lost + " will be cut off. Use fewer lines.");
+    }
+    // Each typed line is ONE column and never wraps, so a sentence on one line prints as a thin
+    // column most of a receipt long (the textarea soft-wraps it, so it looks like two lines
+    // there). When Auto had to shrink the letters below what the paper's width allows to fit one
+    // cheer, more columns with fewer words each print bigger.
+    if (g.size === "fit1" && g.spaced && g.px < g.maxPx && g.capCm < 1.5) {
+      out.push("Press Enter between words to make more columns: each line becomes its own column, and fewer words per line print bigger.");
     }
     if (gs.some(function (x) { return x.over; })) out.push("One piece is too long for a single Twitch message, so that cheer would be rejected. Use fewer lines.");
     if (gs.some(function (x) { return x.tall; })) out.push(tallWords("One letter", opts.limit));
@@ -1915,7 +1951,9 @@
   // needs; the rows are then spread evenly over that many (9/9/2 became 7/7/6), so the last
   // cheer never carries a sliver of two rows for a whole header. A room of 0 or less is a box
   // the Cheer line already fills: nothing after it prints whatever the band's height, so the
-  // rows are banded by characters alone, rather than one cheer per row.
+  // rows are banded by characters alone, rather than one cheer per row. A room above 0 but
+  // shorter than one row still gets a row a band, and each of those bands is `tall`: the bot
+  // cuts every one, and the card says so (it used to report an ordinary multi-cheer run).
   function glyphBand(rows, open, close, sep, rowH, budget, room, info) {
     var fixed = payloadLength(open) + payloadLength(close), sepL = payloadLength(sep), out = [];
     var esc = rows.map(function (r) { return escapeHtml(r.join("")); });
@@ -1937,9 +1975,10 @@
     var greedy = spans(Infinity), even = spans(Math.ceil(rows.length / greedy.length));
     (even.length === greedy.length ? even : greedy).forEach(function (s) {
       var i = s[0], j = s[1], html = open + esc.slice(i, j).join(sep) + close;
-      out.push({ html: html, chars: payloadLength(html), heightPx: Math.round((j - i) * rowH * 1000) / 1000,
+      var hPx = Math.round((j - i) * rowH * 1000) / 1000, tall = room > PX_EPS && hPx > room + PX_EPS;
+      out.push({ html: html, chars: payloadLength(html), heightPx: hPx, tall: tall,
                  preview: { kind: "grid", grid: rows.slice(i, j).map(function (r) { return r.join(""); }).join("\n") },
-                 glyph: Object.assign({ rows: j - i, chunkIndex: out.length }, info) });
+                 glyph: Object.assign({ rows: j - i, chunkIndex: out.length, tall: tall }, info) });
     });
     out.forEach(function (b) { b.glyph.chunkCount = out.length; });
     return out;
@@ -2336,7 +2375,14 @@
   // reports a cut (`trimmed`) only for the streamer's bits-per-inch and maximum-length limits,
   // never for its built-in 1600px box, which cuts hard and silently. o: free (a free test), bits, warned (the app
   // itself expected this part to be cut), upUnsupported (an upward sideways part, in a browser
-  // without writing-mode: sideways-lr). Returns [{text, warn}].
+  // without writing-mode: sideways-lr), paperMm (for the profile picture's height). Returns [{text, warn}].
+  // The viewer's profile picture: the preview sends no userName, so its receipts have none, but
+  // a real cheer's has one whenever the bot's lookup answers in time. #receipt-avatar is
+  // min(11.5em, 100%) square with a 14px gap under it, and replaces the 16px top padding a
+  // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm.
+  function avatarExtraPx(paperMm) {
+    return Math.min(11.5 * BASE_PX, paperSpec(paperMm).contentW) + 14 - 16;
+  }
   function previewVerdict(d, o) {
     d = d || {}; o = o || {};
     var r = d.result, out = [];
@@ -2347,7 +2393,8 @@
       return out;
     }
     var h = Math.round(Number(r.height) || 0);
-    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included.", warn: false });
+    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included, plus about "
+      + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture.", warn: false });
     var cut = "";
     if (r.trimmed) {
       // In cm like every other length here; the inches only where they echo a streamer setting
@@ -2943,7 +2990,7 @@
       pc.got = d;
       if (r.ok) pc.frame.style.height = Math.max(1, Math.ceil(Number(r.height) || 0)) + "px";
       pc.verdict.textContent = "";
-      previewVerdict(d, { free: !w.cheer, bits: w.bits, warned: w.warned, upUnsupported: w.up && !sidewaysLrSupported() }).forEach(function (l) {
+      previewVerdict(d, { free: !w.cheer, bits: w.bits, warned: w.warned, paperMm: w.paperMm, upUnsupported: w.up && !sidewaysLrSupported() }).forEach(function (l) {
         pc.verdict.appendChild(mkEl("div", { "class": l.warn ? "rv-warn" : "rv-info" }, l.text));
       });
       pc.el.setAttribute("data-render", "done");
@@ -3565,12 +3612,14 @@
       var capsOf = function (f) {
         if (f.pxs) {
           var ink = f.pxs.filter(function (p) { return p > 0; });
-          var lo = Math.min.apply(null, ink), hi = Math.max.apply(null, ink);
-          if (lo !== hi) return "capitals " + bigCapCm(lo).toFixed(1) + "–" + cmOf(bigCapCm(hi));
+          var lo = bigCapCm(Math.min.apply(null, ink)).toFixed(1), hi = bigCapCm(Math.max.apply(null, ink)).toFixed(1);
+          if (lo !== hi) return "capitals " + lo + "–" + hi + " cm";
         }
         return "capitals " + cmOf(bigCapCm(f.px));
       };
-      var tapeOf = function (f) { return cmOf(f.lengthPx * MM_PER_PX / 10) + " of tape"; };
+      // The message's own length, the bodies' height: the bot's header, the Cheer line and the
+      // footer come on top (each part's line under the preview gives the whole receipt).
+      var tapeOf = function (f) { return cmOf(f.lengthPx * MM_PER_PX / 10) + " of message"; };
       var bigFlags = function (f) {
         return (f.fits ? "" : " · letters cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
       };
@@ -3605,9 +3654,13 @@
               label = BIG_SIZE_LABELS[o.value];
               if (has) { f = fitFor(bo.layout, o.value); if (f.px) label += " · " + capsOf(f) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
             } else {
+              // What really prints at this size: in Each a size is only a cap (every line at the
+              // smaller of it and its own fit), so "400 px · capitals 7.6 cm" promised letters that
+              // never print; the line sizes it gives are what the label states.
               var px = parseInt(o.value, 10);
-              label = px + " px · capitals " + cmOf(bigCapCm(px));
-              if (has) { f = fitFor(bo.layout, px); label += ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
+              label = (bo.layout === "each" ? "up to " + px + " px" : px + " px") + " · ";
+              if (has) { f = fitFor(bo.layout, px); label += capsOf(f) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
+              else label += "capitals " + cmOf(bigCapCm(px));
             }
             o.textContent = label;
           }
@@ -3987,6 +4040,11 @@
             + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever the characters above say.");
         } else if (ctx.cheer && boxNoRoom(ctx.limit)) {
           lines.push(tallWords("", ctx.limit));
+        } else if (gs.some(function (b) { return b.tall; })) {
+          // A box with room, but less than one row: every part is cut, so say what makes rows
+          // shorter (more columns: smaller characters) or the box taller.
+          lines.push("One row is taller than " + boxWords(ctx.limit) + ", so the bot cuts every part. Raise Detail (columns), "
+            + "which makes the rows shorter" + (ctx.limit.by === "bits" ? ", or set Bits per cheer higher for more room." : "."));
         }
         writeNote(gnote, lines.concat(partLines(where, parts)), [], where.over);
       };
@@ -4678,7 +4736,7 @@
       // The app's state, read through sanitizers; the plain-mode notice; the bot's ditherer.
       THERMAL_DITHERS: THERMAL_DITHERS, normalizeControls: normalizeControls, hanziWeightOf: hanziWeightOf,
       GLYPH_TIERS: GLYPH_TIERS, glyphOpts: glyphOpts, modeNotice: modeNotice, noRoomAdvice: noRoomAdvice, forkDither: forkDither,
-      previewEvent: previewEvent, previewVerdict: previewVerdict,
+      previewEvent: previewEvent, previewVerdict: previewVerdict, avatarExtraPx: avatarExtraPx,
       // Canvas-backed glue, exported for the browser tests only (a null DOM can't run them).
       designTTextGrid: designTTextGrid, glyphGrid: glyphGrid,
     };

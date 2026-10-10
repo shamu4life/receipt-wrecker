@@ -430,3 +430,19 @@ test("every user character is escaped; only our own tags remain", () => {
     }
   }
 });
+
+test("a stacked word taller than one receipt at this size is named, with how many cheers it spans", () => {
+  // "Fill the paper's width" makes the letters as big as the paper allows, however tall a word
+  // gets: MESSAGE broke over two cheers with the bot's header between MESSAG and E, unsaid.
+  const b = build("THIS IS A VERY LONG MESSAGE", { layout: "stack", size: "width" });
+  eq(b[0].big.splitWords, [{ word: "MESSAGE", pieces: 2 }]);
+  const r = C.bigReport(b, { bits: 100 });
+  assert.match(r, /“MESSAGE” is too tall for one receipt at this size, so it breaks across two cheers, with the bot's header in between\. Pick a smaller size to keep it whole\./);
+  // Upside down the same word is named; one word over four cheers says four.
+  eq(build("THIS IS A VERY LONG MESSAGE", { layout: "stack", size: "width", flip: true })[0].big.splitWords, [{ word: "MESSAGE", pieces: 2 }]);
+  assert.match(C.bigReport(build("MISSISSIPPIRIVERBOAT", { layout: "stack", size: "width" }), {}), /breaks across 4 cheers/);
+  // Breaks at word gaps only, Lines, and a box too short for one letter (said as tall) say nothing.
+  eq(build("HELLO WORLD", { layout: "stack", size: 200 })[0].big.splitWords, []);
+  eq(build("THIS IS A VERY LONG MESSAGE", { layout: "lines", size: "width" })[0].big.splitWords, []);
+  assert.ok(!/too tall for one receipt/.test(C.bigReport(build("HELLO", { layout: "stack", size: 400 }, ctx({ bitsPerInch: 50 })), {})));
+});

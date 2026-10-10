@@ -280,8 +280,8 @@ test("the app boots with the defaults, one Big text block, and Copy sends exactl
   }
   assert.deepEqual([await copyPayload(page)], expectNode([BIG({ id: 1 })]));
   // The Layout and Size options say what they print, and no formatting row or slider shows.
-  assert.match(await card.locator('.sel-size option[value="fit1"]').textContent(), /capitals \d+\.\d cm, \d+\.\d cm of tape · 1 cheer$/);
-  assert.match(await card.locator('.sel-size option[value="64"]').textContent(), /^64 px · capitals 1\.2 cm, \d+\.\d cm of tape · 1 cheer$/);
+  assert.match(await card.locator('.sel-size option[value="fit1"]').textContent(), /capitals \d+\.\d cm, \d+\.\d cm of message · 1 cheer$/);
+  assert.match(await card.locator('.sel-size option[value="64"]').textContent(), /^64 px · capitals 1\.2 cm, \d+\.\d cm of message · 1 cheer$/);
   assert.equal(await card.locator(".fmt-row, input[type=range]:visible, input[type=number]:visible").count(), 0);
   assert.equal(await page.locator("#modeNote").count(), 0, "a High Roller stack needs no notice");
   assert.deepEqual(errors, [], "the page threw while loading");
@@ -1291,7 +1291,7 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   // Big text says how much tape each choice takes, and the wrapped form is one pick away.
   const layouts = await cards(page).first().locator(".sel-layout option").evaluateAll((os) => os.map((o) => [o.value, o.textContent]));
   assert.deepEqual(layouts.map((l) => l[0]), ["auto", "lines", "wrap", "stack", "each"]);
-  for (const [v, t] of layouts) assert.match(t, /cm of tape/, v + ": " + t);
+  for (const [v, t] of layouts) assert.match(t, /cm of message/, v + ": " + t);
   assert.match(layouts[2][1], /^Words wrapped to the paper · capitals/);
   // One part says what it costs (the hints point under the preview for it).
   await cards(page).nth(1).getByRole("button", { name: "Remove block" }).click();
@@ -1606,4 +1606,50 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   assert.ok(await ph.evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && getComputedStyle(e).whiteSpace === "normal"), "the placeholder is cut off");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+test("polish: labels and notes say what really prints: Each's sizes, the message's length, the profile picture, a split word, more columns, a row too tall", async () => {
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [
+      BIG({ id: 1, text: "HAPPY\nBIRTHDAY\nTO YOU", bigLayout: "each" }),
+      BIG({ id: 2, text: "THIS IS A VERY LONG MESSAGE", bigLayout: "stack", bigSize: "width" }),
+      { id: 3, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "this is a really long sideways sentence that goes on and on" }] });
+    const c0 = cards(page).nth(0);
+    // In Each a size is a cap: 400 px prints exactly what Auto prints (69, 46 and 62 px).
+    assert.match(await c0.locator('.sel-size option[value="400"]').textContent(), /^up to 400 px · capitals 0\.9–1\.3 cm, \d+\.\d cm of message · 1 cheer$/);
+    assert.match(await c0.locator('.sel-size option[value="48"]').textContent(), /^up to 48 px · capitals 0\.9 cm, /);
+    await c0.locator(".sel-layout").selectOption("lines");
+    assert.match(await c0.locator('.sel-size option[value="48"]').textContent(), /^48 px · capitals 0\.9 cm, \d+\.\d cm of message/);
+    // A stacked word over two cheers is named.
+    assert.match(await cards(page).nth(1).locator(".text-note").innerText(),
+      /“MESSAGE” is too tall for one receipt at this size, so it breaks across two cheers, with the bot's header in between\. Pick a smaller size to keep it whole\./);
+    // One long sideways line: Enter makes more columns.
+    assert.match(await cards(page).nth(2).locator(".text-note").innerText(), /Press Enter between words to make more columns/);
+    // The part line adds what a found profile picture would.
+    const { verdict } = await drawnPart(page, 0, await copyPayload(page, 0));
+    assert.match(verdict, /header and footer included, plus about 4\.8 cm if the bot finds the viewer's profile picture\./);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    const { page, ctx } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, paperMm: 58 } });
+    const { verdict } = await drawnPart(page, 0, await copyPayload(page, 0));
+    assert.match(verdict, /plus about 4\.0 cm if the bot finds the viewer's profile picture\./);
+    await ctx.close();
+  }
+  {
+    // 25 bits at 50 bits per inch: 26.4px after the Cheer line, and an 8-column ASCII row is
+    // 57px. Every part is cut, the card says why, and the verdict does not blame fonts.
+    const pic = { id: 1, type: "image", imgKind: "glyph", url: PIC, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                  tier: "ascii", cols: 8, dither: true, contrast: 128, invert: false };
+    const { page, ctx, errors } = await freshPage({ blocks: [pic], controls: { ...SETTINGS, bits: 25, bitsPerInch: 50 } });
+    await settled(page);
+    assert.match(await cards(page).first().locator(".text-note").innerText(),
+      /One row is taller than this cheer’s part of the receipt .*, so the bot cuts every part\. Raise Detail \(columns\), which makes the rows shorter, or set Bits per cheer higher for more room\./);
+    const { verdict } = await drawnPart(page, 0, await copyPayload(page, 0));
+    assert.match(verdict, /The bot cuts this message/);
+    assert.ok(!/expected it to fit/.test(verdict), verdict);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
 });

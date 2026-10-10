@@ -217,15 +217,15 @@ test("Design T under a box too short for header, row and token: every part is fl
 });
 
 test("Han tiling takes at most HAN_MAX_LINES typed lines and says how many it left out", () => {
-  assert.equal(C.HAN_MAX_LINES, 100);
+  assert.equal(C.HAN_MAX_LINES, 50);
   const t = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).join("\n");
   const a = C.hanTextLines(t);
   assert.equal(a.lines.length, 26, "26 letters, one a line: Y and Z are not dropped (the old cap was 24)");
   assert.equal(a.dropped, 0);
   const many = C.hanTextLines(Array.from({ length: 130 }, (_, i) => "L" + i).join("\r\n") + "\n\n  \n");
-  assert.equal(many.lines.length, 100);
-  assert.equal(many.lines[99], "L99");
-  assert.equal(many.dropped, 30);
+  assert.equal(many.lines.length, 50);
+  assert.equal(many.lines[49], "L49");
+  assert.equal(many.dropped, 80);
   eq(J(C.hanTextLines("  \n\n")), { lines: [], dropped: 0 });
 });
 

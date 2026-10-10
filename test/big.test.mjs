@@ -153,6 +153,27 @@ test("auto wraps a sentence at its spaces: every word whole, every line inside t
   assert.equal(C.bigFit("WELCOME TO THE STREAM", { size: 64 }).layout, "stack");
 });
 
+test("Words wrapped is a layout of its own, and every fit says how much tape it takes", () => {
+  // Round 3: Auto stacks "good game everyone" (bigger letters, about 48 cm of tape) and the
+  // shorter wrapped form had no pick of its own. It is one now, built like Auto's candidate.
+  assert.ok(C.BIG_LAYOUTS.includes("wrap"));
+  eq(C.bigOpts({ bigLayout: "wrap" }).layout, "wrap");
+  const t = "good game everyone";
+  const auto = C.bigFit(t, {}), wrap = C.bigFit(t, { layout: "wrap" });
+  assert.equal(auto.layout, "stack");
+  assert.equal(wrap.layout, "wrap");
+  assert.equal(wrap.lines.join(" "), t);
+  assert.ok(wrap.lengthPx < auto.lengthPx / 2, "much less tape: " + wrap.lengthPx + " vs " + auto.lengthPx);
+  close(wrap.lengthPx, build(t, { layout: "wrap" }).reduce((n, b) => n + b.heightPx, 0), "lengthPx is the bodies' height");
+  close(auto.lengthPx, build(t, {}).reduce((n, b) => n + b.heightPx, 0), "for Auto too");
+  // A line with no space is Lines exactly, and says so.
+  const one = C.bigFit("HELLO", { layout: "wrap" });
+  assert.equal(one.layout, "lines");
+  eq(build("HELLO", { layout: "wrap" }).map((b) => b.html), J(build("HELLO", { layout: "lines" }).map((b) => b.html)));
+  // A wrapped word too wide on its own: the report points at Stack.
+  assert.match(C.bigReport(build("SUPERCALIFRAGILISTICEXPIALIDOCIOUS YES", { layout: "wrap", size: 60 })), /set Layout to Stack the letters/);
+});
+
 test("height: a too-wide spaced line counts the lines its words really wrap to", () => {
   // "WWW WWW WWW" at 48px: each WWW is 136px, and two of them and a space don't fit 244px, so it
   // is three lines on the paper. Counting width / line width said two, the packer put all 20
@@ -391,7 +412,7 @@ test("the report: size in cm, cheers and bits, cheer-shaped words", () => {
   assert.ok(!/fits 1 cheer/.test(wide));
   // A too-wide line in Lines: break it (or let Auto wrap it) before stacking it.
   assert.match(C.bigReport(build("A".repeat(20) + " " + "B".repeat(20), { layout: "lines" })),
-    /Press Enter between words to break the line, or set Layout to Auto, which wraps the words to the paper\./);
+    /Press Enter between words to break the line, or set Layout to Words wrapped to the paper\./);
   assert.match(C.bigReport(build("A".repeat(40), { layout: "lines" })), /even at the smallest size.* Set Layout to Stack the letters\./);
 });
 

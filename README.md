@@ -81,8 +81,8 @@ separate cheer, so a run costs bits × parts; the total is shown under the previ
 ## Text
 
 A Text block has three renders. Every Layout and Size option in the card is labelled with
-what it would print for your text (capital letters' height in cm, how many cheers), so you
-can compare before you pick.
+what it would print for your text (capital letters' height in cm, how much tape it takes, how
+many cheers), so you can compare before you pick.
 
 ### Big text (High Roller)
 
@@ -93,11 +93,13 @@ Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
 ```
 
 - **Layout**: *Auto* (the biggest in one cheer of: your lines as typed, the same lines with
-  the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Stack
-  the letters, one per line* (much bigger letters for short words), or *Each line its own
-  size* (every line as wide as the paper). A sentence typed on one line comes out wrapped,
-  every word whole; to choose the line breaks yourself, press Enter between words and pick
-  Lines.
+  the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Words
+  wrapped to the paper*, *Stack the letters, one per line* (much bigger letters for short
+  words), or *Each line its own size* (every line as wide as the paper). A sentence typed on
+  one line comes out wrapped, every word whole; to choose the line breaks yourself, press
+  Enter between words and pick Lines. Auto goes for the biggest letters even when a stack
+  takes far more tape than the wrapped words: the labels show both, and *Words wrapped* is one
+  pick away.
 - **Size**: *Auto* (the biggest that fits one cheer, the default), *Fill the paper's width*
   (may cost more cheers) or a fixed size from 20 to 400 px.
 - **Upside down** turns the letters round, so the tape reads the right way up when it is
@@ -225,7 +227,10 @@ printer's dot width (576 dots on 80 mm, 384 on 58 mm), turned to black and white
 same dither the bot uses. Pick the one the streamer's dock is set to: **Detailed** (the
 bot's default), **Soft** or **Crisp**. It is what the printer gets, give or take fonts and a
 dot or two: this computer's fonts may differ from the streamer's, and the header and some big
-or sideways lines land a dot or two off where the bot puts them.
+or sideways lines land a dot or two off where the bot puts them. Small character grids on
+58 mm, and Braille, are the exception: their thin strokes and texture can come out
+differently there than on the print (in Crisp a stroke can vanish in the thermal view and
+still print), so judge those with the thermal view off.
 
 ---
 

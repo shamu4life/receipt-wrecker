@@ -25,7 +25,7 @@
 //   "part": 0                 which part (cheer) to emit, 0-based; the count goes to stderr
 //
 // Kinds:
-//   {"kind":"big","text":"HELLO","layout":"auto|lines|stack|each","size":"fit1|width"|px,"flip":false}
+//   {"kind":"big","text":"HELLO","layout":"auto|lines|wrap|stack|each","size":"fit1|width"|px,"flip":false}
 //   {"kind":"side","text":"HELLO","dir":"down|up","size":"fit1|width"|px}
 //   {"kind":"glyph","tier":"cjk|ascii|asciifull|safe|braille","cols":16,
 //    "picture":"disc|ring|smiley|heart","dither":true,"invert":false}

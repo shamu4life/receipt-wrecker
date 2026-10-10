@@ -89,6 +89,12 @@ test("modeNotice: says why below the threshold, with High Roller off, and in a f
   assert.match(below, /set Bits per cheer to 25 or more/);
   assert.match(C.modeNotice({ cheer: true, bits: 100, hrThreshold: 0 }), /threshold is 0 \(off\)/);
   assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 25 }), /^Free test/);
+  // A free test is the High Roller form; when the real cheer is below the threshold it says
+  // the real one prints as Han tiling instead (round 3).
+  assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 25 }),
+    /Your 10-bit cheer will print as Han tiling instead: this tests the High Roller form, which needs 25 bits or more\.$/);
+  assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 0 }), /High Roller is off \(threshold 0\), so a real cheer prints as Han tiling/);
+  assert.doesNotMatch(C.modeNotice({ cheer: false, bits: 100, hrThreshold: 25 }), /Han tiling/);
   // It agrees with printMode, which is the bot's own test.
   for (const [bits, t] of [[1, 1], [24, 25], [25, 25], [1000000, 1000000], [5, 0]]) {
     assert.equal(C.modeNotice({ cheer: true, bits, hrThreshold: t }) === "", C.printMode({ cheer: true, bits, hrThreshold: t }) === "raw");

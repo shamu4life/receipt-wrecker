@@ -66,24 +66,29 @@ page, built into the app and run in a sandboxed frame with no network access.
   leaves a cheer no room after the Cheer line, the notice above the parts says so, with how
   much receipt the streamer gives per bit.
 - **Big text** (High Roller): `<div style="font:700 <px>px/<lh> Arial">` in bold Arial, sized
-  from Arial Bold's real advance widths (every printable ASCII and Latin-1 character measured). Layouts *Auto*, *Lines as you typed them*, *Stack the
-  letters* and *Each line its own size*; Auto also tries the typed lines with the words wrapped
+  from Arial Bold's real advance widths (every printable ASCII and Latin-1 character measured;
+  Han, kana and Hangul count 1.05em, so a stack of them stays inside the paper). Layouts *Auto*,
+  *Lines as you typed them*, *Words wrapped to the paper*, *Stack the letters* and *Each line
+  its own size*; Auto also tries the typed lines with the words wrapped
   to the paper (balanced, every word whole), so a sentence typed on one line prints wrapped
   rather than tiny or as a long column of small letters, and keeps whichever is biggest in one
   cheer. A line too wide at a fixed size is counted by the lines its words really wrap to; sizes *Auto* (biggest in one cheer), *Fill the
   paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
   1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
   print as grey dots; invisible characters are left out and the card says so. Every option is
-  labelled with what it prints (capitals in cm, cheers).
+  labelled with what it prints (capitals in cm, tape in cm, cheers).
 - **Sideways text** (High Roller): `writing-mode` turns the text so it runs down the tape, as
   big as the paper's width allows; each typed line is a column. *Top to bottom*
   (`vertical-rl` with `text-orientation:sideways`, so Han characters and emoji turn with the
   letters; read by turning the receipt anticlockwise) or *Bottom to top*
-  (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC).
+  (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC). Auto
+  tries every size (the cheer count is not monotonic in the size), and a block with more lines
+  than fit across the paper says which lines are cut off.
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
   plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
   a line to itself, and the cheer word at the end. Each plain part is its own cheer, and a run
-  that needs several spreads its rows evenly over them (no cheer for a lone row).
+  that needs several spreads its rows evenly over them (no cheer for a lone row). Up to 50
+  typed lines a block (it was 24, silently); past that the card says how many are left out.
 - **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
   one message fits both papers (12 to 30 columns); ASCII and blocks as Courier New rows in a
   `<pre>` (8 to 48 columns); Braille, with its rows sized for its narrow cell so a picture keeps
@@ -145,14 +150,25 @@ page, built into the app and run in a sandboxed frame with no network access.
   preview scrolls past. A probe's view has a **Back to my stack** button.
 - **Presets**: saving under a taken name asks before replacing it; a rename onto a taken name
   is refused; Load, Rename and Delete act on the preset picked even when two share a name; Load
-  says whether its uploaded pictures still load.
+  says whether its uploaded pictures still load (counted on the converted stack, so an old
+  Takeover's picture is checked too) and explains what converting an old preset changed;
+  Import says how many setups it really replaced.
 - **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
   card says a reload or a preset won't keep it, and asks for it again when one didn't. A link
   that can't be read says so (and isn't fetched again on every edit). **Rotate** works for
   glyph-art too. Grids that need several cheers are spread evenly over them. The Detail field
   shows the columns the grid really uses.
-- A free test counts messages, not bits; with High Roller off the cards say so; number fields
-  show the value the app uses once committed; lengths in a part's verdict are in cm.
+- A free test counts messages, not bits, and below the threshold it says the real cheer
+  prints as Han tiling instead; with High Roller off the cards say so; number fields show the
+  value the app uses once committed; lengths in a part's verdict are in cm; one part says what
+  it costs too.
+- **On a phone** the preview and its Copy buttons come right after the blocks, before the
+  presets and the settings (they were about 1,900px further down). Every card control has a
+  label a screen reader can read, and the ↑ ↓ × and ↺ buttons say what they do.
+- An expired upload link is worded for the block: a Glyph-art block asks for the file again
+  (it stays on the device) or another link; a Real picture only says why the picture is gone
+  from the card. An over-length part says how to fix it for what it holds (text has no
+  columns).
 
 ### Migration of saved work
 
@@ -162,7 +178,9 @@ The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
   text block (lines as typed, the biggest size that fits one cheer), each picture a Glyph-art
   Image block with the same link. Each new block gets a fresh id. An empty one is dropped.
 - A **Giant type** block becomes Big text with its layout (the Emote names layout becomes
-  Lines) and its level as a size: level n is round(16 × 1.2ⁿ) px.
+  Lines) and its level as a size: level n is round(16 × 1.2ⁿ) px. An Emote-layout block takes
+  Auto (the biggest size that fits one cheer) instead: its level sized an emote picture, and
+  as letters it printed cut off at the paper's edge.
 - A **Type** block becomes Big text (straight), Big text upside down (180°), or Sideways text
   top to bottom (90°) or bottom to top (270°).
 - An Image block loses its carrier pick; everything else, the upload link included, stays.

@@ -13,10 +13,19 @@
   .gh-link:hover, .gh-link:focus-visible { border-color: currentColor; background: rgba(128,128,128,.15); }
   .gh-link svg { width: 1.1em; height: 1.1em; fill: currentColor; }
   .intro { font-size: .9rem; opacity: .85; margin: 0 0 1rem; }
-  .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  /* Two columns: the blocks with the settings under them, and the preview beside both. On a
+     phone (one column, below) the page reads in the DOM's order: blocks, preview, settings,
+     so the preview and its Copy buttons sit right under the blocks being edited instead of
+     about 1,900px below them, past the presets and the settings. The extra height of a long
+     preview goes to the settings row (auto 1fr), so nothing opens a gap under the blocks. */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto 1fr;
+    column-gap: 1.5rem; align-items: start; }
+  .controls-blocks { grid-column: 1; grid-row: 1; }
+  .controls-settings { grid-column: 1; grid-row: 2; }
+  .preview { grid-column: 2; grid-row: 1 / span 2; }
   /* min-width:0 lets a column shrink below its content so a wide preview scrolls inside
      its box instead of blowing the page width out. */
-  .controls, .preview { flex: 1 1 320px; min-width: 0; }
+  .controls, .preview { min-width: 0; }
   .preview { max-width: 100%; }
   .controls label { display: block; margin-bottom: .75rem; }
   .controls input[type="range"] { width: 100%; }
@@ -104,7 +113,7 @@
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
     body { padding: .75rem; }
-    .layout { flex-direction: column; gap: 1rem; }
+    .layout { display: flex; flex-direction: column; gap: 1rem; }
     .controls, .preview { width: 100%; }
     #parts { min-width: 0; }
   }
@@ -121,7 +130,7 @@
   </div>
   <p class="intro">Your words as big text, sideways text or Han tiling, or a picture as glyph-art (from a link or a file), for a streamer whose receipt printer runs SassyTP's printer-bot. Paste the result into Twitch chat as a cheer and it prints on the receipt.</p>
   <div class="layout">
-    <section class="controls">
+    <section class="controls controls-blocks">
       <div id="composer">
         <div class="composer-h">Blocks: stacked top to bottom on the receipt</div>
         <div id="blockList"></div>
@@ -129,8 +138,23 @@
           <button type="button" id="addTextBtn">+ Text</button>
           <button type="button" id="addImageBtn">+ Image</button>
         </div>
-        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more, and each is its own cheer (see the bits total under the preview).</div>
-
+        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more, and each is its own cheer (the cost is under the preview).</div>
+      </div>
+    </section>
+    <section class="preview">
+      <label class="thermal-toggle" title="The preview the way the printer gets it: 1-bit black and white, dithered by the bot's own method">
+        <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
+      </label>
+      <label class="thermal-toggle">Dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select></label>
+      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from, with a grey box where the Twitch logo goes. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's. It is drawn one pixel per printer dot, so it shows larger than the preview. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Dither menu works while the thermal view is on).</div>
+      <div id="parts"></div>
+      <div class="meta">
+        <button type="button" id="hrProbeBtn">High Roller test</button>
+        <button type="button" id="plainProbeBtn">Plain test</button>
+      </div>
+      <div class="hint">Two one-cheer tests of the streamer's settings. <strong>High Roller test</strong> cheers exactly the threshold: if BIG prints big, High Roller is on at that amount. <strong>Plain test</strong> cheers one bit under it: it should print small, inside quote marks, with every line the same length.</div>
+    </section>
+    <section class="controls controls-settings">
         <div id="presets">
           <div class="composer-h">Presets: save this whole stack and bring it back</div>
           <div class="add-row">
@@ -150,7 +174,6 @@
           <textarea id="presetJson" rows="4" spellcheck="false" placeholder="Exported JSON appears here. Paste JSON in and press Import to bring setups over from another browser."></textarea>
           <div class="hint" id="presetNote">Saved in this browser only. Export the JSON to move a setup to another device, or to survive a cache clear. An <strong>uploaded</strong> picture's link dies after 15 minutes, so a preset that used one loads with that block flagged for re-upload. A pasted link is left alone.</div>
         </div>
-      </div>
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
       <div class="hint">Starts each message with "Cheer&lt;bits&gt; " so it triggers the print. Turn it off to send a <strong>free test</strong>: a message with no cheer never reaches the printer, but it does go through chat's filters, so it shows whether the channel lets this markup through before you spend bits on it.</div>
 
@@ -170,19 +193,6 @@
         <label>Maximum length: <input type="number" id="maxInches" min="0" max="40" step="any" value="0" style="width:7em"> inches</label>
         <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's 1600px box, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
       </div>
-    </section>
-    <section class="preview">
-      <label class="thermal-toggle" title="The preview the way the printer gets it: 1-bit black and white, dithered by the bot's own method">
-        <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
-      </label>
-      <label class="thermal-toggle">Dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select></label>
-      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from, with a grey box where the Twitch logo goes. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's. It is drawn one pixel per printer dot, so it shows larger than the preview. Big and sideways text land within a dot or two of where the bot puts them; small character grids on 58 mm, and Braille, can land up to 3 dots off, so their texture here is approximate. Pick the dither the streamer's dock is set to (the Dither menu works while the thermal view is on).</div>
-      <div id="parts"></div>
-      <div class="meta">
-        <button type="button" id="hrProbeBtn">High Roller test</button>
-        <button type="button" id="plainProbeBtn">Plain test</button>
-      </div>
-      <div class="hint">Two one-cheer tests of the streamer's settings. <strong>High Roller test</strong> cheers exactly the threshold: if BIG prints big, High Roller is on at that amount. <strong>Plain test</strong> cheers one bit under it: it should print small, inside quote marks, with every line the same length.</div>
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web or mobile chat</strong> and send it as a cheer. Only the first-party client actually cheers.</p>
@@ -954,7 +964,10 @@
       || (cp >= 0xA960 && cp <= 0xA97F) || (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF)
       || (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6);
   }
-  var BIG_LAYOUTS = ["auto", "lines", "stack", "each"];
+  // "wrap" is the lines as typed with each too-wide line broken at its spaces (bigWrapPlan):
+  // one of Auto's candidates, and a layout of its own so the shorter wrapped form is one pick
+  // away when Auto prefers a long stack of slightly bigger letters.
+  var BIG_LAYOUTS = ["auto", "lines", "wrap", "stack", "each"];
   // Capitals' height: Arial Bold's cap height (0.716em), in cm at 96 CSS px per inch.
   var BIG_CAP_EM = 0.716, MM_PER_PX = 25.4 / 96;
   function bigCapCm(px) { return px * BIG_CAP_EM * MM_PER_PX / 10; }
@@ -1405,7 +1418,11 @@
       return { layout: layout, lines: lines, m: m, pick: pick };
     }
     var p;
-    if (o.layout !== "auto") p = one(o.layout);
+    if (o.layout === "wrap") {
+      // A line with no space to break at wraps to itself: that is Lines exactly, and says so.
+      var l0 = one("lines"), w0 = l0.pick ? bigWrapPlan(l0.lines, contentW, o.size, budget, room, o.flip, opts.linear) : null;
+      p = w0 ? { layout: "wrap", lines: w0.m.lines, m: w0.m, pick: w0 } : l0;
+    } else if (o.layout !== "auto") p = one(o.layout);
     else {
       var a = one("lines"), cands = [a];
       var w = a.pick ? bigWrapPlan(a.lines, contentW, o.size, budget, room, o.flip, opts.linear) : null;
@@ -1419,13 +1436,15 @@
   }
   // bigPlan's answer as plain data: {layout, size, flip, px (the biggest line's), pxs (each
   // line's, "each" only), lh, lines, chunks, cheers, fits, over, tall, gap, overflow, dropped,
-  // emoji}. Nothing to print gives px 0.
+  // emoji, lengthPx (the bodies' height: how much tape they take, headers not counted)}.
+  // Nothing to print gives px 0.
   function bigFit(text, opts) {
     var p = bigPlan(text, opts), k = p.pick;
     return { layout: p.layout, size: p.size, flip: p.flip, px: k ? k.px : 0, pxs: k && k.pxs ? k.pxs.slice() : null,
              lh: p.m.lh, lines: p.lines.slice(), chunks: k ? k.chunks.length : 0, cheers: k ? k.cheers : 0,
              fits: k ? k.fits : true, over: k ? k.over : false, tall: k ? k.tall : false, gap: k ? k.gap : "blank",
-             overflow: k ? k.overflow.slice() : [], dropped: p.dropped.slice(), emoji: p.m.emoji };
+             overflow: k ? k.overflow.slice() : [], dropped: p.dropped.slice(), emoji: p.m.emoji,
+             lengthPx: k ? k.chunks.reduce(function (t, r) { return t + r.heightPx; }, 0) : 0 };
   }
   // One chunk's markup. Uniform "blank": one div, lines joined by <br>. Uniform "small" (a
   // stack's words): a div per word, joined by <br>. "each": a div per line at its own size,
@@ -1553,8 +1572,10 @@
       var fix = "";
       if (g.layout === "lines") {
         fix = g.overflowText.some(function (l) { return / /.test(l); })
-          ? " Press Enter between words to break the line, or set Layout to Auto, which wraps the words to the paper."
+          ? " Press Enter between words to break the line, or set Layout to Words wrapped to the paper."
           : " Set Layout to Stack the letters.";
+      } else if (g.layout === "wrap") {
+        fix = " A word on its own is too wide: set Layout to Stack the letters.";
       }
       out.push(typeof g.size === "number"
         ? "Too wide for the paper at this size: " + which + " will wrap or be cut off. Pick a smaller size." + fix
@@ -1950,11 +1971,13 @@
   // part rides alone in its cheer (anything before the grid shifts every row) and every part
   // repeats the header and the token. Height = (header + R + token) lines x 21.6px.
   var HAN_CELL_PX = 16, QUOTE_PX = 6, HAN_LIGHT = "丶";
-  // Han tiling draws each typed line as a picture of its own (a canvas, on every refresh), so
-  // it takes at most HAN_MAX_LINES of them; any more are left out and the card says how many.
+  // Han tiling draws each typed line as a picture of its own, a column at least ten rows long,
+  // so it takes at most HAN_MAX_LINES of them; any more are left out and the card says how many.
+  // (Every part is a preview frame running the bot's renderer: 100 one-word lines made 73
+  // cheers, whose frames froze the page for about 30 seconds.)
   // It used to stop at 24 and say nothing, which mattered once every Big and Sideways block
   // fell back to Han tiling below the threshold: a 26-line stack lost its last two letters.
-  var HAN_MAX_LINES = 100;
+  var HAN_MAX_LINES = 50;
   function hanTextLines(text) {
     var lines = String(text == null ? "" : text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
     return { lines: lines.slice(0, HAN_MAX_LINES), dropped: Math.max(0, lines.length - HAN_MAX_LINES) };
@@ -2162,9 +2185,18 @@
   function modeNotice(o) {
     o = o || {};
     if (!o.cheer) {
+      // The free test is always the High Roller form (buildMode). When the real cheer would be
+      // below the threshold it prints as Han tiling instead, so the test checks another message,
+      // and says so.
+      var ft = hrThresholdOf(o.hrThreshold), fb = cheerBits(o.bits);
       return "Free test: Cheer-ready is off, so this message never reaches the printer. It still goes "
         + "through the channel's chat filter, so sending it shows whether chat lets this markup through "
-        + "before you spend bits.";
+        + "before you spend bits."
+        + (ft <= 0 ? " The streamer's High Roller is off (threshold 0), so a real cheer prints as Han tiling instead: "
+                     + "this tests the High Roller form, which needs the streamer to set a threshold."
+         : fb < ft ? " Your " + fb + "-bit cheer will print as Han tiling instead: this tests the High Roller form, "
+                     + "which needs " + bitsWord(ft) + " or more."
+         : "");
     }
     if (printMode(o) === "raw") {
       var lim = contentLimitPx(o);
@@ -3014,6 +3046,13 @@
         fillPartCard(pc, item, i, n);
       });
       var copyable = items.filter(function (it) { return it.copyable; });
+      // One part says what it costs too (the hints point here for the cost); a test part's own
+      // note already does.
+      if (copyable.length === 1 && !copyable[0].note) {
+        container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" }, copyable[0].cheer === false
+          ? "One message, free: with Cheer-ready off nothing prints; chat's filters still see it."
+          : "One " + copyable[0].bits + "-bit cheer. Paste it into chat and send it."));
+      }
       if (copyable.length > 1) {
         var bits = copyable[0].bits;
         container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" }, copyable[0].cheer === false
@@ -3050,9 +3089,16 @@
       }
       // Twitch rejects (doesn't truncate) an over-length message, so an over-budget part
       // would silently fail to send: say why and how to fix it.
+      // The fix is worded for what is in the part: text has no columns, and a smaller size
+      // barely changes its character count.
       if (item.chars > MAX_CHARS) {
+        var bs = item.bodies || [], fixes = [];
+        if (bs.some(function (b) { return b.big || b.side || b.hanzi; })) fixes.push("shorten the text or break it over more lines");
+        if (bs.some(function (b) { return b.glyph; })) fixes.push("lower the picture's Detail (columns)");
+        var fixText = fixes.length ? fixes.join(", or ") : "make the block smaller";
         before.push(mkEl("div", { "class": "over-note" },
-          "Too long for Twitch (500 characters). Shorten the text, use fewer columns, or pick a smaller size."));
+          "Too long for Twitch (500 characters), so Twitch rejects it and it never prints. To fix it, "
+          + fixText + "."));
       }
       // The preview: a part with something to print is drawn by the bot's renderer; anything
       // else (an empty stack, a picture still loading) shows its placeholder text.
@@ -3161,6 +3207,19 @@
       return e;
     }
     function opt(val, label, sel) { var o = mkEl("option", { value: val }, label); if (sel) o.selected = true; return o; }
+    // Every card control gets a programmatic label: a <label> that only sits before its
+    // control (the cards' pattern) is tied to it with for=, so a screen reader names the control
+    // and tapping the label focuses it. Ids are page-unique ("rwc-N"), made fresh per render.
+    var ctlSeq = 0;
+    function ctlId(el) { if (!el.id) el.id = "rwc-" + (++ctlSeq); return el.id; }
+    function labelControls(card) {
+      var labels = card.querySelectorAll("label");
+      for (var i = 0; i < labels.length; i++) {
+        var lab = labels[i], next = lab.nextElementSibling;
+        if (lab.htmlFor || lab.querySelector("input, select, textarea")) continue;
+        if (next && /^(INPUT|SELECT|TEXTAREA)$/.test(next.tagName)) lab.htmlFor = ctlId(next);
+      }
+    }
     // Wrap a range/number input with a live value readout + a reset-to-default button.
     // `input` keeps its own change
     // handler; this adds the value display and a reset that re-fires that handler.
@@ -3171,10 +3230,15 @@
       lab.appendChild(document.createTextNode(labelText + ": "));
       var val = mkEl("span", { "class": "bc-val" }, String(input.value) + unit);
       lab.appendChild(val);
-      var rst = mkEl("button", { type: "button", "class": "bc-reset", title: "Reset to " + def + unit }, "↺");
+      var rst = mkEl("button", { type: "button", "class": "bc-reset", title: "Reset to " + def + unit,
+                                 "aria-label": "Reset " + labelText.toLowerCase() + " to " + def + unit }, "↺");
       rst.addEventListener("click", function () { input.value = String(def); input.dispatchEvent(new Event("input", { bubbles: true })); });
       lab.appendChild(rst);
       input.addEventListener("input", function () { val.textContent = String(input.value) + unit; });
+      // The label holds the live value and the reset button too, so the input is named by
+      // aria-label (just the label's words) and tied to it with for= for tapping.
+      lab.htmlFor = ctlId(input);
+      input.setAttribute("aria-label", labelText);
       row.appendChild(lab); row.appendChild(input);
       return row;
     }
@@ -3183,9 +3247,9 @@
       head.appendChild(mkEl("span", { "class": "bc-type" },
         block.type === "image" ? "Image" : "Text"));
       head.appendChild(mkEl("span", { "class": "spacer" }));
-      var up = mkEl("button", { type: "button", title: "Move up" }, "↑");
-      var dn = mkEl("button", { type: "button", title: "Move down" }, "↓");
-      var rm = mkEl("button", { type: "button", title: "Remove" }, "×");
+      var up = mkEl("button", { type: "button", title: "Move up", "aria-label": "Move block up" }, "↑");
+      var dn = mkEl("button", { type: "button", title: "Move down", "aria-label": "Move block down" }, "↓");
+      var rm = mkEl("button", { type: "button", title: "Remove", "aria-label": "Remove block" }, "×");
       up.addEventListener("click", function () { moveBlock(block.id, -1); });
       dn.addEventListener("click", function () { moveBlock(block.id, 1); });
       rm.addEventListener("click", function () { removeBlock(block.id); });
@@ -3298,6 +3362,7 @@
       var LAYOUT_LABELS = {
         auto: "Auto — biggest in one cheer",
         lines: "Lines as you typed them",
+        wrap: "Words wrapped to the paper",
         stack: "Stack the letters, one per line",
         each: "Each line its own size"
       };
@@ -3313,8 +3378,9 @@
       bigWrap.appendChild(bLayout);
       bigWrap.appendChild(mkEl("div", { "class": "hint" },
         "Auto tries your lines as typed, the same lines with the words wrapped to the paper, and one letter "
-        + "a line, and keeps whichever prints biggest in one cheer. To choose the line breaks yourself, press "
-        + "Enter between words and pick Lines."));
+        + "a line, and keeps whichever prints biggest in one cheer, however much tape it takes: each option "
+        + "says how big and how long it prints. To choose the line breaks yourself, press Enter between words "
+        + "and pick Lines."));
       bigWrap.appendChild(mkEl("label", null, "Size"));
       var bSize = mkEl("select", { "class": "sel-size" });
       fillSizes(bSize, BIG_SIZE_LABELS, BIG_SIZE_STEPS, boNow.size);
@@ -3391,6 +3457,7 @@
         }
         return "capitals " + cmOf(bigCapCm(f.px));
       };
+      var tapeOf = function (f) { return cmOf(f.lengthPx * MM_PER_PX / 10) + " of tape"; };
       var bigFlags = function (f) {
         return (f.fits ? "" : " · letters cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
       };
@@ -3414,7 +3481,7 @@
               f = fitFor(o.value, bo.size);
               if (f.px) {
                 label += " · " + (o.value === "auto" ? (f.layout === "stack" ? "stacked, " : f.layout === "wrap" ? "words wrapped, " : "as lines, ") : "")
-                  + capsOf(f) + (f.cheers > 1 ? " · " + cheersOf(f.cheers) : "") + bigFlags(f);
+                  + capsOf(f) + ", " + tapeOf(f) + (f.cheers > 1 ? " · " + cheersOf(f.cheers) : "") + bigFlags(f);
               }
             }
             o.textContent = label;
@@ -3423,11 +3490,11 @@
             o = bSize.options[i];
             if (BIG_SIZE_LABELS[o.value]) {
               label = BIG_SIZE_LABELS[o.value];
-              if (has) { f = fitFor(bo.layout, o.value); if (f.px) label += " · " + capsOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
+              if (has) { f = fitFor(bo.layout, o.value); if (f.px) label += " · " + capsOf(f) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
             } else {
               var px = parseInt(o.value, 10);
               label = px + " px · capitals " + cmOf(bigCapCm(px));
-              if (has) { f = fitFor(bo.layout, px); label += " · " + cheersOf(f.cheers) + bigFlags(f); }
+              if (has) { f = fitFor(bo.layout, px); label += ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
             }
             o.textContent = label;
           }
@@ -3435,7 +3502,7 @@
           var sFor = function (size) {
             return sideFit(text, { dir: so.dir, size: size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
           };
-          var tape = function (f) { return cmOf(f.lengthPx * MM_PER_PX / 10) + " of tape"; };
+          var tape = tapeOf;
           for (i = 0; i < sSize.options.length; i++) {
             o = sSize.options[i];
             if (SIDE_SIZE_LABELS[o.value]) {
@@ -3515,6 +3582,7 @@
       applyRender();
       costSyncs.push(syncText);
       syncText(lastParts);
+      labelControls(card);
       return card;
     }
     // Adjust brightness/contrast in place on ImageData. br, ct in -100..100 (0 = none).
@@ -3579,7 +3647,7 @@
           if (adjKey(block) !== key) return;   // user moved on — drop stale result
           if (!res.ok) { setStatus("Adjust failed: " + ((res.d && res.d.error) || "server")); return; }
           block.outUrl = res.d.url; block.aspect = res.aspect;
-          setStatus("Adjusted ✓ (link expires ~15 min)"); saveBlocks(); update();
+          setStatus((br || ct ? "Adjusted" : "Turned") + " ✓ (a copy is uploaded to show it here; its link expires in about 15 minutes)"); saveBlocks(); update();
         })
         .catch(function (e) { setStatus("Adjust failed (" + e.message + ")"); });
     }
@@ -3789,7 +3857,8 @@
           lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · " + cheersOf(where.inParts.length || gs.length));
         } else if (block._decoding) {
           lines.push("Reading the picture…");
-        } else if (block._decodeFailed) {
+        } else if (block._decodeFailed && !block._expired) {
+          // (An expired upload link has its own note at the top of the card: one message, not two.)
           lines.push(/^file:/.test(block._decodeFailed)
             ? "That file couldn't be read as a picture. Pick another file."
             : "The picture couldn't be read. Check the link, or pick the file instead. Until then this block prints nothing.");
@@ -3865,6 +3934,7 @@
       syncTier();
       syncThumb();
       syncGlyph(lastParts);
+      labelControls(card);
       return card;
     }
     function renderComposer() {
@@ -3877,10 +3947,16 @@
         // A dead upload link is the worst failure this app has: the message sends, the
         // bits are spent, and blank paper comes out. Loud and on the block itself, not
         // in a status line somewhere else on the page.
+        // Worded per kind: a Glyph-art block reads a picked file on this device (no upload), so
+        // "re-upload" was wrong there; a Real picture prints nothing whatever its link does, so
+        // its note is quiet and only says why the picture is missing from the card.
         if (b._expired) {
           var note = document.createElement("div");
-          note.className = "expired-note";
-          note.textContent = "This picture's link has expired (uploads last 15 minutes). Pick the file again to re-upload it.";
+          var glyph = b.type === "image" && b.imgKind === "glyph";
+          note.className = glyph ? "expired-note" : "hint";
+          note.textContent = glyph
+            ? "This uploaded link has expired (uploads last 15 minutes), so this block prints nothing. Pick the file again (it stays on this device) or paste another link."
+            : "This picture's uploaded link has expired (uploads last 15 minutes), so it can't be shown here. A Real picture can't print either way.";
           card.insertBefore(note, card.firstChild);
         }
         list.appendChild(card);
@@ -4256,7 +4332,7 @@
       lastParts = computeParts();
       renderParts(lastParts, currentKind === "compose" ? modeNotice(getSettings())
         : { text: "This is the " + (currentKind === "hrprobe" ? "High Roller test" : "Plain test")
-            + ", not your stack. The blocks on the left are unchanged.", back: true });
+            + ", not your stack. Your blocks are unchanged.", back: true });
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {

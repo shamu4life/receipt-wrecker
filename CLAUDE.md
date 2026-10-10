@@ -131,9 +131,12 @@ What follows from that, as rules:
 - There is no emote or data: picture feature. An uploaded picture prints only as glyph-art.
   The Real picture card says so plainly ("SassyTP's bot only prints pictures from emote
   servers, and this channel's chat filter blocks the picture tag…") and offers Glyph-art.
-- No example, probe or doc snippet contains an `<img` tag. Naming the blocked token in this
-  record is the one exception, along with the CHANGELOG's history: its older entries describe
-  the state at their release, picture tags included, and are kept as written.
+- No example, probe or doc snippet contains an `<img` tag. The exceptions: naming the blocked
+  token in this record; the CHANGELOG's history (its older entries describe the state at their
+  release, picture tags included, and are kept as written); the unit tests' HOSTILE INPUTS
+  (`test/tags.test.mjs`, `big.test.mjs`, `side.test.mjs`), which must keep typing picture tags,
+  in any case, to prove they arrive escaped, as text, and never as a tag; and the glue's own
+  DOM (the Image card's thumbnail is an `<img>` element on the page, never in a payload).
 
 ### THE RULE
 
@@ -220,17 +223,17 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **132 keys**. Regenerate the list instead of trusting this one:
+test harness **136 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`,
-`cheerBits`, `PAPERS`, `paperSpec`, `BASE_PX`, `BASE_LH`, `LEAD_LINE_PX`,
+`cheerBits`, `bitsWord`, `PAPERS`, `paperSpec`, `BASE_PX`, `BASE_LH`, `LEAD_LINE_PX`,
 `CONTENT_CEILING_PX`, `PX_PER_INCH`, `MAX_CAP_INCHES`, `HR_DEFAULT`, `HR_MAX`,
 `hrThresholdOf`, `bitsPerInchOf`, `maxInchesOf`, `printMode`, `buildMode`, `contentLimitPx`,
 `LEAD_GUARD`, `buildLead`, `leadLength`, `buildTrail`, `trailLength`, `stackContext`,
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
-`BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
+`BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
 `bigFitPx`, `bigLineHeight`, `bigWrapWords`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
 `bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `SIDE_DIRS`,
@@ -239,7 +242,8 @@ test harness **132 keys**. Regenerate the list instead of trusting this one:
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
 `cjkGridK`, `monoK`, `brailleFontPx`, `glyphAspect`, `buildCjkGrid`, `buildMonoGrid`,
 `buildBrailleGrid`, `buildGlyphBodies`, `HAN_CELL_PX`, `HAN_LIGHT`, `hanziCols`, `designTHeader`,
-`designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `buildHighRollerProbe`,
+`designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `HAN_MAX_LINES`, `hanTextLines`,
+`buildHighRollerProbe`,
 `buildPlainProbe`, `escapeHtml`, `escapeAttr`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`, `upsertPreset`,
 `freePresetName`, `migrateBlocks`, `migrationRewrites`, `migrationNote`,
@@ -454,8 +458,10 @@ opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R
   says the bot cuts every part.
 - Text: the glue's `designTTextGrid` draws the text rotated 90° clockwise down a column C cells
   wide (cells 16 × 21.6, so letters keep their shape), quantized to the cjk ramp without
-  dither. At most `HAN_MAX_LINES` (100) typed lines (`hanTextLines`; each is a canvas drawn on
-  every refresh); the rest are left out and the card says how many (`hanzi.droppedLines`). It
+  dither. At most `HAN_MAX_LINES` (50) typed lines (`hanTextLines`); the rest are left out and the
+  card says how many (`hanzi.droppedLines`). The bound is the preview, not the canvas: every
+  part is a frame running the bot's renderer, and 100 one-word lines made 73 cheers whose
+  frames froze the page for about 30 s. It
   was 24, silently, which cost a 26-line stack its last letters once every Big and Sideways
   block fell back to Han tiling below the threshold. It reads by turning the receipt anticlockwise. Pictures: `buildDesignTPicture`
   frames C − 2 cells with a 丶 column each side, which absorbs a one-cell slip if the quote is
@@ -488,7 +494,8 @@ words.
   id, so a shared id would delete two blocks).
 - An **old text block**: Giant type (`render: "giant"`) → big text, layout kept (the Emote
   layout → lines), level n → `giantLevelPx(n)` = round(16 × 1.2ⁿ) px (constants hardcoded,
-  n clamped 1..18, then 20..400). Type, or no render, by `orient`: 0 → big text (lines, fit1),
+  n clamped 1..18, then 20..400); an Emote-layout block → `bigSize: "fit1"` (its level sized a
+  1em emote picture, not letters: "Kappa Kappa" at 205px printed cut off). Type, or no render, by `orient`: 0 → big text (lines, fit1),
   180 → the same with `bigFlip`, 90 → sideways down, 270 → sideways up. The old fields
   (`giantLayout`, `giantSize`, `orient`, `rotateLen`) go; `size`, `cols` and `fmt` stay, unused.
   Han tiling keeps its render.
@@ -528,6 +535,14 @@ generations; `presetImageUrls` walks a stack's picture links.
 
 ### The browser glue
 
+- **Page layout.** `.layout` is a grid: the blocks (`.controls-blocks`) and, under them, the
+  presets and settings (`.controls-settings`) in the left column, the preview beside both. Below
+  700px it is one column in DOM order, blocks, preview, settings, so on a phone the preview and
+  Copy sit right under the blocks (they were about 1,900px down, past every setting). Card
+  controls get labels: `labelControls(card)` ties each `<label>` that sits before its control
+  with `for=` (ids `rwc-N` from `ctlId`), `sliderRow` names its input with `aria-label`, and the
+  head's ↑ ↓ × buttons and every ↺ have `aria-label`s ("Remove block", "Reset detail (columns)
+  to 20"); tests find them by those names.
 - **Rasterising.** `renderColumn` draws one line of text rotated 90° clockwise in Arial (400 or
   700: 600, 700 and 900 rasterise identically, so Han tiling offers Regular and Bold),
   measured from its real ink box and scaled uniformly; `textColumnsLuma` stacks the lines down
@@ -571,7 +586,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   the one right before it gets a note (Twitch won't send the same message twice in a row
   within 30 seconds). `probeParts(kind)` builds a probe the same way; its view's notice
   carries a "Back to my stack" button (`#backToStack`). `renderParts` shows the mode notice, a
-  persistent card per part and the total (bits, or a free test's message count). A part's
+  persistent card per part and the total (bits, or a free test's message count; one part says
+  "One N-bit cheer" unless it carries a note of its own, as a probe does). A part's
   header (`.part-head`: char count, kind label and the full-size Copy button, `.copy-btn`) is
   sticky, so Copy stays in view while a 40 cm preview scrolls past; the part's note, then its
   preview and verdict, follow. `partWarned` (the app already expects a cut: too tall for the
@@ -586,8 +602,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   presets are never rewritten** (export gives back what was saved, and the backup keeps its
   takeovers), and a JSON import is stored as is and migrated when loaded.
   `probeStackExpiry` checks this Worker's upload links (15-minute TTL) by loading each into a
-  `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card, and resolves with
-  how many it flagged, which Load reports ("Its uploaded pictures still load" / "N pictures'
+  `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card, and RETURNS a promise
+  of how many it flagged (it once didn't, and Load's "Checking…" never resolved), which Load
+  reports (counted on the converted stack, so an old Takeover's picture counts) ("Its uploaded pictures still load" / "N pictures'
   links have expired"); a preset with no uploaded link promises no check. The preset list is
   keyed by INDEX, not name (`renderPresetList(pick)`, `selectedIndex`), so a list that holds
   two presets of one name (an older build could save one) still loads, renames and deletes the
@@ -654,10 +671,14 @@ Compared with the bot's own screenshot of the same page (forkbench): same height
 and 80 mm Han grids dot for dot; big and sideways text the same shapes with a few edge dots
 dithered differently; header and footer text one or two dots lower. Small fixed-pitch grids on
 58 mm, and Braille on either paper, drift further: rows up to 3 dots off, and their texture
-differs (review round 2: 58 mm Braille 33.5% of dark pixels after the best shift). The cause is
-that this page lays out at 1 CSS px per px and scales, where the bot lays out at its dot scale;
-rasterising at the dot scale would fix it and has not been done. The caption says all of this
-(the computer's fonts may differ; small grids and Braille are approximate). The canvas is shown
+differs (review round 2: 58 mm Braille 33.5% of dark pixels after the best shift; round 3: a
+30-column Han grid on 58 mm differs on 24% of the bot's dark dots in Crisp, with whole
+horizontal strokes gone, and 108% in Detailed). The cause is that this page lays out at 1 CSS
+px per px and scales, where the bot lays out at its dot scale; CSS zoom instead of the scale
+is no fix (Detailed improves, Crisp gets worse), and rasterising the frame itself at the dot
+scale has not been done. The caption says all of this plainly (the computer's fonts may
+differ; small grids on 58 mm and Braille can differ from the print, strokes included, so judge
+them with the thermal view off). The canvas is shown
 at one scale for both papers (`min(576px, 100%)` and `min(384px, 66.67%)`), so 58 mm is two
 thirds of 80 mm, and the Dither select is disabled while the view is off. The grey logo
 placeholder prints as dots in Detailed and Soft and not at all in Crisp.

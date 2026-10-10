@@ -277,8 +277,8 @@ test("the app boots with the defaults, one Big text block, and Copy sends exactl
   }
   assert.deepEqual([await copyPayload(page)], expectNode([BIG({ id: 1 })]));
   // The Layout and Size options say what they print, and no formatting row or slider shows.
-  assert.match(await card.locator('.sel-size option[value="fit1"]').textContent(), /capitals \d+\.\d cm · 1 cheer$/);
-  assert.match(await card.locator('.sel-size option[value="64"]').textContent(), /^64 px · capitals 1\.2 cm · 1 cheer$/);
+  assert.match(await card.locator('.sel-size option[value="fit1"]').textContent(), /capitals \d+\.\d cm, \d+\.\d cm of tape · 1 cheer$/);
+  assert.match(await card.locator('.sel-size option[value="64"]').textContent(), /^64 px · capitals 1\.2 cm, \d+\.\d cm of tape · 1 cheer$/);
   assert.equal(await card.locator(".fmt-row, input[type=range]:visible, input[type=number]:visible").count(), 0);
   assert.equal(await page.locator("#modeNote").count(), 0, "a High Roller stack needs no notice");
   assert.deepEqual(errors, [], "the page threw while loading");
@@ -295,7 +295,7 @@ test("a rebuilt stack survives a reload — add, reorder and delete all persist"
   await page.reload();
   await page.waitForSelector("#blockList");
   assert.equal(await cardCount(page), 3, "the added blocks did not survive a reload");
-  await cards(page).last().getByRole("button", { name: "×" }).click();
+  await cards(page).last().getByRole("button", { name: "Remove block" }).click();
   assert.equal(await cardCount(page), 2);
   await page.reload();
   await page.waitForSelector("#blockList");
@@ -417,7 +417,7 @@ test("a saved 0.12 stack holding takeovers loads as Text and Glyph-art cards, ba
   const ids = (await stored(page, "rw_blocks_v1")).map((b) => b.id);
   assert.equal(new Set(ids).size, ids.length, "a loaded preset's blocks share an id");
   // Each converted card is its own block: removing one removes only that one.
-  await cards(page).nth(2).getByRole("button", { name: "×" }).click();
+  await cards(page).nth(2).getByRole("button", { name: "Remove block" }).click();
   assert.equal(await cardCount(page), 5);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -518,6 +518,10 @@ const EVERY_MODE = () => [
   BIG({ id: 3, text: "GG WP", bigLayout: "stack", bigSize: 96 }),
   BIG({ id: 4, text: "HAPPY\nBIRTHDAY\nTO YOU", bigLayout: "each", bigSize: "fit1", bigFlip: true }),
   BIG({ id: 5, text: "Upside, down", bigLayout: "lines", bigSize: "width", bigFlip: true }),
+  // Round 3: Each with a spaced line too wide even at 20px, which wraps on the page and was
+  // counted as one line. (Han, kana and emoji widths depend on the fonts this machine has, so
+  // they are benched with tools/forkbench.mjs rather than held to a pixel tolerance here.)
+  BIG({ id: 21, text: "ONE\n" + new Array(8).fill("WW").join(" "), bigLayout: "each", bigSize: "fit1" }),
   { id: 6, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "HELLO\nWORLD" },
   { id: 7, type: "text", render: "sideways", sideDir: "up", sideSize: 64, text: "Rise, up" },
   { id: 8, type: "text", render: "hanzi", text: "HI", hanziWeight: 400 },
@@ -1236,3 +1240,143 @@ test("the cards' notes: High Roller off, labels at the threshold's bits, a free 
   assert.deepEqual(errors, []);
   await ctx.close();
 });
+
+test("round 3: phone layout puts the preview under the blocks; every card control is labelled; the notes say what they mean", async () => {
+  // On a phone the preview and its Copy sat about 1,900px below the text box, past the presets
+  // and every setting. Now the page reads blocks, preview, settings on a phone, and on a wide
+  // screen the preview sits beside the blocks with the settings under the blocks.
+  for (const viewport of [{ width: 390, height: 844 }, undefined]) {
+    const { page, ctx, errors } = await freshPage({ viewport });
+    await settled(page);
+    const box = (sel) => page.locator(sel).first().boundingBox();
+    const list = await box("#blockList"), parts = await box("#parts"), presets = await box("#presets"), streamer = await box("#streamer");
+    if (viewport) {
+      assert.ok(parts.y > list.y + list.height - 1, "the preview comes after the blocks");
+      assert.ok(parts.y < presets.y && parts.y < streamer.y, "the preview comes before the presets and the settings");
+      assert.ok(parts.y - (list.y + list.height) < 400, "and right after the blocks: " + (parts.y - list.y - list.height) + "px");
+    } else {
+      assert.ok(parts.x > list.x + list.width - 1, "the preview is beside the blocks");
+      assert.ok(presets.y > list.y + list.height - 1 && Math.abs(presets.x - list.x) < 2, "the presets sit under the blocks");
+    }
+    const sw = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    assert.ok(sw <= 0, "no sideways scroll: " + sw);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+
+  const pic = { id: 2, type: "image", imgKind: "glyph", url: PIC, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "good game everyone" }), pic] });
+  await settled(page);
+  // Every textarea, select and input in a card has a label (for= or wrapping) or an aria-label;
+  // the icon buttons are named by what they do.
+  const unlabelled = await page.evaluate(() => Array.from(document.querySelectorAll("#blockList textarea, #blockList select, #blockList input"))
+    .filter((el) => !(el.labels && el.labels.length) && !el.getAttribute("aria-label")).map((el) => el.outerHTML.slice(0, 80)));
+  assert.deepEqual(unlabelled, []);
+  assert.equal(await cards(page).first().getByLabel("Text").count(), 1, "the Text label names the textarea");
+  assert.equal(await cards(page).first().getByLabel("Layout").count(), 1);
+  for (const name of ["Move block up", "Move block down", "Remove block"]) assert.equal(await cards(page).first().getByRole("button", { name }).count(), 1, name);
+  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 20" }).count(), 1);
+  // Big text says how much tape each choice takes, and the wrapped form is one pick away.
+  const layouts = await cards(page).first().locator(".sel-layout option").evaluateAll((os) => os.map((o) => [o.value, o.textContent]));
+  assert.deepEqual(layouts.map((l) => l[0]), ["auto", "lines", "wrap", "stack", "each"]);
+  for (const [v, t] of layouts) assert.match(t, /cm of tape/, v + ": " + t);
+  assert.match(layouts[2][1], /^Words wrapped to the paper · capitals/);
+  // One part says what it costs (the hints point under the preview for it).
+  await cards(page).nth(1).getByRole("button", { name: "Remove block" }).click();
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 1);
+  assert.match(await page.textContent("#partsTotal"), /^One 100-bit cheer\./);
+  // A probe's banner no longer says "on the left" (on a phone the blocks are above).
+  await page.click("#hrProbeBtn");
+  assert.match(await page.textContent("#modeNote"), /not your stack\. Your blocks are unchanged\./);
+  await page.click("#backToStack");
+  // A free test below the threshold says the real cheer prints as Han tiling.
+  await page.uncheck("#cheer");
+  await page.fill("#bitsAmount", "10");
+  await page.locator("#bitsAmount").press("Tab");
+  assert.match(await page.textContent("#modeNote"), /Your 10-bit cheer will print as Han tiling instead: this tests the High Roller form, which needs 25 bits or more\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("round 3: an old preset's uploaded picture is checked on Load, explained, and worded for Glyph-art; Import counts what it replaced", async () => {
+  const minted = "https://i.uwutoowo.com/0123456789ab.png";
+  const old = { v: 1, name: "Old", savedAt: 1, blocks: [{ id: 1, type: "takeover", items: [
+    { kind: "pic", url: minted }, { kind: "text", text: "HI" }] }] };
+  const keep = { v: 1, name: "Keep", savedAt: 2, blocks: [{ id: 1, type: "text", render: "big", text: "KEEP" }] };
+  const { page, ctx, errors } = await freshPage({ presets: { v: 1, presets: [old, keep] } });
+  // The upload has expired: its host answers 404 (never the real network in a test).
+  await ctx.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 404, body: "gone" }));
+  await page.selectOption("#presetList", "0");
+  await page.click("#presetLoad");
+  const note = page.locator("#presetNote");
+  // It was 0 links (counted on the stored takeover), so it said nothing about them; and the
+  // check's promise was never returned, so a count of 1 would have hung on "Checking…".
+  await page.waitForFunction(() => /expired/.test(document.getElementById("presetNote").textContent), null, { timeout: 8000 });
+  const t = await note.textContent();
+  assert.match(t, /^Loaded "Old"\. This setup had a Takeover/);
+  assert.match(t, /The preset "Old" itself is unchanged/);
+  assert.match(t, /1 picture's link has expired: pick the file again on the flagged block\./);
+  const card = cards(page).first();
+  assert.equal(await card.locator(".sel-kind").inputValue(), "glyph");
+  await page.waitForFunction(() => !!document.querySelector("#blockList .expired-note"));
+  assert.match(await card.locator(".expired-note").textContent(), /Pick the file again \(it stays on this device\) or paste another link\./);
+  assert.ok(!/re-upload/.test(await card.innerText()), "a Glyph-art block's note talked about re-uploading");
+  await page.waitForFunction(() => !/Reading the picture/.test(document.querySelector("#blockList .text-note").textContent));
+  assert.ok(!/couldn't be read/.test(await card.locator(".text-note").innerText()), "two notes for one dead link");
+  // The stored preset is unchanged.
+  assert.equal((await stored(page, "rw_presets_v1")).presets[0].blocks[0].type, "takeover");
+
+  // Picking another preset clears a note about the last one.
+  await page.selectOption("#presetList", "1");
+  assert.equal((await note.textContent()).trim(), "");
+  // Import says how many it really replaced.
+  await page.click("#presetImport");
+  await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, savedAt: 3 }, { ...keep, name: "New", savedAt: 4 }] }));
+  await page.click("#presetImport");
+  assert.equal(await note.textContent(), "Imported 2 setups, replacing 1 saved setup with the same name.");
+  await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, name: "Newer", savedAt: 5 }] }));
+  await page.click("#presetImport");
+  assert.equal(await note.textContent(), "Imported 1 setup.");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("round 3: Han tiling keeps every line (up to 50, and says so past it); a box too short for a row says every part is cut; over-length is worded for text", async () => {
+  const letters = (n) => Array.from({ length: n }, (_, i) => String.fromCharCode(65 + (i % 26))).join("\n");
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: letters(26) })],
+                                                  controls: { ...SETTINGS, bits: 10 }, core: true });
+  await settled(page);
+  // The old cap was 24 lines, silently: Y and Z were gone below the threshold.
+  const rows = await page.evaluate((t) => {
+    const K = window.module.exports;
+    return [K.designTTextGrid(t.slice(0, 2 * 24 - 1), 80, 700).length, K.designTTextGrid(t, 80, 700).length];
+  }, letters(26));
+  assert.ok(rows[1] > rows[0], "26 lines draw more rows than 24: " + rows);
+  let tn = await cards(page).first().locator(".text-note").innerText();
+  assert.match(tn, /^Han tiling: \d+ rows of 15 Han characters/);
+  assert.ok(!/left out/.test(tn), tn);
+  await cards(page).first().locator("textarea").fill(new Array(51).fill("I").join("\n"));
+  await page.waitForFunction(() => /left out/.test(document.querySelector("#blockList .text-note").textContent), null, { timeout: 20000 });
+  tn = await cards(page).first().locator(".text-note").innerText();
+  assert.match(tn, /Han tiling draws the first 50 lines only, so the last line is left out\. Put the rest in another block\./);
+  await ctx.close();
+
+  // A Han tiling block in a High Roller cheer whose box (bits per inch) is shorter than a
+  // header, one row and the Cheer line: every part is cut, and the card says so.
+  ({ page: p2, ctx: c2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
+                                              controls: { ...SETTINGS, bitsPerInch: 200 } }));
+  await settled(p2);
+  assert.match(await cards(p2).first().locator(".text-note").innerText(),
+    /Even one row a part \(with its light first row and the Cheer line, 3 lines\) is taller than this cheer’s part of the receipt/);
+  await c2.close();
+
+  // A part over 500 characters: the fix is worded for text (it has no columns).
+  ({ page: p2, ctx: c2 } = await freshPage({ blocks: [BIG({ id: 1, bigLayout: "lines", text: "ab ".repeat(175) })] }));
+  await p2.waitForSelector("#parts .over-note");
+  const over = await p2.locator("#parts .over-note").first().textContent();
+  assert.match(over, /^Too long for Twitch \(500 characters\), so Twitch rejects it and it never prints\. To fix it, shorten the text or break it over more lines\.$/);
+  assert.deepEqual(errors, []);
+  await c2.close();
+});
+let p2, c2;

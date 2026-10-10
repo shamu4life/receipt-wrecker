@@ -15,7 +15,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
 // biggest size that fits one cheer; `id` and `fmt` are checked separately.
 const TEXT_SHAPE = { type: "text", render: "big", bigLayout: "lines", bigSize: "fit1" };
 const GLYPH_SHAPE = { type: "image", imgKind: "glyph", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
-                      tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
+                      tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
 function shape(b) { const o = { ...b }; delete o.id; delete o.text; delete o.url; delete o.fmt; return o; }
 
 // The item-list takeover every 0.5+ build saved (picture, then lines, with per-item
@@ -51,8 +51,8 @@ test("an item-list takeover becomes Text and Glyph-art blocks, in order, blanks 
 });
 
 test("every block made from a takeover gets a FRESH id, unique across the whole stack", () => {
-  // removeBlock filters by id, so two blocks sharing one are deleted together, and the
-  // cards find their parts by id. The takeover's own id must not be reused either.
+  // Removing or moving a block, its Undo and the cards' notes all find a block by its id,
+  // so two blocks sharing one get mixed up. The takeover's own id must not be reused either.
   const stack = [ITEMS_TK, { id: 9, type: "text", text: "A" }, { ...clone(ITEMS_TK), id: 4 },
                  { id: 3, type: "image", imgKind: "glyph", url: "u" }];
   const out = C.migrateBlocks(stack);

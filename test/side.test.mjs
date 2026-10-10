@@ -16,21 +16,31 @@ const build = (text, o, c) => {
 
 test("byte pins: top to bottom and bottom to top, one and two lines, a comma", () => {
   const html = (t, o, c) => build(t, o, c).map((b) => b.html);
-  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
-  eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  // One line of capitals takes the width rule's size (313px on 80 mm) up to the Size menu's 300.
+  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 300px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>']);
   // The comma's tail would clip at the capitals' 280px; with it the column's ink sits 14px
   // toward the descenders' side, so the block moves 14px the other way (see the centring test).
   eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:14px">HI, BOB</div>']);
   eq(html("HI, BOB", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:-14px">HI, BOB</div>']);
-  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 175px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 190px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   const parts = C.packStackBodies(build("HELLO", {}), ctx());
-  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
 });
 
 test("the width rule for 1-5 lines, capitals and mixed, 80 and 58 mm", () => {
-  eq([1, 2, 3, 4, 5].map((n) => C.sideWidthPx(n, true, 244)), [280, 150, 99, 73, 58]);
+  // One line of capitals was held to 280px (scaled to the paper), below the rule, and 281-300
+  // was called too wide while it printed whole (bench: HELLO at 300px 15.3 / 16.7px clear of
+  // the edges on 80 mm; at 190px 9.6 / 8.6px on 58 mm).
+  eq([1, 2, 3, 4, 5].map((n) => C.sideWidthPx(n, true, 244)), [313, 150, 99, 73, 58]);
   eq([1, 2, 3, 4].map((n) => C.sideWidthPx(n, false, 244)), [193, 98, 66, 49]);
+  eq([1, 2, 3, 4, 5].map((n) => C.sideWidthPx(n, true, 153)), [190, 91, 60, 44, 35]);
+  eq([1, 2, 3, 4].map((n) => C.sideWidthPx(n, false, 153)), [117, 60, 40, 30]);
+  for (const px of [281, 290, 300]) {
+    assert.equal(C.sideFit("HI", { size: px }).fits, true, px + "px on 80 mm");
+    assert.doesNotMatch(C.sideReport(build("HI", { size: px })), /too wide|Too many|Too big/, px + "px");
+  }
   for (const cw of [244, 153]) {
     const E = cw / 2 - 6;
     for (let n = 1; n <= 5; n++) {
@@ -47,7 +57,7 @@ test("the width rule for 1-5 lines, capitals and mixed, 80 and 58 mm", () => {
 
 test("length down the tape is S x the advance sum (+0.5px a glyph), and every part fits the box", () => {
   const f = C.sideFit("HELLO", {});
-  assert.ok(Math.abs(f.lengthPx - (280 * 3.389 + 2.5)) < 1e-6, String(f.lengthPx));
+  assert.ok(Math.abs(f.lengthPx - (300 * 3.389 + 2.5)) < 1e-6, String(f.lengthPx));
   for (const k of [ctx(), ctx({ bitsPerInch: 25 }), ctx({ paperMm: 58, bitsPerInch: 10 }), ctx({ maxInches: 30 })]) {
     for (const t of ["HELLO", "HAPPY BIRTHDAY TO THE BEST STREAMER", "Thank you so much for the raid!",
                      "ONE\nTWO\nTHREE", "SUPERCALIFRAGILISTICEXPIALIDOCIOUS".repeat(3)]) {
@@ -140,14 +150,20 @@ test("too many lines for the width is reported, never silently clipped", () => {
   assert.match(C.sideReport(build(t, {})), /the first lines \(the top of the turned receipt\) will be cut off/);
   assert.match(C.sideReport(build(t, { dir: "up" })), /the last lines \(the bottom of the turned receipt\) will be cut off/);
   assert.doesNotMatch(C.sideReport(build(t, {})), /outer/);
-  assert.equal(C.sideFit("HELLO", { size: 290 }).fits, false, "an explicit size past the width rule");
-  assert.match(C.sideReport(build("HELLO", { size: 290 })), /at this size/);
+  // An explicit size past the width rule: one line has no lines to lose, so its note says the
+  // letters run past the edge; two lines lose the first (or last) one.
+  const k58 = ctx({ paperMm: 58 });
+  assert.equal(C.sideFit("HELLO", { size: 200, paperMm: 58 }).fits, false, "an explicit size past the width rule");
+  const one = C.sideReport(build("HELLO", { size: 200 }, k58));
+  assert.match(one, /Too big to fit across the paper at this size: the letters run past the paper's edge and will be cut off\. Pick a smaller size\./);
+  assert.doesNotMatch(one, /lines/);
+  assert.match(C.sideReport(build("HELLO\nTHERE", { size: 200 })), /Too many lines to fit across the paper at this size: the first lines/);
 });
 
 test("the report: capitals across, length down, cheers", () => {
   const r = C.sideReport(build("HELLO", {}));
-  assert.equal(r, "Capitals ≈ " + (280 * 0.716 * 25.4 / 96 / 10).toFixed(1) + " cm across the paper, "
-    + ((280 * 3.389 + 2.5) * 25.4 / 96 / 10).toFixed(1) + " cm down the tape · fits 1 cheer");
+  assert.equal(r, "Capitals ≈ " + (300 * 0.716 * 25.4 / 96 / 10).toFixed(1) + " cm across the paper, "
+    + ((300 * 3.389 + 2.5) * 25.4 / 96 / 10).toFixed(1) + " cm down the tape · fits 1 cheer");
   assert.equal(C.sideReport(build("", {})), "Type something to print it running down the tape.");
   assert.match(C.sideReport(build("HI 🔥", {})), /grey dots/);
   assert.match(C.sideReport(build("GO KAPPA50 GO", { size: 100 })), /“KAPPA50” as another cheer/);
@@ -216,6 +232,18 @@ test("the ink is centred, not the line box: lowercase and mixed text move toward
     assert.ok(Math.abs(f.inkGaps.top - f.inkGaps.bottom) <= 2 || f.shift === 0, label);
     assert.ok(f.inkGaps.top >= 6 && f.inkGaps.bottom >= 6, label);
   }
+  // Q: its tail drops 0.072em in Arial Bold (the rig's face, measured from the font's outline)
+  // and 0.197em in the bench's Liberation Sans Bold, so the model takes Arial's, with Arial's
+  // 0.728em overshoot on top. The midpoint (-0.13) printed "QUIZ" 5.7px off centre on the bench
+  // and would have on the rig too, the other way (polish review 2). With Arial Bold added to the
+  // bench (forkbench --fonts), every Q-led block below printed within 1.42px of centre.
+  for (const t of ["QUIZ", "Quiz", "HELLO\nQUEEN", "Hey, you\nQuick"]) {
+    for (const paperMm of [80, 58]) for (const dir of ["down", "up"]) {
+      const f = fit(t, { dir }, ctx({ paperMm })), label = [paperMm, dir, JSON.stringify(t), JSON.stringify(f.inkGaps)].join(" ");
+      assert.ok(Math.abs(f.inkGaps.top - f.inkGaps.bottom) <= 2 && f.inkGaps.top >= 6 && f.inkGaps.bottom >= 6, label);
+    }
+  }
+  eq([fit("QUIZ").shift, fit("QUIZ", { dir: "up" }).shift, fit("Quiz").shift, fit("HELLO\nQUEEN").shift], [3, -3, 3, 3]);
   // A block wider than the paper sits against the left edge (margin:auto can't centre it), so it
   // is not moved; an unknown script's glyphs take the font's whole box, which moves nothing.
   assert.equal(fit("a b\nc d\ne f\ng h\ni j\nk l\nm n", { size: 300 }).shift, 0);

@@ -106,8 +106,8 @@ async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core,
   return { page, ctx, errors, requests };
 }
 
-const cardCount = (page) => page.locator("#blockList > *").count();
-const cards = (page) => page.locator("#blockList > *");
+const cardCount = (page) => page.locator("#blockList > .block-card").count();
+const cards = (page) => page.locator("#blockList > .block-card");
 const stored = async (page, k) => JSON.parse(await page.evaluate((key) => localStorage.getItem(key), k));
 
 // Wait until every part can be copied: a picture decodes asynchronously, and until it has,
@@ -332,7 +332,7 @@ test("presets round-trip through a reload", async () => {
   assert.match(await page.textContent("#presetNote"), /^Loading "smoke setup" replaces the blocks you have now, which are not saved\. Press Replace stack\? to load it, or Save them first\.$/);
   assert.equal(await cardCount(page), saved + 1, "the first press replaced the stack");
   await page.click("#presetLoad");
-  await page.waitForFunction((n) => document.querySelectorAll("#blockList > *").length === n, saved);
+  await page.waitForFunction((n) => document.querySelectorAll("#blockList > .block-card").length === n, saved);
   assert.equal(await page.textContent("#presetLoad"), "Load");
   assert.equal(await cardCount(page), saved, "loading the preset did not restore the stack");
   await ctx.close();
@@ -424,7 +424,7 @@ test("a saved 0.12 stack holding takeovers loads as Text and Glyph-art cards, ba
   // Loading the backup converts it again (the stored preset keeps its takeovers).
   await page.selectOption("#presetList", "Before 1.0.0");
   await page.click("#presetLoad");
-  await page.waitForFunction(() => document.querySelectorAll("#blockList > *").length === 6);
+  await page.waitForFunction(() => document.querySelectorAll("#blockList > .block-card").length === 6);
   assert.ok((await stored(page, "rw_presets_v1")).presets[1].blocks.some((b) => b.type === "takeover"),
     "loading the backup rewrote it");
   const ids = (await stored(page, "rw_blocks_v1")).map((b) => b.id);
@@ -848,6 +848,21 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     }
     const origin = new URL(server.url).origin;
     assert.deepEqual(requests.filter((u) => !/^(data|blob|about):/.test(u) && new URL(u).origin !== origin), []);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  // A run the page breaks INSIDE a word (Han, emoji) at a fixed size too wide for the paper,
+  // then another block. Counted as one line, the run's part was planned about 550px short, the
+  // packer put the next block beside it, and the bot's box cut that block off (polish review 2).
+  for (const paperMm of [80, 58]) {
+    const s = { ...SETTINGS, paperMm };
+    const blocks = [BIG({ id: 1, text: "你好你好", bigLayout: "lines", bigSize: 160 }), BIG({ id: 2, text: "HELLO" }),
+                    BIG({ id: 3, text: "😀😀😀😀", bigLayout: "lines", bigSize: 120 }), BIG({ id: 4, text: "THANKS" })];
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+    await settled(page);
+    const got = await copyAll(page), want = await expectParts(page, blocks, s);
+    assert.deepEqual(got, want.map((w) => w.payload));
+    for (let i = 0; i < got.length; i++) await check(page, i, got[i], { ...want[i], raw: true }, s, "wrapped run " + paperMm + " mm, part " + (i + 1));
     assert.deepEqual(errors, []);
     await ctx.close();
   }
@@ -1294,7 +1309,7 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   assert.equal(await cards(page).first().getByLabel("Text").count(), 1, "the Text label names the textarea");
   assert.equal(await cards(page).first().getByLabel("Layout").count(), 1);
   for (const name of ["Move block up", "Move block down", "Remove block"]) assert.equal(await cards(page).first().getByRole("button", { name }).count(), 1, name);
-  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 20" }).count(), 1);
+  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 18" }).count(), 1);
   // Big text says how much tape each choice takes, and the wrapped form is one pick away.
   const layouts = await cards(page).first().locator(".sel-layout option").evaluateAll((os) => os.map((o) => [o.value, o.textContent]));
   assert.deepEqual(layouts.map((l) => l[0]), ["auto", "lines", "wrap", "stack", "each"]);
@@ -1559,6 +1574,10 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
     assert.match(total, advice);
     assert.ok(!/bits total/.test(total), total);
     assert.match(await page.textContent("#modeNote"), /nothing after it prints/);
+    // The card agrees with the parts: no price for something that can't be sent (polish 2).
+    const sum = await cards(page).first().locator(".text-note .note-sum").textContent();
+    assert.match(sum, /· prints nothing: the Cheer line fills this cheer’s whole part of the receipt/);
+    assert.ok(!/bits\)|cheers/.test(sum), sum);
     assert.deepEqual(errors, []);
     await ctx.close();
   }
@@ -1607,7 +1626,7 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   assert.equal(await file.evaluate((f) => f.files.length), 0);
   await file.setInputFiles(pic);
   // The test server has no /upload, so the upload is asked for and fails.
-  await page.waitForFunction(() => /Upload failed/.test(document.querySelectorAll("#blockList > *")[1].innerText), null, { timeout: 5000 });
+  await page.waitForFunction(() => /Upload failed/.test(document.querySelectorAll("#blockList > .block-card")[1].innerText), null, { timeout: 5000 });
   assert.ok(requests.some((u) => new URL(u).pathname === "/upload"), "picking the same file on the Real card uploaded nothing");
   // A placeholder part is prose, wrapped to the column: nothing cut off.
   await cards(page).nth(1).getByRole("button", { name: "Remove block" }).click();
@@ -1702,3 +1721,152 @@ test("polish: a stack of 80 parts stays responsive: frames draw lazily, one at a
   await ctx.close();
 });
 
+
+test("polish 2: × keeps the block for Undo, in its place, until the next change; the head's buttons are full touch targets on a phone", async () => {
+  const blocks = [BIG({ id: 1, text: "HAPPY BIRTHDAY TO MY FAVOURITE STREAMER" }), BIG({ id: 2, text: "THANKS FOR THE RAID" }),
+                  { id: 3, type: "image", imgKind: "glyph", url: "", fileName: "cat.png", tier: "cjk", cols: 18 }];
+  const { page, ctx, errors } = await freshPage({ blocks, viewport: { width: 390, height: 844 } });
+  // On a phone every head button is at least 44px, and × stands apart from ↓.
+  const head = await page.evaluate(() => Array.from(document.querySelectorAll("#blockList .block-card")[0].querySelectorAll(".bc-head button"))
+    .map((b) => { const r = b.getBoundingClientRect(); return { name: b.getAttribute("aria-label"), w: r.width, h: r.height, x: r.x }; }));
+  for (const b of head) assert.ok(b.w >= 44 && b.h >= 44, b.name + " is " + b.w + "x" + b.h);
+  assert.ok(head[2].x - (head[1].x + head[1].w) >= 12, "× sits " + (head[2].x - (head[1].x + head[1].w)) + "px from ↓");
+  const before = await copyAll(page);
+  // Remove the first block: the note takes its place, names it, and Undo has the focus.
+  await cards(page).first().getByRole("button", { name: "Remove block" }).click();
+  assert.equal(await cardCount(page), 2);
+  const note = page.locator("#blockList > .undo-note");
+  assert.equal(await page.locator("#blockList > *").first().getAttribute("class"), "undo-note", "the note is not where the block was");
+  assert.match(await note.textContent(), /^Removed a Text block \(HAPPY BIRTHDAY TO MY FAV…\)\.Undo$/);
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), "undoRemove");
+  assert.equal((await stored(page, "rw_blocks_v1")).length, 2, "the removal was not saved");
+  // Undo puts it back where it was, saved, and Copy sends what it sent before.
+  await note.getByRole("button", { name: "Undo" }).click();
+  assert.equal(await page.locator("#blockList > .undo-note").count(), 0);
+  assert.equal(await cardCount(page), 3);
+  assert.equal(await cards(page).first().locator("textarea").inputValue(), "HAPPY BIRTHDAY TO MY FAVOURITE STREAMER");
+  assert.deepEqual((await stored(page, "rw_blocks_v1")).map((b) => b.id), [1, 2, 3]);
+  await page.waitForFunction((n) => document.querySelectorAll("#parts .part").length === n, before.length);
+  assert.deepEqual(await copyAll(page), before);
+  // The last block: the note sits at the end and names the picture's file.
+  await cards(page).last().getByRole("button", { name: "Remove block" }).click();
+  assert.equal(await page.locator("#blockList > *").last().getAttribute("class"), "undo-note");
+  assert.match(await page.locator("#blockList > .undo-note").textContent(), /^Removed an Image block \(cat\.png\)\./);
+  // One slot: removing another replaces it, and a move ends it.
+  await cards(page).first().getByRole("button", { name: "Remove block" }).click();
+  assert.equal(await page.locator("#blockList > .undo-note").count(), 1);
+  assert.match(await page.locator("#blockList > .undo-note").textContent(), /HAPPY BIRTHDAY/);
+  await page.click("#addTextBtn");
+  assert.equal(await page.locator("#blockList > .undo-note").count(), 0, "adding a block kept an Undo for an older stack");
+  // Typing in another card leaves the note alone (value edits don't rebuild the cards).
+  await cards(page).first().getByRole("button", { name: "Remove block" }).click();
+  await cards(page).first().locator("textarea").fill("NEW WORDS");
+  assert.equal(await page.locator("#blockList > .undo-note").count(), 1);
+  // Nothing about it is stored, and a reload has no Undo.
+  await page.reload();
+  await page.waitForSelector("#blockList .block-card");
+  assert.equal(await page.locator("#blockList > .undo-note").count(), 0);
+  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).sort()), ["rw_blocks_v1", "rw_controls_v1"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("polish 2: Copy takes the first click after a number field is committed; a failed copy's box stays with the payload it failed on", async () => {
+  // Leaving a number field for Copy fires its change, and the redraw used to replace the Copy
+  // button between mousedown and click: the click was lost, and the clipboard kept the older
+  // payload. Real clicks here (mousedown, blur, change, mouseup), not a dispatched event.
+  const blocks = [{ id: 1, type: "image", imgKind: "glyph", url: PIC, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                    tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false }];
+  {
+    const { page, ctx, errors } = await freshPage({ blocks, core: true });
+    await settled(page);
+    const cols = cards(page).first().locator("input.num-cols");
+    await cols.click(); await cols.press("Control+a"); await cols.type("16");
+    const before = await page.evaluate(() => window.__copied.length);
+    await page.locator("#parts .copy-btn").first().click();
+    await page.waitForFunction((n) => window.__copied.length > n, before, { timeout: 3000 });
+    const want = await expectPage(page, [{ ...blocks[0], cols: 16 }]);
+    assert.equal(await page.evaluate(() => window.__copied[window.__copied.length - 1]), want[0], "the first click copied, and copied the 16-column picture");
+    assert.equal(await page.locator("#parts .copy-btn").first().textContent(), "Copied");
+    // Bits 0 is corrected to 100 when the field is left: the Copy pressed to leave it still copies.
+    await page.fill("#bitsAmount", "0");
+    const n2 = await page.evaluate(() => window.__copied.length);
+    await page.locator("#parts .copy-btn").first().click();
+    await page.waitForFunction((n) => window.__copied.length > n, n2, { timeout: 3000 });
+    assert.equal(await page.inputValue("#bitsAmount"), "100");
+    assert.match(await page.evaluate(() => window.__copied[window.__copied.length - 1]), /^Cheer100 /);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    // A probe's Copy fails; Back to my stack must not show the stack's part in the copy-by-hand
+    // box (nobody pressed its Copy), and neither must a part that changed since.
+    const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" })], init: refusingClipboard });
+    await page.waitForSelector("#parts .copy-btn");
+    await page.click("#hrProbeBtn");
+    await page.locator("#parts .copy-btn").first().click();
+    await page.waitForSelector("#parts .copy-fail textarea");
+    assert.match(await page.locator(".copy-fail textarea").inputValue(), /^Cheer25 /);
+    await page.click("#backToStack");
+    await page.waitForFunction(() => !document.getElementById("backToStack"));
+    assert.equal(await page.locator("#parts .copy-fail").count(), 0, "the stack's part shows a failure it never had");
+    await page.locator("#parts .copy-btn").first().click();
+    await page.waitForSelector("#parts .copy-fail textarea");
+    await cards(page).first().locator("textarea").fill("HELLO THERE");
+    await page.waitForFunction(() => !document.querySelector("#parts .copy-fail"));
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("polish 2: new Glyph-art at 18 columns, the Auto layout's name, hints that wrap, no thumbnail speck, the tests' cost with Cheer-ready off, and the controls' names", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "THANKS FOR THE RAID" })], viewport: { width: 390, height: 844 }, core: true });
+  // A new Image block starts at 18 columns: a square picture is then one cheer (20 was two).
+  await page.click("#addImageBtn");
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].cols, 18);
+  assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 18" }).count(), 1);
+  const square = await page.evaluate(() => { const c = document.createElement("canvas"); c.width = c.height = 64;
+    const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, 64, 64); x.fillStyle = "#000"; x.beginPath(); x.arc(32, 32, 24, 0, 7); x.fill();
+    return c.toDataURL("image/png"); });
+  await cards(page).nth(1).locator("input[type=url]").fill(square);
+  await page.waitForFunction(() => /18 columns × 18 rows · 1 cheer/.test(document.querySelectorAll("#blockList .block-card")[1].innerText), null, { timeout: 8000 });
+  // The card's controls: Darkness centred on 0 (the stored field is unchanged), Smooth shading.
+  const img = cards(page).nth(1);
+  assert.equal(await img.getByRole("slider", { name: "Darkness" }).inputValue(), "0");
+  await img.getByRole("slider", { name: "Darkness" }).fill("40");
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].contrast, 168);
+  assert.match(await img.innerText(), /Smooth shading \(photos\)/);
+  assert.ok(!/Dither/.test(await img.innerText()), "the card still says Dither");
+  await img.getByRole("button", { name: "Reset darkness to 0" }).click();
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].contrast, 128);
+  // A Real picture with no link draws no thumbnail at all.
+  await img.locator(".sel-kind").selectOption("real");
+  await img.locator("input[type=url]").fill("");
+  assert.equal(await img.locator(".img-thumb").evaluate((t) => getComputedStyle(t).display), "none");
+  // The Auto layout is named for what it picks; the size's goal stays with the Size.
+  const auto = await cards(page).first().locator(".sel-layout option[value=auto]").textContent();
+  assert.match(auto, /^Auto — the layout that prints biggest/);
+  assert.ok(!/in one cheer/.test(auto), auto);
+  // The thermal view's dither says why it is off, beside it.
+  assert.equal(await page.locator("label", { has: page.locator("#thermalDither") }).evaluate((l) => l.firstChild.textContent), "Thermal dither: ");
+  assert.equal(await page.locator("#thermalDitherOff").isVisible(), true);
+  await page.check("#thermalView");
+  assert.equal(await page.locator("#thermalDitherOff").isVisible(), false);
+  await page.uncheck("#thermalView");
+  // A 60-character preset name with no spaces, echoed in the note, wraps: no sideways scroll.
+  await page.fill("#presetName", "A_VERY_LONG_PRESET_NAME_WITHOUT_ANY_SPACES_AT_ALL_1234567890");
+  await page.click("#presetSave");
+  assert.match(await page.textContent("#presetNote"), /A_VERY_LONG/);
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "the page scrolls sideways");
+  // With Cheer-ready off, a test says it is still a real cheer.
+  await page.uncheck("#cheer");
+  await page.click("#hrProbeBtn");
+  assert.match(await page.textContent("#modeNote"), /It is a real cheer even with Cheer-ready off/);
+  assert.match(await copyPayload(page), /^Cheer25 /);
+  await page.click("#backToStack");
+  await page.check("#cheer");
+  await page.click("#plainProbeBtn");
+  assert.ok(!/Cheer-ready off/.test(await page.textContent("#modeNote")));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

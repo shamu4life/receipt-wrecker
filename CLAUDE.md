@@ -223,7 +223,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **139 keys**. Regenerate the list instead of trusting this one:
+test harness **141 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -235,7 +235,7 @@ test harness **139 keys**. Regenerate the list instead of trusting this one:
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
-`bigFitPx`, `bigLineHeight`, `bigWrapWords`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
+`bigFitPx`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
 `bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
@@ -321,13 +321,28 @@ nothing that prints).
   accents and emoji have ink below the baseline that `.8` clips.
 - Width: a line may use `bigFitPx(contentW, glyphs)` = contentW − 2 − 0.5 per glyph (margin for
   the rig's rounding). Height: lines × px × LH, within 0.15px on the bench.
-- `bigWrapWords(line, px, contentW)` is a greedy word wrap at px against `bigFitPx`: the lines a
-  too-wide spaced line really breaks into on the page (a word wider than a line sits alone,
-  clipped, never broken). The height model counts a line too wide at an explicit size by it,
-  so it can only over-count (a cheer spent), never under-count (a cut). Its predecessor,
-  ceil(width / line width), under-counted: 20 lines of "WWW WWW WWW" at 48px are 60 printed
-  lines, it said 40, and the bot's box cut a third off (benched: 1173.3px against 1173.6
-  predicted for 10 of those lines).
+- `bigWrapWords(line, px, contentW)` is a greedy word wrap at px against `bigFitPx`, at the
+  spaces only: the lines the Wrap layout sends, every word whole.
+- `bigWrapCount(line, px, contentW)` is how many lines a line too wide at an explicit size
+  PRINTS as, at most; the height model (`bigLineH`) counts such a line by it. A High Roller
+  message keeps its own styling (the renderer's `overflow-wrap: anywhere` is for
+  `.part:not(.raw)`), so the browser breaks only at its line-break opportunities: always at a
+  space, never between two letters or digits, and, by context-dependent rules too many to copy,
+  around Han, kana, Hangul, emoji, hyphens and most punctuation ("你|好", "WELL-|DONE", "A-|5",
+  but not "好|。" or "(|你"). So it counts an upper bound: words that fit a line go on lines
+  greedily, each whole (the page has these breaks and maybe more, and more breaks never need
+  more lines when nothing overflows); a word wider than a whole line starts a line of its own
+  (and so does what follows it) and takes min(pieces, 2 × ceil(its width / the width) − 1)
+  lines, where its pieces are what is left between the places the page could break it
+  (`bigWrapWordsOf`: never between letters, digits and apostrophes, `BIG_ATOM_RE`; never
+  before `BIG_NO_BREAK_BEFORE`, closers, `, . : ; ! ?`, hyphens, dashes and quotes, or after
+  `BIG_NO_BREAK_AFTER`, openers) and two lines in a row of a first-fit break hold more than a
+  line's width. It can count a line or two too many ("WELL-DONE" at 160px is two lines and
+  counts three: a cheer spent) but never too few (a cut): 460 cases through the vendored
+  renderer, none short. Counting the spaces alone, "你好你好" at 160px printed four lines,
+  counted one, and the bot's box cut the NEXT block in that part off (polish review 2; the
+  MANDATORY contract test now carries that stack). ceil(width / line width) under-counted too:
+  20 lines of "WWW WWW WWW" at 48px are 60 printed lines, it said 40.
 - `bigClean` drops what prints nothing (`BIG_INVISIBLE`: the BMP Default_Ignorable set, the
   C0/C1 controls, U+FFF0-FFFB) but keeps emoji with their joiner and presentation selectors
   (Edge draws colour emoji; they dither to grey dots). CR, CRLF, U+2028/2029 → newline; U+2800
@@ -372,8 +387,11 @@ nothing that prints).
 - `bigPlan` makes the decision without markup (the card labels use it), `bigFit` returns it as
   data, `buildBigBodies` builds the bodies (each with a `big` record), and `bigReport` writes
   the card's plain-language note: capitals in cm (`bigCapCm` = px × 0.716 × 25.4 / 96 / 10),
-  cheers and bits, too wide, too long to send, taller than the box (`boxWords` names the
-  limit), invisible characters dropped, emoji print grey. `cheerWords` flags standalone words
+  cheers and bits (or, when the box leaves nothing after the Cheer line, `boxNoRoom`, "prints
+  nothing" in place of a price, the tall line then left out: `costWords(…, noRoom)`), too wide
+  (naming at most two lines, "and N more"), too long to send, taller than the box (`boxWords`
+  names the limit, in cm to one decimal like the part's verdict), invisible characters
+  dropped, emoji print grey. `cheerWords` flags standalone words
   shaped like a cheermote (`Kappa50`); the note is flat for Twitch's global prefixes
   (`CHEER_GLOBALS`) and hedged for anything else, since a channel's own are unknowable.
   `bigSplitWords` (the `big` record's `splitWords`, `[{word, pieces}]`) names a STACKED word
@@ -398,11 +416,14 @@ nothing that prints).
   bot's box and the bot's length check sees it. A transform-only rotation reserves no space and
   is cut off at both ends.
 - Width rule (`sideWidthPx`), from Arial Bold's metrics: the outer columns may reach E =
-  contentW / 2 − 6 from the centre. Capitals-safe lines at LH .8: floor(E / (0.4N − 0.0305)),
-  at most 280 × contentW / 244; anything else at LH 1.15: floor(E / (0.575(N − 1) + 0.6)), at
-  most 193 × contentW / 244. On 80 mm that is 280 / 150 / 99 / 73 / 58 px for 1-5 lines of
-  capitals. The comma, semicolon and Q are not capitals here (their tails clipped at the paper
-  edge in review).
+  contentW / 2 − 6 from the centre. Capitals-safe lines at LH .8: floor(E / (0.4N − 0.0305));
+  anything else at LH 1.15: floor(E / (0.575(N − 1) + 0.6)). On 80 mm that is 313 / 150 / 99
+  / 73 / 58 px for 1-5 lines of capitals (one line is held to the Size menu's 300) and 193 /
+  98 / 66 / 49 otherwise; on 58 mm 190 / 91 / 60 / 44 / 35 and 117 / 60 / 40 / 30. One line of
+  capitals used to be capped at 280 (scaled), below the rule, so 281-300px was called "too
+  wide" while it printed whole (HELLO at 300px benched 15.3 / 16.7px clear of the edges on
+  80 mm, at 190px 9.6 / 8.6px on 58 mm; polish review 2). The comma, semicolon and Q are not
+  capitals here (their tails clipped at the paper edge in review).
 - **The ink is centred, not the line box.** `margin:auto` centres a column's line box, but the
   baseline sits half the leading plus Arial's ascent (0.905em) from the side the letter tops
   face, so lowercase (nothing above the x-height, descenders below) and mixed text landed toward
@@ -425,6 +446,14 @@ nothing that prints).
   2px of each other and at least 6px from both edges. Bench after (80 and 58 mm, down and up,
   13 texts with kana and emoji): every one within 1.7px of centre. The shift's own characters
   (about 27) count in the open tag's length.
+- **Q is the exception to "between the two fonts".** Its tail drops 0.072em in Arial Bold
+  (read from the font's own outline, polish review 2) and 0.197em in Liberation Sans Bold, so
+  no value suits both: the midpoint (−0.13) printed a Q-led block 3 to 6px off centre on the
+  bench, and would have the other way on the rig. `SIDE_INK` gives Q Arial Bold's values
+  (tail −0.07, top 0.73 with its overshoot). With Arial Bold added to the bench (`forkbench
+  --fonts`, your own copy, never committed) every Q-led block benched within 1.42px of centre;
+  with the bench's default Liberation the same blocks sit up to 14.6px toward the descenders'
+  side ("QUIZ" at 193px). Judge Q-led sideways blocks with Arial on the bench.
 - Length = S × the line's em width + 0.5 px a glyph: an upper bound (kerning makes the real run
   1-18px shorter on the bench).
 - A long line is cut into segments at word boundaries, by height and by an equal share of the
@@ -439,7 +468,8 @@ nothing that prints).
 - A block with more lines than fit even at 20px is wider than the paper; `margin:auto` cannot
   centre it, so it sits against the left edge and the right edge cuts it. Top to bottom loses
   the FIRST lines (line 1 is the rightmost column), bottom to top the LAST; `sideReport` and
-  the size labels say which.
+  the size labels say which. A ONE-line block past the rule at a fixed size has no lines to
+  lose: its note says the letters run past the paper's edge.
 - `sideReport` adds "Press Enter between words to make more columns" when Auto (`fit1`) had to
   shrink a block with a spaced line below the width rule's size and its capitals are under
   1.5 cm: a typed line is ONE column and never wraps, so a sentence on one line printed as a
@@ -529,8 +559,8 @@ words.
   `picture`/`l1`-`l3`, the Fake-cheer style's `avatar`/`cBits`/`cName`/`cNote`) becomes one Big
   text block per line (`bigLayout: "lines"`, `bigSize: "fit1"`; a `fmt` rides along unused)
   and one Glyph-art Image block per picture. An empty takeover is dropped. Every block made
-  from a takeover gets a **fresh id** above every id in the stack (`removeBlock` filters by
-  id, so a shared id would delete two blocks).
+  from a takeover gets a **fresh id** above every id in the stack (removing or moving a block,
+  its Undo and the cards' notes all find a block by its id).
 - An **old text block**: Giant type (`render: "giant"`) → big text, layout kept (the Emote
   layout → lines), level n → `giantLevelPx(n)` = round(16 × 1.2ⁿ) px (constants hardcoded,
   n clamped 1..18, then 20..400); an Emote-layout block → `bigSize: "fit1"` (its level sized a
@@ -539,7 +569,7 @@ words.
   (`giantLayout`, `giantSize`, `orient`, `rotateLen`) go; `size`, `cols` and `fmt` stay, unused.
   Han tiling keeps its render.
 - An **image block** loses `renderAs` and `embedV` (the old carrier pick). A Glyph-art block
-  made from a takeover picture gets 20 columns (`newBlock`'s; the 40 an older build used would
+  made from a takeover picture gets 18 columns (`newBlock`'s; the 40 an older build used would
   print as 30, the most Han characters take).
 - A Giant type level keeps its px even when that is too wide for the paper (the spec's
   mapping); the card then says the letters are cut off rather than "fits".
@@ -589,7 +619,7 @@ generations; `presetImageUrls` walks a stack's picture links.
   controls get labels: `labelControls(card)` ties each `<label>` that sits before its control
   with `for=` (ids `rwc-N` from `ctlId`), `sliderRow` names its input with `aria-label`, and the
   head's ↑ ↓ × buttons and every ↺ have `aria-label`s ("Remove block", "Reset detail (columns)
-  to 20"); tests find them by those names.
+  to 18"); tests find them by those names.
 - **Rasterising.** `renderColumn` draws one line of text rotated 90° clockwise in Arial (400 or
   700: 600, 700 and 900 rasterise identically, so Han tiling offers Regular and Bold),
   measured from its real ink box and scaled uniformly; `textColumnsLuma` stacks the lines down
@@ -621,7 +651,15 @@ generations; `presetImageUrls` walks a stack's picture links.
   Longer fixed explanations (the render, the font, sideways, Han weight, the tier) fold behind
   a native `<details class="hint more"><summary>What's this?</summary>` (`moreHint`; no state,
   nothing saved), and so does the Thermal caption's detail. The head's ↑ is disabled on the
-  first block and ↓ on the last (`cardHead(block, i, n)`). The note
+  first block and ↓ on the last (`cardHead(block, i, n)`). × removes the block at once (and
+  saves), and keeps it for **Undo**: the block, runtime fields and all (a decoded picture comes
+  back with it), and its index wait in `removedBlock`, and `renderComposer` draws "Removed a
+  Text block (…). Undo" (`.undo-note`; the button `#undoRemove` takes the focus) where it was,
+  until the next add, move, removal, Undo or preset load. Memory only, nothing stored, and no
+  timer: a note that vanished by itself would shift the cards under a finger. On a touchscreen
+  or below 700px the head's buttons are 44px targets and × stands apart from ↓ (a mis-tap
+  while reordering used to delete the block for good). The tests count cards as
+  `#blockList > .block-card`, since the note sits among them. The note
   (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
   callback. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
@@ -631,7 +669,11 @@ generations; `presetImageUrls` walks a stack's picture links.
   that kind), Rotate (`.sel-rotate`, both kinds); for Glyph-art the Characters select
   (`.sel-tier`) with per-form hints and a column range that follows the form (the Detail field
   shows the columns the grid really uses, `glyphCols`, and committing a value writes the
-  clamped one back); for a Real picture the red can't-print note, "Switch to Glyph-art", a
+  clamped one back; a new block starts at 18, so a square picture is 449 characters, one cheer,
+  where 20 was two cheers and the face printed in halves), **Darkness** (the stored `contrast`,
+  0..255 with 128 as is, shown centred as −128..127: it is a tone shift, not a contrast) and
+  **Smooth shading (photos)** (the `dither` field: error diffusion over the characters, not the
+  thermal view's dither); for a Real picture the red can't-print note, "Switch to Glyph-art", a
   thumbnail and brightness/contrast (baked and re-uploaded; they change the card's picture
   only, and the card says so). The file input is emptied once its file is taken and on a change
   of kind, so picking the same file again always fires (it didn't after a switch to Real).
@@ -644,7 +686,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   is disabled, and `noRoomAdvice` replaces the bits total. Without the repeat number, a part identical to
   the one right before it gets a note (Twitch won't send the same message twice in a row
   within 30 seconds). `probeParts(kind)` builds a probe the same way; its view's notice
-  carries a "Back to my stack" button (`#backToStack`). `renderParts` shows the mode notice, a
+  carries a "Back to my stack" button (`#backToStack`) and, with Cheer-ready off, says the test
+  is a real cheer anyway (it has to print to show anything). `renderParts` shows the mode notice, a
   persistent card per part and the total (bits, or a free test's message count; one part says
   "One N-bit cheer" unless it carries a note of its own, as a probe does). A part's
   header (`.part-head`: "N / 500 characters" and the kind label in `.part-info`, which wraps
@@ -654,13 +697,21 @@ generations; `presetImageUrls` walks a stack's picture links.
   else the execCommand fallback with its result checked); `copyPart` says "Copied" only then
   (`lastCopiedIdx`), and otherwise shows the part's payload in a read-only box under its header,
   selected once (`copyFailIdx`, `copyFailFocus`), with "Couldn't copy automatically: select
-  this text and copy it". After a probe (or Back to my stack) renders, `revealParts` scrolls
+  this text and copy it". Both remember the payload as well (`lastCopiedPayload`,
+  `copyFailPayload`), and a part shows either state only while it still holds exactly that
+  payload: an index alone outlived its parts (after a probe's Copy failed, Back to my stack
+  showed the stack's part 1 in the box). The header and its Copy button (`pc.head`,
+  `pc.copyBtn`, reading `pc.index` when clicked) are made once per part and updated in place,
+  never replaced or moved: leaving a number field for Copy fires its change, and the redraw used
+  to swap the button between mousedown and click, so the click was lost and the clipboard kept
+  the older payload. After a probe (or Back to my stack) renders, `revealParts` scrolls
   the notice or the parts into view (smooth unless the viewer asks for reduced motion) and
   focuses the first live Copy, else the Back button. `partWarned` (the app already expects a cut: too tall for the
   box, or a block too wide for the paper) keeps the verdict from blaming fonts. `copyPart`
   advances that part's nonce only when the repeat number is on. Committing a number field
-  (change) writes back the value the app uses (0 bits → 100, 50 inches → 40); the Dither
-  select is disabled while the Thermal view is off.
+  (change) writes back the value the app uses (0 bits → 100, 50 inches → 40); the Thermal
+  dither select is disabled while the Thermal view is off, with "(turn on the thermal preview
+  first)" beside it (`#thermalDitherOff`).
 - **Presets and the expiry check.** `seedBlocks` migrates a saved stack once and saves it; when
   `migrationRewrites` is true it queues the backup preset, which `initPresets` writes only
   after the user's presets have loaded, merged in with `upsertPreset` under a free name, and
@@ -771,7 +822,7 @@ scale has not been done. The caption says all of this plainly (the computer's fo
 differ; small grids on 58 mm and Braille can differ from the print, strokes included, so judge
 them with the thermal view off). The canvas is shown
 at one scale for both papers (`min(576px, 100%)` and `min(384px, 66.67%)`), so 58 mm is two
-thirds of 80 mm, and the Dither select is disabled while the view is off. The grey logo
+thirds of 80 mm, and the Thermal dither select is disabled while the view is off. The grey logo
 placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 
 ### "SassyTP shipped a new version"
@@ -780,9 +831,17 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    the renderer path).
 2. `NODE_USE_ENV_PROXY=1 node tools/vendor-renderer.mjs --ref <40-hex sha>` (add `--path
    v/X.Y.Z/renderer.html` if needed; `NODE_USE_ENV_PROXY=1` only matters behind a proxy), then
-   `node tools/vendor-renderer.mjs --check`.
-3. Point `tools/forkbench.mjs` at the same commit (its `PINNED_SHA`, `RENDERER_PATH` and
-   `RENDERER_SHA256`) and re-bench the modes whose shape matters to you at 80 and 58 mm.
+   `node tools/vendor-renderer.mjs --check`. Without `--ref`, the tool (a plain write and
+   `--check` alike) follows the commit the committed block names (its `data-commit` and
+   `data-path`, and the upstream sha256 in its notice), so the check right after a correct
+   update passes and a plain write can't put the old renderer back over the new one; it uses
+   its own `PINNED_*` only on a first run, when the page has no block. (It used to use
+   `PINNED_*` every time: the check failed right after a correct update, and a plain write
+   restored 2.5.4 without a word.) It says so on stderr while its pin is out of date.
+3. Point both tools at the same commit: `tools/vendor-renderer.mjs`'s `PINNED_SHA`,
+   `PINNED_PATH` and `PINNED_SHA256`, and `tools/forkbench.mjs`'s `PINNED_SHA`,
+   `RENDERER_PATH` and `RENDERER_SHA256`. Then re-bench the modes whose shape matters to you at
+   80 and 58 mm.
 4. Read the diff of the renderer for anything in "The target" above (allow-lists, the box,
    plain text, geometry) and update this file's line numbers and facts.
 5. Run both suites. The contract test re-runs every mode through the new page.
@@ -922,7 +981,8 @@ lives in `test-browser/` and is not in the default matcher.
   `style`, never a forbidden tag in any case, and never a message starting with `<`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
-  Han tiling; plain CJK picture; both probes) at 80 and 58 mm, above and below the threshold,
+  Han tiling; plain CJK picture; both probes; a Han and an emoji run at a fixed size too wide
+  for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
   with the streamer's length limits, and as a free test, goes through the app's own vendored
   `PrinterBot.render` in the frame. It asserts: `ok`; no `security` notes; the renderer agrees
   on raw vs plain; cut only where the app warned; for raw parts the sanitised DOM keeps every

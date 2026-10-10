@@ -72,7 +72,10 @@ page, built into the app and run in a sandboxed frame with no network access.
   its own size*; Auto also tries the typed lines with the words wrapped
   to the paper (balanced, every word whole), so a sentence typed on one line prints wrapped
   rather than tiny or as a long column of small letters, and keeps whichever is biggest in one
-  cheer. A line too wide at a fixed size is counted by the lines its words really wrap to; sizes *Auto* (biggest in one cheer), *Fill the
+  cheer. A line too wide at a fixed size is counted by the lines its words really wrap to, and a
+  word too wide for the paper that the page can break inside (Han, kana, emoji, a hyphen) by the
+  most lines it could print as, so the next block is never packed into a part the bot will cut;
+  sizes *Auto* (biggest in one cheer), *Fill the
   paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
   1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
   print as grey dots; invisible characters are left out and the card says so. Every option is
@@ -90,8 +93,11 @@ page, built into the app and run in a sandboxed frame with no network access.
   by its INK: `margin:auto` centres the line box, and lowercase and mixed text sat toward the
   descender side ('gg' 34.5px off centre on 80 mm), so the block gets a small
   `position:relative;left` shift worked out from each letter's ink (capitals, already centred,
-  keep their exact payloads); benched within 1.7px at both widths and in both directions. A long
-  line Auto had to shrink gets a hint to press Enter for more, bigger columns.
+  keep their exact payloads); benched within 1.7px at both widths and in both directions. Q
+  follows real Arial Bold's outline (its tail is far shorter than the bench font's): with Arial
+  on the bench, Q-led blocks came within 1.42px. One line of capitals goes up to the width rule
+  (300px on 80 mm, 190px on 58 mm), where it used to stop at 280px and call 281-300px too wide.
+  A long line Auto had to shrink gets a hint to press Enter for more, bigger columns.
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
   plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
   a line to itself, and the cheer word at the end. Each plain part is its own cheer, and a run
@@ -128,7 +134,8 @@ page, built into the app and run in a sandboxed frame with no network access.
 - **Tools**: `tools/forkbench.mjs` (`npm run bench`) renders a message through SassyTP's real
   receipt page at a pinned commit and dithers it the bot's way; `tools/vendor-renderer.mjs`
   writes or `--check`s the vendored renderer block (the "SassyTP shipped a new version"
-  routine). `tools/payload.mjs` has new kinds: `big`, `side`, `glyph`, `plain`, `hrprobe`,
+  routine; without `--ref` it follows the commit the committed block names, so a plain run can
+  never put an older renderer back). `tools/payload.mjs` has new kinds: `big`, `side`, `glyph`, `plain`, `hrprobe`,
   `plainprobe` (and `raw`), and takes `"paper": 58`.
 - **Tests**: a tag allow-list test (every builder, both probes, 80 and 58 mm, hostile input:
   only `div`, `pre`, `br` and `style`, never a picture tag in any case); the MANDATORY
@@ -147,7 +154,7 @@ page, built into the app and run in a sandboxed frame with no network access.
   can't print as a picture and offers **Switch to Glyph-art**. Upload, rotate and
   brightness/contrast stay on the card; the card shows the picture only while it is a Real
   picture, a pasted link through `/px` (the browser never asks the link's own host). New Image
-  blocks start as Glyph-art (Han characters, 20 columns). A stack whose only content is a Real
+  blocks start as Glyph-art (Han characters, 18 columns: a square picture fits one cheer). A stack whose only content is a Real
   picture gives no copyable cheer.
 - **The repeat number** (two digits after the cheer word) is still off by default and still
   saved in `rw_controls_v1`.
@@ -166,8 +173,15 @@ page, built into the app and run in a sandboxed frame with no network access.
   selected, to copy by hand. A probe's view has a **Back to my stack** button, and pressing a
   probe or Back scrolls to the result and focuses its Copy.
 - **No room after the Cheer line**: when the streamer's length settings leave a cheer nothing
-  after its Cheer line, every part says so, its Copy is disabled, and the line under the parts
-  says what to change instead of totalling bits.
+  after its Cheer line, every part says so, its Copy is disabled, the line under the parts
+  says what to change instead of totalling bits, and the cards say the block prints nothing
+  instead of pricing it.
+- **× has an Undo.** Removing a block leaves "Removed a Text block (…). Undo" in its place
+  until the next change to the stack; on a phone the card's ↑ ↓ × buttons are full-size touch
+  targets, with × set apart.
+- **Copy** takes the first click after a number field (Detail, Bits) is changed: the button is
+  no longer rebuilt under the pointer. "Copied" and the copy-by-hand box stay with the part and
+  the text they were about, so they no longer turn up on another view's part.
 - **Presets**: saving under a taken name asks before replacing it; a rename onto a taken name
   is refused; Load, Rename and Delete act on the preset picked even when two share a name; Load
   says whether its Glyph-art blocks' uploaded pictures still load (counted on the converted
@@ -186,7 +200,12 @@ page, built into the app and run in a sandboxed frame with no network access.
   it costs too. The Layout hint describes the layout picked; longer card explanations and the
   Thermal caption's detail fold behind "What's this?"; the ↑ and ↓ buttons are disabled at the
   ends of the stack; the Image card's file input empties after each pick; the "nothing to
-  print" notice is wrapped text.
+  print" notice is wrapped text. The Auto layout is named "the layout that prints biggest";
+  the preview's menu is **Thermal dither** and says why it is off; on a Glyph-art card,
+  **Darkness** (centred on 0) and **Smooth shading (photos)** replace "Contrast 128" and a
+  second "Dither"; a too-wide note says how many lines it didn't name; the box's length is in
+  cm to one decimal, as in the part's verdict; the tests say they are real cheers even with
+  Cheer-ready off; a long preset name wraps instead of widening the page on a phone.
 - **On a phone** the preview and its Copy buttons come right after the blocks, before the
   presets and the settings (they were about 1,900px further down). Every card control has a
   label a screen reader can read, and the ↑ ↓ × and ↺ buttons say what they do.
@@ -209,7 +228,7 @@ The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
 - A **Type** block becomes Big text (straight), Big text upside down (180°), or Sideways text
   top to bottom (90°) or bottom to top (270°).
 - An Image block loses its carrier pick; everything else, the upload link included, stays.
-  A Glyph-art block made from a Takeover picture gets 20 columns.
+  A Glyph-art block made from a Takeover picture gets 18 columns.
 - A note above the blocks says what changed (including that emote names now print as words
   and the old fonts and italics are gone), on the load that converts the stack, until
   dismissed or the next reload. Loading an older preset converts it the same way and says
@@ -247,8 +266,9 @@ blocks a form, the answer is the plain form, never a reworked message.
   sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
   Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
   caption says their texture is approximate.
-- **Tests**: 180 unit tests and 34 browser tests, including the tag allow-list test and the
-  contract test against the vendored renderer (which carries the *Words wrapped* layout too).
+- **Tests**: 182 unit tests and 37 browser tests, including the tag allow-list test and the
+  contract test against the vendored renderer (which carries the *Words wrapped* layout and a
+  Han and an emoji run at a fixed size too wide for the paper).
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig
   yet. The bench cannot see the rig's fonts (Segoe UI, Arial, the CJK face, Courier New, the
   Braille and emoji faces), the streamer's Edge version, their settings or `theme.css`, or the

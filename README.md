@@ -95,8 +95,8 @@ Your words in bold Arial, as big as the paper allows. `HELLO` with Layout set to
 Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
 ```
 
-- **Layout**: *Auto* (the biggest in one cheer of: your lines as typed, the same lines with
-  the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Words
+- **Layout**: *Auto* (whichever prints biggest at the Size you pick of: your lines as typed,
+  the same lines with the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Words
   wrapped to the paper*, *Stack the letters, one per line* (much bigger letters for short
   words), or *Each line its own size* (every line as wide as the paper). A sentence typed on
   one line comes out wrapped, every word whole; to choose the line breaks yourself, press
@@ -203,7 +203,7 @@ The picture as a grid of characters. Pick the characters:
 The Han and Courier New grids size their font in `vw` (a share of the receipt's width), so
 the same message fits 80 mm and 58 mm paper. Braille is sized in px for the paper width you
 picked, so a Braille message made for 80 mm is too wide for 58 mm. Detail (columns), Rotate,
-Contrast, Dither and Invert are on the card. Rows that don't fit one message carry on in the
+Darkness, Smooth shading (photos) and Invert are on the card. Rows that don't fit one message carry on in the
 next cheer, spread evenly over the cheers they need. If the streamer's bits per inch leaves a
 cheer less room than one row, the card says the bot cuts every part, and to raise Detail
 (smaller rows) or Bits per cheer.

@@ -51,11 +51,12 @@
   .rcpt-verdict .rv-warn { color: #a60; }
   .thermal-toggle { display: flex; align-items: center; gap: .4rem; font-size: .85rem; margin: 0 0 .7rem; cursor: pointer; }
   .thermal-toggle input { width: auto; margin: 0; }
+  .thermal-toggle .dither-off { font-size: .8rem; opacity: .7; }
   /* Hints sit snug under the label they explain — but ONLY under a label. The
      negative top margin cancels `.controls label`'s .75rem bottom margin; applied
      after anything else (a select, a button row) it drags the hint up into it and
      the text collides. Adjacent-sibling so it can't. */
-  .hint { font-size:.8rem; opacity:.7; margin:.35rem 0 .75rem; }
+  .hint { font-size:.8rem; opacity:.7; margin:.35rem 0 .75rem; overflow-wrap: anywhere; }   /* a 60-character preset name with no spaces, echoed in a note, scrolled the page sideways */
   label + .hint { margin-top: -.4rem; }
   details.more > summary { cursor: pointer; width: max-content; max-width: 100%; }
   details.more > div { margin-top: .3rem; }
@@ -89,6 +90,16 @@
   .block-card .bc-type { font-weight: 700; font-size: .85rem; text-transform: uppercase; letter-spacing: .03em; }
   .block-card .bc-head .spacer { margin-left: auto; }
   .block-card .bc-head button { padding: .1rem .45rem; font-size: .9rem; line-height: 1.2; }
+  /* On a touchscreen the head's buttons are full 44px targets, and × stands apart from ↓:
+     a mis-tap while reordering removed the block (Undo brings it back, but better not to). */
+  @media (pointer: coarse), (max-width: 700px) {
+    .block-card .bc-head button { min-width: 44px; min-height: 44px; font-size: 1.05rem; }
+    .block-card .bc-head .bc-rm { margin-left: .9rem; }
+  }
+  /* Where a removed block was, until the next change to the stack. */
+  .undo-note { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .6rem; font-size: .85rem; border: 1px dashed #999;
+    border-radius: 6px; padding: .4rem .7rem; margin: 0 0 .6rem; overflow-wrap: anywhere; }
+  .undo-note button { min-height: 2rem; padding: .2rem .9rem; font: inherit; font-weight: 700; }
   .block-card label { display: block; margin: .35rem 0 .1rem; font-size: .85rem; }
   .block-card textarea, .block-card input[type=url], .block-card select, .block-card input[type=range] { width: 100%; box-sizing: border-box; }
   .add-row { display: flex; gap: .5rem; margin: .2rem 0 .3rem; }
@@ -101,6 +112,7 @@
      treatment as an over-budget part. */
   .expired-note { color: #d33; font-weight: 700; margin: .25rem 0; }
   .img-thumb { display: block; max-width: 100%; max-height: 220px; margin: .45rem 0; border: 1px solid #ccc; }
+  .img-thumb[hidden] { display: none; }   /* display:block above beat the hidden attribute: a 2px bordered speck */
   /* A card's live report: what the block prints, and where it is in the run. */
   .text-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; }
   @media (prefers-color-scheme: dark) { .text-note { color: #c8c8c8; } }
@@ -143,16 +155,16 @@
           <button type="button" id="addTextBtn">+ Text</button>
           <button type="button" id="addImageBtn">+ Image</button>
         </div>
-        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times;. Too much for one receipt just tapes into more, and each is its own cheer (the cost is under the preview).</div>
+        <div class="hint">Add text and pictures; they print in order down the receipt. Reorder with &uarr;/&darr;, remove with &times; (Undo brings a removed block back). Too much for one receipt just tapes into more, and each is its own cheer (the cost is under the preview).</div>
       </div>
     </section>
     <section class="preview">
       <label class="thermal-toggle" title="The preview the way the printer gets it: 1-bit black and white, dithered by the bot's own method">
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
-      <label class="thermal-toggle">Dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select></label>
+      <label class="thermal-toggle">Thermal dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select> <span id="thermalDitherOff" class="dither-off">(turn on the thermal preview first)</span></label>
       <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
-      <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Dither menu works while the thermal view is on).</div></details>
+      <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
@@ -765,9 +777,9 @@
   //    text and no picture carried nothing of the user's and is dropped. Per-line size,
   //    alignment and nudges have nowhere to go and are dropped with it.
   //  - Every block made from a takeover gets a FRESH id, above every id already in the
-  //    stack. They must not share the takeover's id or each other's: removeBlock filters
-  //    by id, so two blocks with one id are deleted together, and the cards find their
-  //    own parts by id.
+  //    stack. They must not share the takeover's id or each other's: removing, moving and
+  //    the Undo of a removal find a block by its id, and the cards find their own parts
+  //    by id.
   //  - A TEXT block from before 1.0.0 becomes the nearest 1.0.0 render, keeping its text:
   //      Giant type ("giant")         -> big text; its layout kept (auto, lines, stack; the
   //                                      Emote layout becomes lines: names print as text on
@@ -797,12 +809,12 @@
       if (fmt && typeof fmt === "object") tb.fmt = JSON.parse(JSON.stringify(fmt));
       return tb;
     }
-    // A new Glyph-art block's own settings (newBlock's), so its 20 columns are what it prints:
+    // A new Glyph-art block's own settings (newBlock's), so its 18 columns are what it prints:
     // Han characters take 12 to 30, and the 40 an older build used would print as 30.
     function glyphBlock(url) {
       return { id: nextId++, type: "image", imgKind: "glyph", url: url, width: 70,
                rotate: 0, adjBright: 0, adjContrast: 0,
-               tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
+               tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
     }
     function fromTakeover(tk) {
       var made = [], items = [], j, it, t, u;
@@ -1140,7 +1152,7 @@
   // Per-line measurements, once per layout and paper (they do not depend on the size).
   function bigPrep(lines, layout, contentW) {
     var m = { lines: lines, layout: layout, contentW: contentW, ems: [], lens: [], fit: [], pxW: [],
-              spaced: [], lhs: [], minPxW: Infinity, ink: 0, emoji: false };
+              spaced: [], lhs: [], words: [], minPxW: Infinity, ink: 0, emoji: false };
     for (var i = 0; i < lines.length; i++) {
       var l = lines[i], gs = bigGraphemes(l), em = 0, k, w;
       for (k = 0; k < gs.length; k++) { w = bigGlyphEm(gs[k]); em += w; if (w === BIG_W_EMOJI) m.emoji = true; }
@@ -1153,13 +1165,11 @@
     m.lh = bigLineHeight(lines);
     return m;
   }
-  // Greedy word wrap at px, the way the bot's page wraps a line too wide for the paper: words
-  // go on a line while it (its spaces included) fits bigFitPx; a word wider than a whole line
-  // sits on a line of its own, where it is clipped on the right, never broken (bench d05/d06).
-  // The Arial Bold advances are exact and bigFitPx keeps a margin, so against the real page
-  // this can only count a line too many (a cheer spent), never one too few (a cut). Counting
-  // ceil(width / line width) instead under-counted: "WWW WWW WWW" at 48px is three lines,
-  // because two 136px words and a space don't fit 244px, and that guess said two.
+  // Greedy word wrap at px, at the spaces only: the lines the Wrap layout sends (every word
+  // stays whole on its line). Words go on a line while it (its spaces included) fits
+  // bigFitPx; a word wider than a whole line sits on a line of its own. How many lines a line
+  // too wide for the paper really PRINTS as is bigWrapCount's job, which also knows the
+  // breaks the page makes inside a word (Han, kana, emoji, a hyphen).
   function bigWrapWords(line, px, contentW) {
     var words = String(line).split(" ").filter(function (w) { return w !== ""; });
     if (words.length < 2) return [String(line)];
@@ -1173,11 +1183,70 @@
     out.push(cur);
     return out;
   }
-  // A line's printed height at px: px x LH, times the lines it wraps to (bigWrapWords) when
-  // an explicit size makes a spaced line too wide.
+  // HOW A TOO-WIDE LINE WRAPS ON THE BOT'S PAGE, as an upper bound. A High Roller message keeps
+  // its own styling (the renderer's overflow-wrap:anywhere is for .part:not(.raw)), so the
+  // browser breaks a line only at its line-break opportunities: always at a space, never
+  // between two letters or digits (a Latin word too wide for the paper sits on a line of its
+  // own, clipped: bench d05/d06), and, by rules that depend on the characters around them, on
+  // either side of Han, kana, Hangul, emoji, hyphens, dashes and most punctuation ("你|好",
+  // "WELL-|DONE", "A-|5"; but not "好|。" or "(|你"). Those rules are too many to copy, so this
+  // counts what they can do at most:
+  //  - Words (split at the spaces) that fit a line go on lines greedily, each word whole.
+  //    The page has every break this has (the spaces) and maybe more, and more breaks never
+  //    need more lines when nothing overflows, so this never counts too few.
+  //  - A word wider than a whole line starts a line of its own, and what follows it starts a
+  //    new one. It prints on at most min(pieces, 2 x ceil(its width / the width) - 1) lines:
+  //    every line holds at least one of its pieces, and with first-fit breaking any two lines
+  //    in a row hold more than a line's width. Its pieces are what is left between the places
+  //    the page COULD break it, which is everywhere except between two letters or digits
+  //    (`BIG_ATOM_RE`, apostrophes included), before a character the page never starts a line
+  //    with (`BIG_NO_BREAK_BEFORE`: closing brackets, , . : ; ! ?, hyphens and dashes, quotes,
+  //    and their full-width forms) and after an opening bracket (`BIG_NO_BREAK_AFTER`). So
+  //    "DON'T" and "late!" are one piece (one clipped line), "WELL-DONE" two, "你好你好" four.
+  // The widths are upper bounds (Arial Bold without kerning, wide characters at 1.05em, emoji
+  // at 1.3em) and the greedy fit keeps bigFitPx's margin, so the count can be a line or two
+  // too many (a cheer spent: "WELL-DONE" at 160px is two lines and counts three) but never
+  // too few (a cut). Counting the spaces alone under-counted: "你好你好" at 160px printed as
+  // four lines, counted as one, and the bot's box cut the NEXT block in that part off (polish
+  // review 2). So did ceil(width / line width): "WWW WWW WWW" at 48px is three lines (two
+  // 136px words and a space don't fit 244px), and that guess said two.
+  var BIG_ATOM_RE = /^[A-Za-z0-9'"\u2019\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u0391-\u03A9\u03B1-\u03C9\u0400-\u045F]/;
+  var BIG_NO_BREAK_BEFORE = /^[)\]},.:;!?'"\u2019\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\uFF5D\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
+  var BIG_NO_BREAK_AFTER = /^[(\[{'\uFF08\u300C\u300E\u3010\u3014\uFF5B\uFF3B\u3008\u300A]/;
+  // A line's words, measured once: {em, g (graphemes), pieces (see above)}.
+  function bigWrapWordsOf(line) {
+    return String(line).split(" ").filter(function (w) { return w !== ""; }).map(function (w) {
+      var gs = bigGraphemes(w), em = 0, pieces = 0;
+      gs.forEach(function (g, i) {
+        var p = gs[i - 1];
+        em += bigGlyphEm(g);
+        if (!i || !((BIG_ATOM_RE.test(p) && BIG_ATOM_RE.test(g)) || BIG_NO_BREAK_BEFORE.test(g) || BIG_NO_BREAK_AFTER.test(p))) pieces++;
+      });
+      return { em: em, g: gs.length, pieces: pieces };
+    });
+  }
+  // How many lines `line` prints as at px, at most. `line` may be bigWrapWordsOf's answer,
+  // so a caller can measure the words once.
+  function bigWrapCount(line, px, contentW) {
+    var words = Array.isArray(line) ? line : bigWrapWordsOf(line), n = 0, em = 0, g = 0, open = false, spEm = BIG_W[" "];
+    words.forEach(function (w) {
+      if (w.em * px > bigFitPx(contentW, w.g) + PX_EPS) {
+        n += w.pieces < 2 ? 1 : Math.max(1, Math.min(w.pieces, 2 * Math.ceil(w.em * px / contentW) - 1));
+        open = false;
+        return;
+      }
+      if (open && (em + spEm + w.em) * px <= bigFitPx(contentW, g + 1 + w.g) + PX_EPS) { em += spEm + w.em; g += 1 + w.g; return; }
+      n++; em = w.em; g = w.g; open = true;
+    });
+    return Math.max(1, n);
+  }
+  // A line's printed height at px: px x LH, times the lines it wraps to (bigWrapCount) when
+  // an explicit size makes it too wide.
   function bigLineH(m, k, px, lh) {
     var h = px * parseFloat(lh);
-    if (m.layout !== "stack" && m.spaced[k] && m.ems[k] * px > m.fit[k]) return h * bigWrapWords(m.lines[k], px, m.contentW).length;
+    if (m.layout !== "stack" && m.ems[k] * px > m.fit[k]) {
+      return h * bigWrapCount(m.words[k] || (m.words[k] = bigWrapWordsOf(m.lines[k])), px, m.contentW);
+    }
     return h;
   }
   // CHUNKING: which lines go into which body. A body becomes (at least) one cheer and the
@@ -1278,8 +1347,8 @@
       (function (k) {
         if (m.lines[k] === "") { units.push({ blank: true, h: LEAD_LINE_PX, chars: function () { return 4; } }); return; }
         var c = payloadLength(bigOpen(pxs[k], m.lhs[k], flip)) + m.lens[k] + BIG_CLOSE.length;
-        // A spaced line still too wide at its size (only at the smallest size, or a fixed size
-        // past its width fit) wraps on the bot's page, as in Lines: bigLineH counts the lines it
+        // A line still too wide at its size (only at the smallest size, or a fixed size past
+        // its width fit) wraps on the bot's page, as in Lines: bigLineH counts the lines it
         // wraps to. Counted as one line, a long sentence's part printed 20x taller than planned.
         units.push({ blank: false, h: bigLineH(m, k, pxs[k], m.lhs[k]), chars: function () { return c; } });
       })(k);
@@ -1568,7 +1637,8 @@
   // The message box, in words, for a "taller than the box" warning. limit = contentLimitPx().
   function boxWords(limit) {
     var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
-    var mm = l.px * MM_PER_PX, cm = mm < 10 ? Math.max(1, Math.round(mm)) + " mm" : Math.round(mm / 10) + " cm";
+    // One decimal, like the part's verdict beside it ("2.5 cm", where this said "3 cm").
+    var mm = l.px * MM_PER_PX, cm = mm < 10 ? Math.max(1, Math.round(mm)) + " mm" : (Math.round(mm) / 10).toFixed(1) + " cm";
     if (l.by === "bits") return "this cheer’s part of the receipt (about " + cm + ", from the streamer’s bits-per-inch setting), where the bot fades it out";
     if (l.by === "cap") return "the streamer’s maximum length (about " + cm + "), where the bot fades it out";
     return "the bot’s message box (about " + cm + "), where it is cut off" + (l.fades ? " and faded" : " with no warning");
@@ -1584,8 +1654,12 @@
   // What a block costs, for a card's summary line: "fits 1 cheer", or "needs 3 cheers (300
   // bits); ..." In a free test (Cheer-ready off) nothing is spent and nothing prints, so it
   // counts messages instead. `cut`: the letters don't fit the paper, so it doesn't "fit".
-  function costWords(cheers, bits, free, cut) {
+  // `noRoom`: the box leaves nothing after the Cheer line (boxNoRoom), so no count of cheers or
+  // bits means anything: the parts say "Nothing worth sending" and their Copy is off, and a
+  // card that priced the block (200 bits) beside them contradicted them.
+  function costWords(cheers, bits, free, cut, noRoom) {
     if (free) return (cheers === 1 ? "1 message" : cheers + " messages") + ", free: a test with Cheer-ready off never prints";
+    if (noRoom) return "prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)";
     if (cheers === 1) return cut ? "1 cheer, but too wide for the paper (see below)" : "fits 1 cheer";
     return "needs " + cheers + " cheers (" + cheers * cheerBits(bits) + " bits); the bot prints its header between the pieces";
   }
@@ -1603,12 +1677,16 @@
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
     var lo = bigCapCm(g.pxMin).toFixed(1), hi = g.capCm.toFixed(1);
     var size = g.layout === "each" && lo !== hi ? "Capitals ≈ " + lo + "–" + hi + " cm" : "Capitals ≈ " + hi + " cm";
-    out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits));
+    var noRoom = !opts.free && boxNoRoom(opts.limit);
+    out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom));
     if (!g.fits) {
-      var which = g.overflowText.slice(0, 2).map(function (l) {
+      // At most two named, and how many more: a stack too big for the paper is cut off on
+      // nearly every letter, and naming two alone read as if only those two were.
+      var over = g.overflowText.filter(function (l, i, a) { return a.indexOf(l) === i; });
+      var which = over.slice(0, 2).map(function (l) {
         var a = Array.from(l);
         return "“" + (a.length > 24 ? a.slice(0, 23).join("") + "…" : l) + "”";
-      }).join(", ");
+      }).join(", ") + (over.length > 2 ? " and " + (over.length - 2) + " more" : "");
       // In Lines, breaking the line comes first: a long line is usually a sentence, and Auto
       // wraps one. A single word that is too wide can only be stacked. (Auto is cut off only
       // when even its letters are too wide, and the other layouts have no line to break.)
@@ -1627,7 +1705,7 @@
     if (gs.some(function (x) { return x.over; })) {
       out.push("One line is too long for a single Twitch message even on its own, so that cheer would be rejected. Shorten it or split it over more lines.");
     }
-    if (gs.some(function (x) { return x.tall; })) {
+    if (gs.some(function (x) { return x.tall; }) && !noRoom) {
       out.push(tallWords("One line", opts.limit));
     }
     if ((g.splitWords || []).length && !gs.some(function (x) { return x.tall; })) {
@@ -1686,12 +1764,16 @@
   // extent [lo, hi] in em above the baseline, from Arial Bold's metrics (the bench's Liberation
   // Sans Bold differs by up to 0.03em; the values sit between the two), the block's ink is the
   // union of its columns', and the block is moved by the difference between the ink's middle
-  // and the box's. Emoji and East Asian wide characters take what the bench measured (their
+  // and the box's. Q is the exception: its tail drops 0.072em in Arial Bold (measured from the
+  // font's own outline, polish review 2) and 0.197em in Liberation Sans Bold, so no value suits
+  // both. It takes Arial's, the rig's face: the midpoint (-0.13) put a block led by Q 3 to 6px
+  // off centre in both faces, and the bench (Liberation) now shows such a block about 6% of
+  // its size toward the letter tops, where the rig prints it centred. Emoji and East Asian wide characters take what the bench measured (their
   // fonts on the rig are unmeasured); anything else unknown takes the font's whole box, which
   // is centred, so it moves nothing.
   var SIDE_ASC = 0.905, SIDE_DESC = 0.212;
   var SIDE_INK = [
-    [/^[A-PR-Z0-9#%&!?£¥ÆÐÞ¢©®§¶]$/, -0.01, 0.70], [/^Q$/, -0.13, 0.70], [/^Ç$/, -0.21, 0.70],
+    [/^[A-PR-Z0-9#%&!?£¥ÆÐÞ¢©®§¶]$/, -0.01, 0.70], [/^Q$/, -0.07, 0.73], [/^Ç$/, -0.21, 0.70],
     [/^[ÀÁÂÃÄÅÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝØ]$/, -0.01, 0.90],
     [/^[acemnorsuvwxzæø]$/, -0.01, 0.535], [/^[gpqyµç]$/, -0.21, 0.535], [/^t$/, -0.01, 0.66],
     [/^[bdfhiklßàáâãäåèéêëìíîïðñòóôõöùúûü]$/, -0.01, 0.73], [/^[jýþÿ()\[\]{}|¦]$/, -0.21, 0.73],
@@ -1744,18 +1826,20 @@
   // 0.3465em off a column's centre, so capitals reach 0.3695em on the glyph-top side and
   // anything else (descenders, accents) up to about 0.6em. The outer columns may reach
   // E = contentW/2 - 6 from the centre (116px on 80 mm, 70.5 on 58 mm); columns are S x LH apart.
-  //   capitals-safe, LH .8:   floor(E / (0.4N - 0.0305)), at most 280 (scaled to the paper)
-  //   anything else, LH 1.15: floor(E / (0.575(N - 1) + 0.6)), at most 193 (scaled)
-  // On 80 mm that is 280/150/99/73/58 for 1-5 lines of capitals and 193/98/66/49 otherwise.
+  //   capitals-safe, LH .8:   floor(E / (0.4N - 0.0305))
+  //   anything else, LH 1.15: floor(E / (0.575(N - 1) + 0.6))
+  // On 80 mm that is 313/150/99/73/58 for 1-5 lines of capitals (one line is held to the Size
+  // menu's 300) and 193/98/66/49 otherwise; on 58 mm 190/91/60/44/35 and 117/60/40/30. One line
+  // of capitals was capped at 280 (scaled to the paper), below the rule, so 281-300px was
+  // called "too wide for the paper" and printed whole: HELLO at 300px benched 15.3 / 16.7px
+  // clear of the edges on 80 mm, and at 190px 9.6 / 8.6px on 58 mm (polish review 2).
   // The comma, the semicolon and Q are NOT capitals here: their tails drop about 0.15em, and
   // at the capitals' sizes they printed clipped at the paper edge or ran into the next column
   // (all three reviews). BIG_CAPS_SAFE leaves them out, so they take the 1.15 rule.
   function sideWidthPx(n, caps, contentW) {
-    var E = contentW / 2 - SIDE_EDGE_PX, k = contentW / 244;
+    var E = contentW / 2 - SIDE_EDGE_PX;
     n = Math.max(1, n);
-    var s = caps ? Math.min(Math.floor(280 * k), Math.floor(E / (0.4 * n - 0.0305)))
-                 : Math.min(Math.floor(193 * k), Math.floor(E / (0.575 * (n - 1) + 0.6)));
-    return Math.max(1, s);
+    return Math.max(1, Math.floor(caps ? E / (0.4 * n - 0.0305) : E / (0.575 * (n - 1) + 0.6)));
   }
   // Text -> columns, after bigClean: one per line as typed, inner whitespace collapsed, blank
   // lines at either end dropped (a blank line in between is an empty column).
@@ -1934,14 +2018,18 @@
     var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
     if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it running down the tape.";
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
+    var noRoom = !opts.free && boxNoRoom(opts.limit);
     out.push("Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
-      + costWords(cheers, opts.bits, !!opts.free, !g.fits));
+      + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom));
     if (!g.fits) {
       // A block wider than the paper can't be centred: it sits against the left edge and the
       // right edge cuts it. Top to bottom puts line 1 on the right, so the FIRST lines go;
       // bottom to top puts it on the left, so the LAST lines go.
+      // One line has no lines to lose: its letters run past the paper's edge.
       var lost = g.dir === "up" ? "the last lines (the bottom of the turned receipt)" : "the first lines (the top of the turned receipt)";
-      out.push(typeof g.size === "number"
+      out.push(g.columns === 1
+        ? "Too big to fit across the paper at this size: the letters run past the paper's edge and will be cut off. Pick a smaller size."
+        : typeof g.size === "number"
         ? "Too many lines to fit across the paper at this size: " + lost + " will be cut off. Pick a smaller size or use fewer lines."
         : "Too many lines to fit across the paper even at the smallest size: " + lost + " will be cut off. Use fewer lines.");
     }
@@ -1953,7 +2041,7 @@
       out.push("Press Enter between words to make more columns: each line becomes its own column, and fewer words per line print bigger.");
     }
     if (gs.some(function (x) { return x.over; })) out.push("One piece is too long for a single Twitch message, so that cheer would be rejected. Use fewer lines.");
-    if (gs.some(function (x) { return x.tall; })) out.push(tallWords("One letter", opts.limit));
+    if (gs.some(function (x) { return x.tall; }) && !noRoom) out.push(tallWords("One letter", opts.limit));
     if (g.dir === "up" && cheers > 1) out.push("Read bottom to top, so the pieces go out last first: the tape reads in order once you turn it.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
     out = out.concat(drop);
@@ -3341,38 +3429,50 @@
     }
     function fillPartCard(pc, item, i, n) {
       var card = pc.el, kids = Array.prototype.slice.call(card.childNodes);
-      kids.forEach(function (k) { if (k !== pc.stage && k !== pc.verdict) card.removeChild(k); });
+      kids.forEach(function (k) { if (k !== pc.stage && k !== pc.verdict && k !== pc.head) card.removeChild(k); });
       var before = [];
       if (item.showHead !== false) {
+        // The header and its Copy button are made once per part and then updated IN PLACE, never
+        // replaced. Leaving a number field for Copy fires its change, and the redraw that follows
+        // used to swap the button under the pointer between mousedown and click: the click was
+        // lost, the button never said Copied, and the clipboard still held the older payload
+        // (polish review 2). The button reads the part's index when clicked.
+        if (!pc.head) {
+          pc.head = mkEl("div", { "class": "part-head" });
+          pc.info = mkEl("div", { "class": "part-info" });
+          pc.copyBtn = mkEl("button", { type: "button", "class": "copy-btn" });
+          pc.copyBtn.addEventListener("click", function () { if (!pc.copyBtn.disabled) copyPart(pc.index); });
+          pc.head.appendChild(pc.info);
+          pc.head.appendChild(pc.copyBtn);
+        }
+        pc.index = i;
         // The count and the kind wrap within their own box, so on a phone they take two short
         // lines beside Copy instead of pushing Copy onto a line of its own.
-        var head = mkEl("div", { "class": "part-head" }), info = mkEl("div", { "class": "part-info" });
+        var info = pc.info;
+        info.textContent = "";
         info.appendChild(mkEl("span", { "class": "part-count" + (item.chars > MAX_CHARS ? " over" : ""),
                                         title: "Characters, out of the " + MAX_CHARS + " Twitch allows in one message" },
           (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : "") + item.chars + " / " + MAX_CHARS + " characters"));
         if (item.kindLabel) info.appendChild(mkEl("span", { "class": "part-kind" }, item.kindLabel));
-        head.appendChild(info);
         // Copy, the one thing a part is for, sits in its header: a full receipt preview can be
         // 40 cm tall, and under it the button was a scroll away (on a phone, past every
         // control too). The header stays in view while its preview scrolls past (CSS sticky).
-        // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
-        // refresh(), which refills this card, so the button you clicked is gone by the time the
-        // copy resolves.
+        // Feedback is render STATE (lastCopiedIdx), written here on every refresh.
+        var btn = pc.copyBtn;
         if (item.copyable) {
-          var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
-          var btn = mkEl("button", { type: "button", "class": "copy-btn" + (justCopied ? " copied" : "") },
-            justCopied ? "Copied" : n > 1 ? "Copy part " + (i + 1) : "Copy");
+          var justCopied = i === lastCopiedIdx && item.payload === lastCopiedPayload && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
+          btn.className = "copy-btn" + (justCopied ? " copied" : "");
+          btn.textContent = justCopied ? "Copied" : n > 1 ? "Copy part " + (i + 1) : "Copy";
           // A part that prints nothing but the Cheer line (the streamer's settings leave no room
           // after it) is not worth its bits: its Copy is there, and disabled.
-          if (item.noRoom) btn.disabled = true;
-          else btn.addEventListener("click", function () { copyPart(i); });
-          head.appendChild(btn);
-        }
-        before.push(head);
-      }
+          btn.disabled = !!item.noRoom;
+          if (btn.parentNode !== pc.head) pc.head.appendChild(btn);
+        } else if (btn.parentNode) btn.parentNode.removeChild(btn);
+        before.push(pc.head);
+      } else if (pc.head && pc.head.parentNode) pc.head.parentNode.removeChild(pc.head);
       // The clipboard refused the text: the payload, to copy by hand.
       var failBox = null;
-      if (item.copyable && !item.noRoom && i === copyFailIdx) {
+      if (item.copyable && !item.noRoom && i === copyFailIdx && item.payload === copyFailPayload) {
         failBox = mkEl("div", { "class": "copy-fail" });
         failBox.appendChild(mkEl("div", { "class": "over-note" }, "Couldn't copy automatically: select this text and copy it."));
         var fta = mkEl("textarea", { readonly: "", rows: "3", spellcheck: "false", "aria-label": "Part " + (i + 1) + " to copy by hand" });
@@ -3416,7 +3516,12 @@
       // A part's own one-line explanation (a probe says how to read it; a repeated part says
       // why it has to wait), above the preview, where it is read before Copy is pressed.
       if (item.note) before.push(mkEl("p", { "class": "parts-note part-note" }, item.note));
-      before.forEach(function (el) { card.insertBefore(el, pc.stage); });
+      // The header stays where it is when it is already the card's first child (moving it would
+      // drop a click in progress, as replacing it did); the rest goes in after it, in order.
+      before.forEach(function (el) {
+        if (el === pc.head && card.firstChild === el) return;
+        card.insertBefore(el, pc.stage);
+      });
       if (failBox && copyFailFocus) {
         copyFailFocus = false;
         var ta2 = failBox.querySelector("textarea");
@@ -3432,10 +3537,13 @@
     function newBlock(type) {
       // A new Image block is Glyph-art: the picture tiled into characters, which is the
       // only way a picture prints (a Real picture sends nothing; see imageCard). Han
-      // characters by default: uniform-width cells line up at any column count.
+      // characters by default: uniform-width cells line up at any column count. 18 columns:
+      // a square picture (a face, an avatar) is then 18 rows, 449 characters with the Cheer
+      // word, one cheer. At 20 it was 20 rows, two cheers, and the face printed in two halves
+      // with the bot's header between them (polish review 2).
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "glyph", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0,
-        tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
+        tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false };
       // Big text, Auto layout (the biggest of lines as typed, the words wrapped to the paper and
       // one letter a line), at the biggest size that fits ONE cheer.
       return { id: blockIdSeq++, type: "text", render: "big", bigLayout: "auto", bigSize: "fit1", text: "" };
@@ -3493,15 +3601,54 @@
     // brought it back, so a reload could send a different stack from the one on screen when you
     // left. It only bit when a structural change was your LAST action, which includes the very
     // ordinary delete-then-copy-then-close, so it looked intermittent.
-    function addBlock(type) { blocks.push(newBlock(type)); saveBlocks(); renderComposer(); update(); }
+    // UNDO FOR ×. Removing a block used to throw it away at once, with nothing to bring it
+    // back: one mis-tap beside ↓ on a phone cost the block's text and picks, or a picture
+    // picked from a file (which only a second pick restores). The block removed last is kept
+    // here, runtime fields and all (a decoded picture comes back with it), with its index, and
+    // renderComposer shows "Removed … Undo" where it was. One slot, in memory only (nothing new
+    // is stored): the next add, move, removal, Undo or preset load ends it. It has no timer on
+    // purpose: a note that vanished by itself would shift the cards under a finger.
+    var removedBlock = null;
+    function addBlock(type) { removedBlock = null; blocks.push(newBlock(type)); saveBlocks(); renderComposer(); update(); }
     function removeBlock(id) {
-      blocks = blocks.filter(function (b) { return b.id !== id; });
+      var i = -1, k; for (k = 0; k < blocks.length; k++) if (blocks[k].id === id) i = k;
+      if (i < 0) return;
+      removedBlock = { block: blocks[i], index: i };
+      blocks.splice(i, 1);
       saveBlocks(); renderComposer(); update();
+      // The card under the finger is gone; the Undo that replaced it takes the focus.
+      var u = document.getElementById("undoRemove");
+      if (u) try { u.focus({ preventScroll: true }); } catch (e) { u.focus(); }
+    }
+    function undoRemove() {
+      var r = removedBlock;
+      if (!r) return;
+      removedBlock = null;
+      // Ids only ever count up (newBlock, applyPreset), so the kept block's id is still its own.
+      blocks.splice(Math.min(r.index, blocks.length), 0, r.block);
+      saveBlocks(); renderComposer(); update();
+    }
+    // "Removed a Text block (HAPPY BIRTHDAY TO…)": what the note says was removed.
+    function removedWords(b) {
+      if (b.type !== "image") {
+        var t = String(b.text || "").replace(/\s+/g, " ").trim(), cps = Array.from(t);
+        return "a Text block" + (t ? " (" + (cps.length > 24 ? cps.slice(0, 24).join("").trim() + "…" : t) + ")" : "");
+      }
+      return "an Image block" + (b.fileName ? " (" + b.fileName + ")" : "");
+    }
+    function undoNote() {
+      var box = mkEl("div", { "class": "undo-note", role: "status" });
+      box.appendChild(mkEl("span", null, "Removed " + removedWords(removedBlock.block) + "."));
+      var u = mkEl("button", { type: "button", id: "undoRemove" }, "Undo");
+      u.addEventListener("click", undoRemove);
+      box.appendChild(u);
+      return box;
     }
     function moveBlock(id, dir) {
       var i = -1, k; for (k = 0; k < blocks.length; k++) if (blocks[k].id === id) i = k;
       var j = i + dir;
       if (i < 0 || j < 0 || j >= blocks.length) return;
+      removedBlock = null;
       var t = blocks[i]; blocks[i] = blocks[j]; blocks[j] = t;
       saveBlocks(); renderComposer(); update();
     }
@@ -3567,7 +3714,7 @@
       head.appendChild(mkEl("span", { "class": "spacer" }));
       var up = mkEl("button", { type: "button", title: "Move up", "aria-label": "Move block up" }, "↑");
       var dn = mkEl("button", { type: "button", title: "Move down", "aria-label": "Move block down" }, "↓");
-      var rm = mkEl("button", { type: "button", title: "Remove", "aria-label": "Remove block" }, "×");
+      var rm = mkEl("button", { type: "button", title: "Remove", "aria-label": "Remove block", "class": "bc-rm" }, "×");
       if (i === 0) up.disabled = true;
       if (i === n - 1) dn.disabled = true;
       up.addEventListener("click", function () { moveBlock(block.id, -1); });
@@ -3680,7 +3827,9 @@
       // would guess from the names, and the cost in cheers is what people need BEFORE they pick.
       var bigWrap = mkEl("div");
       var LAYOUT_LABELS = {
-        auto: "Auto — biggest in one cheer",
+        // Named for what it chooses (a layout); "in one cheer" is the Size's goal, and folded
+        // in here it read "Auto — biggest in one cheer · … · 3 cheers" under Fill the width.
+        auto: "Auto — the layout that prints biggest",
         lines: "Lines as you typed them",
         wrap: "Words wrapped to the paper",
         stack: "Stack the letters, one per line",
@@ -3698,7 +3847,7 @@
       // every layout, migrated "Lines" blocks included).
       var LAYOUT_HINTS = {
         auto: "Auto tries your lines as typed, the words wrapped to the paper and one letter a line, and keeps "
-          + "whichever prints biggest in one cheer (to choose the line breaks yourself, press Enter between words and pick Lines).",
+          + "whichever prints biggest at the Size picked (to choose the line breaks yourself, press Enter between words and pick Lines).",
         lines: "Each line you typed prints as one line, all at one size, so press Enter between words to choose where the lines break.",
         wrap: "Your lines with the words wrapped to the paper's width, all at one size, and no word split in two.",
         stack: "One letter a line with a gap between words: the biggest letters, and the most tape.",
@@ -4144,8 +4293,8 @@
       };
       var tierHint = moreHint();
       glyphWrap.appendChild(tierHint.el);
-      var gcols = mkEl("input", { type: "number", step: "1", "class": "num-cols" }); gcols.value = block.cols || 20;
-      var gcolsRow = sliderRow("Detail (columns)", gcols, 20, "");
+      var gcols = mkEl("input", { type: "number", step: "1", "class": "num-cols" }); gcols.value = block.cols || 18;
+      var gcolsRow = sliderRow("Detail (columns)", gcols, 18, "");
       glyphWrap.appendChild(gcolsRow);
       // The field shows the columns the grid really uses (glyphCols: 12 to 30 for Han characters,
       // 8 to 48 otherwise, fewer for Braille on 58 mm), never a raw value the grid clamps: a block
@@ -4159,10 +4308,14 @@
         var val = gcolsRow.querySelector(".bc-val");
         if (val) val.textContent = v;
       };
-      var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = glyphOpts(block).contrast;
-      glyphWrap.appendChild(sliderRow("Contrast", contrast, 128, ""));
+      // "Darkness", shown centred on 0: the block's `contrast` field (0..255, 128 = as is) is
+      // a tone shift, darker above 128, not a contrast, and the Real picture card's Contrast
+      // (-100..100, 0 = as is) sat beside it reading "128". The stored field is unchanged.
+      var contrast = mkEl("input", { type: "range", min: "-128", max: "127" }); contrast.value = glyphOpts(block).contrast - 128;
+      glyphWrap.appendChild(sliderRow("Darkness", contrast, 0, ""));
+      // Not the thermal view's Dither: this spreads the picture's shading over the characters.
       var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = glyphOpts(block).dither;
-      ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Dither (photos)"));
+      ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Smooth shading (photos)"));
       glyphWrap.appendChild(ditherLbl);
       var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = glyphOpts(block).invert;
       invLbl.appendChild(invert); invLbl.appendChild(document.createTextNode(" Invert"));
@@ -4274,7 +4427,7 @@
       tier.addEventListener("change", function () { block.tier = tier.value; syncTier(); saveBlocks(); update(); });
       gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 20; saveBlocks(); update(); });
       gcols.addEventListener("change", function () { block.cols = effCols(); showCols(true); saveBlocks(); update(); });
-      contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
+      contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10) + 128; saveBlocks(); update(); });
       dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
       applyKind();
@@ -4306,8 +4459,10 @@
             : "This picture's uploaded link has expired (uploads last 15 minutes), so it can't be shown here. A Real picture can't print either way.";
           card.insertBefore(note, card.firstChild);
         }
+        if (removedBlock && removedBlock.index === i) list.appendChild(undoNote());
         list.appendChild(card);
       });
+      if (removedBlock && removedBlock.index >= blocks.length) list.appendChild(undoNote());
     }
     // ── PRESETS (glue) ──────────────────────────────────────────────────────
     var PRESETS_KEY = "rw_presets_v1", presets = [], armedDelete = -1, armedSave = "", armedLoad = -1;
@@ -4471,6 +4626,7 @@
       // collides with the live counter the moment the user adds a block.
       fresh.forEach(function (b) { b.id = blockIdSeq++; });
       blocks = fresh;
+      removedBlock = null;   // an Undo would put a block of the old stack into the loaded one
       saveBlocks();
       renderComposer();
       update();
@@ -4726,9 +4882,14 @@
     var costSyncs = [];
     function refresh() {
       lastParts = computeParts();
-      renderParts(lastParts, currentKind === "compose" ? modeNotice(getSettings())
+      // A test is a real cheer whatever Cheer-ready says (it has to print to show anything), so
+      // with Cheer-ready off the notice says the setting doesn't apply: a user who turned it off
+      // to spend nothing otherwise copied "Cheer25 …" without a word (polish review 2).
+      var st = getSettings();
+      renderParts(lastParts, currentKind === "compose" ? modeNotice(st)
         : { text: "This is the " + (currentKind === "hrprobe" ? "High Roller test" : "Plain test")
-            + ", not your stack. Your blocks are unchanged.", back: true });
+            + ", not your stack. Your blocks are unchanged."
+            + (st.cheer ? "" : " It is a real cheer even with Cheer-ready off: a test has to print to show anything."), back: true });
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {
@@ -4744,7 +4905,12 @@
     // "Copied" is said only once the clipboard took the text. When it refused, the part shows
     // its payload in a read-only box, selected, to copy by hand (copyFailIdx; copyFailFocus asks
     // the next render to select it once, never again on a later keystroke).
-    var lastCopiedIdx = -1, lastCopiedAt = 0, COPY_FLASH_MS = 1800, copyFailIdx = -1, copyFailFocus = false;
+    // Both remember the PAYLOAD as well as the index: an index alone outlived the parts it was
+    // about, so after a probe's Copy failed, Back to my stack showed the stack's part 1 in the
+    // copy-by-hand box though nobody had pressed its Copy (polish review 2). A part shows either
+    // state only while it still holds exactly what was copied.
+    var lastCopiedIdx = -1, lastCopiedAt = 0, lastCopiedPayload = null, COPY_FLASH_MS = 1800;
+    var copyFailIdx = -1, copyFailPayload = null, copyFailFocus = false;
     function copyPart(index) {
       // Only with the repeat number on: off, no payload carries a nonce, and advancing the
       // counter would only spend a storage write.
@@ -4752,15 +4918,16 @@
       refresh();
       var item = lastParts[index];
       if (!item || !item.copyable || item.noRoom) return;
-      copyToClipboard(item.payload || "").then(function (ok) {
+      var payload = item.payload || "";
+      copyToClipboard(payload).then(function (ok) {
         if (!ok) {
-          copyFailIdx = index; copyFailFocus = true;
+          copyFailIdx = index; copyFailPayload = payload; copyFailFocus = true;
           if (lastCopiedIdx === index) lastCopiedIdx = -1;
           refresh();
           return;
         }
         if (copyFailIdx === index) copyFailIdx = -1;
-        lastCopiedIdx = index; lastCopiedAt = Date.now();
+        lastCopiedIdx = index; lastCopiedPayload = payload; lastCopiedAt = Date.now();
         refresh();                                     // repaint with the button showing "Copied"
         setTimeout(function () {
           if (Date.now() - lastCopiedAt >= COPY_FLASH_MS) refresh();   // and back again
@@ -4832,7 +4999,14 @@
       // Toggling the thermal view or its dither just refreshes: each card keeps its drawing and
       // shows (or takes away) its dithered canvas (thermalPart).
       // The dither only means something while the Thermal preview is on.
-      var syncDitherUi = function () { if (els.thermalDither) els.thermalDither.disabled = !els.thermalView.checked; };
+      // Disabled until the thermal view is on, and says so beside it (the reason used to be
+      // folded away under What's this?).
+      var syncDitherUi = function () {
+        if (!els.thermalDither) return;
+        els.thermalDither.disabled = !els.thermalView.checked;
+        var off = document.getElementById("thermalDitherOff");
+        if (off) off.hidden = els.thermalView.checked;
+      };
       syncDitherUi();
       els.thermalView.addEventListener("change", function () { syncDitherUi(); saveControls(); refresh(); });
       els.thermalDither.addEventListener("change", function () { saveControls(); refresh(); });
@@ -4877,7 +5051,7 @@
       BIG_LAYOUTS: BIG_LAYOUTS, BIG_CAP_EM: BIG_CAP_EM, MM_PER_PX: MM_PER_PX, bigCapCm: bigCapCm,
       bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, bigClean: bigClean, bigGraphemes: bigGraphemes,
       bigGraphemesFallback: bigGraphemesFallback, bigLineEm: bigLineEm, bigFitPx: bigFitPx,
-      bigLineHeight: bigLineHeight, bigWrapWords: bigWrapWords, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
+      bigLineHeight: bigLineHeight, bigWrapWords: bigWrapWords, bigWrapCount: bigWrapCount, bigWrapWordsOf: bigWrapWordsOf, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
       bigCheerCount: bigCheerCount, bigPlan: bigPlan, bigFit: bigFit, buildBigBodies: buildBigBodies,
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
       // Sideways (High Roller).

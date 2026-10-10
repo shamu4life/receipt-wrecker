@@ -22,16 +22,24 @@
 // vendored page.
 //
 // Usage:
-//   node tools/vendor-renderer.mjs              write the pinned renderer into public/index.html
-//   node tools/vendor-renderer.mjs --check      exit 1 if the committed block differs from what the
-//                                               pinned upstream file gives (writes nothing)
+//   node tools/vendor-renderer.mjs              rewrite the block from the commit it names
+//   node tools/vendor-renderer.mjs --check      exit 1 if the committed block differs from what its
+//                                               commit's upstream file gives (writes nothing)
 //   node tools/vendor-renderer.mjs --ref <40-hex sha> [--path v/X.Y.Z/renderer.html]
 //   node tools/vendor-renderer.mjs --renderer PATH [--license PATH] [--ref <sha>]
 //
+// Which commit: --ref when given; otherwise the one the committed block names (its data-commit and
+// data-path, and the upstream sha256 in its notice), so after a --ref update a plain --check checks
+// the new block and a plain write can't put the old renderer back over it; the PINNED_* constants
+// below only on a first run, when the page has no block yet. (The tool used to fall back to
+// PINNED_* every time: right after a correct --ref update, --check failed, and a plain write
+// silently restored 2.5.4.) Update PINNED_* to the new commit too, with tools/forkbench.mjs.
+//
 // Flags:
 //   --check            compare only; exit 0 same, 1 different (the first differing line is printed)
-//   --ref SHA          the printer-bot commit to vendor (default: the pinned one below). A full
-//                      40-character sha, so the block always names one exact commit
+//   --ref SHA          the printer-bot commit to vendor (default: the committed block's, else the
+//                      pinned one below). A full 40-character sha, so the block always names one
+//                      exact commit
 //   --path P           the renderer's path in that commit (default: v/<latest>/renderer.html, from
 //                      that commit's versions.json; for the pinned commit, v/2.5.0/renderer.html)
 //   --renderer PATH    use a local renderer.html instead of fetching it. If it is not the pinned
@@ -156,28 +164,46 @@ function findLicenseUpward(from) {
     return null;
 }
 
+// The commit the page's committed block names, from its data-commit and data-path attributes and
+// the upstream sha256 in its notice; null when the page has no block (a first run).
+function committedPin(html) {
+    const at = locate(html);
+    if (!at) return null;
+    const blk = html.slice(at.start, at.end);
+    const m = blk.match(/id="sassytp-renderer" data-commit="([0-9a-f]{40})" data-path="([\w./-]+\.html)"/);
+    if (!m) throw new Exit(2, "the vendored block names no commit (data-commit / data-path); pass --ref and --path");
+    const h = blk.match(/upstream file sha256 ([0-9a-f]{64})/);
+    return { sha: m[1], path: m[2], sha256: h ? h[1] : null };
+}
+
 async function resolveSources(o) {
-    let sha = o.ref || PINNED_SHA, path = o.path, page, license;
+    // The pin: --ref, else the committed block's commit, else PINNED_* (a first run). A --ref that
+    // names a commit known here (the block's or PINNED_*) also takes its path and sha256.
+    const known = [o.pin, { sha: PINNED_SHA, path: PINNED_PATH, sha256: PINNED_SHA256 }].filter(Boolean);
+    const pin = o.ref ? known.find((k) => k.sha === o.ref) || null : known[0];
+    let sha = o.ref || pin.sha, path = o.path, page, license;
     if (o.renderer) {
         const buf = readFileSync(o.renderer);
-        const pinned = sha256(buf) === PINNED_SHA256;
+        const pinned = !!pin && !!pin.sha256 && sha256(buf) === pin.sha256;
         if (!pinned && !o.ref) throw new Exit(2, "--renderer " + o.renderer + " is not the pinned file (sha256 " + sha256(buf) + "): add --ref <sha> to say which commit it is");
-        if (pinned && !o.ref) sha = PINNED_SHA;
-        if (!path) path = pinned && sha === PINNED_SHA ? PINNED_PATH : null;
+        if (!path) path = pinned ? pin.path : null;
         if (!path) throw new Exit(2, "--renderer with --ref needs --path (the renderer's path in that commit)");
         page = buf;
         const lf = o.license || findLicenseUpward(o.renderer);
         license = lf ? readFileSync(lf) : (await fetchCached(sha, "LICENSE", o.offline, null)).buf;
     } else {
         if (!path) {
-            if (sha === PINNED_SHA) path = PINNED_PATH;
+            if (pin) path = pin.path;
+            else if (sha === PINNED_SHA) path = PINNED_PATH;
             else {
                 const vj = JSON.parse((await fetchCached(sha, "versions.json", o.offline, null)).buf.toString("utf8"));
                 if (!vj || typeof vj.latest !== "string" || !/^\d+\.\d+\.\d+$/.test(vj.latest)) throw new Exit(2, "versions.json @ " + sha.slice(0, 7) + " names no latest frontend; pass --path");
                 path = "v/" + vj.latest + "/renderer.html";
             }
         }
-        page = (await fetchCached(sha, path, o.offline, sha === PINNED_SHA && path === PINNED_PATH ? PINNED_SHA256 : null)).buf;
+        const expect = pin && sha === pin.sha && path === pin.path ? pin.sha256
+            : sha === PINNED_SHA && path === PINNED_PATH ? PINNED_SHA256 : null;
+        page = (await fetchCached(sha, path, o.offline, expect)).buf;
         license = o.license ? readFileSync(o.license) : (await fetchCached(sha, "LICENSE", o.offline, null)).buf;
     }
     return { sha, path, page, license };
@@ -302,9 +328,16 @@ function locate(html) {
 async function main() {
     const o = parseArgs(process.argv);
     checkPlaceholder();
+    const html = readFileSync(o.file, "utf8");
+    o.pin = committedPin(html);
+    if (!o.ref) {
+        if (o.pin && (o.pin.sha !== PINNED_SHA || o.pin.path !== PINNED_PATH)) {
+            process.stderr.write("following the committed block: " + o.pin.path + " @ " + o.pin.sha.slice(0, 7) + " (this tool's PINNED_* still say " +
+                PINNED_PATH + " @ " + PINNED_SHA.slice(0, 7) + ": update them, and tools/forkbench.mjs's pin)\n");
+        }
+    }
     const { sha, path, page, license } = await resolveSources(o);
     const region = buildRegion(page, sha, path, license);
-    const html = readFileSync(o.file, "utf8");
     const at = locate(html);
     if (o.check) {
         if (!at) { process.stderr.write("check FAILED: " + o.file + " has no vendored renderer block\n"); process.exit(1); }

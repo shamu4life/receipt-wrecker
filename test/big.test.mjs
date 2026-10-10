@@ -190,6 +190,60 @@ test("height: a too-wide spaced line counts the lines its words really wrap to",
   for (const p of parts) assert.ok(p.contentPx <= k.limit.px + 1e-6, p.contentPx + "px");
 });
 
+test("height: a word too wide for the paper that the page can break inside (Han, kana, emoji, a hyphen) counts its pieces, never fewer lines than print", () => {
+  // Polish review 2: "你好你好" at a fixed 160px printed as four lines (the page breaks between
+  // Han characters), the model counted one (no space to wrap at), the packer put the next block
+  // in the same part, and the bot's box cut THAT block off, whose card said "fits 1 cheer".
+  // Line counts below are the bot's real page (polish2/wrapcheck.mjs, 460 cases, none counted
+  // short); the count is an upper bound, exact where the page breaks between every piece.
+  const L = (t, px, w) => C.bigWrapCount(t, px, w || 244);
+  assert.equal(L("你好你好", 160), 4);
+  assert.equal(L("你好你好", 160, 153), 4);
+  assert.equal(L("😀😀😀😀", 120), 4);
+  assert.equal(L("ちょっとまって", 130), 7, "small kana break like the others");
+  assert.equal(L("ちょっとまって", 60), 3, "two lines in a row hold more than a line: at most 2 x ceil(width / line) - 1");
+  assert.equal(L("WELL-DONE", 160), 2, "the page breaks after the hyphen, never before it");
+  assert.equal(L("A-5-B-6", 200), 4);
+  assert.equal(L("東京タワー！すごい！", 130), 8, "never a break before ！");
+  assert.equal(L("「你好」世界", 130), 4, "nor after 「 or before 」");
+  assert.equal(L("DON'T", 400), 1, "letters and an apostrophe never break: one clipped line");
+  assert.equal(L("late!", 400), 1);
+  assert.equal(L("SUPERCALIFRAGILISTIC", 60), 1);
+  // Everything the page can only break at its spaces counts exactly what bigWrapWords wraps it to.
+  for (const t of ["WWW WWW WWW", "SUPERCALIFRAGILISTIC IS LONG", "WE ARE SO BACK", "ONEWORD", "Hey, you're late!"]) {
+    for (const px of [30, 48, 60, 120, 400]) assert.equal(L(t, px), C.bigWrapWords(t, px, 244).length, t + " at " + px);
+  }
+  // Measured once, the words give the same answer.
+  assert.equal(C.bigWrapCount(C.bigWrapWordsOf("你好 HELLO 你好你好"), 90, 244), L("你好 HELLO 你好你好", 90));
+  // The reviewer's stack: the too-wide run and the next block no longer share a part, and
+  // every part's planned height is inside the box.
+  for (const k of [ctx(), ctx({ paperMm: 58 })]) {
+    for (const [t, px] of [["你好你好", 160], ["😀😀😀😀", 120]]) {
+      const run = build(t, { layout: "lines", size: px }, k), next = build("HELLO", {}, k);
+      close(run[0].heightPx, 4 * px * 1.15, t + " " + k.paperMm + " mm: four lines");
+      const parts = C.packStackBodies(run.concat(next), k);
+      if (k.paperMm === 80) assert.equal(parts.length, 2, t + ": HELLO is 1240px on 80 mm and no longer fits beside it");
+      for (const p of parts) assert.ok(p.contentPx <= k.limit.px + 1e-6, t + ": " + p.contentPx + "px");
+    }
+  }
+});
+
+test("the too-wide note counts the lines it doesn't name; the box's length has one decimal, like the part's verdict", () => {
+  // A stack at 400px is cut off on nearly every letter: naming “H”, “A” alone read as if only
+  // those two were.
+  const r = C.bigReport(build("HAPPY BIRTHDAY", { layout: "stack", size: 400 }));
+  assert.match(r, /Too wide for the paper at this size: “H”, “A” and \d+ more will wrap or be cut off\./);
+  assert.match(C.bigReport(build("WWWWWW\nMMMMMM", { layout: "lines", size: 100 })), /“WWWWWW”, “MMMMMM” will wrap/, "two named, no count");
+  // A line the same as one already named is not counted again.
+  assert.match(C.bigReport(build("WWWWWW\nWWWWWW", { layout: "lines", size: 100 })), /“WWWWWW” will wrap/);
+  // 100 bits at 100 bits per inch: a 96px box, 2.54 cm. The verdict says 2.5 cm, so does the card.
+  const k = ctx({ bitsPerInch: 100 });
+  assert.match(C.bigReport(build("I", { layout: "lines", size: 400 }, k), { limit: k.limit }), /about 2\.5 cm, from the streamer’s bits-per-inch setting/);
+  assert.match(C.bigReport(build("你好你好你好你好你好", { layout: "lines", size: 400 })), /the bot’s message box \(about 42\.3 cm\)/);
+  const cap = ctx({ maxInches: 3 });
+  assert.match(C.bigReport(build("I", { layout: "lines", size: 400 }, cap), { limit: cap.limit }), /maximum length \(about 7\.6 cm\)/);
+});
+
 test("Each: a spaced line too wide even at the smallest size counts the lines it wraps to", () => {
   // Round 3: a long spaced line in Each was counted one line tall (px x LH) while the bot's
   // page wrapped it, so a part printed up to 20x taller than the packer planned.
@@ -368,12 +422,19 @@ test("a box no taller than the Cheer line is NO room, not the default 1600px box
     assert.ok(k.room <= 0, bits + "/" + bpi + ": room " + k.room);
     const b = build("HELLO", {}, k);
     assert.ok(b.every((x) => x.big.tall), bits + "/" + bpi + ": every body is flagged too tall");
-    const msg = C.bigReport(b, { bits, limit: k.limit });
-    assert.match(msg, /Nothing after the Cheer line prints/);
-    assert.doesNotMatch(msg, /Pick a smaller size/, "no size fits, so the report must not suggest one");
+    // The summary says so in place of a price: the parts say "Nothing worth sending" and their
+    // Copy is off, and a card quoting "needs 2 cheers (200 bits)" beside them contradicted them.
+    const msg = C.bigReport(b, { bits, limit: k.limit, cheers: 2 });
+    assert.match(msg.split("\n")[0], /^Capitals ≈ [\d.]+ cm · prints nothing: the Cheer line fills this cheer’s whole part of the receipt \(see the note above the parts\)$/);
+    assert.doesNotMatch(msg, /bits\)|needs \d|fits 1 cheer|Pick a smaller size/, "no price, no fit, and no size to pick");
+    assert.equal(msg.split("\n").filter((l) => /Cheer line/.test(l)).length, 1, "said once");
     const s = C.buildSideBodies("HELLO", { budget: k.budget, heightPx: k.room, contentW: k.contentW });
     assert.ok(s.some((x) => x.tall || x.side.tall), "sideways is flagged too");
-    assert.match(C.sideReport(s, { bits, limit: k.limit }), /Nothing after the Cheer line prints/);
+    const sr = C.sideReport(s, { bits, limit: k.limit, cheers: 2 });
+    assert.match(sr, /cm down the tape · prints nothing: the Cheer line fills/);
+    assert.doesNotMatch(sr, /bits\)|needs \d/);
+    // A free test has no box to fill: it still counts its messages.
+    assert.match(C.bigReport(b, { bits, limit: k.limit, free: true }), /free: a test with Cheer-ready off never prints/);
     const g = C.buildCjkGrid([["丶", "鬱"], ["鬱", "丶"]].map((r) => r.concat(Array(10).fill("丶"))), { budget: k.budget, heightPx: k.room, paperMm: 80 });
     // Nothing after the Cheer line prints whatever a band's height, so the rows are banded by
     // characters alone: one cheer, where banding by height made a cheer of every row.

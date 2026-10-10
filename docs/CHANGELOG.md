@@ -195,10 +195,25 @@ page, built into the app and run in a sandboxed frame with no network access.
 - **Every part cut**: when the streamer's bits-per-inch (or maximum length) leaves each part
   less room than it needs, a red line above the total says the bot cuts every one and what to
   change, not only each card.
+- **A word Twitch charges as a cheer is counted everywhere.** A standalone `Cheer50` (or any
+  global cheermote word) in Big or Sideways text is a cheer of its own to Twitch. Only the
+  block's card said so: with Cheer-ready off the notice, the part and the total all called the
+  message a free test that never prints, while Twitch would charge 50 bits and the bot would
+  print it, and with Cheer-ready on the total and the preview's header said 100 bits where
+  Twitch charges 150. Now the part says what it really costs (or that the test isn't free), the
+  total adds the bits in, the notice above the parts turns red ("Not a free test"), the card's
+  summary says "not free", and the preview draws the cheer Twitch would send. A word that is
+  only shaped like a cheer name on some channels gets a hedged line.
+- **Letters too wide for the paper** are named on the part as well as the card, and the line
+  under the parts no longer says "Paste it into chat and send it" over them.
+- **No room after the Cheer line, for Han tiling**: a Han tiling part has no Cheer line at its
+  top, so its card and the notices now say it prints only its light first row, not that the
+  Cheer line fills the box. The Big and Sideways cards no longer quote a size there either.
 - **A test stays on screen** while a picture read, an adjust or an upload finishes, so its Copy
   still copies the test; before, the stack's parts replaced it under the pointer. An upload on
-  a Real picture card puts its link in the card's Image URL field, and an expired-link check
-  no longer takes the cursor out of the box being typed in.
+  a Real picture card puts its link in the card's Image URL field (also when the cards were
+  redrawn while it was uploading: the link and "Uploaded ✓" used to land on the old card), and
+  an expired-link check no longer takes the cursor out of the box being typed in.
 - **× has an Undo.** Removing a block leaves "Removed a Text block (…). Undo" in its place
   until the next change to the stack; on a phone the card's ↑ ↓ × buttons are full-size touch
   targets, with × set apart.
@@ -209,11 +224,13 @@ page, built into the app and run in a sandboxed frame with no network access.
   is refused; Load, Rename and Delete act on the preset picked even when two share a name; Load
   says whether its Glyph-art blocks' uploaded pictures still load (counted on the converted
   stack, so an old Takeover's picture is checked too) and explains what converting an old
-  preset changed; Load asks first when the blocks on screen are in no preset; Import never
+  preset changed; Load asks first when the blocks on screen are in no preset (a Real picture
+  counts: it prints nothing, but its upload and adjustments are work to lose); Import never
   replaces a saved setup: a name taken by one (or repeated in the file) is added with a number
   after it (kept within the 60 characters a name holds), and the note says which; a setup
   already saved exactly as it is is left out, so importing what was just exported adds
-  nothing, and neither does importing the same file twice when its names clashed. After Delete
+  nothing, and neither does importing the same file twice when its names clashed (the note then
+  names the saved copies that matched, such as "Party (2)"). After Delete
   or Import the name box shows the preset the list picked; after a conversion the list picks
   the "Before 1.0.0" backup the banner names.
 - **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
@@ -225,7 +242,9 @@ page, built into the app and run in a sandboxed frame with no network access.
   shows the columns the grid really uses.
 - A free test counts messages, not bits, and below the threshold it says the real cheer
   prints as Han tiling instead; with High Roller off the cards say so; number fields show the
-  value the app uses once committed; lengths in a part's verdict are in cm; one part says what
+  value the app uses once committed (a streamer field given something that isn't a number of 0
+  or more keeps its last value, and a value past the bot's limit is capped, each said beside
+  the field: a negative threshold used to become 25 without a word); lengths in a part's verdict are in cm; one part says what
   it costs too. The Layout hint describes the layout picked; longer card explanations and the
   Thermal caption's detail fold behind "What's this?"; the ↑ and ↓ buttons are disabled at the
   ends of the stack; the Image card's file input empties after each pick; the "nothing to
@@ -260,7 +279,12 @@ page, built into the app and run in a sandboxed frame with no network access.
   fills it". A long word quoted in a card's note is cut to 23 characters, and notes wrap, so a
   phone's page no longer scrolls sideways. The Thermal caption says the view is scaled to fit
   the column, so on a screen that isn't high-density some dots are skipped: zoom in to see
-  every dot.
+  every dot. Typing in a long Big text no longer freezes the page: the Layout and Size labels
+  catch up 250 ms after the last key (or as soon as a select is opened). An emoji in a
+  sideways column is no longer moved off centre (the bench put an emoji-only column within
+  0.9 px of centre unmoved, and 8 px off with the old shift). The converted-stack banner says a
+  Takeover's lines print one line each and that Auto prints them bigger. The preset name box
+  and list have names a screen reader can say.
 
 ### Migration of saved work
 
@@ -316,7 +340,7 @@ blocks a form, the answer is the plain form, never a reworked message.
   sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
   Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
   caption says their texture is approximate.
-- **Tests**: 185 unit tests and 46 browser tests, including the tag allow-list test and the
+- **Tests**: 187 unit tests and 48 browser tests, including the tag allow-list test and the
   contract test against the vendored renderer (which carries the *Words wrapped* layout and a
   Han and an emoji run at a fixed size too wide for the paper).
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig

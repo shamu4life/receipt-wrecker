@@ -167,9 +167,11 @@ test("import never replaces: a name taken by a saved setup, or by one added earl
   // Polish 4: the same file imported AGAIN, after its names clashed: the copies the first
   // Import renamed are recognised (same blocks under "Stream (2)" / "Stream (3)") and nothing
   // is added. Matching the name exactly added the first file's "Stream" again as "Stream (4)".
+  // `same` names the SAVED setups that matched, not the incoming names: the identical ones are
+  // "Stream (2)" and "Stream (3)", and the saved "Stream" holds other text (final review 2).
   const again = importPresets(r.presets, incoming);
   assert.equal(again.added, 0);
-  eq(again.same, ["Stream", "Stream", "Other"]);
+  eq(again.same, ["Stream (2)", "Stream (3)", "Other"]);
   eq(again.presets.map((p) => p.name), ["Stream", "Stream (2)", "Stream (3)", "Other"]);
   // A renamed form only: "Stream (2)" never matches "Stream 2", "Stream (1)" or another base.
   const one = [makePreset("Stream (1)", [{ id: 1, type: "text", text: "FIRST" }], 5), makePreset("Streamer (2)", [{ id: 1, type: "text", text: "FIRST" }], 6)];

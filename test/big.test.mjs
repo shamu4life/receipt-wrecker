@@ -454,14 +454,15 @@ test("a box no taller than the Cheer line is NO room, not the default 1600px box
     // The summary says so in place of a price: the parts say "Nothing worth sending" and their
     // Copy is off, and a card quoting "needs 2 cheers (200 bits)" beside them contradicted them.
     const msg = C.bigReport(b, { bits, limit: k.limit, cheers: 2 });
-    assert.match(msg.split("\n")[0], /^Capitals ≈ [\d.]+ cm · prints nothing: the Cheer line fills this cheer’s whole part of the receipt \(see the note above the parts\)$/);
-    assert.doesNotMatch(msg, /bits\)|needs \d|fits 1 cheer|Pick a smaller size/, "no price, no fit, and no size to pick");
+    // And no size either (final review 2): none prints, and the sideways card quoted its biggest.
+    assert.equal(msg.split("\n")[0], "Prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)");
+    assert.doesNotMatch(msg, /bits\)|needs \d|fits 1 cheer|Pick a smaller size|Capitals|cm/, "no price, no fit, no size and no size to pick");
     assert.equal(msg.split("\n").filter((l) => /Cheer line/.test(l)).length, 1, "said once");
     const s = C.buildSideBodies("HELLO", { budget: k.budget, heightPx: k.room, contentW: k.contentW });
     assert.ok(s.some((x) => x.tall || x.side.tall), "sideways is flagged too");
     const sr = C.sideReport(s, { bits, limit: k.limit, cheers: 2 });
-    assert.match(sr, /cm down the tape · prints nothing: the Cheer line fills/);
-    assert.doesNotMatch(sr, /bits\)|needs \d/);
+    assert.equal(sr.split("\n")[0], "Prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)");
+    assert.doesNotMatch(sr, /bits\)|needs \d|Capitals|down the tape/);
     // A free test has no box to fill: it still counts its messages.
     assert.match(C.bigReport(b, { bits, limit: k.limit, free: true }), /free: a test with Cheer-ready off never prints/);
     const g = C.buildCjkGrid([["丶", "鬱"], ["鬱", "丶"]].map((r) => r.concat(Array(10).fill("丶"))), { budget: k.budget, heightPx: k.room, paperMm: 80 });

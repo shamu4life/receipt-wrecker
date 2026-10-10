@@ -230,3 +230,76 @@ test("the glue builds every block against the stack context it packs with (a str
   assert.ok(/stackContext\(opts\)/.test(ps) && /renderBlockBodies\(blocks\[i\], ctx\)/.test(ps), "packStack: " + ps);
   assert.ok(/for \(k in ctx\) po\[k\] = ctx\[k\]/.test(ps) && /packStackBodies\(bodies, po\)/.test(ps), "packStack packs with another context");
 });
+
+// The core runs in its own vm realm, so its objects are compared as plain JSON.
+const same = (a, b) => assert.deepEqual(JSON.parse(JSON.stringify(a)), b);
+
+// Final review 2: a word in the user's text that Twitch charges as a cheer of its own. The card
+// said so; the parts, their total and the preview ignored it, so a free test carrying "Cheer50"
+// was called free three times while Twitch would charge 50 bits and the bot would print it.
+test("a cheer word in the text: the part, the total, the notice and the preview say what Twitch charges", () => {
+  const free = C.buildBigBodies("HAPPY Cheer50 DAY", { layout: "lines", cheer: false, bits: 100 });
+  const ex = C.extraCheers(free);
+  same(ex, { sure: ["Cheer50"], maybe: [], bits: 50 });
+  // Every occurrence is charged; a non-global prefix is only a maybe; a word glued to a tag is
+  // not standalone, and a stack (one letter a line) holds none.
+  same(C.extraCheers([{ html: "<div>x Kappa10 x Kappa10 PS5 y</div>" }, { html: "a<br>Cheer9<br>b <div>Cheer5</div>" }]),
+    { sure: ["Kappa10"], maybe: ["PS5"], bits: 20 });
+  same(C.extraCheers(C.buildBigBodies("Cheer50", { layout: "stack", cheer: true, bits: 100 })), { sure: [], maybe: [], bits: 0 });
+  // The part's own line: red for a certain charge, a plain hedge otherwise.
+  const off = C.extraCheerLines({ cheer: false, bits: 100, extra: ex }), on = C.extraCheerLines({ cheer: true, bits: 100, extra: ex });
+  assert.equal(off.length, 1); assert.equal(off[0].warn, true);
+  assert.match(off[0].text, /^Not free: Twitch reads “Cheer50” in it as a cheer, so sending it spends 50 bits and the bot prints it\./);
+  assert.match(on[0].text, /^Costs 150 bits, not 100: Twitch reads “Cheer50” in it as another cheer\./);
+  const maybe = C.extraCheerLines({ cheer: true, bits: 100, extra: { sure: [], maybe: ["PS5"], bits: 0 } });
+  assert.equal(maybe.length, 1); assert.equal(maybe[0].warn, false);
+  assert.match(maybe[0].text, /^If “PS5” is a cheer name on this channel/);
+  same(C.extraCheerLines({ cheer: true, bits: 100, extra: { sure: [], maybe: [], bits: 0 } }), []);
+  // The total: never "free" over a paid word, and the bits add up.
+  const none = { sure: [], maybe: [], bits: 0 };
+  same(C.partsCostWords([{ cheer: false, bits: 100, extra: none }]),
+    { warn: false, text: "One message, free: with Cheer-ready off nothing prints; chat's filters still see it." });
+  const f1 = C.partsCostWords([{ cheer: false, bits: 100, extra: ex }]);
+  assert.equal(f1.warn, true); assert.doesNotMatch(f1.text, /, free|nothing prints/); assert.match(f1.text, /^Not free: .*spends 50 bits/);
+  assert.equal(C.partsCostWords([{ cheer: true, bits: 100, extra: none }]).text, "One 100-bit cheer. Paste it into chat and send it.");
+  assert.match(C.partsCostWords([{ cheer: true, bits: 100, extra: ex }]).text, /^One 150-bit cheer, not 100: Twitch also charges 50 bits for “Cheer50” in your text\./);
+  const three = C.partsCostWords([{ cheer: true, bits: 100, extra: none }, { cheer: true, bits: 100, extra: ex }, { cheer: true, bits: 100, extra: none }]);
+  assert.match(three.text, /in part 2 \(3 × 100 \+ 50 = 350 bits total\)/);
+  assert.match(C.partsCostWords([{ cheer: false, bits: 100, extra: none }, { cheer: false, bits: 100, extra: ex }]).text,
+    /^Paste the parts into chat in order: 2 messages, but not free\. Twitch reads “Cheer50” in part 2 as a cheer/);
+  assert.match(C.paidTestNotice(["Cheer50"]), /^Not a free test: Twitch reads “Cheer50” in your text as a cheer/);
+  // The preview draws the cheer Twitch would send: a free test with a paid word is a real cheer of
+  // that word's bits, and a cheer adds them to its own (the header's BITS and the High Roller test).
+  same(C.partCheer({ cheer: false, bits: 100, extra: ex }), { cheer: true, bits: 50 });
+  same(C.partCheer({ cheer: true, bits: 100, extra: ex }), { cheer: true, bits: 150 });
+  same(C.partCheer({ cheer: false, bits: 100, extra: none }), { cheer: false, bits: 100 });
+  same(C.partCheer({ cheer: true, bits: 100, extra: { sure: [], maybe: ["PS5"], bits: 0 } }), { cheer: true, bits: 100 });
+  // The card: a free test holding the word is not "free", and its note says why.
+  const rep = C.bigReport(free, { cheers: 1, bits: 100, free: true });
+  assert.match(rep, /^Capitals ≈ [\d.]+ cm · 1 message, not free: Twitch reads a word in it as a cheer \(see below\)$/m);
+  assert.match(rep, /as a cheer and charge for it, so this test isn't free: it spends the bits and the bot prints it\./);
+  assert.doesNotMatch(rep, /never prints/);
+  assert.match(C.bigReport(free, { cheers: 1, bits: 100 }), /as another cheer and charge for it too\./);
+});
+
+test("a part too wide for the paper says so, and the total stops saying 'send it'; no-room notes fit Han tiling parts", () => {
+  const none = { sure: [], maybe: [], bits: 0 };
+  assert.equal(C.wideLine([]), "");
+  assert.equal(C.wideLine([2]), "Too wide for the paper: what runs past its edge wraps or is cut off. Block 2's card says how to fix it.");
+  assert.match(C.wideLine([1, 3]), /The cards of blocks 1 and 3 say how to fix it\.$/);
+  const one = C.partsCostWords([{ cheer: true, bits: 100, extra: none, wide: [1] }]);
+  assert.equal(one.warn, true); assert.doesNotMatch(one.text, /Paste it into chat and send it/);
+  assert.match(C.partsCostWords([{ cheer: true, bits: 100, extra: none, wide: [] }, { cheer: true, bits: 100, extra: none, wide: [2] }]).text,
+    /^Part 2 is too wide for the paper, so it wraps or is cut off/);
+  // A Han tiling part has no Cheer line at its top: with no room, it prints its light first row.
+  const ht = { html: "x" }, part = (alone) => ({ alone, bodies: [ht] });
+  assert.equal(C.partsShape([part(true), part(true)]), "plain");
+  assert.equal(C.partsShape([part(true), part(false)]), "mixed");
+  assert.equal(C.partsShape([part(false)]), "");
+  const s = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 500 };
+  assert.match(C.modeNotice(s, "plain"), /shorter than one line of text, so each Han tiling part prints only its light first row/);
+  assert.doesNotMatch(C.modeNotice(s, "plain"), /Cheer line fills/);
+  assert.match(C.modeNotice(s, "mixed"), /the Cheer line fills it, so nothing after it prints\. A Han tiling part prints only its light first row\./);
+  assert.match(C.noRoomAdvice(s, "plain"), /^Nothing worth sending: every part would print only its light first row\./);
+  assert.match(C.noRoomAdvice(s), /^Nothing worth sending: every part would print only its Cheer line\./);
+});

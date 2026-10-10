@@ -123,7 +123,7 @@
   /* Why the stack prints the way it does (plain text below the threshold, a free test). */
   .mode-note { font-size: .85rem; border: 1px solid #c90; background: rgba(204,153,0,.1); border-radius: 4px; padding: .45rem .6rem; margin: 0 0 .8rem; }
   /* A Glyph-art picture these parts leave out (still loading, unreadable, expired, to pick again). */
-  .mode-note.picture-note { border-color: #d33; background: rgba(221,51,51,.08); color: #d33; font-weight: 600; overflow-wrap: anywhere; }
+  .mode-note.picture-note, .mode-note.warn-note { border-color: #d33; background: rgba(221,51,51,.08); color: #d33; font-weight: 600; overflow-wrap: anywhere; }
   .picture-note > div + div { margin-top: .3rem; }
   .part-kind { font-size: .75rem; opacity: .75; border: 1px solid #999; border-radius: 999px; padding: 0 .45rem; }
   #streamer { margin-top: .9rem; border-top: 1px solid #ddd; padding-top: .7rem; }
@@ -179,11 +179,11 @@
         <div id="presets">
           <div class="composer-h">Presets: save this whole stack and bring it back</div>
           <div class="add-row">
-            <input type="text" id="presetName" placeholder="name this setup" maxlength="60">
+            <input type="text" id="presetName" placeholder="name this setup" maxlength="60" aria-label="Preset name">
             <button type="button" id="presetSave">Save</button>
           </div>
           <div class="add-row">
-            <select id="presetList"></select>
+            <select id="presetList" aria-label="Saved presets"></select>
             <button type="button" id="presetLoad">Load</button>
             <button type="button" id="presetRename">Rename</button>
             <button type="button" id="presetDelete">Delete</button>
@@ -209,9 +209,12 @@
         <div class="hint">You can't see these from chat: ask the streamer, or leave the defaults (SassyTP's own). They decide how big a cheer may print.</div>
         <label>Paper width: <select id="paperMm" style="width:auto"><option value="80" selected>80 mm</option><option value="58">58 mm</option></select></label>
         <label>High Roller threshold: <input type="number" id="hrThreshold" min="0" max="1000000" step="1" value="25" style="width:7em"> bits</label>
+        <div class="hint field-note" id="hrThresholdNote" role="status" hidden></div>
         <div class="hint">A cheer of at least this many bits is a High Roller cheer, and the bot prints its big text, sideways text and glyph-art. Below it the bot prints plain text, so every block prints as Han tiling. 0 = High Roller off (every cheer prints as plain text).</div>
         <label>Bits per inch: <input type="number" id="bitsPerInch" min="0" step="any" value="0" style="width:7em"></label>
+        <div class="hint field-note" id="bitsPerInchNote" role="status" hidden></div>
         <label>Maximum length: <input type="number" id="maxInches" min="0" max="40" step="any" value="0" style="width:7em"> inches</label>
+        <div class="hint field-note" id="maxInchesNote" role="status" hidden></div>
         <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's longest message, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
       </div>
     </section>
@@ -760,7 +763,12 @@
       p = incoming[i];
       if (!p || typeof p !== "object") continue;
       key = canonJson(p.blocks);
-      if (out.some(function (q) { return q && presetNamedFrom(q.name, p.name) && canonJson(q.blocks) === key; })) { same.push(p.name); continue; }
+      // `same` names the SAVED setup that matched: after an earlier import renamed a copy, the
+      // identical one is "Party (2)", and naming the incoming "Party" said a setup holding other
+      // text was saved exactly as it is (final review 2).
+      var match = null;
+      for (var j = 0; j < out.length && !match; j++) if (out[j] && presetNamedFrom(out[j].name, p.name) && canonJson(out[j].blocks) === key) match = out[j];
+      if (match) { if (same.indexOf(match.name) < 0) same.push(match.name); continue; }
       name = freePresetName(out, p.name);
       if (name !== p.name) renamed.push({ from: p.name, to: name });
       out.push({ v: p.v, name: name, savedAt: p.savedAt, blocks: p.blocks });
@@ -949,7 +957,11 @@
     var list = Array.isArray(blocks) ? blocks : [], out = [];
     var styled = function (f) { return !!f && typeof f === "object" && (!!f.font || !!f.italic); };
     if (list.some(function (b) { return !!b && b.type === "takeover"; })) {
-      out.push((loaded ? "This setup" : "Your saved stack") + " had a Takeover, which this version can't print. Its lines are now Text blocks and its pictures Glyph-art.");
+      out.push((loaded ? "This setup" : "Your saved stack") + " had a Takeover, which this version can't print. Its lines are now Text blocks and its pictures Glyph-art."
+        // Each line keeps its line (Layout: Lines as you typed them), which for a long headline
+        // is small type: say where bigger letters are, or the converted stack reads as broken
+        // in the preview (final review 2).
+        + " Each line prints on one line, so a long one prints small: pick Auto under Layout for bigger letters.");
     }
     if (list.some(isOldText)) {
       out.push((out.length ? "Its" : loaded ? "This setup's" : "Your saved stack's") + " text blocks were made for the old printer-bot and now print as Big text or Sideways text.");
@@ -1288,11 +1300,11 @@
   //    "DON'T" and "late!" are one piece (one clipped line), "WELL-DONE" two, "你好你好" four.
   // The widths are upper bounds (Arial Bold without kerning, wide characters at 1.05em, emoji
   // at 1.3em) and the greedy fit keeps bigFitPx's margin, so the count can be a line or two
-  // too many (a cheer spent: "WELL-DONE" at 160px is two lines and counts three) but never
-  // too few (a cut). Counting the spaces alone under-counted: "你好你好" at 160px printed as
-  // four lines, counted as one, and the bot's box cut the NEXT block in that part off (polish
-  // review 2). So did ceil(width / line width): "WWW WWW WWW" at 48px is three lines (two
-  // 136px words and a space don't fit 244px), and that guess said two.
+  // too many (a cheer spent) but never too few (a cut). Counting the spaces alone
+  // under-counted: "你好你好" at 160px printed as four lines, counted as one, and the bot's box
+  // cut the NEXT block in that part off (polish review 2). So did ceil(width / line width):
+  // "WWW WWW WWW" at 48px is three lines (two 136px words and a space don't fit 244px), and
+  // that guess said two.
   var BIG_ATOM_RE = /^[A-Za-z0-9'"\u2019\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u0391-\u03A9\u03B1-\u03C9\u0400-\u045F]/;
   var BIG_NO_BREAK_BEFORE = /^[)\]},.:;!?'"\u2019\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\uFF5D\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
   var BIG_NO_BREAK_AFTER = /^[(\[{'\uFF08\u300C\u300E\u3010\u3014\uFF5B\uFF3B\u3008\u300A]/;
@@ -1702,6 +1714,26 @@
     "4head", "swiftrage", "notlikethis", "failfish", "vohiyo", "pjsalt", "mrdestructoid", "bday",
     "ripcheer", "shamrock"];
   function cheerWordIsGlobal(w) { return CHEER_GLOBALS.indexOf(String(w).replace(/\d+$/, "").toLowerCase()) >= 0; }
+  // The cheers Twitch would charge in a packed part BEYOND the Cheer word this app adds: every
+  // standalone cheermote-shaped word in the part's bodies (cheerWords' test; the bodies' html is
+  // the payload without its lead or trail). `sure`: words with one of Twitch's global prefixes,
+  // whose bits Twitch certainly charges (`bits`, every occurrence added up, so "Cheer50 Cheer50"
+  // is 100). `maybe`: any other prefix, which charges only if the channel has such a cheermote.
+  // The card already warned about these words; the parts, their total and the preview used to
+  // ignore them, so a free test carrying "Cheer50" was called free three times while Twitch
+  // would charge it as a 50-bit cheer and the bot would print it (final review 2).
+  function extraCheers(bodies) {
+    var html = (bodies || []).map(function (b) { return (b && b.html) || ""; }).join("");
+    var sure = [], maybe = [], bits = 0;
+    html.split(/\s+/).forEach(function (t) {
+      if (!/^[a-z0-9]*[a-z]\d+$/i.test(t)) return;
+      if (cheerWordIsGlobal(t)) {
+        bits += parseInt(/(\d+)$/.exec(t)[1], 10) || 0;
+        if (sure.indexOf(t) < 0) sure.push(t);
+      } else if (maybe.indexOf(t) < 0) maybe.push(t);
+    });
+    return { sure: sure, maybe: maybe, bits: bits };
+  }
   // A user's word or line quoted in a card's note, cut to 23 characters and "…" past 24: a
   // 43-letter word quoted whole ran off the card and scrolled a phone's page sideways (polish
   // review 4).
@@ -1709,13 +1741,17 @@
     var a = Array.from(String(t == null ? "" : t));
     return "“" + (a.length > 24 ? a.slice(0, 23).join("") + "…" : a.join("")) + "”";
   }
-  function cheerWordNotes(words, fix) {
+  // `free`: a free test (Cheer-ready off), where such a word is the only cheer in the message:
+  // it makes the test a real cheer that spends bits and prints.
+  function cheerWordNotes(words, fix, free) {
     var q = function (ws, sep) { return ws.map(quoteCut).join(sep); };
     var sure = words.filter(cheerWordIsGlobal), maybe = words.filter(function (w) { return !cheerWordIsGlobal(w); }), out = [];
-    if (sure.length) out.push("Twitch would read " + q(sure, ", ") + " as another cheer and charge for it too. "
+    if (sure.length) out.push((free
+        ? "Twitch would read " + q(sure, ", ") + " as a cheer and charge for it, so this test isn't free: it spends the bits and the bot prints it. "
+        : "Twitch would read " + q(sure, ", ") + " as another cheer and charge for it too. ")
       + fix.charAt(0).toUpperCase() + fix.slice(1));
     if (maybe.length) out.push("If " + q(maybe, " or ") + " is a cheer name on this channel, Twitch would charge it as "
-      + "another cheer too. If it is, " + fix);
+      + (free ? "a cheer, and this test would spend bits and print. " : "another cheer too. ") + "If it is, " + fix);
     return out;
   }
   // What bigClean left out, said for what it is: it prints nothing.
@@ -1764,11 +1800,22 @@
   // bits means anything: the parts say "Nothing worth sending" and their Copy is off, and a
   // card that priced the block (200 bits) beside them contradicted them.
   // `tall`: a line or letter is taller than the box, so the bot cuts it: it doesn't "fit" either.
-  function costWords(cheers, bits, free, cut, noRoom, tall) {
-    if (free) return (cheers === 1 ? "1 message" : cheers + " messages") + ", free: a test with Cheer-ready off never prints";
+  // `paid` (a free test only): the block holds a word Twitch reads as a cheer (cheerWordNotes
+  // says which, below), so the test is not free and it prints.
+  function costWords(cheers, bits, free, cut, noRoom, tall, paid) {
+    if (free) return (cheers === 1 ? "1 message" : cheers + " messages")
+      + (paid ? ", not free: Twitch reads a word in it as a cheer (see below)" : ", free: a test with Cheer-ready off never prints");
     if (noRoom) return "prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)";
     if (cheers === 1) return tall ? "1 cheer, but cut off (see below)" : cut ? "1 cheer, but too wide for the paper (see below)" : "fits 1 cheer";
     return "needs " + cheers + " cheers (" + cheers * cheerBits(bits) + " bits); the bot prints its header between the pieces";
+  }
+  // A text card's summary when the box leaves no room after the Cheer line (boxNoRoom).
+  var NO_ROOM_SUMMARY = "Prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)";
+  // Every cheer-shaped word a block's bodies hold (their big or side records), each once.
+  function blockCheerWords(gs) {
+    var words = [];
+    gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
+    return words;
   }
   // Plain-language report for a big text block: the card's text. Pass one body or all of a
   // block's bodies; opts = {cheers, bits, limit, free}, where `cheers` is the number of parts
@@ -1785,7 +1832,11 @@
     var lo = bigCapCm(g.pxMin).toFixed(1), hi = g.capCm.toFixed(1);
     var size = g.layout === "each" && lo !== hi ? "Capitals ≈ " + lo + "–" + hi + " cm" : "Capitals ≈ " + hi + " cm";
     var noRoom = !opts.free && boxNoRoom(opts.limit), tall = gs.some(function (x) { return x.tall; });
-    out.push(size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom, tall && !opts.free));
+    var words = blockCheerWords(gs);
+    // No room after the Cheer line: no size prints, so none is quoted (the smallest one was, and
+    // the sideways card quoted its biggest, final review 2).
+    out.push(noRoom ? NO_ROOM_SUMMARY
+      : size + " · " + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom, tall && !opts.free, words.some(cheerWordIsGlobal)));
     if (!g.fits) {
       // At most two named, and how many more: a stack too big for the paper is cut off on
       // nearly every letter, and naming two alone read as if only those two were.
@@ -1825,9 +1876,7 @@
     if (g.flip && cheers > 1) out.push("Upside down, the pieces go out last first, so the tape reads in order once you turn it over.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
     out = out.concat(drop);
-    var words = [];
-    gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
-    return out.concat(cheerWordNotes(words, "remove it, put it on a line of its own, or set Layout to Stack the letters.")).join("\n");
+    return out.concat(cheerWordNotes(words, "remove it, put it on a line of its own, or set Layout to Stack the letters.", !!opts.free)).join("\n");
   }
 
   // ── SIDEWAYS (High Roller): the words run down the tape ──
@@ -1905,9 +1954,14 @@
   //  - The other classes (x-height letters, descenders, ascenders, accented capitals,
   //    punctuation) sit between Arial Bold and Liberation Sans Bold, which differ there by up
   //    to 0.03em; they bench within 1.2px with Arial.
-  //  - Emoji and East Asian wide characters take what the bench measured (their fonts on the
-  //    rig are unmeasured); anything else unknown takes the font's whole box, which is centred,
-  //    so it moves nothing.
+  //  - Emoji take the font's whole box, which is centred, so they move nothing. They took
+  //    [-0.10, 0.89] until final review 2, which the bench did not bear out: at 193px an
+  //    emoji-only column printed within 0.9px of centre unshifted (Noto Color Emoji), and that
+  //    extent moved it 8px off (left:±9px), and the capitals beside it in "GG 😀" 8.7px. With
+  //    the whole box (no shift), "GG 😀" benched with Arial Bold put the emoji 1.2px and the
+  //    capitals 3.1px from centre, down and up. The rig's Segoe UI Emoji is unmeasured.
+  //  - East Asian wide characters take what the bench measured (their font on the rig is
+  //    unmeasured too); anything else unknown takes the font's whole box.
   var SIDE_ASC = 0.905, SIDE_DESC = 0.212;
   var SIDE_INK = [
     [/^[ABDEFHIKLMNPRTVWXYZ!¥ÆÐÞ]$/, 0, 0.716], [/^[CGOS#£]$/, -0.013, 0.728], [/^[JU]$/, -0.012, 0.716],
@@ -1920,7 +1974,7 @@
     [/^;$/, -0.155, 0.52], [/^:$/, 0, 0.52], [/^,$/, -0.155, 0.15], [/^\.$/, 0, 0.15], [/^[¡¿]$/, -0.17, 0.535],
     [/^['"`´^*°ªº²³¹¨]$/, 0.3, 0.70], [/^[-~·+=<>×÷±¬«»¤]$/, 0.06, 0.63], [/^_$/, -0.13, -0.07], [/^¸$/, -0.22, 0]
   ];
-  var SIDE_INK_EMOJI = [-0.10, 0.89], SIDE_INK_WIDE = [-0.15, 0.72];
+  var SIDE_INK_EMOJI = [-SIDE_DESC, SIDE_ASC], SIDE_INK_WIDE = [-0.15, 0.72];
   function sideInk(g) {
     var cps = Array.from(String(g)), i;
     if (!cps.length || /^\s+$/.test(g)) return null;
@@ -2198,8 +2252,9 @@
     if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it running down the tape.";
     var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
     var noRoom = !opts.free && boxNoRoom(opts.limit), tall = gs.some(function (x) { return x.tall; });
-    out.push("Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
-      + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom, tall && !opts.free));
+    var words = blockCheerWords(gs);
+    out.push(noRoom ? NO_ROOM_SUMMARY : "Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
+      + costWords(cheers, opts.bits, !!opts.free, !g.fits, noRoom, tall && !opts.free, words.some(cheerWordIsGlobal)));
     if (!g.fits) {
       // A block wider than the paper can't be centred: it sits against the left edge and the
       // right edge cuts it. Top to bottom puts line 1 on the right, so the FIRST lines go;
@@ -2227,9 +2282,7 @@
     if (g.dir === "up" && cheers > 1) out.push("Read bottom to top, so the pieces go out last first: the tape reads in order once you turn it.");
     if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
     out = out.concat(drop);
-    var words = [];
-    gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
-    return out.concat(cheerWordNotes(words, "remove it, or put it on a line of its own.")).join("\n");
+    return out.concat(cheerWordNotes(words, "remove it, or put it on a line of its own.", !!opts.free)).join("\n");
   }
 
   // ── GLYPH-ART (High Roller): a picture as a grid of characters ──
@@ -2607,7 +2660,11 @@
   // settings (normalizeControls' fields; `cheer`, `bits`, `hrThreshold` and, for a High
   // Roller cheer, the two length settings are read). "" when the stack prints as built, in
   // its High Roller forms, with room after the Cheer line.
-  function modeNotice(o) {
+  // `shape` (optional): "plain" when every part is a Han tiling part, "mixed" when some are.
+  // Such a part has no Cheer line at its top (its token goes last), so when the box leaves no
+  // room it prints its light first row, and saying "the Cheer line fills it" contradicted the
+  // part's own card (final review 2).
+  function modeNotice(o, shape) {
     o = o || {};
     if (!o.cheer) {
       // The free test is always the High Roller form (buildMode). When the real cheer would be
@@ -2626,12 +2683,23 @@
     if (printMode(o) === "raw") {
       var lim = contentLimitPx(o);
       if (!boxNoRoom(lim)) return "";
+      var mm = Math.max(1, Math.round(lim.px * MM_PER_PX));
+      var han = shape === "mixed" ? " A Han tiling part prints only its light first row." : "";
+      if (shape === "plain") {
+        return (lim.by === "cap"
+          ? "The streamer's maximum length (about " + mm + " mm) is shorter than one line of text, so each Han tiling part "
+            + "prints only its light first row, whatever the bits."
+          : "The streamer's bits-per-inch setting gives a " + cheerBits(o.bits) + "-bit cheer about " + mm + " mm of receipt, "
+            + "shorter than one line of text, so each Han tiling part prints only its light first row.")
+          + (lim.by === "cap" ? "" : " The streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch))
+            + ": set Bits per cheer higher for room to print.");
+      }
       return lim.by === "cap"
-        ? "The streamer's maximum length (about " + Math.max(1, Math.round(lim.px * MM_PER_PX)) + " mm) is no taller than "
-          + "the Cheer line, so nothing after it prints, whatever the bits."
+        ? "The streamer's maximum length (about " + mm + " mm) is no taller than "
+          + "the Cheer line, so nothing after it prints, whatever the bits." + han
         : "The streamer's bits-per-inch setting gives a " + cheerBits(o.bits) + "-bit cheer about "
-          + Math.max(1, Math.round(lim.px * MM_PER_PX)) + " mm of receipt, and the Cheer line fills it, so nothing after "
-          + "it prints. The streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch))
+          + mm + " mm of receipt, and the Cheer line fills it, so nothing after "
+          + "it prints." + han + " The streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch))
           + ": set Bits per cheer higher for room to print.";
     }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
@@ -2644,15 +2712,23 @@
   }
   // What to do when the streamer's settings leave a High Roller cheer no room after its Cheer
   // line (boxNoRoom): said under the parts in place of the bits total, since nothing there is
-  // worth sending. opts as modeNotice.
-  function noRoomAdvice(o) {
+  // worth sending. opts and `shape` as modeNotice.
+  function noRoomAdvice(o, shape) {
     o = o || {};
     var lim = contentLimitPx(o);
+    var what = shape === "plain" ? "its light first row" : shape === "mixed" ? "its first line (the Cheer line, or a Han tiling part's light first row)" : "its Cheer line";
     return lim.by === "cap"
-      ? "Nothing worth sending: every part would print only its Cheer line, whatever the bits. The streamer's "
-        + "maximum length would have to be longer than that line."
-      : "Nothing worth sending: every part would print only its Cheer line. Set Bits per cheer higher: the streamer "
+      ? "Nothing worth sending: every part would print only " + what + ", whatever the bits. The streamer's "
+        + "maximum length would have to be longer than one line."
+      : "Nothing worth sending: every part would print only " + what + ". Set Bits per cheer higher: the streamer "
         + "gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch)) + ".";
+  }
+  // modeNotice's `shape` for a list of parts: "plain" when every printable part is a Han tiling
+  // part (alone), "mixed" when some are, else "".
+  function partsShape(items) {
+    var ps = (items || []).filter(function (it) { return it && it.bodies && it.bodies.some(function (b) { return b.html; }); });
+    var n = ps.filter(function (it) { return it.alone; }).length;
+    return !ps.length || !n ? "" : n === ps.length ? "plain" : "mixed";
   }
   // SassyTP's printer-bot turns its screenshot into dots with its own C# Ditherer. This is a
   // port of it (MIT, Copyright (c) 2026 SassyTP; the full licence notice is at the end of this
@@ -2710,6 +2786,102 @@
       for (x = 0; x < pw; x++) a2[x] = 0;
     }
     return out;
+  }
+  // ── WORDS IN THE TEXT THAT TWITCH CHARGES AS CHEERS (extraCheers), for the parts ──
+  // Twitch charges every standalone cheermote word in a message, not just the Cheer word this
+  // app adds, and the bot's header and its High Roller test see the total. So a part holding
+  // one says so, the total under the parts adds it in, a free test that holds one is no longer
+  // called free, and the preview draws the cheer Twitch would really send.
+  function listWords(xs) {
+    xs = xs.map(String);
+    return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
+  }
+  function cheerNames(words) {
+    return words.slice(0, 2).map(quoteCut).join(" and ") + (words.length > 2 ? " and " + (words.length - 2) + " more" : "");
+  }
+  // The lines under one part. o = {cheer, bits, extra (extraCheers)}. Returns [{text, warn}]:
+  // warn for a certain charge (a global prefix), a plain hedge for any other cheer-shaped word.
+  function extraCheerLines(o) {
+    o = o || {};
+    var ex = o.extra || {}, sure = ex.sure || [], maybe = ex.maybe || [], out = [], b = cheerBits(o.bits);
+    var it = sure.length === 1 ? "it" : "them";
+    if (sure.length) out.push({ warn: true, text: o.cheer
+      ? "Costs " + bitsWord(b + (ex.bits || 0)) + ", not " + b + ": Twitch reads " + cheerNames(sure)
+        + " in it as another cheer. Take " + it + " out to spend " + b + " (the block's card says how)."
+      : "Not free: Twitch reads " + cheerNames(sure) + " in it as a cheer, so sending it spends " + bitsWord(ex.bits || 0)
+        + " and the bot prints it. Take " + it + " out for a free test (the block's card says how)." });
+    if (maybe.length) out.push({ warn: false, text: "If " + maybe.slice(0, 2).map(quoteCut).join(" or ")
+      + " is a cheer name on this channel, Twitch charges it as " + (o.cheer ? "another cheer too." : "a cheer, and this message prints.") });
+    return out;
+  }
+  // The total under the parts. items = the copyable parts, in order ({cheer, bits, extra,
+  // wide}). Returns {text, warn}; warn when a word in the text makes Twitch charge more than the
+  // parts' Cheer words, or makes a free test a paid one, or a part is too wide for the paper
+  // (`wide`: the numbers of the blocks in it that are; their cards say so, and so does the part,
+  // and the total no longer says "Paste it into chat and send it" under them, final review 2).
+  function partsCostWords(items) {
+    var n = items.length, free = items[0].cheer === false, bits = cheerBits(items[0].bits);
+    var paid = [], words = [], extra = 0;
+    items.forEach(function (it, k) {
+      var ex = it.extra || {};
+      if (!(ex.sure || []).length) return;
+      paid.push(k + 1); extra += ex.bits || 0;
+      ex.sure.forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); });
+    });
+    var where = n === 1 ? " in this message" : paid.length === 1 ? " in part " + paid[0] : " in parts " + listWords(paid);
+    var one = paid.length === 1;
+    if (free) {
+      if (!paid.length) return { warn: false, text: n === 1
+        ? "One message, free: with Cheer-ready off nothing prints; chat's filters still see it."
+        : "Paste the parts into chat in order: " + n + " messages, free. With Cheer-ready off nothing prints; chat's filters still see every one." };
+      return { warn: true, text: (n === 1 ? "Not free: " : "Paste the parts into chat in order: " + n + " messages, but not free. ")
+        + "Twitch reads " + cheerNames(words) + where + " as " + (one ? "a cheer" : "cheers") + ", so sending "
+        + (one ? "it" : "them") + " spends " + bitsWord(extra) + " and the bot prints " + (one ? "it" : "them") + "." };
+    }
+    var wide = [];
+    items.forEach(function (it, k) { if ((it.wide || []).length) wide.push(k + 1); });
+    if (n === 1) {
+      return { warn: !!(paid.length || wide.length), text: (paid.length
+          ? "One " + (bits + extra) + "-bit cheer, not " + bits + ": Twitch also charges " + bitsWord(extra) + " for "
+            + cheerNames(words) + " in your text."
+          : "One " + bits + "-bit cheer.")
+        + (wide.length ? " Part of it is too wide for the paper, so it wraps or is cut off: fix that on its block's card before sending it."
+           : paid.length ? " Paste it into chat and send it, or take " + (words.length === 1 ? "the word" : "those words")
+             + " out to spend " + bits + "."
+           : " Paste it into chat and send it.") };
+    }
+    return { warn: !!(paid.length || wide.length), text: (wide.length
+        ? (wide.length === 1 ? "Part " + wide[0] + " is" : "Parts " + listWords(wide) + " are") + " too wide for the paper, so "
+          + (wide.length === 1 ? "it wraps or is" : "they wrap or are") + " cut off: fix that on the block's card first. "
+        : "")
+      + "Paste the parts into chat in order. Each is a separate " + bits + "-bit cheer"
+      + (paid.length
+        ? ", and Twitch also charges " + bitsWord(extra) + " for " + cheerNames(words) + where + " (" + n + " × " + bits + " + "
+          + extra + " = " + (n * bits + extra) + " bits total). The bot prints its header between them."
+        : " (" + n + " × " + bits + " = " + (n * bits) + " bits total), and the bot prints its header between them.") };
+  }
+  // The line under a part holding a block that is too wide for the paper. nums = those blocks'
+  // numbers in the stack (1-based). "" when none.
+  function wideLine(nums) {
+    if (!(nums || []).length) return "";
+    return "Too wide for the paper: what runs past its edge wraps or is cut off. "
+      + (nums.length === 1 ? "Block " + nums[0] + "'s card says" : "The cards of blocks " + listWords(nums) + " say") + " how to fix it.";
+  }
+  // The notice above the parts for a free test whose text holds such a word (modeNotice's
+  // "never reaches the printer" is then wrong). words = every certain one in the stack.
+  function paidTestNotice(words) {
+    return "Not a free test: Twitch reads " + cheerNames(words) + " in your text as " + (words.length === 1 ? "a cheer" : "cheers")
+      + ", so sending this spends bits and the bot prints it. Take " + (words.length === 1 ? "it" : "them")
+      + " out for a free test (the block's card says how).";
+  }
+  // The bits and Cheer-ready a part's preview is drawn with: the cheer Twitch would really send.
+  // A free test holding a certain cheer word is a real cheer of that word's bits; a cheer adds
+  // them to its own. o = {cheer, bits, extra}.
+  function partCheer(o) {
+    o = o || {};
+    var add = (o.extra && o.extra.sure && o.extra.sure.length) ? (o.extra.bits || 0) : 0;
+    if (o.cheer === false) return add > 0 ? { cheer: true, bits: add } : { cheer: false, bits: cheerBits(o.bits) };
+    return { cheer: true, bits: cheerBits(o.bits) + add };
   }
   // ── THE PREVIEW: what SassyTP's renderer is asked, and what it said ──────────
   // The preview draws every part with the bot's own receipt page (vendored at the bottom of
@@ -3107,17 +3279,55 @@
     // back when the field was left, for the hint to name; any new typing clears it.
     var lastBits = null, bitsRefused = null;
     function bitsEntryOk(raw) { var n = parseFloat(raw); return isFinite(n) && n >= 1; }
+    // The streamer's three number fields follow the same rule: an entry that isn't a number of
+    // 0 or more (-3, emptied, junk) reads as the last value the field held, and leaving the field
+    // puts that value back and says so beside it (streamerNotes). A negative threshold silently
+    // became the default 25, which flipped every block between plain and High Roller; a negative
+    // bits per inch or maximum length silently turned it off (final review 2).
+    var STREAMER_FIELDS = ["hrThreshold", "bitsPerInch", "maxInches"], lastStreamer = {}, streamerNotes = {};
+    function streamerEntryOk(raw) { var n = parseFloat(raw); return isFinite(n) && n >= 0; }
     function getSettings() {
       var v = function (el) { return el ? el.value : undefined; };
       var rawBits = v(els.bitsAmount), okBits = bitsEntryOk(rawBits);
+      var sv = function (id) {
+        var raw = v(els[id]);
+        return raw === undefined || streamerEntryOk(raw) || lastStreamer[id] == null ? raw : lastStreamer[id];
+      };
       var s = normalizeControls({
-        cheer: !!els.cheer.checked, bits: okBits || lastBits == null ? rawBits : lastBits, hrThreshold: v(els.hrThreshold),
-        bitsPerInch: v(els.bitsPerInch), maxInches: v(els.maxInches), paperMm: v(els.paperMm),
+        cheer: !!els.cheer.checked, bits: okBits || lastBits == null ? rawBits : lastBits, hrThreshold: sv("hrThreshold"),
+        bitsPerInch: sv("bitsPerInch"), maxInches: sv("maxInches"), paperMm: v(els.paperMm),
         nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
         thermalDither: v(els.thermalDither)
       });
       if (okBits) lastBits = s.bits;
+      STREAMER_FIELDS.forEach(function (id) { if (els[id] && streamerEntryOk(els[id].value)) lastStreamer[id] = s[id]; });
       return s;
+    }
+    // What a committed streamer field says beside it: why an entry was put back, or that a value
+    // was capped to the bot's own limit. raw = what was typed, s = the settings it gave.
+    function streamerNoteFor(id, raw, s) {
+      raw = String(raw == null ? "" : raw).trim();
+      var n = parseFloat(raw);
+      var shown = id === "hrThreshold" ? (s.hrThreshold > 0 ? bitsWord(s.hrThreshold) : "0 (High Roller off)")
+        : id === "bitsPerInch" ? (s.bitsPerInch > 0 ? String(s.bitsPerInch) : "0 (off)")
+        : (s.maxInches > 0 ? s.maxInches + (s.maxInches === 1 ? " inch" : " inches") : "0 (off)");
+      var name = id === "hrThreshold" ? "the threshold" : id === "bitsPerInch" ? "bits per inch" : "the maximum length";
+      if (!streamerEntryOk(raw)) {
+        return (raw === "" ? name.charAt(0).toUpperCase() + name.slice(1) + " can't be empty"
+                           : "“" + raw + "” isn't a number of 0 or more") + ", so it stays at " + shown + ".";
+      }
+      if (id === "hrThreshold" && n > HR_MAX) return "The bot's highest threshold is 1,000,000 bits, so it is set to that.";
+      if (id === "maxInches" && n > MAX_CAP_INCHES) return "The bot's longest maximum length is " + MAX_CAP_INCHES + " inches, so it is set to that.";
+      return "";
+    }
+    function syncStreamerNotes() {
+      STREAMER_FIELDS.forEach(function (id) {
+        var el = document.getElementById(id + "Note");
+        if (!el) return;
+        var t = streamerNotes[id] || "";
+        if (el.textContent !== t) el.textContent = t;
+        el.hidden = !t;
+      });
     }
     // What a stack is built and packed with (stackContext's options): the settings, the
     // repeat number as `noNonce` (getNonce: only while its checkbox is enabled), and any
@@ -3419,13 +3629,16 @@
     // has a frame, a box of the predicted receipt height holds its place.
     function previewPart(pc, item) {
       var s = getSettings(), p = paperSpec(item.paperMm);
-      var pe = previewEvent({ payload: item.payload, bits: item.bits, cheer: item.cheer, hrThreshold: s.hrThreshold,
+      // The cheer Twitch would really send: a word in the text that it charges as a cheer adds its
+      // bits to the header and the bot's High Roller test, and makes a free test a real cheer.
+      var pcheer = partCheer(item);
+      var pe = previewEvent({ payload: item.payload, bits: pcheer.bits, cheer: pcheer.cheer, hrThreshold: s.hrThreshold,
                               bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
       if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
       var key = JSON.stringify([pe, p.mm]);
       if (key !== pc.key) {
         pc.key = key; pc.seq++; pc.resent = 0; pc.retried = 0;
-        pc.want = { seq: pc.seq, pe: pe, pageW: p.cssWidth, paperMm: p.mm, cheer: item.cheer, bits: item.bits, warned: !!item.warned,
+        pc.want = { seq: pc.seq, pe: pe, pageW: p.cssWidth, paperMm: p.mm, cheer: pcheer.cheer, bits: pcheer.bits, warned: !!item.warned,
                     up: /writing-mode:\s*sideways-lr/.test(item.payload) };
         pc.el.setAttribute("data-render", "pending");
         if (!pc.frame) {
@@ -3619,6 +3832,7 @@
       var nt = notice && typeof notice === "object" ? notice : { text: notice || "" };
       if (nt.text) {
         if (!mn) { mn = mkEl("div", { "class": "mode-note", id: "modeNote" }); }
+        mn.className = "mode-note" + (nt.warn ? " warn-note" : "");
         mn.textContent = nt.text;
         if (nt.back) {
           var back = mkEl("button", { type: "button", id: "backToStack" }, "Back to my stack");
@@ -3663,7 +3877,7 @@
       var copyable = items.filter(function (it) { return it.copyable; });
       // No room after the Cheer line: nothing is worth sending, so no total, and what to change.
       if (copyable.length && copyable[0].noRoom) {
-        var nr = mkEl("p", { "class": "parts-note no-room", id: "partsTotal" }, noRoomAdvice(getSettings())), nrFix = settingFix(getSettings());
+        var nr = mkEl("p", { "class": "parts-note no-room", id: "partsTotal" }, noRoomAdvice(getSettings(), partsShape(items))), nrFix = settingFix(getSettings());
         if (nrFix) { nr.appendChild(document.createElement("br")); nr.appendChild(fixButton(nrFix)); }
         container.appendChild(nr);
         return;
@@ -3698,20 +3912,11 @@
              : lim0.by === "cap" ? " Only a longer maximum length lets " + (one ? "it" : "them") + " print whole." : "")));
       }
       // One part says what it costs too (the hints point here for the cost); a test part's own
-      // note already does.
-      if (copyable.length === 1 && !copyable[0].note) {
-        container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" }, copyable[0].cheer === false
-          ? "One message, free: with Cheer-ready off nothing prints; chat's filters still see it."
-          : "One " + copyable[0].bits + "-bit cheer. Paste it into chat and send it."));
-      }
-      if (copyable.length > 1) {
-        var bits = copyable[0].bits;
-        container.appendChild(mkEl("p", { "class": "parts-note", id: "partsTotal" }, copyable[0].cheer === false
-          ? "Paste the parts into chat in order: " + copyable.length + " messages, free. With Cheer-ready off "
-            + "nothing prints; chat's filters still see every one."
-          : "Paste the parts into chat in order. Each is a separate " + bits
-            + "-bit cheer (" + copyable.length + " × " + bits + " = " + (copyable.length * bits) + " bits total), "
-            + "and the bot prints its header between them."));
+      // note already does. A word in the text that Twitch charges as a cheer is added in, and a
+      // free test holding one is not called free (partsCostWords).
+      if (copyable.length > 1 || (copyable.length === 1 && !copyable[0].note)) {
+        var cw = partsCostWords(copyable);
+        container.appendChild(mkEl("p", { "class": "parts-note" + (cw.warn ? " too-long" : ""), id: "partsTotal" }, cw.text));
       }
     }
     // After a probe replaces the parts (or Back to my stack brings them back), the page can be
@@ -3800,6 +4005,14 @@
           "Too long for Twitch (500 characters), so Twitch rejects it and it never prints. To fix it, "
           + fixText + "."));
       }
+      // (After the over-length note: a message Twitch rejects comes first.)
+      // A block too wide for the paper: its card says so, and so does the part, beside Copy.
+      if ((item.wide || []).length && !item.noRoom) before.push(mkEl("div", { "class": "over-note" }, wideLine(item.wide)));
+      // A word in the text Twitch charges as a cheer: the part's real cost, or why a free test
+      // isn't free (extraCheerLines).
+      extraCheerLines(item).forEach(function (l) {
+        before.push(mkEl("div", { "class": l.warn ? "over-note" : "parts-note part-note" }, l.text));
+      });
       // The preview: a part with something to print is drawn by the bot's renderer; anything
       // else (an empty stack, a picture still loading) shows its placeholder text.
       // The placeholder is prose, wrapped to the column: it used to be receipt-style text in a
@@ -4331,13 +4544,34 @@
           }
         }
       };
+      // While the text is being typed, the labels wait until 250 ms after the last key: each
+      // relabel plans every layout and size again (about 30 plans), and on a long text that froze
+      // the page for half a second a keystroke (final review 2). The note and the parts still
+      // follow every key. Anything else (a setting, a pick in a select) relabels at once, and
+      // focusing a select first draws any labels still waiting.
+      var relabelTimer = null, relabelCtx = null;
+      var relabelNow = function () {
+        if (relabelTimer) { clearTimeout(relabelTimer); relabelTimer = null; }
+        if (relabelCtx) { var c = relabelCtx; relabelCtx = null; relabel(c); }
+      };
+      var relabelSoon = function (ctx) {
+        relabelCtx = ctx;
+        if (relabelTimer) clearTimeout(relabelTimer);
+        relabelTimer = null;
+        if (document.activeElement !== ta) { relabelNow(); return; }
+        relabelTimer = setTimeout(function () { relabelTimer = null; if (ta.isConnected) relabelNow(); }, 250);
+      };
+      [bLayout, bSize, sSize].forEach(function (sel) {
+        sel.addEventListener("focus", relabelNow);
+        sel.addEventListener("mousedown", relabelNow);
+      });
       var syncText = function (parts) {
         var so0 = stackOpts(), ctx = stackContext(so0), t0 = hrThresholdOf(so0.hrThreshold);
         // Labelled for a High Roller cheer whatever the bits. Below the threshold the block
         // prints as Han tiling, and the labels say what it prints AT the threshold: its bits,
         // so its share of the receipt under a bits-per-inch setting and its lead's length.
         // (With High Roller off, no cheer prints them; they stay at the current bits.)
-        relabel(stackContext(stackOpts(ctx.mode === "plain" && t0 > 0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
+        relabelSoon(stackContext(stackOpts(ctx.mode === "plain" && t0 > 0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
         var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
         var lines = [], fine = [], plainNow = ctx.mode === "plain";
         // The parts' own test for "nothing after the Cheer line prints" (composeParts).
@@ -4347,7 +4581,9 @@
           if (hs.length) {
             var rows = hs.reduce(function (t, b) { return t + b.hanzi.rows; }, 0), gone = hs[0].hanzi.droppedLines || 0;
             lines.push("Han tiling: " + rows + (rows === 1 ? " row" : " rows") + " of " + hs[0].hanzi.cols
-              + " Han characters · " + (noRoom ? costWords(0, 0, false, false, true) : cheersOf(where.inParts.length || hs.length)));
+              + " Han characters · " + (noRoom
+                ? "prints only its light first row: the streamer's settings leave no room for the rest (see the note above the parts)"
+                : cheersOf(where.inParts.length || hs.length)));
             if (gone) {
               lines.push("Han tiling draws the first " + HAN_MAX_LINES + " lines only, so the last " + (gone === 1 ? "line is" : gone + " lines are")
                 + " left out. Put the rest in another block.");
@@ -4543,8 +4779,14 @@
       // link); a Real picture uploads it to our Worker for a link that lasts 15 minutes.
       var fileHint = mkEl("div", { "class": "hint" });
       card.appendChild(fileHint);
+      // The status is the BLOCK's (a runtime field), and so is the link: an upload or a bake that
+      // lands after the cards were redrawn (add, move, ×, Undo, the expiry check) used to write
+      // into this card's old, detached elements, so the new card kept the link typed before and
+      // lost "Uploaded ✓" while the block printed the upload (final review 2). syncGlyph, run
+      // after every refresh, shows both on whichever card is on screen.
       var status = mkEl("div", { "class": "hint" });
-      var setStatus = function (t) { status.textContent = t; };
+      status.textContent = block._status || "";
+      var setStatus = function (t) { block._status = t; status.textContent = t; };
       card.appendChild(status);
       // Rotate, for both kinds: glyph-art turns the picture on this device before tiling it
       // (glyphSource); the Real card bakes and uploads a turned copy to show it.
@@ -4677,6 +4919,8 @@
       };
       // What the picture prints as, read off the packed parts like the text cards.
       var syncGlyph = function (parts) {
+        if (document.activeElement !== url && url.value !== (block.url || "")) url.value = block.url || "";
+        if (status.textContent !== (block._status || "")) status.textContent = block._status || "";
         fileHint.textContent = block.imgKind === "glyph"
           ? "A picked file is read on this device and never uploaded, so it isn't kept after a reload or saved in a preset: pick it again then. A link is kept."
           : "A picked file is uploaded to this site's server for a link that lasts 15 minutes.";
@@ -4853,8 +5097,16 @@
         return o;
       }));
     }
+    // The user's WORK, not what prints: a Real picture prints nothing (blockHasContent), but its
+    // uploaded link, rotation and adjustments are lost all the same when Load replaces it, and
+    // Load has no Undo (final review 2).
+    function blockHasWork(b) {
+      if (blockHasContent(b)) return true;
+      if (b.type === "image") return !!((b.url && String(b.url).trim()) || b.fileName || b._img || b.rotate || b.adjBright || b.adjContrast);
+      return !!(b.text && /\S/.test(String(b.text)));
+    }
     function stackIsSaved() {
-      if (!blocks.some(blockHasContent)) return true;
+      if (!blocks.some(blockHasWork)) return true;
       var cur = stackKey(blocks);
       return presets.some(function (p) {
         try { return stackKey(migrateBlocks(JSON.parse(JSON.stringify(cleanBlocks(p.blocks))))) === cur; }
@@ -5284,11 +5536,20 @@
       // a different message from the one the preview settles on.
       var loading = missingPictures().some(function (m) { return m.why === "loading"; });
       return parts.map(function (p, i) {
+        // A word in the user's text that Twitch charges as a cheer of its own (extraCheers).
+        var extra = extraCheers(p.bodies), wide = [];
+        // Blocks in this part too wide for the paper at their size (their cards say so).
+        p.bodies.forEach(function (b) {
+          if (!((b.big && !b.big.fits) || (b.side && !b.side.fits))) return;
+          var k = 0;
+          for (var q = 0; q < blocks.length; q++) if (blocks[q].id === b.blockId) { k = q + 1; break; }
+          if (k && wide.indexOf(k) < 0) wide.push(k);
+        });
         var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
                      alone: !!p.alone, mode: ctx.mode, cheer: ctx.cheer, bits: ctx.bits, paperMm: ctx.paperMm,
                      warned: partWarned(p, ctx), noRoom: noRoom, contentPx: p.contentPx,
-                     cut: p.contentPx > ctx.limit.px + 1, limit: ctx.limit,
-                     kindLabel: !ctx.cheer ? "free test" : p.alone || ctx.mode === "plain" ? "plain text" : "High Roller" };
+                     cut: p.contentPx > ctx.limit.px + 1, limit: ctx.limit, extra: extra, wide: wide,
+                     kindLabel: !ctx.cheer ? (extra.sure.length ? "not free" : "free test") : p.alone || ctx.mode === "plain" ? "plain text" : "High Roller" };
         // A part with nothing printable in it (a picture still decoding) would be a cheer that
         // prints only the lead: it is shown, but it can't be copied until there is ink.
         if (!p.bodies.some(function (b) { return b.html; })) {
@@ -5361,7 +5622,12 @@
       var st = getSettings();
       // A stack with nothing printable already says what to do in its one placeholder.
       var compose = currentKind === "compose";
-      renderParts(lastParts, compose ? { text: modeNotice(st), fix: settingFix(st) }
+      // A free test whose text holds a word Twitch reads as a cheer is not free, and it prints.
+      var paid = [];
+      if (compose && !st.cheer) lastParts.forEach(function (it) {
+        ((it.extra && it.extra.sure) || []).forEach(function (w) { if (paid.indexOf(w) < 0) paid.push(w); });
+      });
+      renderParts(lastParts, compose ? (paid.length ? { text: paidTestNotice(paid), warn: true } : { text: modeNotice(st, partsShape(lastParts)), fix: settingFix(st) })
         : { text: "This is the " + (currentKind === "hrprobe" ? "High Roller test" : "Plain test")
             + ", not your stack. Your blocks are unchanged."
             + (st.cheer ? "" : " It is a real cheer even with Cheer-ready off: a test has to print to show anything."), back: true },
@@ -5459,19 +5725,25 @@
       });
       // A number field shows the value the app uses once it is committed (change: Enter, or
       // leaving the field): 0 or nothing in Bits goes back to the last amount it held (a cheer is
-      // at least 1 bit; the hint says so), a maximum length of 50 inches is the dock's 40, junk in
-      // the threshold is its default 25. Not while it is being typed, which would fight the keyboard.
+      // at least 1 bit; the hint says so); junk, a negative number or nothing in a streamer field
+      // goes back to the last value it held, and a maximum length of 50 inches is the dock's 40,
+      // each said beside the field (streamerNoteFor). Not while it is being typed, which would
+      // fight the keyboard.
       [["bitsAmount", "bits"], ["hrThreshold", "hrThreshold"], ["bitsPerInch", "bitsPerInch"], ["maxInches", "maxInches"]].forEach(function (f) {
         var el = els[f[0]];
         if (!el) return;
         el.addEventListener("change", function () {
-          var v = String(getSettings()[f[1]]);
+          var st = getSettings(), v = String(st[f[1]]);
           if (f[0] === "bitsAmount" && !bitsEntryOk(el.value)) bitsRefused = el.value.trim();
+          if (f[0] !== "bitsAmount") { streamerNotes[f[0]] = streamerNoteFor(f[0], el.value, st); syncStreamerNotes(); }
           if (el.value !== v) { el.value = v; update(); }
           else if (bitsRefused != null) syncModeUi();
         });
       });
       if (els.bitsAmount) els.bitsAmount.addEventListener("input", function () { bitsRefused = null; syncModeUi(); });
+      STREAMER_FIELDS.forEach(function (id) {
+        if (els[id]) els[id].addEventListener("input", function () { if (streamerNotes[id]) { streamerNotes[id] = ""; syncStreamerNotes(); } });
+      });
 
       // The probes are a view, not a block: any edit drops back out (update() resets
       // currentKind to "compose").
@@ -5561,7 +5833,9 @@
       giantLevelPx: giantLevelPx,
       // The app's state, read through sanitizers; the plain-mode notice; the bot's ditherer.
       THERMAL_DITHERS: THERMAL_DITHERS, normalizeControls: normalizeControls, hanziWeightOf: hanziWeightOf,
-      GLYPH_TIERS: GLYPH_TIERS, glyphOpts: glyphOpts, modeNotice: modeNotice, noRoomAdvice: noRoomAdvice, forkDither: forkDither,
+      GLYPH_TIERS: GLYPH_TIERS, glyphOpts: glyphOpts, modeNotice: modeNotice, noRoomAdvice: noRoomAdvice, partsShape: partsShape,
+      extraCheers: extraCheers, extraCheerLines: extraCheerLines, partsCostWords: partsCostWords, paidTestNotice: paidTestNotice, wideLine: wideLine,
+      partCheer: partCheer, forkDither: forkDither,
       previewEvent: previewEvent, previewVerdict: previewVerdict, avatarExtraPx: avatarExtraPx,
       // Canvas-backed glue, exported for the browser tests only (a null DOM can't run them).
       designTTextGrid: designTTextGrid, glyphGrid: glyphGrid,

@@ -64,7 +64,8 @@ If a channel blocks the markup, the tool's fallback is plain Han tiling. If chat
 message for its words, that is the moderators saying no to the words: the tool's guidance is
 not to rework the message or send the words again in another form, Han tiling included. A
 free test (the message sent with Cheer-ready off, so no bits are spent) shows what chat lets
-through first.
+through first. A cheer word standing on its own in the text (such as Cheer50) makes any message
+a real cheer that Twitch charges for; the tool counts it in the cost it shows.
 
 ## The preview
 

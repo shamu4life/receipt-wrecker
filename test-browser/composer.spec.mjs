@@ -1587,8 +1587,9 @@ test("polish: a probe scrolls into view and takes focus; Back to my stack does t
 
 test("polish: a box with no room after the Cheer line: every part says so, Copy is off, and the total gives the advice", async () => {
   for (const [s, advice, fix] of [
-    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its Cheer line\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
-    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its Cheer line, whatever the bits\./, ["Go to Maximum length", "maxInches"]],
+    // A stack with a Han tiling part: that part has no Cheer line at its top (final review 2).
+    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its first line \(the Cheer line, or a Han tiling part's light first row\)\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
+    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its first line \(the Cheer line, or a Han tiling part's light first row\), whatever the bits\./, ["Go to Maximum length", "maxInches"]],
   ]) {
     const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "text", render: "hanzi", text: "HI" }], controls: s });
     await page.waitForFunction(() => document.querySelectorAll("#parts .part").length >= 2);
@@ -1613,8 +1614,8 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
     }
     // The card agrees with the parts: no price for something that can't be sent (polish 2).
     const sum = await cards(page).first().locator(".text-note .note-sum").textContent();
-    assert.match(sum, /· prints nothing: the Cheer line fills this cheer’s whole part of the receipt/);
-    assert.ok(!/bits\)|cheers/.test(sum), sum);
+    assert.match(sum, /^Prints nothing: the Cheer line fills this cheer’s whole part of the receipt/);
+    assert.ok(!/bits\)|cheers|Capitals/.test(sum), sum);
     assert.deepEqual(errors, []);
     await ctx.close();
   }
@@ -2381,4 +2382,142 @@ test("final 1: typing survives the expiry check; a run the bot cuts says so unde
   assert.equal(await p3.textContent("#presetNote"), 'Loaded "Two pics". Its Glyph-art pictures still load.');
   assert.deepEqual(e3, []);
   await c3.close();
+});
+
+test("final 2: a word Twitch charges as a cheer is counted by the part, the total, the notice and the preview's header", async () => {
+  // Cheer-ready off: a free test, except that "Cheer50" on its own is a 50-bit cheer to Twitch,
+  // which reaches the printer. The app said "free" three times over it.
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY Cheer50 DAY", bigLayout: "lines" })],
+                                                   controls: { ...SETTINGS, cheer: false }, eager: true });
+  await settled(page);
+  const free = await copyPayload(page, 0);
+  assert.match(free, / Cheer50 /);
+  assert.equal(await page.getAttribute("#modeNote", "class"), "mode-note warn-note");
+  assert.match(await page.textContent("#modeNote"), /^Not a free test: Twitch reads “Cheer50” in your text as a cheer, so sending this spends bits and the bot prints it\./);
+  const part = page.locator("#parts .part").first();
+  assert.equal(await part.locator(".part-kind").textContent(), "not free");
+  assert.match(await part.locator(".over-note").first().textContent(), /^Not free: Twitch reads “Cheer50” in it as a cheer, so sending it spends 50 bits and the bot prints it\./);
+  assert.match(await page.textContent("#partsTotal"), /^Not free: Twitch reads “Cheer50” in this message as a cheer, so sending it spends 50 bits/);
+  assert.match(await page.getAttribute("#partsTotal", "class"), /too-long/);
+  const note = await cards(page).first().locator(".text-note").innerText();
+  assert.match(note, /1 message, not free: Twitch reads a word in it as a cheer/);
+  assert.doesNotMatch(note + await page.locator("#parts").innerText(), /never prints|never reaches the printer|nothing prints/);
+  // The preview draws the cheer Twitch would send: 50 bits, a real cheer, through the streamer's
+  // own threshold, and its header says 50.
+  let d = await drawnPart(page, 0, free);
+  assert.equal(d.last.event.bits, 50);
+  assert.equal(d.last.options.highRollerBits, 25);
+  assert.match(await d.frame.evaluate(() => document.getElementById("receipt-title").textContent), /\b50\b/);
+  assert.doesNotMatch(d.verdict, /Free test/);
+  // Cheer-ready on: 100 for the app's Cheer word and 50 for the text's.
+  await page.click("#cheer");
+  await page.waitForFunction(() => /^One 150-bit cheer, not 100/.test(document.getElementById("partsTotal").textContent));
+  const paid = await copyPayload(page, 0);
+  assert.match(paid, /^Cheer100 .* Cheer50 /);
+  assert.match(await part.locator(".over-note").first().textContent(), /^Costs 150 bits, not 100: Twitch reads “Cheer50” in it as another cheer\./);
+  assert.equal(await page.locator("#modeNote").count(), 0);
+  d = await drawnPart(page, 0, paid);
+  assert.equal(d.last.event.bits, 150);
+  assert.match(await d.frame.evaluate(() => document.getElementById("receipt-title").textContent), /\b150\b/);
+  // Taken out, everything is back to the plain cost.
+  await cards(page).first().locator("textarea").fill("HAPPY DAY");
+  await page.waitForFunction(() => document.getElementById("partsTotal").textContent === "One 100-bit cheer. Paste it into chat and send it.");
+  assert.equal(await part.locator(".over-note").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("final 2: an upload that lands after a redraw, Han tiling with no room, Load over a Real picture, the streamer's fields, a part too wide, labels while typing", async () => {
+  const pic = Buffer.from(PIC.split(",")[1], "base64");
+  const minted = "https://i.uwutoowo.com/aaaaaaaaaaaa.png";
+  const REAL = (o) => ({ type: "image", imgKind: "real", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                         tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false, ...o });
+  // The cards are redrawn (+ Text) while an upload is in flight: the link and "Uploaded ✓" land on
+  // the card on screen, not on the old one.
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), REAL({ id: 2 })], routes: async (c) => {
+    await c.route("**/upload", async (r) => { await held; await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }); });
+    await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+    await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+  } });
+  const real = () => cards(page).nth(1);
+  await real().locator("input[type=url]").fill("https://example.com/other.png");
+  await real().locator("input[type=file]").setInputFiles({ name: "smile.png", mimeType: "image/png", buffer: pic });
+  await page.waitForFunction(() => /Uploading/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent));
+  await page.click("#addTextBtn");
+  release();
+  await page.waitForFunction(() => /Uploaded ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  assert.equal(await real().locator("input[type=url]").inputValue(), minted);
+  assert.equal((await stored(page, "rw_blocks_v1"))[1].url, minted);
+  // The preset controls have names a screen reader can say.
+  assert.equal(await page.getByLabel("Preset name").count(), 1);
+  assert.equal(await page.getByLabel("Saved presets").count(), 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // Han tiling in a box shorter than one line: no Cheer line tops its parts, so nothing says
+  // "the Cheer line fills it"; the card says what the part says.
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
+                                                              controls: { ...SETTINGS, bitsPerInch: 500 } });
+  await p2.waitForSelector("#partsTotal");
+  assert.match(await cards(p2).first().locator(".text-note").innerText(), /prints only its light first row: the streamer's settings leave no room for the rest/);
+  assert.match(await p2.textContent("#modeNote"), /about 5 mm of receipt, shorter than one line of text, so each Han tiling part prints only its light first row/);
+  assert.match(await p2.locator("#partsTotal").evaluate((e) => e.firstChild.textContent), /^Nothing worth sending: every part would print only its light first row\./);
+  assert.doesNotMatch(await p2.locator("#blockList, #parts").allInnerTexts().then((t) => t.join(" ")), /Cheer line fills/);
+  // The streamer's fields keep their last value for an entry that isn't a number of 0 or more,
+  // and say so beside the field; a value past the bot's limit is capped, and that is said too.
+  await p2.fill("#hrThreshold", "-3");
+  await p2.locator("#hrThreshold").dispatchEvent("change");
+  assert.equal(await p2.inputValue("#hrThreshold"), "25");
+  assert.equal(await p2.textContent("#hrThresholdNote"), "“-3” isn't a number of 0 or more, so it stays at 25 bits.");
+  assert.equal((await stored(p2, "rw_controls_v1")).hrThreshold, 25);
+  await p2.fill("#bitsPerInch", "-10");
+  await p2.locator("#bitsPerInch").dispatchEvent("change");
+  assert.equal(await p2.inputValue("#bitsPerInch"), "500");
+  assert.equal(await p2.textContent("#bitsPerInchNote"), "“-10” isn't a number of 0 or more, so it stays at 500.");
+  await p2.fill("#maxInches", "100");
+  await p2.locator("#maxInches").dispatchEvent("change");
+  assert.equal(await p2.inputValue("#maxInches"), "40");
+  assert.equal(await p2.textContent("#maxInchesNote"), "The bot's longest maximum length is 40 inches, so it is set to that.");
+  await p2.fill("#maxInches", "0");
+  assert.equal(await p2.locator("#maxInchesNote").isHidden(), true, "typing again clears the note");
+  assert.deepEqual(e2, []);
+  await c2.close();
+
+  // Load asks before replacing a stack whose only block is a Real picture: its upload, rotation
+  // and adjustments are the user's work, though it prints nothing.
+  const other = { v: 1, name: "Other", savedAt: 1, blocks: [BIG({ id: 2, text: "OTHER" })] };
+  const { page: p3, ctx: c3, errors: e3 } = await freshPage({ blocks: [REAL({ id: 1, url: minted, rotate: 90, adjBright: 20 })],
+    presets: { v: 1, presets: [other] }, routes: async (c) => {
+      await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+      await c.route("**/upload", (r) => r.fulfill({ status: 500, contentType: "application/json", body: "{}" }));
+      await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+    } });
+  await p3.click("#presetLoad");
+  assert.equal(await p3.textContent("#presetLoad"), "Replace stack?");
+  assert.equal((await stored(p3, "rw_blocks_v1"))[0].imgKind, "real");
+  assert.deepEqual(e3, []);
+  await c3.close();
+
+  // A part with letters too wide for the paper says so beside Copy, and the total stops saying
+  // "Paste it into chat and send it". The Layout labels follow typing once it pauses, and at once
+  // when a select is focused.
+  const { page: p4, ctx: c4, errors: e4 } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY BIRTHDAY", bigLayout: "lines", bigSize: 128 })] });
+  await p4.waitForSelector("#partsTotal");
+  assert.equal(await p4.locator("#parts .part .over-note").first().textContent(),
+    "Too wide for the paper: what runs past its edge wraps or is cut off. Block 1's card says how to fix it.");
+  assert.match(await p4.textContent("#partsTotal"), /^One 100-bit cheer\. Part of it is too wide for the paper, so it wraps or is cut off/);
+  assert.doesNotMatch(await p4.textContent("#partsTotal"), /send it\./);
+  await cards(p4).first().locator(".sel-layout").selectOption("auto");
+  const lbl = () => cards(p4).first().locator('.sel-layout option[value="lines"]').textContent();
+  const before = await lbl();
+  await cards(p4).first().locator("textarea").click();
+  await p4.keyboard.press("End");
+  await p4.keyboard.type(" TO YOU AND YOURS");
+  await cards(p4).first().locator(".sel-layout").focus();
+  assert.notEqual(await lbl(), before, "focusing the select draws the labels still waiting");
+  assert.match(await lbl(), /cm of message/);
+  assert.deepEqual(e4, []);
+  await c4.close();
 });

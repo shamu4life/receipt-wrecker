@@ -289,7 +289,8 @@ still print), so judge those with the thermal view off.
 - **Free chat test.** Turn Cheer-ready off and send the message. A message with no cheer
   never reaches the printer, but it does go through the channel's chat filter, so you learn
   whether chat lets this kind of message through before you spend bits. If chat holds it,
-  see below.
+  see below. A cheer word standing on its own in your text (`Cheer50`) makes the message a
+  real cheer that spends those bits and prints; the app says so in red over the parts.
 - **High Roller test** (one cheer at exactly the threshold). If BIG prints big, High Roller
   is on at that amount. It also checks that MMMMM keeps its right edge, that "jog" keeps its
   tails, that the second BIG is upside down and that UP runs up the tape. If it all prints

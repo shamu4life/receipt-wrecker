@@ -223,7 +223,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **145 keys**. Regenerate the list instead of trusting this one:
+test harness **152 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -248,7 +248,8 @@ test harness **145 keys**. Regenerate the list instead of trusting this one:
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`, `upsertPreset`,
 `freePresetName`, `importPresets`, `migrateBlocks`, `migrationRewrites`, `migrationNote`,
 `MIGRATION_BACKUP_NAME`, `TEXT_RENDERS`, `blockRender`, `giantLevelPx`, `THERMAL_DITHERS`,
-`normalizeControls`, `hanziWeightOf`, `GLYPH_TIERS`, `glyphOpts`, `modeNotice`, `noRoomAdvice`, `forkDither`,
+`normalizeControls`, `hanziWeightOf`, `GLYPH_TIERS`, `glyphOpts`, `modeNotice`, `noRoomAdvice`, `partsShape`,
+`extraCheers`, `extraCheerLines`, `partsCostWords`, `paidTestNotice`, `wideLine`, `partCheer`, `forkDither`,
 `previewEvent`, `previewVerdict`, `avatarExtraPx`, `designTTextGrid`, `glyphGrid`.
 
 ### The pure core, section by section
@@ -349,8 +350,8 @@ nothing that prints).
   (`bigWrapWordsOf`: never between letters, digits and apostrophes, `BIG_ATOM_RE`; never
   before `BIG_NO_BREAK_BEFORE`, closers, `, . : ; ! ?`, hyphens, dashes and quotes, or after
   `BIG_NO_BREAK_AFTER`, openers) and two lines in a row of a first-fit break hold more than a
-  line's width. It can count a line or two too many ("WELL-DONE" at 160px is two lines and
-  counts three: a cheer spent) but never too few (a cut): 460 cases through the vendored
+  line's width. It can count a line or two too many (a cheer spent) but never too few (a
+  cut): 460 cases through the vendored
   renderer, none short. Counting the spaces alone, "你好你好" at 160px printed four lines,
   counted one, and the bot's box cut the NEXT block in that part off (polish review 2; the
   MANDATORY contract test now carries that stack). ceil(width / line width) under-counted too:
@@ -418,7 +419,18 @@ nothing that prints).
   cheer higher (or, under a maximum length, that only a longer one helps), not "Pick a
   smaller size", which it used to say at 20px too. `cheerWords` flags standalone words
   shaped like a cheermote (`Kappa50`); the note is flat for Twitch's global prefixes
-  (`CHEER_GLOBALS`) and hedged for anything else, since a channel's own are unknowable.
+  (`CHEER_GLOBALS`) and hedged for anything else, since a channel's own are unknowable. In a
+  free test (Cheer-ready off) such a word is the only cheer in the message, so the card's
+  summary says "not free" (`costWords(…, paid)`) and the note says the test spends the bits and
+  prints (`cheerWordNotes(…, free)`). The parts read the same words off each packed part
+  (`extraCheers(bodies)`: `sure` words with a global prefix and their bits, every occurrence
+  counted; `maybe` the rest): the part says what it really costs, or that a free test isn't
+  free (`extraCheerLines`, red when certain, a grey hedge otherwise), the total adds the bits in
+  (`partsCostWords`), a free test's notice becomes a red "Not a free test" (`paidTestNotice`),
+  and the preview draws the cheer Twitch would send (`partCheer`: a free test with such a word is
+  a real cheer of its bits, through the streamer's threshold; a cheer adds them to its own, so
+  the header says 150 BITS over "Cheer100 … Cheer50"). Before final review 2 only the card knew,
+  and a free test carrying "Cheer50" was called free three times.
   `bigSplitWords` (the `big` record's `splitWords`, `[{word, pieces}]`) names a STACKED word
   that a body starts in the middle of, i.e. one too tall for one receipt at the size picked
   ("Fill the paper's width" makes it as big as the paper allows, however tall): the report says
@@ -458,10 +470,11 @@ nothing that prints).
   face, so lowercase (nothing above the x-height, descenders below) and mixed text landed toward
   the descender side: 'gg' at 193px 34.5px off centre on 80 mm, "Happy birthday" 16.3px, "Hey,
   you" 19.8px (bench, polish round 1). `sideInk(g)` gives each grapheme an ink extent [lo, hi]
-  in em above the baseline from the classes in `SIDE_INK`; emoji take [−0.10, 0.89] and East
-  Asian wide characters [−0.15, 0.72], both as the bench measured them (their fonts on the rig
-  are unmeasured); anything else the font's whole box [−0.212, 0.905], which is centred and
-  moves nothing. `sideInkSpan` unions every column's ink, `sideShiftEm` is how far its middle
+  in em above the baseline from the classes in `SIDE_INK`; East Asian wide characters take
+  [−0.15, 0.72] as the bench measured them (their font on the rig is unmeasured); emoji and
+  anything else the font's whole box [−0.212, 0.905], which is centred and moves nothing (emoji
+  took [−0.10, 0.89] until final review 2, which moved an emoji-only column 8px off centre on the
+  bench, where unshifted it printed within 0.9px; the rig's Segoe UI Emoji is unmeasured). `sideInkSpan` unions every column's ink, `sideShiftEm` is how far its middle
   sits from the box's, and `sideShiftPx` turns that into `position:relative;left:<X>px` (both
   on the bot's allow-list; it moves the painted box and leaves the layout alone), toward the
   letter tops' side (+ down, − up), in whole px, ONE value for the whole block (body k carries
@@ -623,7 +636,8 @@ words.
 - A **takeover** (any of its three saved shapes: the item list, the Blank style's
   `picture`/`l1`-`l3`, the Fake-cheer style's `avatar`/`cBits`/`cName`/`cNote`) becomes one Big
   text block per line (`bigLayout: "lines"`, `bigSize: "fit1"`; a `fmt` rides along unused)
-  and one Glyph-art Image block per picture. An empty takeover is dropped. Every block made
+  and one Glyph-art Image block per picture. A long line then prints small, so the migration
+  banner says to pick Auto under Layout for bigger letters. An empty takeover is dropped. Every block made
   from a takeover gets a **fresh id** above every id in the stack (removing or moving a block,
   its Undo and the cards' notes all find a block by its id).
 - An **old text block**: Giant type (`render: "giant"`) → big text, layout kept (the Emote
@@ -663,7 +677,9 @@ the next save drops them), `blockRender` (`big` | `sideways` | `hanzi`, junk →
 above the parts (a free test, or why the stack prints plain and how to change it).
 `noRoomAdvice` is what replaces the bits total when the box leaves no room after the Cheer line
 (raise Bits per cheer, with the streamer's bits per inch; or, under a maximum length, that it
-would have to be longer).
+would have to be longer). Both take a `shape` (`partsShape(parts)`): a Han tiling part has no
+Cheer line at its top (its token goes last), so when every part is one they say the box is
+shorter than one line and each part prints only its light first row, and a mix names both.
 `forkDither(rgba, w, h, outWidth, mode)` is the C# Ditherer port (integer arithmetic and
 arithmetic shifts as in the C#, the ≥ 250 / ≤ 5 clamps, transparent pixels over white).
 `previewEvent` / `previewVerdict` / `avatarExtraPx` are the app's half of the preview (below).
@@ -726,7 +742,10 @@ generations; `presetImageUrls` walks a stack's picture links.
   in cm, "N cm of message" (the bodies' height: the header, Cheer line and footer come on top,
   and the part's verdict gives the whole receipt), cheers, cut-off flags), computed for a High
   Roller cheer and cached by key; in Each a numeric size is "up to N px" with the capitals its
-  lines really get. The Layout hint (`.layout-hint`) is one sentence about the layout picked.
+  lines really get. While the textarea has focus the labels wait until 250 ms after the last key
+  (`relabelSoon`; each relabel plans every layout and size, about 30 plans, and froze a long
+  text for half a second a keystroke), and focusing or pressing a select draws any still
+  waiting (`relabelNow`); the note and the parts follow every key. The Layout hint (`.layout-hint`) is one sentence about the layout picked.
   Longer fixed explanations (the render, the font, sideways, Han weight, the tier) fold behind
   a native `<details class="hint more"><summary>What's this?</summary>` (`moreHint`; no state,
   nothing saved), and so does the Thermal caption's detail. The head's ↑ is disabled on the
@@ -783,8 +802,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   High Roller cheer no room after its Cheer line (`boxNoRoom`), every part is `noRoom`: a red
   note says it prints nothing but that line (a plain grid: only its light first row), its Copy
   is disabled, and `noRoomAdvice` replaces the bits total. Every card agrees: Big and Sideways
-  say "prints nothing" in place of a price, the Han tiling and Glyph-art summaries drop their
-  cheer counts, and `partLines(where, parts, noRoom)` leaves out "Your whole stack needs N
+  say only "Prints nothing" (`NO_ROOM_SUMMARY`: no price and no size, since none prints), the
+  Han tiling summary says only its light first row prints, the Glyph-art summary drops its
+  cheer count, and `partLines(where, parts, noRoom)` leaves out "Your whole stack needs N
   cheers". The mode notice and the no-room line carry a button to the field that fixes them
   (`settingFix`, `fixButton`, `goToSetting`: "Change Bits per cheer", or "Go to Maximum length" /
   "Go to High Roller threshold"), which scrolls there and focuses it: on a phone the settings
@@ -792,16 +812,27 @@ generations; `presetImageUrls` walks a stack's picture links.
   the one right before it gets a note (Twitch won't send the same message twice in a row
   within 30 seconds). When every copyable part is taller than the box the streamer's settings
   give a cheer (`item.cut`: a Han tiling row under a high bits-per-inch, say), a red line above
-  the total (`#partsCut`) says the bot cuts every one and what to change.
+  the total (`#partsCut`) says the bot cuts every one and what to change. A part holding a block
+  too wide for the paper at its size (`item.wide`, the blocks' numbers) says so beside Copy
+  (`wideLine`), and the total stops saying "Paste it into chat and send it" under it.
   **`update()` vs `refresh()`:** `update()` is for the user's own edits and drops a probe view
   back to the stack; `refresh()` redraws the view on screen and stays there. Work that finishes
   on its own (a Glyph-art read, an adjust bake, an upload, the expiry check) calls `refresh()`:
   with `update()` a read landing under the High Roller test swapped the stack's parts in, and
   the next Copy sent the stack's part 1. The expiry check's card rebuild keeps the focused
   control, its caret and scroll (`keepFocus`), since it lands 700 ms after a keystroke. An upload
-  on a Real picture card writes the minted link into the card's Image URL field. Bits per cheer
+  on a Real picture card writes the minted link into the card's Image URL field; the link and
+  the status line are the BLOCK's (`block.url`, the runtime `block._status`) and the image
+  card's `syncGlyph` shows them on every refresh, so an upload that lands after the cards were
+  redrawn (add, move, ×, Undo, the expiry check) shows on the card on screen, not a detached
+  one. Bits per cheer
   that isn't an amount (0, negative, emptied) reads as the last amount it held (`lastBits`) and
-  is put back when the field is left, with the hint naming what was refused.
+  is put back when the field is left, with the hint naming what was refused. The streamer's
+  three number fields do the same for anything that isn't a number of 0 or more
+  (`lastStreamer`; a negative threshold used to become the default 25 and flip every block), and
+  say so beside the field (`#hrThresholdNote`, `#bitsPerInchNote`, `#maxInchesNote`,
+  `streamerNoteFor`), as they do when a value is capped to the bot's limit (1,000,000 bits, 40
+  inches).
   `probeParts(kind)` builds a probe the same way; its view's notice
   carries a "Back to my stack" button (`#backToStack`) and, with Cheer-ready off, says the test
   is a real cheer anyway (it has to print to show anything). `renderParts` shows the mode notice, a
@@ -828,7 +859,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   focuses the first live Copy, else the Back button. `partWarned` (the app already expects a cut: too tall for the
   box, or a block too wide for the paper) keeps the verdict from blaming fonts. `copyPart`
   advances that part's nonce only when the repeat number is on. Committing a number field
-  (change) writes back the value the app uses (0 bits → 100, 50 inches → 40); the Thermal
+  (change) writes back the value the app uses (0 or an emptied Bits per cheer goes back to the
+  last amount it held, 50 inches → 40); the Thermal
   dither select is disabled while the Thermal view is off, with "(turn on the thermal preview
   first)" beside it (`#thermalDitherOff`).
 - **Presets and the expiry check.** `seedBlocks` migrates a saved stack once and saves it; when
@@ -843,7 +875,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   migrated when loaded. Load asks first ("Replace stack?", `armedLoad`, like Save's
   "Replace?" and Delete's "Really?") when the stack on screen matches no preset
   (`stackIsSaved`: each preset migrated, ids and the Real picture's derived `outUrl` / `aspect`
-  aside, keys sorted; a stack with nothing printable has nothing to lose).
+  aside, keys sorted; a stack holding none of the user's work has nothing to lose,
+  `blockHasWork`: text, or a picture's link, file, rotation or adjustments, Real pictures
+  included, though they print nothing).
   `probeStackExpiry` checks this Worker's upload links (15-minute TTL) by loading each into a
   `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card and redraws the parts
   too (their red notice then says "expired", as the card does), and RETURNS a promise

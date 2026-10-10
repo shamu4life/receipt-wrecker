@@ -13,9 +13,6 @@
   .gh-link:hover, .gh-link:focus-visible { border-color: currentColor; background: rgba(128,128,128,.15); }
   .gh-link svg { width: 1.1em; height: 1.1em; fill: currentColor; }
   .intro { font-size: .9rem; opacity: .85; margin: 0 0 1rem; }
-  .tabs { display: flex; gap: .5rem; margin-bottom: .25rem; }
-  .tab { padding: .5rem 1rem; border: 1px solid #888; background: transparent; cursor: pointer; border-radius: 4px 4px 0 0; font: inherit; }
-  .tab.active { font-weight: 700; border-bottom: 2px solid currentColor; }
   .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
   /* min-width:0 lets a column shrink below its content so a wide preview (census,
      a 48-col grid) scrolls inside .receipt instead of blowing the page width out. */
@@ -24,7 +21,6 @@
   .controls label { display: block; margin-bottom: .75rem; }
   .controls input[type="range"] { width: 100%; }
   .controls input[type="text"], .controls input[type="number"], .controls textarea { width: 100%; box-sizing: border-box; font: inherit; }
-  fieldset { margin: 0 0 .75rem; border: 1px solid #888; border-radius: 4px; }
   .preview { display: flex; flex-direction: column; }
   .receipt {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -35,27 +31,12 @@
     margin: 0 0 .5rem; align-self: flex-start; max-width: 100%; box-sizing: border-box;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
   }
-  /* WYSIWYG receipt paper for Big Text: width mimics 80mm content (~270 CSS px
-     after the template's 1em body margin), same proportional stack + centering
-     as printer-bot's #receipt-container, so on-screen ~= printout. */
-  .receipt-html {
-    width: 270px; max-width: 100%; box-sizing: border-box;
-    background: #fff; color: #000; border: 1px solid #bbb; border-radius: 2px;
-    padding: .5rem 0; margin: 0 0 .5rem;
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    text-align: center; overflow-wrap: break-word; word-break: break-word;
-    box-shadow: 0 1px 4px rgba(0,0,0,.15);
-    /* The Rotate preview is a rotate(90deg) span whose bounding box juts far to the
-       left of the paper — invisible, but it would otherwise swallow clicks meant for
-       the controls (e.g. the text box). The preview is view-only, so drop its hit
-       area entirely. */
-    pointer-events: none;
-  }
   /* Faithful receipt preview, modelled on printer-bot's #receipt-container (the sim
      is reverse-engineered from nutty.gg's own printer code, so trust its geometry):
      an 80mm roll, printed as a 72mm page (paperWidth-8mm, below) at 203dpi.
      Avatar / 100 BITS / username / content / twitch / date, centered. View-only, so
-     pointer-events:none — same reason as above (Rotate's span steals clicks). */
+     pointer-events:none: a rotated preview's box can jut far past the paper, and it
+     would otherwise swallow clicks meant for the controls beside it. */
   /* Numbers mirror the printer-bot's real template: the page wkhtmltopdf prints is
      72mm (--page-width {paperWidth-8}mm on an 80mm roll) with a 1em body margin, 16px
      base, avatar max-height 15em / max-width 90%, title 1.5em/900, subtitle 1.2em/700,
@@ -99,14 +80,12 @@
   .thermal-toggle { display: flex; align-items: center; gap: .4rem; font-size: .85rem; margin: 0 0 .7rem; cursor: pointer; }
   .thermal-toggle input { width: auto; margin: 0; }
   .thermal-note { font-size: .78rem; color: #a60; margin: -.3rem 0 .5rem; }
-  .preview-hint { font-size: .8rem; opacity: .7; margin: 0 0 .5rem; }
   /* Hints sit snug under the label they explain — but ONLY under a label. The
      negative top margin cancels `.controls label`'s .75rem bottom margin; applied
      after anything else (a select, a button row) it drags the hint up into it and
      the text collides. Adjacent-sibling so it can't. */
   .hint { font-size:.8rem; opacity:.7; margin:.35rem 0 .75rem; }
   label + .hint { margin-top: -.4rem; }
-  .reset { font: inherit; font-size:.85rem; padding:0 .4rem; margin-left:.35rem; cursor:pointer; border:1px solid #888; background:transparent; border-radius:3px; vertical-align:middle; }
   .part { margin: 0 0 1rem; }
   .part button.copied { background: #1f6f43; border-color: #1f6f43; color: #fff; }
   .part-head { display: flex; align-items: center; gap: .5rem; font-size: .85rem; margin: 0 0 .35rem; }
@@ -114,9 +93,6 @@
   .over-note { font-size: .8rem; color: #d33; margin: .35rem 0 .4rem; }
   .part-head + .over-note { margin-top: -.15rem; }   /* snug under the char count */
   .parts-note { font-size: .85rem; opacity: .8; margin: .25rem 0 1rem; }
-  /* Legacy per-mode controls are superseded by the composer; hide hard so the old
-     applyVisibility() (which still runs) can't reveal them. */
-  .tabs, #glyphControls, #textControls, #imageControls { display: none !important; }
   #composer { margin: 0 0 1rem; }
   .composer-h { font-size: 1rem; margin: 0 0 .5rem; }
   .block-card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem .7rem; margin: 0 0 .6rem; background: rgba(0,0,0,.02); }
@@ -184,11 +160,6 @@
     </a>
   </div>
   <p class="intro">Your words as giant type, or a picture (a real image by link, or glyph-art from a file). Paste the result into Twitch chat as a Cheer100 and it prints on the streamer's receipt printer.</p>
-  <div class="tabs">
-    <button type="button" class="tab active" id="tabText" data-mode="text">Big Text</button>
-    <button type="button" class="tab" id="tabImage" data-mode="image">Image</button>
-  </div>
-  <div class="hint"><strong>Big Text</strong> = your words printed BIG as real type (press Enter for line breaks). <strong>Image</strong> = the real picture from a link, or glyph-art from an uploaded file. Both ride out on a 100-bit cheer.</div>
   <div class="layout">
     <section class="controls">
       <div id="composer">
@@ -221,43 +192,6 @@
           <div class="hint" id="presetNote">Saved in this browser only. Export the JSON to move a setup to another device, or to survive a cache clear. An <strong>uploaded</strong> picture's link dies after 15 minutes, so a preset that used one loads with that block flagged for re-upload. A pasted link is left alone.</div>
         </div>
       </div>
-      <div id="glyphControls">
-      <div id="tierControl">
-      <label>Tier
-        <select id="tier">
-          <option value="ascii">ASCII letters (safest)</option>
-          <option value="asciifull">ASCII, full detail</option>
-          <option value="cjk">Hanzi &#40845;, prints on RP332</option>
-          <option value="safe">Blocks &#9617;&#9618;&#9619;&#9608; (often blank on printer)</option>
-          <option value="braille">Braille (experimental)</option>
-        </select>
-      </label>
-      <div class="hint">Which characters build the picture. <strong>ASCII letters</strong> renders in the printer's own font (no tofu) and uses only spaces and letters, so it slips past symbol filters; with dither and run-capping it also dodges Nightbot's repetition filter. It is the safe default. <strong>Full detail</strong> adds punctuation for more contrast, which may trip a symbol filter. <strong>Hanzi</strong> tiles from Han glyphs: letters, no markup, and it prints on the RP332. <strong>Blocks/Braille</strong> look crispest on screen, but this printer usually can't render them and they come out as blank boxes.</div>
-      </div><!-- /tierControl -->
-
-      <label>Detail (columns)
-        <input type="number" id="cols" min="8" max="48" step="1" value="20">
-        <button type="button" class="reset" data-target="cols" data-default="20" title="Reset to 20">&#8635;</button>
-      </label>
-      <div class="hint">How many characters wide the picture is. More columns give finer detail. The picture does not have to fit one message: it splits into as many receipt strips as it needs, so higher detail just means more strips to tape together, in order. About 20 gives a quick single strip. Crank it up for a real picture.</div>
-
-      <fieldset>
-        <legend>Quantize</legend>
-        <label><input type="radio" name="quant" id="quantThreshold" value="threshold" checked> Threshold</label>
-        <label><input type="radio" name="quant" id="quantDither" value="dither"> Dither</label>
-      </fieldset>
-      <div class="hint">Threshold = hard cutoff, best for line art/text. Dither = smooth gradients, best for photos.</div>
-
-      <label>Contrast (threshold): <span id="contrastVal">128</span>
-        <button type="button" class="reset" data-target="contrast" data-default="128" title="Reset to 128">&#8635;</button>
-        <input type="range" id="contrast" min="0" max="255" value="128">
-      </label>
-      <div class="hint">Shifts the brightness/threshold cutoff between ink and paper.</div>
-
-      <label><input type="checkbox" id="invert"> Invert</label>
-      <div class="hint">Swaps ink and paper.</div>
-      </div><!-- /glyphControls -->
-
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
       <div class="hint">Starts each message with "Cheer&lt;bits&gt; " so it triggers the print. Turn it off to send a <strong>free test</strong>: a message with no cheer never reaches the printer, but it does go through chat's filters, so it shows whether the channel lets this text through before you spend bits on it.</div>
 
@@ -275,54 +209,6 @@
 
       <label>Receipt length: <input type="number" id="receiptLen" min="100" max="500" step="1" value="297" style="width:6em">mm</label>
       <div class="hint">How long one receipt prints before it is cut. Most 80&nbsp;mm thermal printers stop at the <strong>Windows driver's paper length</strong>, often <strong>A4 (297&nbsp;mm)</strong> — a tall stack is simply cut off there, not shrunk. Tall content is split across several receipts so none is lost (each is its own cheer, with printer-bot's header between them). If yours prints longer, or you set the driver to <strong>Roll Paper / continuous</strong>, raise this; the <strong>Print size ruler</strong> below shows where each number lands so you can read your real length off the tape.</div>
-
-      <div id="textControls">
-        <label>Text
-          <textarea id="textInput" rows="3">HELLO</textarea>
-        </label>
-        <label>Style
-          <select id="bigStyle">
-            <option value="big">Big type (fills the width)</option>
-            <option value="rotate">Giant sideways (HTML)</option>
-            <option value="hanzi">Giant sideways (Hanzi tiling, no markup)</option>
-          </select>
-        </label>
-        <div class="hint"><strong>Big type</strong> prints horizontally as real type. <strong>Giant sideways</strong> runs it down the tape, each letter as tall as the paper is wide, and line breaks become side-by-side columns. <strong>Hanzi tiling</strong> builds those same giant sideways letters from Han <em>glyphs</em> instead of CSS. Each line stacks <em>full-size</em> down the tape, so every line keeps full detail. It emits no markup, which is how it slips past the symbol filters that block the HTML sideways payload, and it is the one style proven to print on this RP332. Set <strong>Detail (columns)</strong> to how many <em>Han characters</em> the printer fits on one line, which is about <strong>half</strong> what the <em>Print test strip</em> ruler reports: that ruler is ASCII digits and a Han glyph is twice as wide. Too wide and every row starts late, so the picture slants. If it prints blank, the printer has no CJK font.</div>
-        <div id="sizeControl">
-          <label>Size: <span id="textSizeVal">90</span><span id="textSizeUnit">%</span>
-            <button type="button" class="reset" data-target="textSize" data-default="90" title="Reset to 90%">&#8635;</button>
-            <input type="range" id="textSize" min="25" max="100" step="5" value="90">
-          </label>
-          <div class="hint">How big the text is. At <strong>100%</strong> it is as large as fits the paper width and auto-shrinks so it never runs off the edge; drop it to leave margins. For <strong>Giant sideways</strong> this sets the letter size, and smaller letters fit more text before each strip ends. Press Enter for separate lines.</div>
-        </div>
-        <div id="rotateLenControl">
-          <label>Length per receipt: <span id="rotateLenVal">800</span>px
-            <button type="button" class="reset" data-target="rotateLen" data-default="800" title="Reset to 800px">&#8635;</button>
-            <input type="range" id="rotateLen" min="300" max="1400" step="50" value="800">
-          </label>
-          <div class="hint">Where each strip ends, so it doesn't cross the printer's page break and slice a word. This is a <strong>cap</strong>, not a target: slide it up until a strip just fills one physical receipt, then back off a touch. Raising it past where your printer actually cuts makes the gouging <em>worse</em>, so calibrate to your printer. Long messages split into more strips, so <strong>tape them together in order</strong>.</div>
-        </div>
-      </div>
-      <div id="imageControls" hidden>
-        <label>Image URL (real picture)
-          <input type="url" id="imgUrl" placeholder="https://&hellip;/pic.jpg">
-        </label>
-        <div class="hint">Paste a link to an image already on the web and it prints the <strong>actual picture</strong>, far better than glyph-art. Memes are already hosted. For your own files, drop them in Discord/imgur first and paste the direct link; this tool can't host a local file (no server). Leave blank to make glyph-art from an upload instead.</div>
-        <div id="imgUrlWidth">
-          <label>Print width: <span id="imgWidthVal">70</span>mm
-            <button type="button" class="reset" data-target="imgWidth" data-default="70" title="Reset to 70mm">&#8635;</button>
-            <input type="range" id="imgWidth" min="20" max="70" step="1" value="70">
-          </label>
-          <div class="hint">How wide it prints. <strong>70&nbsp;mm</strong> is the full printable width (an 80&nbsp;mm roll with ~5&nbsp;mm unprintable margins each side); the printer converts it to black &amp; white, so high-contrast images (memes, logos, line art) come out cleanest.</div>
-        </div>
-        <label>&hellip; or upload a file
-          <input type="file" id="imgFile" accept="image/*">
-        </label>
-        <div class="hint">A file makes <strong>glyph-art</strong> locally (nothing leaves your device). To print it as the <strong>real picture</strong> instead, upload it for a throwaway link:</div>
-        <button type="button" id="uploadBtn">Upload for a 15-min link</button>
-        <div id="uploadStatus" class="hint" aria-live="polite"></div>
-        <div class="hint">Your file is shrunk to a print-sized <strong>PNG</strong> first: the printer mangles WebP and JPEG, and a PNG prints at the right size. It goes to your own server and is <strong>auto-deleted after 15 minutes</strong>, long enough to cheer it before it disappears.</div>
-      </div>
     </section>
     <section class="preview">
       <label class="thermal-toggle" title="Render the preview the way the printer does: 1-bit black &amp; white, dithered">
@@ -2237,7 +2123,7 @@
     }
 
     // --- state (assigned only inside init()/handlers, never at load time) --
-    var els, currentMode, currentImage, partNonces, lastParts, currentKind, sessionNonceCounter;
+    var els, partNonces, lastParts, currentKind, sessionNonceCounter;
     var CHAR_ASPECT = 0.5;       // monospace glyphs are roughly twice as tall as wide
     var STORAGE_KEY = "rw_controls_v1";
     var NONCE_KEY = "rw_nonce_seq";
@@ -2268,33 +2154,6 @@
       return partNonces[i];
     }
 
-    // Columns is a set-once calibration value (see the Printer columns hint) —
-    // always clamp to the input's own 6..40 range in code too, not just via the
-    // HTML min/max, since a pasted/typed value can bypass those.
-    function getCols() {
-      var cols = parseInt(els.cols.value, 10);
-      if (!isFinite(cols)) cols = 15;
-      return Math.max(6, Math.min(48, cols));
-    }
-
-    // The Size slider is now a fill fraction (a percent, 25..100) of the paper/tape
-    // width, shared by Big type (SVG) and Hanzi tiling — both auto-fit the width, so
-    // this scales how much of it the text occupies. Always has an effect, never clips.
-    function getSizeFactor() {
-      var f = parseFloat(els.textSize.value);
-      return isFinite(f) ? Math.max(0.25, Math.min(1, f / 100)) : 0.9;
-    }
-    // Max rotated-tape length (px) per receipt before Rotate splits to the next
-    // strip. Calibrated by the user to their printer's page break — see the hint.
-    function getRotateLen() {
-      var v = parseInt(els.rotateLen.value, 10);
-      // Ceiling = 1400px. The real page (80mm x 500mm, measured on wkhtmltopdf 0.12.6)
-      // fits ~1552px with a typical header, but the header height varies with the
-      // streamer's avatar (up to 15em) which we can't measure — so 1400 leaves a safety
-      // margin against gouging. (History: 1000 guess -> 2000 overshoot -> 1552 measured
-      // -> 1400 with margin.) Default stays 800; nudge up per printer.
-      return isFinite(v) ? Math.max(300, Math.min(1400, v)) : 800;
-    }
     // escapeHtml / escapeAttr live in the pure core (shared with the embed builders
     // and unit-tested there).
     // Big Text as inline SVG — a fresh, non-CSS filter surface. The mod is actively
@@ -2650,8 +2509,8 @@
     // column reads continuously. Short messages come back as a single part.
     // Giant-sideways BODIES (no cheer wrapper): one per taped strip. heightPx = the
     // strip's run length (its physical length down the tape) so the packer respects
-    // the page. `factor`/`len` override the live controls when a composer block carries
-    // its own size/length; they default to the current sliders.
+    // the page. `factor`/`len` are the block's own size/length; absent, they default to
+    // newBlock's 0.9 and 800.
     // `var`-assigned, not a `function` declaration — same export reason as bigFontFor
     // and buildBigTextSvg: it needs to reach module.exports past the DOM-glue guard.
     var rotateBodies = function (text, factor, len, angle, fmt) {
@@ -3826,7 +3685,6 @@
       }
       return packStackBodies(bodies, opts);
     }
-    function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
     // Bits per cheer: any whole number from 1 up (cheerBits). The "100" in "Cheer100" is
     // just the bit count, so a different amount is a different token.
     function getBits() {
@@ -3911,10 +3769,6 @@
         return out;
       });
     }
-    // The aspect (naturalHeight/naturalWidth) of the last uploaded picture, tied to its URL.
-    // Write-only since the legacy tabbed UI's URL builder went; the uploaders still record it.
-    var imgAspect = 0, imgAspectUrl = "";
-    function setImgAspect(url, aspect) { if (aspect > 0) { imgAspect = aspect; imgAspectUrl = url; } }
     // --- clipboard -----------------------------------------------------------
     function fallbackCopy(text) {
       var ta = document.createElement("textarea");
@@ -3944,10 +3798,7 @@
     function saveControls() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          mode: currentMode, tier: els.tier.value, cols: els.cols.value,
-          dither: els.quantDither.checked,
-          contrast: els.contrast.value, invert: els.invert.checked,
-          cheer: els.cheer.checked, bits: els.bitsAmount.value, text: els.textInput.value,
+          cheer: els.cheer.checked, bits: els.bitsAmount.value,
           covers: els.stackCovers.checked,
           // A field of rw_controls_v1, not a new storage key.
           receiptLen: els.receiptLen ? els.receiptLen.value : "",
@@ -3957,34 +3808,16 @@
           tuck: !!(els.cheerTuck && els.cheerTuck.checked),
           // "Add a repeat number", guarded and a field of rw_controls_v1 for the same reasons.
           nonce: !!(els.cheerNonce && els.cheerNonce.checked),
-          textSize: els.textSize.value, bigStyle: els.bigStyle.value,
-          rotateLen: els.rotateLen.value,
-          imgUrl: els.imgUrl.value, imgWidth: els.imgWidth.value,
           thermalView: els.thermalView.checked,
         }));
       } catch (e) { /* ignore (private mode/quota) */ }
     }
-    // Tier defaults are applied on mode switch and initial load — not on every
-    // recompute — so a manual tier override survives keystrokes and only resets
-    // when the mode itself actually changes. Image mode (and the HTML big-text
-    // styles, which ignore the tier) default to the ASCII-letters ramp. Big
-    // Text's Hanzi-tiling style defaults to the CJK ramp: Unicode letters (dodge
-    // the symbol filter) and the one medium proven to print on the RP332.
-    var VALID_TIERS = { ascii: 1, asciifull: 1, cjk: 1, safe: 1, braille: 1 };
-    function defaultTierForMode(mode) {
-      return (mode === "text" && bigStyleVal() === "hanzi") ? "cjk" : "ascii";
-    }
-
     function restoreControls() {
+      // Fields an older version saved (the hidden single-mode UI's mode, tier, cols,
+      // dither, contrast, invert, text, textSize, bigStyle, rotateLen, imgUrl, imgWidth)
+      // are simply not read; the next save drops them.
       var saved = loadSavedControls();
-      currentMode = "text";
-      if (!saved) { els.tier.value = defaultTierForMode(currentMode); return; }
-      currentMode = saved.mode === "image" ? "image" : "text";
-      els.tier.value = (saved.tier && VALID_TIERS[saved.tier]) ? saved.tier : "ascii";
-      if (saved.cols) els.cols.value = saved.cols;
-      if (saved.dither) els.quantDither.checked = true; else els.quantThreshold.checked = true;
-      if (saved.contrast != null) els.contrast.value = saved.contrast;
-      els.invert.checked = !!saved.invert;
+      if (!saved) return;
       els.cheer.checked = saved.cheer !== false;
       if (parseInt(saved.bits, 10) >= 1) els.bitsAmount.value = cheerBits(parseInt(saved.bits, 10));
       // Default ON for anyone whose settings predate the toggle: an uncovered tail is the
@@ -4003,15 +3836,6 @@
       // toggle existed, when the digits were always sent: only an explicit true turns it on.
       // The digits print on the receipt, and dropping them was the point of the toggle.
       if (els.cheerNonce) els.cheerNonce.checked = saved.nonce === true;
-      if (saved.text != null) els.textInput.value = saved.text;
-      // textSize is now a px font-size (>=12); ignore any old fractional value.
-      if (saved.textSize && parseFloat(saved.textSize) >= 12) els.textSize.value = saved.textSize;
-      // bigStyle superseded the old boolean `rotate` — migrate it forward.
-      els.bigStyle.value = (saved.bigStyle && ["big", "rotate", "hanzi"].indexOf(saved.bigStyle) >= 0)
-        ? saved.bigStyle : (saved.rotate ? "rotate" : "big");
-      if (saved.rotateLen && parseInt(saved.rotateLen, 10) >= 300) els.rotateLen.value = saved.rotateLen;
-      if (saved.imgUrl != null) els.imgUrl.value = saved.imgUrl;
-      if (saved.imgWidth && parseInt(saved.imgWidth, 10) >= 10) els.imgWidth.value = saved.imgWidth;
       els.thermalView.checked = !!saved.thermalView;
     }
 
@@ -4592,8 +4416,8 @@
       return e;
     }
     function opt(val, label, sel) { var o = mkEl("option", { value: val }, label); if (sel) o.selected = true; return o; }
-    // Wrap a range/number input with a live value readout + a reset-to-default button
-    // (restores the readouts/resets the old tabbed UI had). `input` keeps its own change
+    // Wrap a range/number input with a live value readout + a reset-to-default button.
+    // `input` keeps its own change
     // handler; this adds the value display and a reset that re-fires that handler.
     function sliderRow(labelText, input, def, unit) {
       unit = unit || "";
@@ -5083,7 +4907,6 @@
           if (adjKey(block) !== key) return;   // user moved on — drop stale result
           if (!res.ok) { setStatus("Adjust failed: " + ((res.d && res.d.error) || "server")); return; }
           block.outUrl = res.d.url; block.aspect = res.aspect;
-          setImgAspect(res.d.url, res.aspect);
           setStatus("Adjusted ✓ (link expires ~15 min)"); saveBlocks(); update();
         })
         .catch(function (e) { setStatus("Adjust failed (" + e.message + ")"); });
@@ -5127,7 +4950,7 @@
     }
     function uploadFileForBlock(block, file, setStatus) {
       uploadPngForUrl(file, setStatus, function (url, aspect) {
-        block.url = url; block.outUrl = null; block.aspect = aspect; setImgAspect(url, aspect);
+        block.url = url; block.outUrl = null; block.aspect = aspect;
         if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded, now adjusting…"); processImage(block, setStatus); }
         else { setStatus("Uploaded ✓ (link expires ~15 min)"); saveBlocks(); update(); }
       });
@@ -6046,66 +5869,14 @@
         if (Date.now() - lastCopiedAt >= COPY_FLASH_MS) refresh();   // and back again
       }, COPY_FLASH_MS + 60);
     }
-    // The Size slider is a fill % for both styles that use it (Big type + Hanzi);
-    // the value is already the percent, so just mirror it.
-    function syncSizeLabel() {
-      els.textSizeVal.textContent = els.textSize.value;
-      els.textSizeUnit.textContent = "%";
-    }
-    // Glyph controls (cols/quantize/contrast/invert) show for Image mode and for
-    // Big Text's Hanzi-tiling style, which drives the same glyph engine. The Tier
-    // picker itself is image-only (Hanzi tiling forces the CJK ramp). Size shows for
-    // both text styles that use it (Big type + Hanzi); only the HTML sideways
-    // "rotate" auto-fills the width and needs no size input.
-    function applyVisibility() {
-      var isText = currentMode === "text";
-      var hanzi = isText && bigStyleVal() === "hanzi";
-      // A URL in Image mode = real-image mode: hide the glyph-art controls (tier/cols/
-      // quantize/contrast/invert) and show the print-width slider instead.
-      var urlMode = currentMode === "image" && (els.imgUrl.value || "").trim() !== "";
-      els.glyphControls.hidden = !((currentMode === "image" && !urlMode) || hanzi);
-      els.tierControl.hidden = currentMode !== "image" || urlMode;
-      els.imgUrlWidth.hidden = !urlMode;
-      // Size shows for the vector styles (big, rotate) where it's a real control.
-      // Hanzi tiling ignores it (letters always fill the width for legibility — the
-      // resolution lever there is "Detail (columns)"), so hide it to avoid confusion.
-      els.sizeControl.hidden = !(isText && bigStyleVal() !== "hanzi");
-      els.rotateLenControl.hidden = !(isText && bigStyleVal() === "rotate");
-      syncSizeLabel();
-    }
-    function setMode(mode) {
-      var modeChanged = mode !== currentMode;
-      currentMode = mode;
-      if (modeChanged) els.tier.value = defaultTierForMode(mode);
-      els.tabText.classList.toggle("active", mode === "text");
-      els.tabImage.classList.toggle("active", mode === "image");
-      els.textControls.hidden = mode !== "text";
-      els.imageControls.hidden = mode !== "image";
-      applyVisibility();
-      update();
-    }
 
     // --- wiring (the only part that touches real elements) --------------------
     function init() {
-      currentImage = null;
       partNonces = [];
       lastParts = [];
       sessionNonceCounter = 0;
       currentKind = "compose";
       els = {
-        tabText: document.getElementById("tabText"),
-        tabImage: document.getElementById("tabImage"),
-        textControls: document.getElementById("textControls"),
-        imageControls: document.getElementById("imageControls"),
-        glyphControls: document.getElementById("glyphControls"),
-        tierControl: document.getElementById("tierControl"),
-        tier: document.getElementById("tier"),
-        cols: document.getElementById("cols"),
-        quantThreshold: document.getElementById("quantThreshold"),
-        quantDither: document.getElementById("quantDither"),
-        contrast: document.getElementById("contrast"),
-        contrastVal: document.getElementById("contrastVal"),
-        invert: document.getElementById("invert"),
         cheer: document.getElementById("cheer"),
         cheerTuck: document.getElementById("cheerTuck"),
         cheerTuckHint: document.getElementById("cheerTuckHint"),
@@ -6124,22 +5895,6 @@
         presetImport: document.getElementById("presetImport"),
         presetJson: document.getElementById("presetJson"),
         presetNote: document.getElementById("presetNote"),
-        textInput: document.getElementById("textInput"),
-        bigStyle: document.getElementById("bigStyle"),
-        sizeControl: document.getElementById("sizeControl"),
-        textSize: document.getElementById("textSize"),
-        textSizeVal: document.getElementById("textSizeVal"),
-        textSizeUnit: document.getElementById("textSizeUnit"),
-        rotateLenControl: document.getElementById("rotateLenControl"),
-        rotateLen: document.getElementById("rotateLen"),
-        rotateLenVal: document.getElementById("rotateLenVal"),
-        imgFile: document.getElementById("imgFile"),
-        uploadBtn: document.getElementById("uploadBtn"),
-        uploadStatus: document.getElementById("uploadStatus"),
-        imgUrl: document.getElementById("imgUrl"),
-        imgUrlWidth: document.getElementById("imgUrlWidth"),
-        imgWidth: document.getElementById("imgWidth"),
-        imgWidthVal: document.getElementById("imgWidthVal"),
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
         rulerBtn: document.getElementById("rulerBtn"),
@@ -6162,90 +5917,13 @@
       syncTuckUi();
       syncNonceUi();
 
-      els.tabText.addEventListener("click", function () { setMode("text"); });
-      els.tabImage.addEventListener("click", function () { setMode("image"); });
-
-      [els.tier, els.cols, els.quantThreshold, els.quantDither, els.contrast,
-       els.invert, els.cheer, els.cheerNonce, els.cheerTuck, els.bitsAmount, els.stackCovers, els.receiptLen, els.textInput, els.textSize, els.rotateLen,
-       els.imgUrl, els.imgWidth].forEach(function (el) {
+      [els.cheer, els.cheerNonce, els.cheerTuck, els.bitsAmount, els.stackCovers, els.receiptLen].forEach(function (el) {
         if (!el) return;
         el.addEventListener("input", function () {
-          els.contrastVal.textContent = els.contrast.value;
-          els.rotateLenVal.textContent = els.rotateLen.value;
-          els.imgWidthVal.textContent = els.imgWidth.value;
-          applyVisibility();   // a URL toggles real-image vs glyph-art controls
           syncTuckUi();        // Cheer-ready gates the tuck; the bit amount changes its cost
           syncNonceUi();       // ...and gates the repeat number; the bit amount is in its example
           update();
         });
-      });
-      els.bigStyle.addEventListener("change", function () {
-        if (els.bigStyle.value === "hanzi") els.tier.value = "cjk";   // the point of the style
-        applyVisibility();
-        update();
-      });
-
-      [].forEach.call(document.querySelectorAll(".reset"), function (btn) {
-        btn.addEventListener("click", function () {
-          var el = document.getElementById(btn.getAttribute("data-target"));
-          el.value = btn.getAttribute("data-default");
-          el.dispatchEvent(new Event("input", { bubbles: true }));
-        });
-      });
-
-      els.imgFile.addEventListener("change", function (e) {
-        var file = e.target.files && e.target.files[0];
-        if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function () {
-          var img = new Image();
-          img.onload = function () { currentImage = img; update(); };
-          img.src = reader.result;
-        };
-        reader.readAsDataURL(file);
-      });
-
-      // POST the image to the Worker's /upload (KV, 15-min TTL) and drop the returned
-      // link into the URL box. The ONLY network call in the app, only on this click.
-      function sendUpload(blob, aspect) {
-        els.uploadStatus.textContent = "Uploading…";
-        fetch("/upload", { method: "POST", headers: { "content-type": "image/png" }, body: blob })
-          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-          .then(function (res) {
-            els.uploadBtn.disabled = false;
-            if (!res.ok) { els.uploadStatus.textContent = "Upload failed: " + ((res.d && res.d.error) || "server error"); return; }
-            setImgAspect(res.d.url, aspect);   // we already know it from the canvas — skip probing the KV URL (not propagated yet)
-            els.imgUrl.value = res.d.url;
-            els.imgUrl.dispatchEvent(new Event("input", { bubbles: true }));   // -> real-image mode
-            els.uploadStatus.textContent = "Link ready. It's in the box above and expires in ~15 min. Cheer it now.";
-          })
-          .catch(function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Upload failed (network)."; });
-      }
-      els.uploadBtn.addEventListener("click", function () {
-        var file = els.imgFile.files && els.imgFile.files[0];
-        if (!file) { els.uploadStatus.textContent = "Pick a file above first."; return; }
-        els.uploadStatus.textContent = "Preparing…";
-        els.uploadBtn.disabled = true;
-        // Re-encode to a print-sized PNG before uploading. The printer's ancient
-        // engine renders WebP (and some JPEGs) at native size, ignoring the <object>
-        // width; a PNG shrunk to ~printer resolution sidesteps both the format and
-        // the size problem. Local file -> canvas isn't tainted, so toBlob works.
-        var img = new Image();
-        img.onload = function () {
-          var maxDim = 720, scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
-          var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
-          var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
-          cv.getContext("2d").drawImage(img, 0, 0, w, h);
-          URL.revokeObjectURL(img.src);
-          var aspect = h / w;
-          cv.toBlob(function (blob) {
-            if (!blob) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't process that image."; return; }
-            if (blob.size > 5 * 1024 * 1024) { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Too big even after shrinking. Try a smaller image."; return; }
-            sendUpload(blob, aspect);
-          }, "image/png");
-        };
-        img.onerror = function () { els.uploadBtn.disabled = false; els.uploadStatus.textContent = "Couldn't read that image."; URL.revokeObjectURL(img.src); };
-        img.src = URL.createObjectURL(file);
       });
 
       els.censusBtn.addEventListener("click", function () {
@@ -6268,10 +5946,6 @@
       // Toggling thermal view just re-renders: renderParts rebuilds clean frames,
       // then scheduleThermal() dithers them when the box is checked (no-op when off).
       els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
-
-      els.contrastVal.textContent = els.contrast.value;
-      els.rotateLenVal.textContent = els.rotateLen.value;
-      els.imgWidthVal.textContent = els.imgWidth.value;
 
       // Composer: seed the block stack (migrating old single-text state), draw the
       // cards, and wire the add buttons. Seed BEFORE the first update() so it composes.

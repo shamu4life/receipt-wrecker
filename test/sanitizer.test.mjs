@@ -20,12 +20,6 @@ const IMG_CLASSES = new Set(["emote", "bits"]);
 // Every tag name that appears in a blob (opening tags only; our output never nests
 // unusually, so a token scan is faithful here).
 const tagsIn = (html) => [...html.matchAll(/<([a-zA-Z][\w-]*)/g)].map((m) => m[1].toLowerCase());
-// The attribute names on EVERY occurrence of a given tag. This used to read only the
-// first occurrence and only `name=` pairs, which let a stray attribute on level 2 of a
-// giant `.title` nest through, and read the unquoted tuck span as clean; see scanTags.
-const attrsOf = (html, tag) => scanTags(html)
-  .filter((t) => t.tag === tag && !t.closing)
-  .flatMap((t) => t.attrs.map((a) => a.name));
 // Does a blob survive the allow-list intact — every tag kept, every attr (on every
 // occurrence) kept, every <img> carrying an emote/bits class?
 function survivesWhole(html) {
@@ -40,36 +34,6 @@ function survivesWhole(html) {
   }
   return true;
 }
-
-const BOX = { url: "https://i.uwutoowo.com/a1b2c3d4e5f6.png", w: 240, h: 180, mm: 64 };
-
-test("the default picture carrier is sanitizer-legal (img + emote/bits class, nothing stripped)", () => {
-  const html = C.buildImageEmbed(C.EMBED_DEFAULT, BOX);
-  assert.deepEqual(tagsIn(html), ["img"], "default should emit a single <img>: " + html);
-  for (const a of attrsOf(html, "img")) assert.ok(ALLOWED_ATTRS.has(a), "default emits stripped attr '" + a + "': " + html);
-  assert.ok(survivesWhole(html), "default carrier does not survive the sanitizer: " + html);
-});
-
-test("the two gates are independent: exactly the img-class pair clears the sanitizer, and chat still blocks it", () => {
-  // The distinction this test exists to keep straight. `blocked` means "will not put a
-  // picture on the tape" and is true for EVERY entry now — but for two different reasons,
-  // and conflating them would hide the only route back. The img-class pair passes the
-  // sanitizer cleanly and dies at chat's blocked-terms filter; everything else dies at
-  // the sanitizer and would still be dead even if chat let it through.
-  const SANITIZER_LEGAL = new Set(["imgemote", "imgbits"]);
-  for (const e of C.EMBEDS) {
-    const html = C.buildImageEmbed(e.id, BOX);
-    if (SANITIZER_LEGAL.has(e.id)) {
-      assert.ok(survivesWhole(html), e.id + " must clear the sanitizer untouched: " + html);
-      assert.equal(e.field, "blocked", e.id + " clears the sanitizer, so chat must be the recorded blocker");
-    } else {
-      assert.ok(!survivesWhole(html), e.id + " should not survive the allow-list: " + html);
-    }
-    // Whatever the reason, nothing delivers a picture today.
-    assert.ok(e.blocked, e.id + " must be flagged blocked");
-  }
-  assert.equal(C.anyCarrierLive(), false, "no carrier clears both gates");
-});
 
 test("a CJK/Hanzi glyph grid is pure text — nothing for the sanitizer to strip", () => {
   // The markup-free survival property: render() of a tone-tier grid is one string with

@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { loadCore } from "./_harness.mjs";
 
 const C = loadCore();
-const { escapeHtml, escapeAttr, buildImageEmbed } = C;
+const { escapeHtml, escapeAttr } = C;
 
 test("escapeHtml neutralises the three characters that can open a tag or an entity", () => {
   assert.equal(escapeHtml("<b>"), "&lt;b&gt;");
@@ -46,16 +46,4 @@ test("escapeAttr also closes the double quote — the attribute escape hatch", (
   assert.equal(escapeAttr('a"b'), "a&quot;b");
   // It is escapeHtml plus the quote, so it must still do everything escapeHtml does.
   assert.equal(escapeAttr("<&>"), "&lt;&amp;&gt;");
-});
-
-test("a crafted picture URL cannot break out of the carrier's src attribute", () => {
-  // Every live carrier states the URL inside a double-quoted attribute, so every live
-  // carrier has to hold. Looping the table means a carrier added later is covered too.
-  const nasty = 'https://x.test/a.png" onload="alert(1)';
-  for (const e of C.EMBEDS) {
-    const html = buildImageEmbed(e.id, { url: nasty, w: 120, h: 120 });
-    assert.ok(!html.includes('onload="alert(1)"'),
-      e.id + " let a crafted URL open a new attribute: " + html);
-    assert.ok(html.includes("&quot;"), e.id + " did not escape the quote: " + html);
-  }
 });

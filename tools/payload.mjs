@@ -12,10 +12,10 @@
 // Give forkbench the same --bits as the spec's "bits" (default 100 in both), or the bot's
 // header and its High Roller decision will not match the message.
 //
-// NOTE: the kinds below are still the nutty.gg-era ones (Giant type, the Print size ruler,
-// carrier embeds) while the app is rebuilt for SassyTP's printer-bot; most of them print
-// nothing styled on it. The rebuild replaces them with big, side, glyph, plain, hrprobe
-// and plainprobe. "raw" is the escape hatch either way.
+// NOTE: the kinds below are still the nutty.gg-era ones (Giant type, the Print size ruler)
+// while the app is rebuilt for SassyTP's printer-bot; they print nothing styled on it. The
+// rebuild replaces them with big, side, glyph, plain, hrprobe and plainprobe. "raw" is the
+// escape hatch either way.
 //
 // Specs (all fields optional unless noted):
 //   {"kind":"giant","text":"HELLO","layout":"auto|lines|stack|emote",
@@ -32,10 +32,9 @@
 //        the size the app predicts go to stderr. "cheer":false is the free probe message
 //        (no token, never reaches the printer, still passes the chat filter).
 //   {"kind":"ruler","bits":100}                            the Print size ruler (never tucked)
-//   {"kind":"embed","url":"...","w":160,"h":160,"carrier":"embed"}   one bare picture
 //   {"kind":"raw","html":"<b>anything</b>"}                escape hatch
 //
-// Add "lead":true to the last two to prefix the real cheer lead ("Cheer100 ", "Cheer100 00 "
+// Add "lead":true to "raw" to prefix the real cheer lead ("Cheer100 ", "Cheer100 00 "
 // with "nonce":true, or the tucked one with "tuck":true; "bits" sets the amount). That lead
 // occupies a line of the receipt's message box, so a measurement without it is a line short.
 import { readFileSync, existsSync } from "node:fs";
@@ -68,7 +67,7 @@ const leadOpts = {
   // The app's repeat-number toggle defaults to off, so the bench does too.
   noNonce: spec.nonce !== true,
 };
-// One message through the packer, exactly as probeParts sends a single body: the lead,
+// One message through the packer, exactly as the app sends a single body: the lead,
 // the nonce, and under the tuck the packer's first-body <br> rule all come from the app.
 const wrap = (body) => C.packStackBodies([{ html: body, chars: C.payloadLength(body), heightPx: 0 }],
   leadOpts)[0].payload;
@@ -116,16 +115,12 @@ switch (spec.kind) {
     console.error("[payload] ruler: 1.." + body.giant.levels + ", predicted height " + body.heightPx + "px");
     break;
   }
-  case "embed":
-    html = C.buildImageEmbed(spec.carrier || C.EMBED_DEFAULT,
-      { url: spec.url, w: spec.w || 160, h: spec.h || 160, framed: !!spec.framed });
-    break;
   case "raw":
     html = String(spec.html || "");
     break;
   default:
     console.error('unknown kind: ' + JSON.stringify(spec.kind)
-      + ' — expected giant, ruler, embed or raw');
+      + ' — expected giant, ruler or raw');
     process.exit(2);
 }
 

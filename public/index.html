@@ -76,7 +76,6 @@
     image-rendering: pixelated; background: #fff; border: 1px solid #bbb; }
   .thermal-toggle { display: flex; align-items: center; gap: .4rem; font-size: .85rem; margin: 0 0 .7rem; cursor: pointer; }
   .thermal-toggle input { width: auto; margin: 0; }
-  .thermal-note { font-size: .78rem; color: #a60; margin: -.3rem 0 .5rem; }
   /* Hints sit snug under the label they explain — but ONLY under a label. The
      negative top margin cancels `.controls label`'s .75rem bottom margin; applied
      after anything else (a select, a button row) it drags the hint up into it and
@@ -105,9 +104,10 @@
   #presets input[type=text], #presets select { flex: 2; min-width: 0; padding: .4rem; }
   #presets textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, Menlo, Consolas, monospace; display: none; }
   #presets textarea.show { display: block; }
-  /* An expired upload is the project's worst failure mode — it prints blank paper and
-     still spends bits — so it gets the same red treatment as an over-budget part. */
+  /* An expired upload leaves its block nothing to print, so it gets the same red
+     treatment as an over-budget part. */
   .expired-note { color: #d33; font-weight: 700; margin: .25rem 0; }
+  .img-thumb { display: block; max-width: 100%; max-height: 220px; margin: .45rem 0; border: 1px solid #ccc; }
   /* A Giant type card's live report. */
   .giant-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; }
   .giant-note > div { margin: 0 0 .25rem; }
@@ -141,7 +141,7 @@
       GitHub
     </a>
   </div>
-  <p class="intro">Your words as giant type, or a picture (a real image by link, or glyph-art from a file). Paste the result into Twitch chat as a Cheer100 and it prints on the streamer's receipt printer.</p>
+  <p class="intro">Your words as giant type, or a picture as glyph-art (from a link or a file). Paste the result into Twitch chat as a Cheer100 and it prints on the streamer's receipt printer.</p>
   <div class="layout">
     <section class="controls">
       <div id="composer">
@@ -192,15 +192,12 @@
       <label class="thermal-toggle" title="Render the preview the way the printer does: 1-bit black &amp; white, dithered">
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dithered, like the real printer
       </label>
-      <div class="thermal-note" id="thermalNote" hidden>Dithering a <em>linked</em> picture fetches it through this site's server, because your browser won't let us read a remote image's pixels any other way. Big Text and glyph-art still never leave your device.</div>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="censusBtn">Print test strip</button>
         <button type="button" id="rulerBtn">Print size ruler</button>
-        <button type="button" id="probeBtn">Find what still sends</button>
       </div>
       <div class="hint"><strong>Print size ruler</strong> is one cheer that prints the numbers 1 to 13, each one a size bigger than the last. If the numbers grow, Giant type works on this printer today, and you can see every size it offers on real paper. If they all come out the same size, printer-bot changed its style: use Hanzi tiling instead.</div>
-      <div class="hint">Pictures ride on an HTML tag. printer-bot now runs an allow-list sanitizer that deletes every tag it doesn't recognise, and the only picture it keeps is <code>&lt;img class="emote"&gt;</code> or <code>&lt;img class="bits"&gt;</code> — so those are the two carriers to try first. <strong>Find what still sends</strong> builds the same picture with every tag we know, one cheer each. Send them one at a time; whichever letter prints <em>with a picture under it</em> names the <strong>Carrier tag</strong> to pick in the block above.</div>
     </section>
   </div>
   <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer. Only the first-party client actually cheers.</p>
@@ -536,212 +533,6 @@
   // For a value going into a double-quoted HTML attribute (the image URL): also
   // neutralize the quote so a crafted URL can't break out of the attribute/tag.
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
-  // ── THE WIDTH CLAMP, AND THE ONE PLACE IT MAY BE DROPPED ──────────────────
-  // A top-level picture is laid out against the receipt BODY, whose real width we do
-  // not know: printer-bot renders at paperWidth-8 mm with `body { margin: 1em }`,
-  // which measured ~240px on an 80mm roll against PAPER_PX's 263. Field-confirmed by
-  // a print that came out too wide. So the carriers clamp and adapt to whatever the
-  // body really is, rather than betting on another hardcoded number. That is
-  // load-bearing — do not remove it from the ordinary path.
-  //
-  // Inside a fixed-size <foreignObject> there is nothing to adapt TO: the containing
-  // block IS the frame, and the tag already carries width="<the frame's width>", so
-  // the declaration can only ever resolve to the width it already has. It is a
-  // provable no-op there, costing up to 23 of a 500-character Twitch budget — which
-  // is exactly the margin between a fake cheer going out as one cheer or two.
-  //
-  // `framed` drops it THERE AND ONLY THERE. buildTakeover is the sole caller that
-  // sets it, and a test asserts every carrier still clamps when unframed.
-  function clampAttr(o) { return o.framed ? "" : ' style="max-width:100%"'; }
-  function clampCss(o) { return o.framed ? "" : "max-width:100%;"; }
-  // ── REAL-IMAGE EMBED SURFACES ─────────────────────────────────────────────
-  // A real picture rides as markup pointing at a URL — printer-bot drops the chat
-  // message straight into its page, so a tag renders. WHICH tag is a moving target:
-  // the channel's blocked-terms list ate `<object` first, then `<image` (the SVG
-  // form), and each block silently kills every picture the tool makes.
-  //
-  // So the tag is DATA, not a hardcode. Every entry below paints the same picture
-  // out of a different token, so recovering from the next block is a dropdown change
-  // rather than a release — and "Find what still sends" (buildEmbedProbe) says which
-  // one to pick. `blocked` marks the ones the list has already eaten; they stay in
-  // the table because blocked-term lists get pruned as often as they get extended,
-  // and the probe re-tests them for free.
-  //
-  // Builders take {url, w, h, mm}: w/h are the print box in CSS px (w already capped
-  // to the paper), mm the same width in millimetres. h is derived from the probed
-  // aspect ratio and is only a guess until that probe lands, so a form that can size
-  // itself from the picture's own aspect beats one that needs a height told to it.
-  //
-  // ORDER IS MEASURED AND THEN FIELD-TESTED. Every entry was first rendered through
-  // the exact binary printer-bot ships (wkhtmltopdf 0.12.6 "with patched qt" =
-  // Qt 4.8.7 / WebKit 534.34) with its exact Print Routine flags — including
-  // `--no-background`, which matters a lot — and then actually cheered at the real
-  // rig. Where the two disagree, the tape wins. `token` records the literal string
-  // the blocked-terms list would have to match to kill that entry.
-  //
-  // FIELD RESULT, Aug 2026 (a full probe round on the real channel + printer):
-  //   input   printed, but ran too wide   -> default (the overrun was universal,
-  //                                          not an input problem; clamped below)
-  //   embed   printed perfectly           -> equal on the tape, but it alone fails
-  //                                          silently on an extensionless URL
-  //   iframe  printed perfectly           -> but see the crop note
-  //   img     NEVER SENT — blocked        -> the list took "<img" too
-  //   svg     blocked earlier             -> "<image"
-  //   object  blocked before that         -> "<object"
-  //
-  // EVERY LIVE ENTRY USED TO CARRY `max-width:100%`. The print box we ask for (263px,
-  // i.e. 70mm) is wider than the receipt body actually is: printer-bot renders at
-  // `paperWidth-8`mm and its template sets `body{margin:1em}`, leaving ~240px on an
-  // 80mm roll. Measured, every carrier drew to the paper edge and lost its right
-  // margin. A clamp fixed it adaptively. That clamp lives in `style`, and `style` no
-  // longer survives (see the sanitizer note directly below) — so on the two img-class
-  // carriers it is dropped, and sizing would have to come from the uploaded PNG's own
-  // pixels if either of them ever became sendable again.
-  //
-  // ⚠ SANITIZER, CONFIRMED LIVE 2026-09-15 — THIS SUPERSEDES EVERYTHING ABOVE.
-  // printer-bot no longer renders the chat message as raw innerHTML. It now runs it
-  // through an allow-list sanitizer (a DOMParser walk) BEFORE the engine sees it. The
-  // allow-list is tiny: tags {img, span, b, i, br, em, strong} and attributes
-  // {src, class} ONLY — and an <img> is deleted outright unless its class contains the
-  // token "emote" or "bits". Everything else is unwrapped (tag deleted, text kept).
-  // The whole point of that filter is to allow only Twitch's own inline images plus
-  // basic formatting, which is very nearly the exact surface this tool depended on.
-  //
-  // What that does to this table: <embed>, <input>, <iframe>, <object> and even a bare
-  // <img> are ALL stripped — every one of them is dead, whatever the blocked-terms list
-  // does. The ONLY picture the sanitizer keeps is `<img class="emote">` or
-  // `<img class="bits">`, and only its src/class attributes come through (no width, no
-  // height, no style). Clearing the sanitizer is only half the journey, though — see the
-  // second banner directly below, which is what the rig came back and said.
-  // ⚠⚠ FIELD-CONFIRMED 2026-09-15: THERE IS NO WORKING CARRIER. EVERY ENTRY IS DEAD.
-  // Two independent gates now close on the picture, and their intersection is empty:
-  //   * The SANITIZER keeps exactly one image-capable tag, <img>, and only with an
-  //     emote/bits class. Of the seven tags it allows, only <img> can load an image at
-  //     all — `src` on a <span>/<b>/<i>/<em>/<strong>/<br> does nothing.
-  //   * AUTOMOD still blocks the literal "<img", re-confirmed by a free non-cheer probe
-  //     on the real channel: the emote and bits forms were both eaten, while a control
-  //     carrying the same link with no tag went through, so the tag is what is blocked.
-  // So `field` records WHICH gate kills an entry ("blocked" = automod ate the token,
-  // "stripped" = the sanitizer removes the tag) and `blocked` means "will not put a
-  // picture on the tape", whatever the reason. Every entry now has it. Do NOT read the
-  // img-class entries' "blocked" as "the sanitizer rejects them" — it does not; they are
-  // sanitizer-legal and chat-blocked, which is exactly why they stay at the top as the
-  // first things to re-probe if the terms list is ever pruned.
-  //
-  // DO NOT "fix" this by obfuscating the tag (case-mangling "<IMG", padding, entities).
-  // The terms list has now eaten <object, then <image, then <img — three rounds of a
-  // channel's mods blocking every picture surface this tool has offered — and
-  // printer-bot independently added a sanitizer that admits only Twitch's OWN emotes.
-  // Two separate parties have said no to arbitrary images. Route around glyph-art, which
-  // is plain text and needs no evasion, not around the moderators.
-  var EMBEDS = [
-    // ── SANITIZER-LEGAL BUT CHAT-BLOCKED (re-probe these first) ─────────────
-    // src + class are all that survive the sanitizer, so these are as short as a carrier
-    // gets and carry no width/height/style at all. The sanitizer keeps them; automod does
-    // not. EMBED_DEFAULT still names the first one — not because it works, but because it
-    // is the candidate to re-probe first if the blocked-terms list is ever pruned.
-    { id: "imgemote", label: "img class=emote: sanitizer-legal, but automod blocks it (Sep 2026)", token: "<img",
-      blocked: true, field: "blocked",
-      build: function (o) {
-        return '<img src="' + escapeAttr(o.url) + '" class="emote">';
-      } },
-    // The bits/cheermote class, the A/B partner: same tag, different class. Probed in the
-    // same free round and blocked identically, which is what shows the block is keyed on
-    // the "<img" token and not on the class.
-    { id: "imgbits", label: "img class=bits: sanitizer-legal, but automod blocks it (Sep 2026)", token: "<img",
-      blocked: true, field: "blocked",
-      build: function (o) {
-        return '<img src="' + escapeAttr(o.url) + '" class="bits">';
-      } },
-    // ── DEAD UNDER THE SANITIZER (kept for the probe / a possible rollback) ──
-    // WAS THE DEFAULT before the sanitizer. Measured on the engine AND field-confirmed:
-    // printed perfectly on the real machine, and it was the shortest live payload — but
-    // the sanitizer strips <embed> outright now, so it never reaches the tape. Its one
-    // other limitation is real
-    // but KNOWN and detectable: the URL must end in an image extension or it prints
-    // blank, because the engine picks the image renderer from it — so the UI warns
-    // before you send (see needsExt). A limitation you can be warned about beats one
-    // nothing can see coming. The height attribute is dropped
-    // deliberately — with it, the clamp shrinks the width but the stated height
-    // stays, stretching the picture ~8%; without it the engine takes the height from
-    // the image and the aspect stays true (240x180 for a 4:3 source, measured).
-    // Only catch: the URL must end in a known image extension, because WebKit picks
-    // the image renderer from it — a bare /i/<hex> draws nothing. /upload returns
-    // .png links for exactly this reason.
-    { id: "embed", label: "embed tag: stripped by the sanitizer (was the default)", token: "<embed",
-      needsExt: true, field: "stripped", blocked: true,
-      build: function (o) {
-        return '<embed src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
-      } },
-    // Field-confirmed to SEND — the hard half — and its selling point is that it
-    // needs NO file extension, so it's the one to reach for when a link has no .png
-    // on the end and embed would print blank. Spells "image" as an attribute VALUE
-    // rather than a tag name, so a term keyed on "<image" doesn't see it.
-    //
-    // NOT the default, because it is the one form that printed WRONG in the field:
-    // it came off the tape too wide. The bench can't reproduce that — every carrier
-    // overran identically here, and the clamp fixes them all — so there is a real
-    // unexplained delta on the target rig. Best hypothesis: <input> is a form
-    // CONTROL and Qt themes those per-platform, so the Windows build may draw native
-    // chrome around it that this Linux build of the same binary does not. The
-    // border/padding reset below is aimed at that, but it is UNVERIFIED: the only
-    // machine that can confirm it is the one that printed it wrong. Until someone
-    // re-probes it there, a known-and-warnable limitation (embed's extension) beats
-    // an unexplained failure nothing can detect.
-    { id: "input", label: "input type=image: stripped by the sanitizer", token: "<input",
-      field: "stripped", blocked: true,
-      build: function (o) {
-        // border/padding zeroed on the hypothesis that native form-control chrome is
-        // what made this print wide on Windows — unverified, see the note above.
-        return '<input type="image" src="' + escapeAttr(o.url) + '" width="' + o.w
-          + '" style="' + clampCss(o) + 'border:0;padding:0">';
-      } },
-    // FIELD-CONFIRMED to print — but keep the caveat: a subframe gets no
-    // shrink-to-fit (WebKit does that for the main frame only), so the picture draws
-    // at its natural pixel size and is CLIPPED by the frame. It looks perfect for a
-    // picture already smaller than the box and loses the right/bottom of anything
-    // bigger — and /upload re-encodes up to 720px, so uploads will crop.
-    // framedOk:false — MEASURED on the real engine: an <iframe> inside the takeover's
-    // <foreignObject> swallows the content that follows the whole SVG, so everything
-    // stacked below a takeover silently vanishes from the print. Isolated against an
-    // otherwise identical page: embed-in-foreignObject printed the trailing block, the
-    // same page with iframe printed none of it on either PDF page, and a bare iframe
-    // with no foreignObject printed it fine. Same class as the foreignObject sibling
-    // rule, one level out. Fine as a top-level picture; never inside the frame.
-    { id: "iframe", label: "iframe: stripped by the sanitizer", token: "<iframe", field: "stripped", blocked: true,
-      framedOk: false,
-      build: function (o) {
-        return '<iframe src="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h
-          + '" frameborder="0" scrolling="no"' + clampAttr(o) + '></iframe>';
-      } },
-    // Blocked Aug 2026 — the list took "<img" as well, in the same round that killed
-    // the SVG form. It renders fine on the engine (shortest payload of the lot, no
-    // extension needed); it just never reaches chat. Kept for a re-probe.
-    { id: "img", label: "img tag (no class): blocked in chat, and the sanitizer drops a classless img", token: "<img", blocked: true, field: "blocked",
-      build: function (o) {
-        return '<img src="' + escapeAttr(o.url) + '" width="' + o.w + '"' + clampAttr(o) + '>';
-      } },
-    // Blocked Aug 2026: the list took "<image". MEASURED: it still renders correctly
-    // on the engine — this is purely a blocked-terms casualty, not a broken form — so
-    // it's worth re-probing if the list is ever pruned. (One caveat found the hard
-    // way while measuring: an `svg { height: auto }` rule collapses it to nothing,
-    // which is a property of OUR preview stylesheet, not of the printer's. No clamp
-    // here either: this SVG has no viewBox, so max-width would crop rather than scale.)
-    { id: "svg", label: "SVG image: blocked (Aug 2026)", token: "<image", blocked: true, field: "blocked",
-      build: function (o) {
-        return '<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="' + o.w + '" height="' + o.h
-          + '"><image xlink:href="' + escapeAttr(o.url) + '" width="' + o.w + '" height="' + o.h + '"/></svg>';
-      } },
-    // Blocked earlier (the list took "<object"). Renders when the URL carries an
-    // image extension, nothing when it doesn't — same MIME-from-extension rule as
-    // <embed>, which is what the old "renders at native size" folklore really was.
-    { id: "object", label: "object tag: blocked (earlier)", token: "<object", blocked: true,
-      needsExt: true, field: "blocked",
-      build: function (o) {
-        return '<object data="' + escapeAttr(o.url) + '" style="width:' + o.mm
-          + 'mm;' + clampCss(o) + 'display:block"></object>';
-      } },
-  ];
   // The ONLY font families offered, and every one was rendered through printer-bot's
   // own binary (wkhtmltopdf 0.12.6 patched-qt) at both 24px and 58px before being
   // listed — at 203dpi 1-bit they are visibly distinct shapes, not mush. The named ones
@@ -809,21 +600,6 @@
     if (dec) out += ' text-decoration="' + dec + '"';
     return out;
   }
-  // NOT IN THE TABLE, and don't re-add it without re-measuring: a <div> wearing the
-  // photo as a CSS background. It's the one surface with no tag name to block, so it
-  // looks like the obvious durable answer — but printer-bot's Print Routine passes
-  // `--no-background`, which drops every element background from the print. Measured
-  // dead twice over: the `background:url(x) 0 0/100%` slash shorthand is also invalid
-  // in WebKit 534.34 (the whole declaration is discarded, silently), so it drew
-  // nothing even with backgrounds enabled. The longhand form does render, but only
-  // once `--no-background` is off — which is hardcoded in printer-bot's C#.
-  var EMBED_DEFAULT = "imgemote";
-  // The extension-sniffing carriers (embed, object) fail SILENTLY on a link without
-  // one — the message sends, the tape prints, and there's just no picture. So the UI
-  // warns instead of leaving you to guess. wkhtmltopdf strips the query string before
-  // it looks, which is why a CDN link ending in ".png?ex=abc" still counts.
-  var IMG_EXT_RE = /\.(png|jpe?g|gif|svg)(?:[?#]|$)/i;
-  function urlHasImageExt(u) { return IMG_EXT_RE.test(String(u == null ? "" : u)); }
 
   // ── PRESETS ───────────────────────────────────────────────────────────────
   // Customisation is worthless if it has to be rebuilt every stream, so a preset saves
@@ -936,6 +712,11 @@
   //    stack. They must not share the takeover's id or each other's: removeBlock filters
   //    by id, so two blocks with one id are deleted together, and the cards find their
   //    own parts by id.
+  //  - An IMAGE block loses `renderAs` and `embedV`: the carrier-tag pick (which HTML tag
+  //    carried a real picture) and its migration stamp. There is no carrier any more
+  //    (SassyTP's bot loads pictures only from emote servers, and this channel's chat
+  //    filter blocks the picture tag), so a Real picture block sends nothing at all.
+  //    Everything else on it is kept, the upload link included.
   //
   // The new Text blocks use the Giant type render for now; the text renders are
   // replaced for SassyTP's bot in a later step of the same release, and that step
@@ -997,6 +778,7 @@
       if (b.type === "takeover") { out = out.concat(fromTakeover(b)); continue; }
       var c = {}, k;
       for (k in b) c[k] = b[k];
+      if (c.type === "image") { delete c.renderAs; delete c.embedV; }
       out.push(c);
     }
     return out;
@@ -1007,51 +789,6 @@
   // loses nothing the user made does not count, so it never adds a preset on its own.
   function migrationRewrites(blocks) {
     return (Array.isArray(blocks) ? blocks : []).some(function (b) { return !!b && b.type === "takeover"; });
-  }
-  // Single pass, no recursion: an EMBED_DEFAULT that named nothing would otherwise
-  // spin forever, and a lookup miss must never be able to hang the page.
-  function getEmbed(id) {
-    var def = null;
-    for (var i = 0; i < EMBEDS.length; i++) {
-      if (EMBEDS[i].id === id) return EMBEDS[i];
-      if (EMBEDS[i].id === EMBED_DEFAULT) def = EMBEDS[i];
-    }
-    return def || EMBEDS[0];
-  }
-  // Is there ANY carrier that can actually put a picture on the tape right now? Since
-  // 2026-09-15 the honest answer is no: the sanitizer strips every tag but <img>, and
-  // automod blocks "<img". The UI asks this rather than assuming a live carrier exists,
-  // because a real-picture block that silently never sends is the worst outcome — the
-  // user spends bits and watches blank paper come out. When this goes true again (a
-  // pruned terms list, a relaxed sanitizer), the warning disappears on its own.
-  function anyCarrierLive() {
-    for (var i = 0; i < EMBEDS.length; i++) if (!EMBEDS[i].blocked) return true;
-    return false;
-  }
-  // The single place markup for a real picture gets built. Sizes are normalized here
-  // (not in each builder) so a missing aspect probe or a junk slider value can only
-  // ever produce a sane box.
-  function buildImageEmbed(id, o) {
-    o = o || {};
-    function n(v, d) { v = Math.round(v); return isFinite(v) && v > 0 ? v : d; }
-    return getEmbed(id).build({
-      url: o.url == null ? "" : String(o.url),
-      w: n(o.w, 263), h: n(o.h, 263), mm: n(o.mm, 70),
-      framed: !!o.framed,        // see clampAttr — only buildTakeover sets this
-    });
-  }
-  // One labelled message per surface, for finding out which tags still get through.
-  // They can't share a cheer — a single blocked term kills the WHOLE message, so one
-  // dead surface would take the others down with it. Send them one at a time and read
-  // the tape: a letter with a picture under it is a surface that works; a bare letter
-  // means the message sent but the engine didn't render that tag; a missing letter
-  // means the message never made it out of chat.
-  function buildEmbedProbe(o) {
-    return EMBEDS.map(function (e, i) {
-      var label = String.fromCharCode(65 + i);   // A, B, C… plain ASCII, always prints
-      return { id: e.id, label: label, name: e.label, blocked: !!e.blocked,
-               html: label + " " + buildImageEmbed(e.id, o) };
-    });
   }
 
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
@@ -1348,7 +1085,6 @@
     // an SVG, `max-width` plus `height:auto` collapses it to nothing, and a `viewBox`
     // (with or w/o a percentage width) collapses it too. QtWebKit 534.34 honours an
     // explicit pixel width and nothing else. A narrower roll needs this changed by hand.
-    // Real-image carriers keep their `max-width:100%` — it DOES work on an <img>.
     var PX_PER_MM = 3.75;                                  // 96dpi ≈ 3.7795; rounded
     var PAPER_MM = 63.5;                                   // the usable BODY, not the roll
     var PAPER_PX = Math.round(PAPER_MM * (96 / 25.4));     // 240
@@ -1611,42 +1347,11 @@
       var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
       return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
     }
-    // The URL actually embedded: the rotated+reuploaded link when a rotation is set and
-    // ready, else the original. Rotation always processes FROM block.url so it never
-    // compounds; block.outUrl holds the rotated result.
+    // The picture a Real picture block shows: the rotated/adjusted re-upload once it is
+    // ready, else the original. Processing always starts FROM block.url so it never
+    // compounds; block.outUrl holds the result. Shown on the card only: SassyTP's bot
+    // loads pictures from emote servers alone, so a Real picture block sends nothing.
     function embedUrl(block) { return ((block.rotate || block.adjBright || block.adjContrast) && block.outUrl) ? block.outUrl : block.url; }
-    // Probe an image block's aspect (height/width) once and cache it on the block.
-    function probeBlockAspect(block) {
-      var u = embedUrl(block);
-      if (!u || block.aspect || block._probing === u) return;
-      block._probing = u;
-      var im = new Image();
-      im.onload = function () { block._probing = null; if (im.naturalWidth && embedUrl(block) === u) { block.aspect = im.naturalHeight / im.naturalWidth; update(); } };
-      im.onerror = function () { block._probing = null; };
-      im.src = u;
-    }
-    // The print box for one image block, in CSS px: the requested width capped to the
-    // paper, and a height from the probed aspect (square until the probe lands, which
-    // then re-renders). Shared by the payload and the probe so both size identically.
-    function imageBox(block) {
-      var mm = block.width || 70, aspect = block.aspect || 0;
-      if (!aspect) probeBlockAspect(block);
-      var W = Math.min(PAPER_PX, Math.round(mm * PX_PER_MM));
-      return { url: embedUrl(block), w: W, h: Math.max(1, Math.round(W * (aspect || 1))), mm: mm };
-    }
-    // Real-image BODY. Which tag carries it is the block's own choice (see EMBEDS) —
-    // the blocked-terms list has already taken two of them, so this stays a lookup.
-    function imageBodies(block) {
-      var box = imageBox(block);
-      // Instant preview feedback: while a brightness/contrast bake is still pending (outUrl
-      // not yet ready), approximate it with a CSS filter on the preview <img>. Once baked,
-      // outUrl carries the adjustment and no filter is applied (would double it).
-      var pending = (block.adjBright || block.adjContrast) && !block.outUrl;
-      var filter = pending ? ("brightness(" + (100 + (block.adjBright || 0)) + "%) contrast(" + (100 + (block.adjContrast || 0)) + "%)") : "";
-      var html = buildImageEmbed(block.renderAs, box);
-      return [{ html: html, chars: payloadLength(html), heightPx: box.h,
-                preview: { kind: "img", imgUrl: box.url, filter: filter } }];
-    }
     // ══ GIANT TYPE: printer-bot's own `.title` class ═══════════════════════════════
     // WHY THIS WORKS. printer-bot's sanitizer strips the `style` attribute but keeps
     // `class`. It then builds the printed receipt with GetRenderedHTML, which copies every
@@ -1670,8 +1375,8 @@
     // <b class=title> with no <br>, so that adjacency itself has printed.
     //
     // IT IS FRAGILE BY CONSTRUCTION. nutty can rename or retune these classes, or stop
-    // inlining global.css, any day. So the class names and what they do are DATA (the
-    // carrier-table philosophy, see EMBEDS): every piece of giant/tuck markup and the
+    // inlining global.css, any day. So the class names and what they do are DATA: every
+    // piece of giant/tuck markup and the
     // preview CSS derive from this one table, and an incidental rename is a one-row edit,
     // after a free probe proves the new name prints. If nutty removes or scopes global.css
     // ON PURPOSE, that is the bot author saying no: fall back to Hanzi tiling.
@@ -1721,9 +1426,8 @@
     // box inside a page rather than the page itself:
     //  - position:fixed becomes absolute: the preview's .rcpt stands in for the page, and
     //    needs position:relative for the tuck to land in ITS corner, not the window's.
-    //  - the `emote` role is LEFT OUT: printer-bot's .emote{height:1em} would also catch
-    //    the takeover preview's <img class="emote"> carrier and shrink it to 16px. No giant
-    //    preview contains a real .emote (the emote pass is never simulated; no fetch).
+    //  - the `emote` role is LEFT OUT: no giant preview contains a real .emote (the emote
+    //    pass is never simulated, and nothing is fetched), so the rule would style nothing.
     // Plus one preview-only rule, .title{line-height:1.33}: Segoe UI's normal line height
     // on the rig (hhea 2210+514 over 2048), so preview heights track the tape whatever
     // font the viewer's OS substitutes. Used by BOTH the page <style> and RCPT_CSS.
@@ -2638,7 +2342,10 @@
     function renderBlockBodies(block, budget, tuck, heightPx) {
       if (block.type === "image") {
         if (block.imgKind === "glyph") return glyphImageBodies(block, budget);
-        return block.url ? imageBodies(block) : [];
+        // A Real picture sends NOTHING. SassyTP's bot draws a picture only from an emote
+        // server, and this channel's chat filter blocks the picture tag, so any markup we
+        // built would either never arrive or print blank. No body, no characters, no part.
+        return [];
       }
       var text = block.text || "";
       // Giant type FIRST, and every branch through blockRender: anything that is neither
@@ -2928,102 +2635,21 @@
       for (i = 0; i < w * h; i++) { var v = gray[i]; d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255; }
       return imageData;
     }
-    // ── Getting a real photo INTO the raster ───────────────────────────────
-    // thermalize() rasterizes by loading the receipt as an SVG <img>. An SVG
-    // loaded that way is sandboxed: it may not load ANY external resource, so a
-    // remote <img> inside the foreignObject never paints at all (it isn't merely
-    // a canvas taint — nothing shows up). The only fix is to make the picture
-    // non-external: swap it for a self-contained data: URI before serializing.
-    //
-    // Reading a cross-origin image's bytes from JS is what CORS blocks, so the
-    // bytes come back through our own Worker (/px). That is the whole reason the
-    // proxy exists. Same-origin and data: URLs skip it and are fetched directly.
+    // The pictures that print are characters (glyph-art), so a receipt frame never holds
+    // an <img>, and the raster needs no remote bytes: nothing here fetches anything.
+    // decodeGlyphImage and processImage still read a pasted link through our own Worker
+    // (/px), because reading a cross-origin image's pixels is exactly what CORS forbids.
     function proxied(url) {
       if (/^data:/i.test(url)) return url;
       try { if (new URL(url, location.href).origin === location.origin) return url; } catch (e) {}
       return "/px?u=" + encodeURIComponent(url);
     }
-    function toDataUrl(url) {
-      return fetch(proxied(url), { credentials: "omit" }).then(function (r) {
-        if (!r.ok) throw new Error("proxy said " + r.status);
-        return r.blob();
-      }).then(function (blob) {
-        return new Promise(function (resolve, reject) {
-          var fr = new FileReader();
-          fr.onload = function () { resolve(fr.result); };
-          fr.onerror = function () { reject(new Error("could not read image bytes")); };
-          fr.readAsDataURL(blob);
-        });
-      });
-    }
-    // Inline every external picture in the clone. Resolves once they're all in
-    // hand — which also closes the old load race, since we now rasterize only
-    // after the bytes exist. A picture we can't fetch is left alone: it just
-    // won't paint, exactly as before, instead of failing the whole preview.
-    var XLINK_NS = "http://www.w3.org/1999/xlink";
-    // A TAKEOVER'S PICTURE IS NOT AN <img>. It rides whichever carrier tag the blocked-
-    // terms list has left us — `<embed>`, `<input type=image>` or `<iframe>` (see EMBEDS)
-    // — so the `img, image` selector below never saw it, never inlined it, and the
-    // thermal preview rasterized a blank hole where a picture really prints. That is the
-    // precise failure §9 of the spec exists to prevent: the owner re-tunes the pull or
-    // swaps carriers chasing a defect that only exists in the preview.
-    //
-    // Swap each carrier for an `<img>` of the same width IN THE CLONE ONLY. The payload
-    // is untouched — this runs on `node.cloneNode(true)` — and the print engine draws
-    // these tags as an image anyway, so an `<img>` is the faithful stand-in rather than
-    // an approximation.
-    function unwrapCarriers(root) {
-      var carriers = root.querySelectorAll('embed[src], input[type="image"][src], iframe[src]'), i, el, im;
-      for (i = 0; i < carriers.length; i++) {
-        el = carriers[i];
-        im = document.createElement("img");
-        im.alt = "";
-        im.setAttribute("src", el.getAttribute("src"));
-        if (el.getAttribute("width")) im.setAttribute("width", el.getAttribute("width"));
-        if (el.getAttribute("height")) im.setAttribute("height", el.getAttribute("height"));
-        if (el.getAttribute("style")) im.setAttribute("style", el.getAttribute("style"));
-        if (el.parentNode) el.parentNode.replaceChild(im, el);
-      }
-    }
-    function inlineImages(root) {
-      unwrapCarriers(root);
-      var nodes = root.querySelectorAll("img, image"), jobs = [];
-      for (var i = 0; i < nodes.length; i++) {
-        jobs.push((function (el) {
-          var href = el.getAttribute("src") || el.getAttribute("href") || el.getAttribute("xlink:href") || "";
-          if (!href || /^data:/i.test(href)) return Promise.resolve();
-          return toDataUrl(href).then(function (data) {
-            if (el.hasAttribute("src")) el.setAttribute("src", data);
-            if (el.hasAttribute("href")) el.setAttribute("href", data);
-            if (el.hasAttribute("xlink:href")) el.setAttributeNS(XLINK_NS, "xlink:href", data);
-          })["catch"](function () {});
-        })(nodes[i]));
-      }
-      return Promise.all(jobs);
-    }
-    // The live node's height is only correct once its images have decoded — we
-    // measure it to size the raster, so wait (with a cap, so a dead URL can't
-    // hang the preview forever).
-    function imagesDecoded(node) {
-      var imgs = node.querySelectorAll("img"), jobs = [];
-      for (var i = 0; i < imgs.length; i++) {
-        jobs.push((function (im) {
-          if (im.complete && im.naturalWidth) return Promise.resolve();
-          return new Promise(function (resolve) {
-            im.addEventListener("load", resolve, { once: true });
-            im.addEventListener("error", resolve, { once: true });
-            setTimeout(resolve, 5000);
-          });
-        })(imgs[i]));
-      }
-      return Promise.all(jobs);
-    }
     // Rasterize a receipt node and REPLACE it with a 1-bit dithered <canvas>.
-    // Any picture is inlined first (see above), so the canvas stays un-tainted
-    // and getImageData works. The try/catch is kept as a belt-and-braces guard:
-    // if something still taints it, keep the faithful raster rather than crash.
+    // The frame holds no picture (see above), so the canvas stays un-tainted and
+    // getImageData works. The try/catch is kept as a belt-and-braces guard: if
+    // something still taints it, keep the faithful raster rather than crash.
     function thermalize(node) {
-      return imagesDecoded(node).then(function () {
+      return Promise.resolve().then(function () {
         var rect = node.getBoundingClientRect();
         var w0 = rect.width, h0 = rect.height;
         if (!w0 || !h0) throw new Error("node not laid out");
@@ -3031,7 +2657,7 @@
         var clone = node.cloneNode(true);
         clone.style.border = "none"; clone.style.boxShadow = "none"; clone.style.margin = "0";
         clone.style.background = "#fff"; clone.style.width = w0 + "px"; clone.style.maxWidth = "none";
-        return inlineImages(clone).then(function () {
+        return Promise.resolve().then(function () {
           return new Promise(function (resolve, reject) {
             var xhtml = new XMLSerializer().serializeToString(clone);
             var svg =
@@ -3094,10 +2720,7 @@
           head.className = "part-head";
           var count = document.createElement("span");
           count.className = "part-count" + (item.chars > MAX_CHARS ? " over" : "");
-          // Probe parts are alternatives, not a sequence, so they get their tag's name
-          // instead of a "Part i of N" that would imply you send them all in order.
-          count.textContent = (item.headNote ? item.headNote + ", "
-                               : (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : ""))
+          count.textContent = (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : "")
             + item.chars + " / " + MAX_CHARS;
           head.appendChild(count);
           card.appendChild(head);
@@ -3135,13 +2758,7 @@
             var pv = b.preview || {};
             var isFirst = !firstSeen && !!b.html;
             if (b.html) firstSeen = true;
-            if (pv.kind === "img") {
-              var im = new Image(); im.alt = ""; var tries = 0;
-              im.onerror = function () { if (tries++ < 4) setTimeout(function () { im.src = pv.imgUrl + (pv.imgUrl.indexOf("?") < 0 ? "?" : "&") + "r=" + tries; }, 1200); };
-              if (pv.filter) im.style.filter = pv.filter;   // live brightness/contrast feedback until baked
-              im.src = pv.imgUrl;
-              stackBody.appendChild(im);
-            } else if (pv.kind === "grid") {
+            if (pv.kind === "grid") {
               var pre2 = document.createElement("pre"); pre2.className = "receipt"; pre2.textContent = pv.grid || "";
               stackBody.appendChild(pre2);
             } else {
@@ -3157,20 +2774,6 @@
           var frame2 = receiptFrame(stackBody);
           frame2.setAttribute("data-thermalable", "1");
           card.appendChild(frame2);
-        } else if (item.previewImgUrl) {
-          // A carrier-probe part: a receipt frame around the actual picture.
-          var body = document.createElement("div");
-          var img = new Image(); img.alt = ""; var tries = 0;
-          // A freshly uploaded KV link can 404 for a few seconds until it propagates
-          // — retry a few times so the preview fills in rather than staying broken.
-          img.onerror = function () { if (tries++ < 4) setTimeout(function () { img.src = item.previewImgUrl + (item.previewImgUrl.indexOf("?") < 0 ? "?" : "&") + "r=" + tries; }, 1200); };
-          img.src = item.previewImgUrl;
-          body.appendChild(img);
-          var frame = receiptFrame(body);
-          // A real image gets inlined as a data: URI before it is rasterized — see
-          // inlineImages(), which is what makes a photo survive the thermal raster.
-          frame.setAttribute("data-thermalable", "1");
-          card.appendChild(frame);
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";
@@ -3200,20 +2803,7 @@
         container.appendChild(card);
       });
       var copyableParts = items.filter(function (it) { return it.copyable; }).length;
-      if (items.length && items[0].headNote) {
-        var pnote = document.createElement("p");
-        pnote.className = "parts-note";
-        // Live carriers lead the list, so the round you actually need is the first
-        // few. Say so — every extra letter is another cheer's worth of bits spent
-        // re-confirming something already known to be dead.
-        var liveN = items.filter(function (it) { return !it.probeBlocked; }).length;
-        pnote.textContent = "These are ALTERNATIVES, not a sequence. Send them one at a time (each is its own "
-          + getBits() + "-bit cheer). A letter that prints WITH a picture under it = that tag works, pick it as the "
-          + "block's Carrier tag. A letter alone = it sent, but the printer ignored the tag. A letter that never "
-          + "shows up = chat blocked it. You only need " + (liveN === 1 ? "the first" : "the first " + liveN)
-          + ". The rest are already known blocked, and are only worth a re-test if you think a mod pruned the list.";
-        container.appendChild(pnote);
-      } else if (n > 1) {
+      if (n > 1) {
         var note = document.createElement("p");
         note.className = "parts-note";
         note.textContent = "Paste the parts into chat in order. Each is a separate " + getBits()
@@ -3243,12 +2833,6 @@
         }
         container.appendChild(note);
       }
-      // Only warn about the /px round-trip when it will actually happen: thermal
-      // on AND a linked picture on screen. (Big Text / glyph-art never call it.)
-      var linked = items.some(function (it) {
-        return !!it.previewImgUrl || (it.bodies && it.bodies.some(function (b) { return b.preview && b.preview.kind === "img"; }));
-      });
-      if (els.thermalNote) els.thermalNote.hidden = !(linked && els.thermalView && els.thermalView.checked);
       scheduleThermal();   // if the toggle is on, swap thermalable frames for their dithered render
     }
     // Census and Image route through the same 1-part list shape as Big Text's
@@ -3258,31 +2842,13 @@
     // The one-time "Before 1.0.0" backup preset seedBlocks queues when a migration changed
     // the saved stack; initPresets writes it once the user's own presets are loaded.
     var pendingBackup = null;
-    // Bumped whenever a carrier tag gets blocked, so saved blocks still pointing at the
-    // dead one get moved to the current default ONCE. Stamped per block, so someone who
-    // then deliberately re-picks the blocked tag (to A/B whether a list got pruned)
-    // keeps that choice across reloads instead of being dragged back every time.
-    // v3: the list took "<img" too, so the previous default is blocked — anyone whose
-    // saved block still points at it gets moved to the current default on next load.
-    // v4: printer-bot's live HTML sanitizer strips every carrier except <img class=emote|
-    // bits>, so embed/input/iframe/object are now all `blocked` and the default is
-    // "imgemote" — every saved image/takeover block that still points at a stripped
-    // carrier is moved to it once, on next load.
-    var EMBED_V = 4;
-    function migrateEmbed(b) {
-      if (b.type !== "image" || b.embedV === EMBED_V) return b;
-      if (getEmbed(b.renderAs).blocked) b.renderAs = EMBED_DEFAULT;
-      b.embedV = EMBED_V;
-      return b;
-    }
     function newBlock(type) {
-      // tier defaults to "cjk": under the live sanitizer it is the only glyph set that
-      // survives as a real picture. ASCII rows lose their monospace + white-space:pre
-      // wrapper (it lives in `style`, which the sanitizer strips) so their spaces
-      // collapse and the grid shears; Han glyphs are uniform-width with no spaces, so
-      // <br>-separated rows still line up. See the ⚠ sanitizer note on EMBEDS.
-      if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "real", url: "", width: 70,
-        rotate: 0, adjBright: 0, adjContrast: 0, renderAs: EMBED_DEFAULT, embedV: EMBED_V,
+      // A new Image block is Glyph-art: the picture tiled into characters, which is the
+      // only way a picture prints (a Real picture sends nothing; see imageCard). tier
+      // defaults to "cjk": Han glyphs are uniform-width with no spaces, so <br>-separated
+      // rows line up even without a monospace, space-preserving wrapper.
+      if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "glyph", url: "", width: 70,
+        rotate: 0, adjBright: 0, adjContrast: 0,
         tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false };
       // render defaults to "giant" (since 0.10.0): printer-bot's sanitizer strips `style`
       // but keeps `class`, and its printed receipt carries nutty's whole global.css, so
@@ -3298,7 +2864,13 @@
                orient: 0, text: "", size: 90, rotateLen: 800, cols: 15 };
     }
     function blockHasContent(b) {
-      if (b.type === "image") return !!((b.url && String(b.url).trim()) || b._img);
+      // A Real picture prints nothing (SassyTP's bot, this channel's chat filter: see
+      // imageCard), so it is never content. Counting it would pack a stack whose only
+      // picture is a Real one into a copyable cheer carrying the lead and nothing else.
+      if (b.type === "image") {
+        if (b.imgKind !== "glyph") return false;
+        return !!((b.url && String(b.url).trim()) || b._img);
+      }
       // Giant type drops what the printer can't draw (emoji, joiners, zero-width and
       // control characters: giantClean), so text can be
       // non-blank and still print NOTHING: "🔥" alone used to count as content and send a
@@ -3330,7 +2902,7 @@
         // makePreset deep-copies, so the backup is the stack exactly as it was saved.
         if (migrationRewrites(saved)) pendingBackup = makePreset(MIGRATION_BACKUP_NAME, saved, Date.now());
         // migrateBlocks is pure and idempotent: a stack that needs nothing comes back equal.
-        blocks = migrateBlocks(saved).map(migrateEmbed);
+        blocks = migrateBlocks(saved);
         blockIdSeq = blocks.reduce(function (m, b) { return Math.max(m, b.id || 0); }, 0) + 1;
         saveBlocks();   // persist the migration so it runs once, not every load
         return;
@@ -3716,8 +3288,8 @@
         }
         // THE NOTE reads the PACKED parts: the packer
         // can share a part with a neighbouring block, so this block's chunk count is not
-        // its cheer count, and only the parts say which part it is in. Census, ruler or
-        // probe on screen (or an empty stack) leaves nothing to find, so plan it alone.
+        // its cheer count, and only the parts say which part it is in. Census or ruler on
+        // screen (or an empty stack) leaves nothing to find, so plan it alone.
         var own = [], inParts = [], over = false, i, j, bs;
         for (i = 0; parts && i < parts.length; i++) {
           bs = parts[i].bodies || [];
@@ -3906,12 +3478,13 @@
     function imageCard(block) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block));
-      // Kind: the real picture (prints the photo) or glyph-art (tiles it into text — the
-      // markup-free fallback that always prints).
+      // Kind: glyph-art (the picture tiled into characters: the way a picture prints) or
+      // the real picture, which is kept so an upload can be seen, rotated and adjusted, but
+      // sends nothing (see the note below).
       card.appendChild(mkEl("label", null, "Kind"));
       var kind = mkEl("select");
-      kind.appendChild(opt("real", "Real picture", block.imgKind !== "glyph"));
-      kind.appendChild(opt("glyph", "Glyph-art (tiled text)", block.imgKind === "glyph"));
+      kind.appendChild(opt("glyph", "Glyph-art (prints as characters)", block.imgKind === "glyph"));
+      kind.appendChild(opt("real", "Real picture (can't print)", block.imgKind !== "glyph"));
       card.appendChild(kind);
       // Shared source: a URL or a picked file.
       card.appendChild(mkEl("label", null, "Image URL"));
@@ -3925,62 +3498,57 @@
       card.appendChild(status);
 
       // --- Real-picture controls ---
+      // Said plainly, first, and in red: a Real picture sends NOTHING. SassyTP's bot loads a
+      // picture only from an emote server, and this channel's chat filter blocks the picture
+      // tag (field-confirmed), so no upload can arrive as a picture. That is the mods' and
+      // the bot's call, and the card offers the one thing that prints instead.
       var realWrap = mkEl("div");
+      realWrap.appendChild(mkEl("div", { "class": "over-note" },
+        "This won't print as a picture. SassyTP's bot only prints pictures from emote servers, "
+        + "and this channel's chat filter blocks the picture tag, so an upload can't print as a "
+        + "picture. Switch to Glyph-art to print it as characters."));
+      var toGlyph = mkEl("button", { type: "button" }, "Switch to Glyph-art");
+      realWrap.appendChild(toGlyph);
+      // The picture itself, on the card: the receipt preview shows only what prints, and
+      // this does not. A freshly uploaded link can 404 for a few seconds until it
+      // propagates, so a failed load is retried a few times rather than left broken.
+      var thumb = mkEl("img", { alt: "", "class": "img-thumb" });
+      var thumbSrc = "", thumbTries = 0;
+      thumb.hidden = true;
+      thumb.addEventListener("error", function () {
+        if (!thumbSrc || thumbTries >= 4) return;
+        var u = thumbSrc, k = ++thumbTries;
+        setTimeout(function () { if (thumbSrc === u) thumb.src = u + (u.indexOf("?") < 0 ? "?" : "&") + "r=" + k; }, 1200);
+      });
+      realWrap.appendChild(thumb);
+      // Runs after every refresh (a costSyncs callback), because an upload, a rotation or
+      // a finished bake changes block.url / block.outUrl without re-rendering the card.
+      // While a brightness/contrast bake is pending, a CSS filter approximates it.
+      var syncThumb = function () {
+        var u = embedUrl(block) || "";
+        var pending = (block.adjBright || block.adjContrast) && !block.outUrl;
+        thumb.style.filter = pending ? ("brightness(" + (100 + (block.adjBright || 0)) + "%) contrast("
+          + (100 + (block.adjContrast || 0)) + "%)") : "";
+        thumb.hidden = !u;
+        if (u !== thumbSrc) {
+          thumbSrc = u; thumbTries = 0;
+          if (u) thumb.src = u; else thumb.removeAttribute("src");
+        }
+      };
+      costSyncs.push(syncThumb);
       realWrap.appendChild(mkEl("label", null, "Rotate"));
       var rot = mkEl("select");
       [0, 90, 180, 270].forEach(function (d) { rot.appendChild(opt(String(d), d + "°", (block.rotate || 0) === d)); });
       realWrap.appendChild(rot);
-      var w = mkEl("input", { type: "range", min: "20", max: "70", step: "1" }); w.value = block.width || 70;
-      realWrap.appendChild(sliderRow("Print width (mm)", w, 70, "mm"));
-      // Brightness / contrast are baked into the pixels (debounced) so a photo dithers the
-      // way you want on the 1-bit printer. block.outUrl is cleared while adjusting; the live
-      // preview shows a CSS-filter approximation until the baked version lands.
+      // Brightness / contrast are baked into the pixels (debounced) and re-uploaded.
+      // block.outUrl is cleared while adjusting; the picture above shows a CSS-filter
+      // approximation until the baked version lands.
       var bright = mkEl("input", { type: "range", min: "-100", max: "100", step: "5" }); bright.value = block.adjBright || 0;
       bright.addEventListener("input", function () { block.adjBright = parseInt(bright.value, 10) || 0; block.outUrl = null; if (block.url) scheduleProcess(block, setStatus); saveBlocks(); update(); });
       realWrap.appendChild(sliderRow("Brightness", bright, 0, ""));
       var ctr = mkEl("input", { type: "range", min: "-100", max: "100", step: "5" }); ctr.value = block.adjContrast || 0;
       ctr.addEventListener("input", function () { block.adjContrast = parseInt(ctr.value, 10) || 0; block.outUrl = null; if (block.url) scheduleProcess(block, setStatus); saveBlocks(); update(); });
       realWrap.appendChild(sliderRow("Contrast", ctr, 0, ""));
-      // Which tag carries the picture. Two entries are already dead to the channel's
-      // blocked-terms list and the next one will go the same way, so this is a one-click
-      // switch backed by a probe ("Find what still sends") that says which to switch to.
-      realWrap.appendChild(mkEl("label", null, "Carrier tag"));
-      var ra = mkEl("select");
-      var curEmbed = getEmbed(block.renderAs).id;
-      EMBEDS.forEach(function (e) { ra.appendChild(opt(e.id, e.label, e.id === curEmbed)); });
-      realWrap.appendChild(ra);
-      realWrap.appendChild(mkEl("div", { "class": "hint" },
-        "The HTML tag that carries the picture. Two gates have to pass and right now none "
-        + "of these clears both: printer-bot's sanitizer deletes every tag except "
-        + "<img class=\"emote\"> and <img class=\"bits\">, and chat's blocked-terms filter eats "
-        + "\"<img\" before it ever gets there. The two at the top are the ones to re-probe "
-        + "first if that filter is ever pruned — \"Find what still sends\" retests the whole "
-        + "list in one round, and costs nothing with Cheer-ready off."));
-      // The honest headline, shown only while no carrier can actually deliver. Spending
-      // bits on a picture that cannot arrive is the worst thing this card could allow.
-      if (!anyCarrierLive()) {
-        realWrap.appendChild(mkEl("div", { "class": "over-note" },
-          "⚠ No real picture can print right now, on any carrier. Field-confirmed "
-          + "2026-09-15: the sanitizer allows only an <img> tag, and chat's automod blocks "
-          + "\"<img\" — so the message never arrives. Sending one spends bits on blank paper. "
-          + "Switch this block to glyph-art (the Picture style above), which is plain text "
-          + "and passes both gates untouched."));
-      }
-      // embed/object pick their renderer from the URL's file extension; without one
-      // they print a blank space and nothing tells you why. Say so up front.
-      var extWarn = mkEl("div", { "class": "over-note" });
-      extWarn.hidden = true;
-      realWrap.appendChild(extWarn);
-      var syncExtWarn = function () {
-        var e = getEmbed(block.renderAs);
-        var bad = !!e.needsExt && !!block.url && !urlHasImageExt(block.url);
-        extWarn.hidden = !bad;
-        if (bad) {
-          extWarn.textContent = "That link doesn't end in .png/.jpg. The \"" + e.label
-            + "\" carrier picks its renderer from the extension, so it will print blank. "
-            + "Use \"input type=image\" instead, or re-upload the file here to get a .png link.";
-        }
-      };
       card.appendChild(realWrap);
 
       // --- Glyph-art controls ---
@@ -4016,7 +3584,6 @@
 
       url.addEventListener("input", function () {
         block.url = url.value; block.outUrl = null; block._img = null; block.aspect = null;
-        syncExtWarn();
         if (block.imgKind === "glyph") { if (block.url) decodeGlyphImage(block); }
         else if (block.url && (block.rotate || block.adjBright || block.adjContrast)) processImage(block, setStatus);
         saveBlocks(); update();
@@ -4038,15 +3605,17 @@
         if (block.url) processImage(block, setStatus);   // clears outUrl if nothing's set
         saveBlocks(); update();
       });
-      w.addEventListener("input", function () { block.width = parseInt(w.value, 10); saveBlocks(); update(); });
-      ra.addEventListener("change", function () { block.renderAs = ra.value; syncExtWarn(); saveBlocks(); update(); });
+      toGlyph.addEventListener("click", function () {
+        kind.value = "glyph";
+        kind.dispatchEvent(new Event("change"));
+      });
       tier.addEventListener("change", function () { block.tier = tier.value; saveBlocks(); update(); });
       gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 40; saveBlocks(); update(); });
       contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
       dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
       applyKind();
-      syncExtWarn();
+      syncThumb();
       return card;
     }
     function renderComposer() {
@@ -4062,7 +3631,7 @@
         if (b._expired) {
           var note = document.createElement("div");
           note.className = "expired-note";
-          note.textContent = "This picture's link has expired. Re-upload it, or the receipt prints blank.";
+          note.textContent = "This picture's link has expired (uploads last 15 minutes). Pick the file again to re-upload it.";
           card.insertBefore(note, card.firstChild);
         }
         list.appendChild(card);
@@ -4182,7 +3751,7 @@
       // stack can never reach back into the preset's nested objects.
       var copy;
       try { copy = JSON.parse(JSON.stringify(cleanBlocks(p.blocks))); } catch (e) { copy = cleanBlocks(p.blocks); }
-      var fresh = migrateBlocks(copy).map(migrateEmbed);
+      var fresh = migrateBlocks(copy);
       // Re-key the ids. A preset carries whatever ids it was saved with, and reusing them
       // collides with the live counter the moment the user adds a block.
       fresh.forEach(function (b) { b.id = blockIdSeq++; });
@@ -4279,7 +3848,10 @@
     }
     function composeParts() {
       if (!blocks.some(blockHasContent)) {
-        return [{ payload: "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
+        var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph" && b.url; });
+        return [{ payload: realOnly
+          ? "(nothing to print: a Real picture can't print on SassyTP's bot. Switch it to Glyph-art, or add some text)"
+          : "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
       var cheer = !!els.cheer.checked;
       var parts = packStack(blocks, { bits: getBits(), cheer: cheer, tuck: getTuck(), noNonce: !getNonce(), nonceFn: nonceForPart,
@@ -4301,32 +3873,6 @@
         return item;
       });
     }
-    // "Find what still sends": one cheer per carrier tag, labelled A, B, C…, each
-    // pointing at the SAME picture so the only variable is the tag. They're
-    // alternatives, not a sequence — see buildEmbedProbe for how to read the results.
-    // Borrows the first real-image block for a link and a print width.
-    function probeParts() {
-      var b = null, i;
-      for (i = 0; i < blocks.length; i++) {
-        if (blocks[i].type === "image" && blocks[i].imgKind !== "glyph" && blocks[i].url) { b = blocks[i]; break; }
-      }
-      if (!b) {
-        return [{ payload: "(add an Image block with a link or an upload first: the probe needs a real picture to point at)",
-                  chars: 0, copyable: false, showHead: false }];
-      }
-      var box = imageBox(b);
-      return buildEmbedProbe(box).map(function (p, k) {
-        // One body through the normal packer, so a probe cheer is byte-for-byte the
-        // shape a real one would be (leading token + nonce) — otherwise we'd be
-        // testing the probe's framing instead of the tag.
-        // Tuck included, for the same reason: the probe tests the tag, not a different lead.
-        var part = packStackBodies([{ html: p.html, chars: payloadLength(p.html), heightPx: box.h }],
-          { bits: getBits(), cheer: els.cheer.checked, tuck: getTuck(), noNonce: !getNonce(),
-            nonceFn: function () { return nonceForPart(k); } })[0];
-        return { payload: part.payload, chars: part.chars, copyable: true, probeBlocked: p.blocked,
-                 headNote: p.label + ": " + p.name, previewImgUrl: box.url };
-      });
-    }
     function computeParts() {
       if (currentKind === "census") {
         // Never tucked: the census builds its own markup-free payload (trailing token)
@@ -4335,7 +3881,6 @@
         var body = buildCensus() + (getNonce() ? " " + nonceForPart(0) : "");
         return [{ payload: body, chars: payloadLength(body), copyable: true }];
       }
-      if (currentKind === "probe") return probeParts();
       if (currentKind === "ruler") return rulerParts();
       return composeParts();
     }
@@ -4419,9 +3964,7 @@
         parts: document.getElementById("parts"),
         censusBtn: document.getElementById("censusBtn"),
         rulerBtn: document.getElementById("rulerBtn"),
-        probeBtn: document.getElementById("probeBtn"),
         thermalView: document.getElementById("thermalView"),
-        thermalNote: document.getElementById("thermalNote"),
       };
 
       // printer-bot's own class rules for the PREVIEW, from the PB_CLASSES table (the same
@@ -4451,19 +3994,14 @@
         currentKind = "census";
         refresh();
       });
-      // Same lifecycle as the census: a view, not a block, so any edit drops back out.
+      // Same lifecycle as the census: a view, not a block, so any edit drops back out
+      // (update() resets currentKind to "compose").
       if (els.rulerBtn) {
         els.rulerBtn.addEventListener("click", function () {
           currentKind = "ruler";
           refresh();
         });
       }
-      // The diagnostics live outside the normal render (update() resets currentKind to
-      // "compose"), so any edit to a control drops you back to your actual payload.
-      els.probeBtn.addEventListener("click", function () {
-        currentKind = "probe";
-        refresh();
-      });
       // Toggling thermal view just re-renders: renderParts rebuilds clean frames,
       // then scheduleThermal() dithers them when the box is checked (no-op when off).
       els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
@@ -4500,10 +4038,8 @@
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
       LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,
       RECEIPT_MM_MIN: RECEIPT_MM_MIN, RECEIPT_MM_MAX: RECEIPT_MM_MAX,
-      escapeHtml: escapeHtml, escapeAttr: escapeAttr, urlHasImageExt: urlHasImageExt,
-      EMBEDS: EMBEDS, EMBED_DEFAULT: EMBED_DEFAULT, getEmbed: getEmbed, anyCarrierLive: anyCarrierLive,
+      escapeHtml: escapeHtml, escapeAttr: escapeAttr,
       FONTS: FONTS, getFont: getFont, fmtAttrs: fmtAttrs,
-      buildImageEmbed: buildImageEmbed, buildEmbedProbe: buildEmbedProbe,
       PRESET_V: PRESET_V, cleanBlocks: cleanBlocks, isMintedImageUrl: isMintedImageUrl,
       presetImageUrls: presetImageUrls, makePreset: makePreset,
       serializePresets: serializePresets, parsePresets: parsePresets,

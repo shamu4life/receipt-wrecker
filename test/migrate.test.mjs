@@ -101,6 +101,21 @@ test("a takeover that carried nothing of the user's is dropped", () => {
   eq(C.migrateBlocks([...empties, { id: 5, type: "text", text: "kept" }]), [{ id: 5, type: "text", text: "kept" }]);
 });
 
+test("an image block loses only the carrier pick (renderAs, embedV), and that asks for no backup", () => {
+  // There is no carrier any more: SassyTP's bot loads pictures from emote servers alone and
+  // this channel's chat filter blocks the picture tag. Everything else stays, upload included.
+  const real = { id: 1, type: "image", imgKind: "real", url: "https://i.uwutoowo.com/0123456789ab.png",
+                 outUrl: "https://i.uwutoowo.com/ba9876543210.png", width: 50, rotate: 90, adjBright: 10,
+                 adjContrast: -5, aspect: 0.75, renderAs: "embed", embedV: 3, tier: "cjk", cols: 40,
+                 dither: true, contrast: 128, invert: false };
+  const glyph = { id: 2, type: "image", imgKind: "glyph", url: "u", renderAs: "imgemote", embedV: 4, tier: "ascii" };
+  const out = C.migrateBlocks([real, glyph]);
+  const { renderAs: _r, embedV: _e, ...realKept } = real;
+  const { renderAs: _r2, embedV: _e2, ...glyphKept } = glyph;
+  eq(out, [realKept, glyphKept]);
+  assert.equal(C.migrationRewrites([real, glyph]), false, "a field clean-up must not add a backup preset");
+});
+
 test("pure: the input is never mutated, and no output block IS an input block", () => {
   const stack = [clone(ITEMS_TK), { id: 6, type: "image", imgKind: "real", url: "u", fmt: { a: 1 } }];
   const before = clone(stack);

@@ -244,6 +244,44 @@ test("a saved 0.12 stack holding takeovers loads as Text and Glyph-art cards, ba
   await ctx.close();
 });
 
+test("a Real picture sends nothing, says so plainly, and switches to Glyph-art in one click", async () => {
+  // SassyTP's bot draws a picture only from an emote server, and this channel's chat filter
+  // blocks the picture tag, so a Real picture can never arrive as one. A stack whose only
+  // block is one must not offer a cheer at all (it would be the lead and nothing else).
+  const real = { id: 1, type: "image", imgKind: "real", url: "https://example.invalid/p.png", width: 70,
+                 rotate: 0, adjBright: 0, adjContrast: 0, tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false };
+  const { page, ctx, errors } = await freshPage({ blocks: [real] });
+  const card = cards(page).first();
+  assert.equal(await page.locator("#parts .part button").count(), 0, "a Real-picture-only stack offered a Copy");
+  assert.match(await page.textContent("#parts"), /a Real picture can't print on SassyTP's bot/);
+  const note = card.locator(".over-note");
+  assert.match(await note.textContent(),
+    /SassyTP's bot only prints pictures from emote servers, and this channel's chat filter blocks the picture tag, so an upload can't print as a picture\. Switch to Glyph-art to print it as characters\./);
+  // The picture is still shown, on the card, from the block's own link.
+  assert.equal(await card.locator("img.img-thumb").getAttribute("src"), real.url);
+  assert.equal(await card.locator("select").first().inputValue(), "real");
+
+  // Next to text it adds nothing to the payload: no tag of any kind for a picture.
+  await page.click("#addTextBtn");
+  await cards(page).last().locator("textarea").fill("HI");
+  const payloads = await copyAll(page);
+  assert.equal(payloads.length, 1);
+  for (const p of payloads) assert.ok(!/<(img|object|image|embed|iframe|svg|input)\b/i.test(p), "a picture tag in: " + p);
+
+  // One click: the block is Glyph-art, saved, and the note is gone.
+  await card.getByRole("button", { name: "Switch to Glyph-art" }).click();
+  assert.equal(await card.locator("select").first().inputValue(), "glyph");
+  assert.equal(await note.isVisible(), false);
+  const saved = JSON.parse(await page.evaluate(() => localStorage.getItem("rw_blocks_v1")));
+  assert.equal(saved[0].imgKind, "glyph");
+  assert.ok(!("renderAs" in saved[0]) && !("embedV" in saved[0]));
+  // And a NEW Image block starts as Glyph-art, the kind that prints.
+  await page.click("#addImageBtn");
+  assert.equal(await cards(page).last().locator("select").first().inputValue(), "glyph");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 // ── Giant type (0.10.0) ──────────────────────────────────────────────────────────────
 
 test("a new Text block is Giant type, and Copy sends exactly what the core builds", async () => {

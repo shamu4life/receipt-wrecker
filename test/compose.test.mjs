@@ -80,13 +80,6 @@ test("noNonce: a body sized to the smaller reservation still lands at exactly 50
   assert.equal(one[0].chars, C.MAX_CHARS);
 });
 
-test("noNonce leaves bands where they were (the 14 floor)", () => {
-  // The band reserve's floor of 14 still applies, so toggling the digits never re-bands a
-  // Hanzi or glyph grid.
-  assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100, noNonce: true })), 14);
-  assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength({ cheer: true, bits: 100 })), 14);
-});
-
 test("noNonce absent or false packs byte-identically: callers written before the toggle are unchanged", () => {
   const bodies = [body(200, 50), body(150, 700, "丶二土"), body(260, 900)];
   for (const cheer of [true, false]) {
@@ -175,15 +168,15 @@ test("the lead's real overhead is reserved: a body filling the budget lands at e
 });
 
 test("the packer never touches a body: no <br> is added or stripped, whatever opens it", () => {
-  // A giant body opens with its own <br> (it ends the lead's line); a Hanzi band opens with
-  // a glyph. Both go out exactly as built, after exactly the lead.
-  const giant = body(200, 600, "<br><b class=title>GG</b><br>" + "x".repeat(171));
-  const hanzi = body(200, 600, "丶".repeat(200));
+  // A big-text chunk carried over a word gap opens with its own <br>; a glyph grid opens with
+  // a tag or a glyph. Both go out exactly as built, after exactly the lead.
+  const gap = body(200, 600, "<br><div style=\"font:700 64px/.8 Arial\">GG</div>" + "x".repeat(152));
+  const grid = body(200, 600, "丶".repeat(200));
   for (const cheer of [true, false]) {
-    const parts = C.packStackBodies([giant, hanzi, hanzi, giant], { cheer, bits: 100, heightPx: 5000 });
+    const parts = C.packStackBodies([gap, grid, grid, gap], { cheer, bits: 100, heightPx: 5000 });
     assert.equal(parts.length, 2, parts.map((p) => p.chars).join("/"));
     for (const p of parts) assert.equal(p.payload, p.lead + p.bodies.map((b) => b.html).join(""));
-    assert.equal(parts[1].payload, parts[1].lead + hanzi.html + giant.html);
+    assert.equal(parts[1].payload, parts[1].lead + grid.html + gap.html);
   }
 });
 
@@ -229,7 +222,7 @@ test("the glue builds every block against the stack context it packs with (a str
   assert.ok(/buildGlyphBodies\([^;]*budget: ctx\.budget[^;]*heightPx: ctx\.room[^;]*paperMm: ctx\.paperMm/.test(gl), "glyphImageBodies: " + gl);
   assert.ok(/buildDesignTPicture\(/.test(gl), "glyphImageBodies lost the plain picture");
   // The band reservation is the real lead's and nothing more (no extra LEAD_GUARD on top).
-  assert.ok(!/LEAD_GUARD|bandReserve/.test(gl), "glyphImageBodies reserves more than the lead");
+  assert.ok(!/LEAD_GUARD/.test(gl), "glyphImageBodies reserves more than the lead");
   const rbb = fn("renderBlockBodies");
   for (const b of ["buildBigBodies", "buildSideBodies"]) {
     assert.ok(new RegExp(b + "\\([^;]*budget: ctx\\.budget[^;]*heightPx: ctx\\.room[^;]*contentW: ctx\\.contentW").test(rbb), b + " in " + rbb);

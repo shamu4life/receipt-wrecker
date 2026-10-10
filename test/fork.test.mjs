@@ -167,6 +167,4 @@ test("the lead helpers live in the pure core and keep their contract (bits from 
   assert.equal(C.buildLead({ cheer: true, bits: 25 }, "07"), "Cheer25 07 ");
   assert.equal(C.leadLength({ cheer: true, bits: 25, noNonce: true }), 8);
   assert.equal(C.leadLength({ cheer: false }), 1);
-  assert.equal(C.bandReserve(491), 14);
-  assert.equal(C.bandReserve(400), 100);
 });

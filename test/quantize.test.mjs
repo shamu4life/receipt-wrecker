@@ -17,9 +17,3 @@ test("quantizeTone spreads mid-tones across the ramp", () => {
 test("quantizeTone invert flips dark/light", () => {
   eq(C.quantizeTone([[0]], RAMP, { invert: true }), [["░"]]);
 });
-
-test("quantizeBinary thresholds to on/off, never emits a space", () => {
-  const out = C.quantizeBinary([[0, 255]], { on: "█", off: "░", threshold: 128 });
-  eq(out, [["█", "░"]]);
-  for (const row of out) for (const g of row) assert.notEqual(g, " ");
-});

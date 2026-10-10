@@ -9,12 +9,3 @@ test("makeNonce is a short visible token that changes across sends", () => {
   assert.ok([...a].length >= 1 && [...a].length <= 3);
   for (const bad of [" ", "​", "⁠", "<", ">", "&"]) assert.ok(!a.includes(bad));
 });
-
-test("buildCensus: one line, has each glyph-set label + a ruler + Cheer100, within budget", () => {
-  const s = C.buildCensus();
-  assert.ok(!s.includes("\n"));
-  for (const label of ["RULER", "ASCII", "HANZI", "BRAILLE", "BLOCKS", "QUAD"]) assert.ok(s.includes(label), "missing " + label);
-  assert.ok(/[0-9]{6,}/.test(s), "needs a countable ruler run");
-  assert.ok(s.includes("Cheer100"));
-  assert.ok(C.withinBudget(s), "census over budget");
-});

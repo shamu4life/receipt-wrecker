@@ -75,3 +75,16 @@ test("B1: a typed picture tag arrives as text, escaped, in every text builder", 
     assert.ok(b.html.includes("&lt;img") && b.html.includes("&lt;SVG&gt;"), b.html);
   }
 });
+
+test("the tag scan reads EVERY occurrence and splits bare names the way a parser does", () => {
+  // Both blind spots of a first-occurrence `name=` scan, pinned so a "simpler" scanner can't
+  // quietly come back and wave through markup the tests above exist to catch.
+  //  - an attribute on the SECOND element of a kind (the first one is clean);
+  const two = scanTags('<div style="a:1">A</div><div style="a:1" onclick="x">B</div>');
+  assert.deepEqual(two.filter((t) => !t.closing).map((t) => t.attrs.map((a) => a.name)), [["style"], ["style", "onclick"]]);
+  //  - an unquoted value with a space in it: a parser reads style="a" plus a boolean
+  //    attribute named b, which is not what the builder meant to send.
+  assert.deepEqual(scanTags("<div style=a b>x</div>")[0].attrs, [
+    { name: "style", value: "a", quoted: false }, { name: "b", value: null, quoted: false }]);
+  assert.deepEqual(scanTags('<div style="a b">x</div>')[0].attrs, [{ name: "style", value: "a b", quoted: true }]);
+});

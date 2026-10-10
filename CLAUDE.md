@@ -378,7 +378,7 @@ nothing that prints).
   (`CHEER_GLOBALS`) and hedged for anything else, since a channel's own are unknowable.
 
 **Sideways (High Roller).** One literal shape:
-`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto">line 1<br>line 2</div>`.
+`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;position:relative;left:<X>px]">line 1<br>line 2</div>`.
 - `down` = `vertical-rl;text-orientation:sideways` (letter tops toward the right edge: turn
   the receipt anticlockwise to read; works on every Edge). The `text-orientation` is not
   optional: without it `vertical-rl` stands Han, kana, Hangul and emoji upright, so they lie on
@@ -397,12 +397,28 @@ nothing that prints).
   most 193 × contentW / 244. On 80 mm that is 280 / 150 / 99 / 73 / 58 px for 1-5 lines of
   capitals. The comma, semicolon and Q are not capitals here (their tails clipped at the paper
   edge in review).
-- Known and accepted: an LH 1.15 column's line box is centred, but its baseline sits 0.35em
-  off the line's centre and lowercase leaves the cap zone empty, so mixed-case ink lands toward
-  the descender side, about 16px (4 mm) off centre on 80 mm ("Rise, up": 48 / 16px gaps).
-  Nothing clips (the width rule keeps 6px on the worse side); capitals-only (LH .8) columns are
-  centred within 1-2px. A dir-dependent `position:relative` nudge could centre it, but it needs
-  the edge-reach rule re-derived and both directions benched first. The README says so.
+- **The ink is centred, not the line box.** `margin:auto` centres a column's line box, but the
+  baseline sits half the leading plus Arial's ascent (0.905em) from the side the letter tops
+  face, so lowercase (nothing above the x-height, descenders below) and mixed text landed toward
+  the descender side: 'gg' at 193px 34.5px off centre on 80 mm, "Happy birthday" 16.3px, "Hey,
+  you" 19.8px (bench, polish round 1). `sideInk(g)` gives each grapheme an ink extent [lo, hi]
+  in em above the baseline from the classes in `SIDE_INK` (capitals and digits, x-height
+  letters, descenders, ascenders, accented capitals, punctuation; Arial Bold's metrics, which
+  the bench's Liberation Sans Bold misses by up to 0.03em, so the values sit between the two);
+  emoji take [−0.10, 0.89] and East Asian wide characters [−0.15, 0.72], both as the bench
+  measured them (their fonts on the rig are unmeasured); anything else the font's whole box
+  [−0.212, 0.905], which is centred and moves nothing. `sideInkSpan` unions every column's ink,
+  `sideShiftEm` is how far its middle sits from the box's, and `sideShiftPx` turns that into
+  `position:relative;left:<X>px` (both on the bot's allow-list; it moves the painted box and
+  leaves the layout alone), toward the letter tops' side (+ down, − up), in whole px, ONE value
+  for the whole block (body k carries the same shift as body 1, so columns don't jump between
+  pieces). It is left out when it is 1px or less, so capitals at LH .8, already centred, keep
+  their exact payloads, and for a block wider than the paper (margin:auto can't centre it).
+  Moving the ink to the middle only shrinks its worse gap to an edge, so the width rule still
+  holds; `sidePlan` reports the modelled gaps (`inkGaps`), and a unit test holds them within
+  2px of each other and at least 6px from both edges. Bench after (80 and 58 mm, down and up,
+  13 texts with kana and emoji): every one within 1.7px of centre. The shift's own characters
+  (about 27) count in the open tag's length.
 - Length = S × the line's em width + 0.5 px a glyph: an upper bound (kerning makes the real run
   1-18px shorter on the bench).
 - A long line is cut into segments at word boundaries, by height and by an equal share of the

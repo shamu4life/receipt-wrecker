@@ -19,8 +19,10 @@ test("byte pins: top to bottom and bottom to top, one and two lines, a comma", (
   eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>']);
-  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto">HI, BOB</div>'],
-    "the comma's tail would clip at the capitals' 280px");
+  // The comma's tail would clip at the capitals' 280px; with it the column's ink sits 14px
+  // toward the descenders' side, so the block moves 14px the other way (see the centring test).
+  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:14px">HI, BOB</div>']);
+  eq(html("HI, BOB", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:-14px">HI, BOB</div>']);
   eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 175px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   const parts = C.packStackBodies(build("HELLO", {}), ctx());
   eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
@@ -187,3 +189,36 @@ test("a long line with small capitals: the report says Enter makes more columns 
     assert.ok(!hint.test(C.sideReport(build(t, o))), JSON.stringify(t) + " " + JSON.stringify(o));
   }
 });
+
+test("the ink is centred, not the line box: lowercase and mixed text move toward the letter tops' side; capitals don't move", () => {
+  // Benched through the pinned renderer (tools/forkbench.mjs, 80 and 58 mm, both directions):
+  // 'gg' at 193px printed 34.5px off centre, "Happy birthday" 16.3px, "Hey, you" 19.8px; with the
+  // shift every one is within 2px (HELLO, capitals, was 0.5px off and keeps its exact payload).
+  const fit = (t, o, c) => { const k = c || ctx(); return C.sideFit(t, Object.assign({ budget: k.budget, heightPx: k.room, contentW: k.contentW }, o || {})); };
+  eq([fit("gg").shift, fit("gg", { dir: "up" }).shift, fit("Happy birthday").shift, fit("Hey, you").shift], [36, -36, 17, 20]);
+  assert.match(build("gg", {})[0].html, /;margin:auto;position:relative;left:36px">gg<\/div>$/);
+  // Capitals never move, whatever the lines, paper, direction or size: their ink is already
+  // centred in a line-height .8 column, so their payloads stay byte for byte what they were.
+  for (const paperMm of [80, 58]) for (const dir of ["down", "up"]) for (const size of ["fit1", "width", 40]) {
+    for (const t of ["HELLO", "HAPPY\nBIRTHDAY", "I\nLOVE\nYOU\nSO\nMUCH", "GG WP 123", "NO WAY!"]) {
+      const b = build(t, { dir, size }, ctx({ paperMm }));
+      assert.ok(b.every((x) => x.side.shift === 0 && !/position/.test(x.html)), [paperMm, dir, size, t].join(" "));
+    }
+  }
+  // After the shift the modelled ink sits as far from one edge as from the other (within 2px),
+  // and never nearer than the width rule's 6px to either.
+  const texts = ["gg", "jumping", "Happy birthday", "Hey, you", "こんにちは", "GG 🎉🔥", "Rise, up", "HELLO\nworld", "gg\nWP\njoy",
+    "a\nb\nc\nd\ne", "quick brown fox", "(parens) [and] {braces}", "Ünïcödé", "x"];
+  for (const paperMm of [80, 58]) for (const dir of ["down", "up"]) for (const size of ["fit1", "width"]) for (const t of texts) {
+    const f = fit(t, { dir, size }, ctx({ paperMm }));
+    const label = [paperMm, dir, size, JSON.stringify(t), JSON.stringify(f.inkGaps)].join(" ");
+    assert.ok(f.inkGaps, label);
+    assert.ok(Math.abs(f.inkGaps.top - f.inkGaps.bottom) <= 2 || f.shift === 0, label);
+    assert.ok(f.inkGaps.top >= 6 && f.inkGaps.bottom >= 6, label);
+  }
+  // A block wider than the paper sits against the left edge (margin:auto can't centre it), so it
+  // is not moved; an unknown script's glyphs take the font's whole box, which moves nothing.
+  assert.equal(fit("a b\nc d\ne f\ng h\ni j\nk l\nm n", { size: 300 }).shift, 0);
+  assert.equal(fit("ΑΒΓ").shift, 0);
+});
+

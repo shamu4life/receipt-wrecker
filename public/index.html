@@ -1671,9 +1671,73 @@
   var SIDE_DIRS = { down: "vertical-rl;text-orientation:sideways", up: "sideways-lr" };
   var SIDE_MIN_PX = 20, SIDE_MAX_PX = 300;
   var SIDE_EDGE_PX = 6;
-  function sideOpen(S, lh, dir) {
+  // `shift` (px, optional): moves the block across the paper to centre its INK (sideShiftPx).
+  // position:relative with left moves the painted box without changing the layout, and both
+  // are on the bot's style allow-list (position: static, relative or absolute; left).
+  function sideOpen(S, lh, dir, shift) {
     return '<div style="writing-mode:' + (SIDE_DIRS[dir] || SIDE_DIRS.down) + ";font:700 " + S + "px/" + lh
-      + ' Arial;white-space:nowrap;margin:auto">';
+      + " Arial;white-space:nowrap;margin:auto" + (shift ? ";position:relative;left:" + shift + "px" : "") + '">';
+  }
+  // CENTRING THE INK. margin:auto centres a column's LINE BOX, and the baseline sits off the
+  // middle of it: half the leading plus Arial's ascent (0.905em) from the side the letter tops
+  // face, so capitals at line-height .8 come out centred while lowercase (no ink above the
+  // x-height, descenders below) and mixed text land toward the descender side: 'gg' at 193px
+  // printed 35px (9 mm) off centre on 80 mm, "Happy birthday" 16px. So each grapheme gets an ink
+  // extent [lo, hi] in em above the baseline, from Arial Bold's metrics (the bench's Liberation
+  // Sans Bold differs by up to 0.03em; the values sit between the two), the block's ink is the
+  // union of its columns', and the block is moved by the difference between the ink's middle
+  // and the box's. Emoji and East Asian wide characters take what the bench measured (their
+  // fonts on the rig are unmeasured); anything else unknown takes the font's whole box, which
+  // is centred, so it moves nothing.
+  var SIDE_ASC = 0.905, SIDE_DESC = 0.212;
+  var SIDE_INK = [
+    [/^[A-PR-Z0-9#%&!?£¥ÆÐÞ¢©®§¶]$/, -0.01, 0.70], [/^Q$/, -0.13, 0.70], [/^Ç$/, -0.21, 0.70],
+    [/^[ÀÁÂÃÄÅÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝØ]$/, -0.01, 0.90],
+    [/^[acemnorsuvwxzæø]$/, -0.01, 0.535], [/^[gpqyµç]$/, -0.21, 0.535], [/^t$/, -0.01, 0.66],
+    [/^[bdfhiklßàáâãäåèéêëìíîïðñòóôõöùúûü]$/, -0.01, 0.73], [/^[jýþÿ()\[\]{}|¦]$/, -0.21, 0.73],
+    [/^@$/, -0.17, 0.72], [/^\$$/, -0.08, 0.75], [/^[\/\\]$/, -0.03, 0.73], [/^[¼½¾]$/, -0.09, 0.70],
+    [/^;$/, -0.155, 0.52], [/^:$/, 0, 0.52], [/^,$/, -0.155, 0.15], [/^\.$/, 0, 0.15], [/^[¡¿]$/, -0.17, 0.535],
+    [/^['"`´^*°ªº²³¹¨]$/, 0.3, 0.70], [/^[-~·+=<>×÷±¬«»¤]$/, 0.06, 0.63], [/^_$/, -0.13, -0.07], [/^¸$/, -0.22, 0]
+  ];
+  var SIDE_INK_EMOJI = [-0.10, 0.89], SIDE_INK_WIDE = [-0.15, 0.72];
+  function sideInk(g) {
+    var cps = Array.from(String(g)), i;
+    if (!cps.length || /^\s+$/.test(g)) return null;
+    if (bigGlyphEm(g) === BIG_W_EMOJI) return SIDE_INK_EMOJI;
+    if (bigIsWide(cps[0].codePointAt(0))) return SIDE_INK_WIDE;
+    if (cps.length === 1) for (i = 0; i < SIDE_INK.length; i++) if (SIDE_INK[i][0].test(g)) return [SIDE_INK[i][1], SIDE_INK[i][2]];
+    return [-SIDE_DESC, SIDE_ASC];
+  }
+  // Where the block's ink runs, in em from the block's top-side edge (the side the letter tops
+  // face) across the paper: column i's top edge is i x LH in, its baseline (LH - ascent -
+  // descent) / 2 + ascent further, and a glyph's ink runs from baseline - hi to baseline - lo.
+  // null when nothing in it has ink.
+  function sideInkSpan(lines, lh) {
+    var ob = (lh - SIDE_ASC - SIDE_DESC) / 2 + SIDE_ASC, a = Infinity, b = -Infinity;
+    lines.forEach(function (l, i) {
+      bigGraphemes(l).forEach(function (g) {
+        var k = sideInk(g);
+        if (!k) return;
+        a = Math.min(a, i * lh + ob - k[1]); b = Math.max(b, i * lh + ob - k[0]);
+      });
+    });
+    return a <= b ? [a, b] : null;
+  }
+  // How far (em) the ink's middle sits from the box's middle, toward the descender side.
+  function sideShiftEm(lines, lh) {
+    var sp = sideInkSpan(lines, lh);
+    return sp ? (sp[0] + sp[1]) / 2 - lines.length * lh / 2 : 0;
+  }
+  // The shift in whole px for size S: toward the side the letter tops face (right for top to
+  // bottom, left for bottom to top), only when it is more than 1px (so capitals, already
+  // centred, keep the exact payload they had), and never for a block wider than the paper,
+  // which margin:auto can't centre (it sits against the left edge and is cut anyway). Moving
+  // the ink to the middle shrinks its worse gap to the paper edge, so the width rule
+  // (sideWidthPx) still holds; sidePlan reports the modelled gaps (inkGaps).
+  function sideShiftPx(shiftEm, S, n, lh, dir, contentW) {
+    if (n * S * lh > contentW + PX_EPS) return 0;
+    var px = Math.round(shiftEm * S);
+    return Math.abs(px) <= 1 ? 0 : (dir === "up" ? -px : px);
   }
   // How big N columns can be across a contentW-wide message, from Arial Bold's metrics
   // (ascent .905, descent .212, cap height .716): whatever the line-height, the baseline sits
@@ -1773,8 +1837,8 @@
   // puts it after the previous body. Bottom to top ("up") reads the tape from the bottom,
   // so the bodies go out LAST FIRST and the whole run reads in order. `prep` is sidePrep of
   // every line.
-  function sideEval(prep, S, lh, dir, budget, room) {
-    var N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir));
+  function sideEval(prep, S, lh, dir, budget, room, shift) {
+    var N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir, shift));
     var maxChars = Math.max(1, Math.floor((budget - 4 - openL - BIG_CLOSE.length - 4 * (N - 1)) / N));
     var segs = prep.map(function (w) { return sideSegments(w, S, room, maxChars); });
     var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], k;
@@ -1788,7 +1852,7 @@
       src.push({ start: k, end: k + 1, heightPx: Math.round(h * 1000) / 1000, chars: chars, gapBefore: k > 0 && sp });
     }
     var em = bigEmit(src, dir === "up", budget, room);
-    return { px: S, cols: cols, chunks: em, cheers: bigCheerCount(em, budget, room),
+    return { px: S, shift: shift || 0, cols: cols, chunks: em, cheers: bigCheerCount(em, budget, room),
              over: em.some(function (r) { return r.over; }), tall: em.some(function (r) { return r.tall; }) };
   }
   // The whole decision for one sideways block. opts = {dir, size, budget, heightPx (one part's
@@ -1807,8 +1871,12 @@
     var caps = lines.every(function (l) { return BIG_CAPS_SAFE.test(l); }), lh = caps ? BIG_LH_CAPS : BIG_LH_TEXT;
     var maxPx = Math.min(SIDE_MAX_PX, sideWidthPx(lines.length, caps, contentW));
     var emoji = lines.some(function (l) { return bigGraphemes(l).some(function (g) { return bigGlyphEm(g) === BIG_W_EMOJI; }); });
-    var prep = lines.map(sidePrep);
-    var ev = function (S) { var c = sideEval(prep, S, lh, o.dir, budget, room); c.fits = S <= maxPx; return c; };
+    var prep = lines.map(sidePrep), shiftEm = sideShiftEm(lines, parseFloat(lh));
+    var ev = function (S) {
+      var c = sideEval(prep, S, lh, o.dir, budget, room, sideShiftPx(shiftEm, S, lines.length, parseFloat(lh), o.dir, contentW));
+      c.fits = S <= maxPx;
+      return c;
+    };
     var pick = null;
     if (lines.some(function (l) { return l !== ""; })) {
       if (typeof o.size === "number") pick = ev(o.size);
@@ -1816,12 +1884,21 @@
       else if (o.size === "width") pick = ev(maxPx);
       else pick = bigSearch(ev, SIDE_MIN_PX, maxPx, true);
     }
+    // The ink's modelled gaps to the paper's edges at the size picked, after the shift: `top` on
+    // the side the letter tops face, `bottom` on the descenders' side (null for a block wider
+    // than the paper). The block's top-side edge sits half its width from the paper's middle,
+    // moved toward that side by the shift.
+    var inkGaps = null, span = sideInkSpan(lines, parseFloat(lh));
+    if (pick && span && lines.length * pick.px * parseFloat(lh) <= contentW + PX_EPS) {
+      var edge = contentW / 2 - lines.length * pick.px * parseFloat(lh) / 2 - (o.dir === "up" ? -pick.shift : pick.shift);
+      inkGaps = { top: Math.round((edge + span[0] * pick.px) * 10) / 10, bottom: Math.round((contentW - edge - span[1] * pick.px) * 10) / 10 };
+    }
     return { dir: o.dir, size: o.size, lines: lines, caps: caps, lh: lh, maxPx: maxPx, emoji: emoji, pick: pick,
-             dropped: cleaned.dropped, budget: budget, room: room, contentW: contentW };
+             dropped: cleaned.dropped, budget: budget, room: room, contentW: contentW, shiftEm: shiftEm, inkGaps: inkGaps };
   }
   function sideFit(text, opts) {
     var p = sidePlan(text, opts), k = p.pick;
-    return { dir: p.dir, size: p.size, px: k ? k.px : 0, lh: p.lh, lines: p.lines.slice(), columns: p.lines.length,
+    return { dir: p.dir, size: p.size, px: k ? k.px : 0, shift: k ? k.shift : 0, inkGaps: p.inkGaps, lh: p.lh, lines: p.lines.slice(), columns: p.lines.length,
              maxPx: p.maxPx, chunks: k ? k.chunks.length : 0, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
              over: k ? k.over : false, tall: k ? k.tall : false,
              lengthPx: k ? k.chunks.reduce(function (t, r) { return t + r.heightPx; }, 0) : 0,
@@ -1832,7 +1909,7 @@
   function buildSideBodies(text, opts) {
     var p = sidePlan(text, opts), k = p.pick;
     function info(ci, n, r, words) {
-      return { dir: p.dir, size: p.size, px: k ? k.px : 0, lh: p.lh, columns: p.lines.length, maxPx: p.maxPx,
+      return { dir: p.dir, size: p.size, px: k ? k.px : 0, shift: k ? k.shift : 0, lh: p.lh, columns: p.lines.length, maxPx: p.maxPx,
                capCm: k ? bigCapCm(k.px) : 0,
                lengthCm: k ? k.chunks.reduce(function (t, x) { return t + x.heightPx; }, 0) * MM_PER_PX / 10 : 0,
                chunkIndex: ci, chunkCount: n, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
@@ -1840,7 +1917,7 @@
                cheerWords: words || [], spaced: p.lines.some(function (l) { return / /.test(l); }) };
     }
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, side: info(0, 0, null, []) }];
-    var open = sideOpen(k.px, p.lh, p.dir);
+    var open = sideOpen(k.px, p.lh, p.dir, k.shift);
     return k.chunks.map(function (r, ci) {
       var cols = k.cols[r.start];
       var html = (r.br ? "<br>" : "") + open

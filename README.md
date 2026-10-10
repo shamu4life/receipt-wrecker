@@ -136,9 +136,10 @@ Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700
 quarter turn to the left) and it reads left to right, line 1 on top. *Bottom to top*: turn it
 **clockwise**.
 
-Capitals sit in the middle of the paper. Lowercase and punctuation with tails take more line
-height, and the letters sit toward the side their tails point to: about 4 mm off centre on
-80 mm. Nothing is cut off.
+The letters sit in the middle of the paper. Capitals are centred as they are; lowercase and
+punctuation with tails take more line height and would sit toward the side their tails point
+to, so the app moves the block back by that much (`position:relative;left:…px`). Nothing is cut
+off.
 
 Bottom to top uses `writing-mode: sideways-lr`, which needs Edge 132 or newer on the
 streamer's PC. If UP lies flat on the [High Roller test](#test-cheaply-first), their Edge is

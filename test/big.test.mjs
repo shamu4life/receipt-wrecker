@@ -169,6 +169,33 @@ test("height: a too-wide spaced line counts the lines its words really wrap to",
   for (const p of parts) assert.ok(p.contentPx <= k.limit.px + 1e-6, p.contentPx + "px");
 });
 
+test("Each: a spaced line too wide even at the smallest size counts the lines it wraps to", () => {
+  // Round 3: a long spaced line in Each was counted one line tall (px x LH) while the bot's
+  // page wrapped it, so a part printed up to 20x taller than the packer planned.
+  for (const k of [ctx(), ctx({ paperMm: 58 })]) {
+    const line = new Array(150).fill("WW").join(" ");
+    const b = build(line, { layout: "each" }, k);
+    const px = b[0].big.px, rows = C.bigWrapWords(line, px, k.contentW).length;
+    assert.ok(rows > 10, "it wraps to many lines: " + rows);
+    close(b.reduce((t, x) => t + x.heightPx, 0), rows * px * 0.8, k.paperMm + " mm, " + rows + " printed lines");
+    for (const p of C.packStackBodies(b, k)) assert.ok(p.contentPx <= k.limit.px + 1e-6 || b.some((x) => x.big.tall), p.contentPx + "px");
+  }
+  // A line that fits keeps px x LH.
+  const one = build("HELLO", { layout: "each" });
+  close(one[0].heightPx, one[0].big.px * 0.8, "HELLO");
+});
+
+test("East Asian wide characters count 1.05em, so a kana stack sized to the width stays inside it", () => {
+  assert.equal(C.BIG_W_WIDE, 1.05);
+  for (const ch of ["あ", "ア", "你", "한", "Ａ", "。"]) assert.equal(C.bigLineEm(ch), 1.05, ch);
+  assert.equal(C.bigLineEm("Ж"), C.BIG_W_DEFAULT, "an unlisted narrow character keeps the default");
+  // The bench's kana face advances 1.0235em: at 241px (the old fit) a line was 246.7px in a 244px box.
+  for (const [mm, w] of [[80, 244], [58, 153]]) {
+    const f = C.bigFit("ありがとう", { size: "fit1", paperMm: mm });
+    assert.ok(f.px * 1.0235 <= w - 1, mm + " mm: " + f.px + "px");
+  }
+});
+
 test("emoji print (Edge draws them) and widen the line; invisible characters are dropped and reported", () => {
   const f = C.bigFit("HI 🔥", { layout: "lines" });
   assert.equal(f.lh, "1.15");

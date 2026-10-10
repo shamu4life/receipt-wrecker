@@ -307,8 +307,11 @@ nothing that prints).
   on the streamer's Windows. Never weight 900 or a nested `<b>`: that asks for a Black face,
   which no table here covers.
 - `BIG_W`: case-aware Arial Bold advances in em (the payload is never uppercased). Unknown
-  characters count `BIG_W_DEFAULT` 1.0 (errs wide); an emoji grapheme counts `BIG_W_EMOJI` 1.3
-  (Segoe UI Emoji's advance on the rig is unmeasured).
+  characters count `BIG_W_DEFAULT` 1.0 (errs wide), East Asian wide and full-width ones
+  (`bigIsWide`: Han, kana, Hangul, full-width forms) `BIG_W_WIDE` 1.05, because they are a full
+  1em already (the bench's kana face is 1.0235em: at 1.0 a kana stack overflowed 244px by
+  2.7px, round 3); an emoji grapheme counts `BIG_W_EMOJI` 1.3 (Segoe UI Emoji's advance on the
+  rig is unmeasured).
 - Line height: `.8` only when every line matches `BIG_CAPS_SAFE`
   (`/^[A-PR-Z0-9 .!?'"&#:\/+\-]*$/`), else `1.15`. Lowercase, Q, the comma, the semicolon,
   accents and emoji have ink below the baseline that `.8` clips.
@@ -345,6 +348,9 @@ nothing that prints).
 - `fit1` is a binary search (`bigSearch`) that a test checks against a linear scan on 450
   cases. A size whose chunks are `over` (one chunk longer than a message can be) or `tall`
   (taller than the box) ranks below every size without.
+- `each`: every line's height is `bigLineH` at its own px, so a spaced line too wide even at
+  the smallest size counts the lines it wraps to, as in `lines` (counted as one line, a long
+  sentence's part printed up to 20× taller than planned, round 3).
 - A stack tries two word-gap forms and keeps the one with fewer cheers, ties to `blank`:
   `blank` (one div, a gap is a blank line of the type's height) and `small` (a div per word, a
   gap is a bare `<br>`, 21.6px).
@@ -366,8 +372,13 @@ nothing that prints).
 
 **Sideways (High Roller).** One literal shape:
 `<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto">line 1<br>line 2</div>`.
-- `down` = `vertical-rl` (letter tops toward the right edge: turn the receipt anticlockwise to
-  read; works on every Edge). `up` = `sideways-lr` (tops toward the left edge: turn it
+- `down` = `vertical-rl;text-orientation:sideways` (letter tops toward the right edge: turn
+  the receipt anticlockwise to read; works on every Edge). The `text-orientation` is not
+  optional: without it `vertical-rl` stands Han, kana, Hangul and emoji upright, so they lie on
+  their side once the tape is turned (and print over the next letters in a face with no vertical
+  metrics), and the length model, which measures sideways advances, is wrong (bench, round 3:
+  "你好 HELLO" boxed 729px against a predicted 1119; with the declaration, 1115). It changes
+  nothing for Latin. `up` = `sideways-lr` (tops toward the left edge: turn it
   clockwise; needs Edge 132 or newer on the streamer's PC). Each typed line becomes a column;
   line 1 reads on top once the tape is turned.
 - `writing-mode` turns the layout box itself, so the run's length is real height inside the
@@ -391,6 +402,15 @@ nothing that prints).
   characters; body k takes segment k of every line, and an empty column holds a U+00A0 so the
   others don't move. `up` sends multi-part runs last first. Sizes: `fit1`, `width`, px 20..300.
   `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport` as for big text.
+- `fit1` tries EVERY size from 20px to the width rule's (`bigSearch(..., true)`), not big
+  text's binary search: for sideways text the cheer count is not monotonic in the size (where
+  the word and letter cuts land moves it up and down), and the search could pick a size that
+  costs a cheer more than a smaller one (round 3). `sidePrep` measures every line's words and
+  graphemes once, so each size is arithmetic only.
+- A block with more lines than fit even at 20px is wider than the paper; `margin:auto` cannot
+  centre it, so it sits against the left edge and the right edge cuts it. Top to bottom loses
+  the FIRST lines (line 1 is the rightmost column), bottom to top the LAST; `sideReport` and
+  the size labels say which.
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
@@ -429,10 +449,15 @@ opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R
   min(floor((500 − trail − header) / C), floor(limit / 21.6) − lines for header and token):
   at most 31 on 80 mm, 53 on 58 mm. The rows are spread evenly over the cheers that takes
   (ceil(R / parts) each), so no cheer carries a lone row. Height = (header + rows + token
-  line) × 21.6.
+  line) × 21.6. A High Roller box too short for even header + one row + token (a small cheer
+  under bits per inch) still gets one row a part, and those bodies carry `tall` so the card
+  says the bot cuts every part.
 - Text: the glue's `designTTextGrid` draws the text rotated 90° clockwise down a column C cells
   wide (cells 16 × 21.6, so letters keep their shape), quantized to the cjk ramp without
-  dither. It reads by turning the receipt anticlockwise. Pictures: `buildDesignTPicture`
+  dither. At most `HAN_MAX_LINES` (100) typed lines (`hanTextLines`; each is a canvas drawn on
+  every refresh); the rest are left out and the card says how many (`hanzi.droppedLines`). It
+  was 24, silently, which cost a 26-line stack its last letters once every Big and Sideways
+  block fell back to Han tiling below the threshold. It reads by turning the receipt anticlockwise. Pictures: `buildDesignTPicture`
   frames C − 2 cells with a 丶 column each side, which absorbs a one-cell slip if the quote is
   wider than expected.
 
@@ -476,7 +501,11 @@ words.
   `migrationNote` writes the one-time note: what changed, what could not be carried over
   (Giant type's emotes now print as words; the old fonts and italics are gone), the backup's
   name, and that loading it converts it again while Export JSON keeps it as it was. The glue
-  shows it as a banner above the blocks (`#migrationNote`) until "Got it". `MIGRATION_BACKUP_NAME` is `"Before 1.0.0"`;
+  shows it as a banner above the blocks (`#migrationNote`) on the load that converted the stack,
+  until "Got it" or the next reload (shown once: the stack is converted by then). Loading a
+  pre-1.0.0 preset converts the loaded copy and puts `migrationNote(blocks, name, true)` in
+  the presets note (the stored preset is unchanged). A Giant Emote-layout level sized a
+  picture, so those blocks get `bigSize: "fit1"`, not the level's px. `MIGRATION_BACKUP_NAME` is `"Before 1.0.0"`;
   `freePresetName` never takes a name the user already has.
 
 **App state, read through sanitizers.** Settings and block fields arrive from storage, presets,

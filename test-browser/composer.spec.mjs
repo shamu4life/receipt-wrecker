@@ -441,13 +441,15 @@ test("old saved blocks and settings migrate, and print what the core builds for 
   const { page, ctx, errors } = await freshPage({ blocks: old, controls: oldControls });
   const saved = await stored(page, "rw_blocks_v1");
   assert.deepEqual(saved.map((b) => [b.render, b.bigLayout || b.sideDir, b.bigSize || b.sideSize, !!b.bigFlip]), [
-    ["big", "stack", 143, false], ["big", "lines", 57, false], ["big", "lines", "fit1", false], ["big", "lines", "fit1", true],
+    ["big", "stack", 143, false], ["big", "lines", "fit1", false], ["big", "lines", "fit1", false], ["big", "lines", "fit1", true],
     ["sideways", "down", "fit1", false], ["sideways", "up", "fit1", false], ["big", "lines", "fit1", false]]);
   for (const b of saved) for (const k of ["giantLayout", "giantSize", "orient", "rotateLen"]) assert.ok(!(k in b), k + " survived");
-  // The cards show the converted renders; a migrated px that isn't a step is an option of its own.
+  // The cards show the converted renders; a migrated px that isn't a step is an option of its
+  // own. The Emote layout's level sized an emote picture, so that block is Auto (fit1).
   const renders = await cards(page).locator(".sel-render").evaluateAll((els) => els.map((e) => e.value));
   assert.deepEqual(renders, ["big", "big", "big", "big", "sideways", "sideways", "big"]);
-  assert.equal(await cards(page).nth(1).locator(".sel-size").inputValue(), "57");
+  assert.equal(await cards(page).nth(0).locator(".sel-size").inputValue(), "143");
+  assert.equal(await cards(page).nth(1).locator(".sel-size").inputValue(), "fit1");
   assert.equal(await cards(page).nth(3).locator(".chk-flip").isChecked(), true);
   assert.equal(await cards(page).nth(5).locator(".sel-dir").inputValue(), "up");
   // Settings: exactly the 1.0.0 fields, the old ones gone, absent ones at their defaults.

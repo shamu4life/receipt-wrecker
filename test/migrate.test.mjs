@@ -191,6 +191,10 @@ test("Giant type becomes Big text: layout kept (emote -> lines), sizes carried o
   for (const l of ["auto", "lines", "stack"]) assert.equal(one({ giantLayout: l }).bigLayout, l);
   // The Emote layout's names print as text on this bot (the picture tag is blocked).
   assert.equal(one({ giantLayout: "emote" }).bigLayout, "lines");
+  // ...and its level sized a 1em emote picture, not letters: as px "Kappa Kappa" printed cut
+  // off at the paper's edge, so it takes the biggest size that fits one cheer (round 3).
+  assert.equal(one({ giantLayout: "emote", giantSize: 14 }).bigSize, "fit1");
+  assert.equal(one({ giantLayout: "lines", giantSize: 14 }).bigSize, 205);
   for (const junk of [undefined, null, "", "constructor", 3]) assert.equal(one({ giantLayout: junk }).bigLayout, "auto", String(junk));
   assert.equal(one({ giantSize: "fit1" }).bigSize, "fit1");
   assert.equal(one({ giantSize: "width" }).bigSize, "width");
@@ -297,6 +301,11 @@ test("migrationNote says what changed and names the backup", () => {
   assert.match(n([{ ...TYPE, fmt: { italic: true } }]), /fonts and italics are gone/);
   assert.match(n([ITEMS_TK]), /fonts and italics are gone/, "its lines had a font and italics");
   assert.ok(!/fonts and italics/.test(n([GIANT])), "Giant type had no fonts");
+  // Loading an old preset converts it too, and the note says the preset itself is unchanged.
+  const l = C.migrationNote([ITEMS_TK, GIANT], "Old", true);
+  assert.match(l, /^This setup had a Takeover.* Its text blocks were made for the old printer-bot/);
+  assert.match(l, /The preset "Old" itself is unchanged: loading it converts it again, and Export JSON keeps it as it was\.$/);
+  assert.match(C.migrationNote([GIANT], "Old", true), /^This setup's text blocks were made/);
 });
 
 test("freePresetName never hands back a name the user already has", () => {

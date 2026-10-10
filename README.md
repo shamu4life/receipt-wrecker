@@ -127,7 +127,7 @@ Your words running down the tape, as big as the paper's width allows. Each line 
 becomes a column across the paper:
 
 ```text
-Cheer100 <div style="writing-mode:vertical-rl;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>
+Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>
 ```
 
 **How to read it.** *Top to bottom* (the default): turn the receipt **anticlockwise** (a
@@ -140,8 +140,8 @@ height, and the letters sit toward the side their tails point to: about 4 mm off
 
 Bottom to top uses `writing-mode: sideways-lr`, which needs Edge 132 or newer on the
 streamer's PC. If UP lies flat on the [High Roller test](#test-cheaply-first), their Edge is
-older: use Top to bottom. (On an old Edge, `vertical-rl` turned with `rotate:180deg` would look
-the same; the app doesn't build that, because the bot runs on a current Edge.)
+older: use Top to bottom. (On an old Edge, Top to bottom's form turned with `rotate:180deg`
+would look the same; the app doesn't build that, because the bot runs on a current Edge.)
 
 ### Han tiling (plain text, any cheer)
 

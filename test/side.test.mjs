@@ -16,14 +16,14 @@ const build = (text, o, c) => {
 
 test("byte pins: top to bottom and bottom to top, one and two lines, a comma", () => {
   const html = (t, o, c) => build(t, o, c).map((b) => b.html);
-  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
-  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>']);
-  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto">HI, BOB</div>'],
+  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>']);
+  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto">HI, BOB</div>'],
     "the comma's tail would clip at the capitals' 280px");
-  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;font:700 175px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 175px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   const parts = C.packStackBodies(build("HELLO", {}), ctx());
-  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 280px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
 });
 
 test("the width rule for 1-5 lines, capitals and mixed, 80 and 58 mm", () => {
@@ -96,17 +96,31 @@ test("bottom to top: the bodies go out last first", () => {
   assert.match(C.sideReport(up, { cheers: up.length }), /last first/);
 });
 
-test("fit1 equals a linear scan, and sizes are clamped", () => {
+test("fit1 is the biggest of the least bad sizes, found by trying every size, and sizes are clamped", () => {
+  // The cheer count is not monotonic in the size for sideways text (where the word and letter
+  // cuts land moves it up and down), so a binary search could settle on a size that costs a
+  // cheer more than a smaller one (round 3). fit1 tries every size; check it against the
+  // fixed sizes one by one, including the two cases the review found.
+  const rank = (f) => (f.over ? 2e6 : 0) + (f.tall ? 1e6 : 0) + f.cheers;
+  const cases = [];
   for (const k of [ctx(), ctx({ bitsPerInch: 25 }), ctx({ paperMm: 58 })]) {
     for (const t of ["HELLO", "HAPPY\nBIRTHDAY", "HI, BOB", "A LONG LINE OF WORDS THAT NEEDS TO SPLIT ACROSS SEVERAL CHEERS FOR SURE",
                      "ONE\nTWO\nTHREE\nFOUR\nFIVE\nSIX", "mixed Case text"]) {
-      for (const dir of ["down", "up"]) {
-        const o = { dir, budget: k.budget, heightPx: k.room, contentW: k.contentW };
-        const a = C.sideFit(t, o), b = C.sideFit(t, { ...o, linear: true });
-        eq({ px: a.px, cheers: a.cheers }, { px: b.px, cheers: b.cheers }, t + " " + dir + " " + k.room);
-      }
+      for (const dir of ["down", "up"]) cases.push([t, dir, k.budget, k.room, k.contentW]);
     }
   }
+  cases.push([", aOjcTQdCQJ, \nQ", "down", 488, 119.4, 153], ["a\nf aOjcTQdCQJ, happy", "down", 488, 119.4, 244]);
+  for (const [t, dir, budget, heightPx, contentW] of cases) {
+    const o = { dir, budget, heightPx, contentW }, a = C.sideFit(t, o), where = JSON.stringify(t) + " " + dir + " " + heightPx;
+    let best = null;
+    for (let S = C.SIDE_MIN_PX; S <= Math.max(C.SIDE_MIN_PX, a.maxPx); S++) {
+      const f = C.sideFit(t, { ...o, size: S });
+      if (!best || rank(f) <= rank(best)) best = f;
+    }
+    eq({ px: a.px, cheers: a.cheers }, { px: best.px, cheers: best.cheers }, where);
+  }
+  const r1 = C.sideFit(", aOjcTQdCQJ, \nQ", { dir: "down", budget: 488, heightPx: 119.4, contentW: 153 });
+  eq({ px: r1.px, cheers: r1.cheers }, { px: 28, cheers: 2 }, "the review's first case: 34px for 3 cheers before");
   for (const [v, want] of [["fit1", "fit1"], ["width", "width"], [100, 100], ["100", 100], [1, 20], [999, 300], ["x", "fit1"]]) {
     assert.equal(C.sideSizeOf(v), want, JSON.stringify(v));
   }
@@ -119,6 +133,11 @@ test("too many lines for the width is reported, never silently clipped", () => {
   const f = C.sideFit(t, {});
   assert.equal(f.fits, false);
   assert.match(C.sideReport(build(t, {})), /Too many lines to fit across the paper even at the smallest size/);
+  // Wider than the paper, the block sits against the left edge and the right edge cuts it:
+  // top to bottom puts line 1 on the right, so the FIRST lines go; bottom to top, the LAST.
+  assert.match(C.sideReport(build(t, {})), /the first lines \(the top of the turned receipt\) will be cut off/);
+  assert.match(C.sideReport(build(t, { dir: "up" })), /the last lines \(the bottom of the turned receipt\) will be cut off/);
+  assert.doesNotMatch(C.sideReport(build(t, {})), /outer/);
   assert.equal(C.sideFit("HELLO", { size: 290 }).fits, false, "an explicit size past the width rule");
   assert.match(C.sideReport(build("HELLO", { size: 290 })), /at this size/);
 });
@@ -142,4 +161,18 @@ test("literal tokens only, every user character escaped", () => {
       assert.ok(!/\\|-webkit-|&#|[\u200B-\u200F\u2060\uFEFF]/.test(b.html), b.html);
     }
   }
+});
+
+test("top to bottom turns every character: Han, kana and emoji lie down like the Latin letters", () => {
+  // Without text-orientation:sideways, vertical-rl stands Han, kana, Hangul and emoji upright
+  // (the round-3 bench: 你好 printed over HE, and the box was 729px where the model said 1119).
+  // With it the box is 1115px, so the length model (sideways advances) holds.
+  for (const t of ["你好 HELLO", "ありがとう", "GG 🎉", "© 2026"]) {
+    for (const b of build(t, {})) assert.ok(b.html.includes("writing-mode:vertical-rl;text-orientation:sideways;"), t + ": " + b.html);
+    for (const b of build(t, { dir: "up" })) {
+      assert.ok(b.html.includes("writing-mode:sideways-lr;") && !b.html.includes("text-orientation"), t + ": " + b.html);
+    }
+  }
+  const f = C.sideFit("你好 HELLO", {});
+  assert.ok(Math.abs(f.lengthPx - 1115) < 1115 * 0.02, "the bench measured 1115px: " + f.lengthPx);
 });

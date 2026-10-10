@@ -77,7 +77,8 @@ page, built into the app and run in a sandboxed frame with no network access.
   labelled with what it prints (capitals in cm, cheers).
 - **Sideways text** (High Roller): `writing-mode` turns the text so it runs down the tape, as
   big as the paper's width allows; each typed line is a column. *Top to bottom*
-  (`vertical-rl`, read by turning the receipt anticlockwise) or *Bottom to top*
+  (`vertical-rl` with `text-orientation:sideways`, so Han characters and emoji turn with the
+  letters; read by turning the receipt anticlockwise) or *Bottom to top*
   (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC).
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
   plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
@@ -167,7 +168,11 @@ The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
 - An Image block loses its carrier pick; everything else, the upload link included, stays.
   A Glyph-art block made from a Takeover picture gets 20 columns.
 - A note above the blocks says what changed (including that emote names now print as words
-  and the old fonts and italics are gone), once, until dismissed.
+  and the old fonts and italics are gone), on the load that converts the stack, until
+  dismissed or the next reload. Loading an older preset converts it the same way and says
+  the same in the presets note; the preset itself stays as it was. A Giant block in the
+  Emote layout takes the biggest size that fits one cheer: its level sized an emote
+  picture, not letters.
 - When anything was rewritten, the stack as it was is saved **once** as the preset
   **Before 1.0.0** (or "Before 1.0.0 (2)" if that name is taken), merged into your presets
   after they load, never over one of yours and never over a presets list that can't be read.

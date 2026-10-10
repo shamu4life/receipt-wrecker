@@ -100,3 +100,15 @@ test("Plain test: one bit under the threshold, a Design T HI grid, the token las
   assert.ok(parts[0].payload.endsWith(" Cheer24 07"));
   assert.ok(parts[0].chars <= 500);
 });
+
+test("the High Roller test's note says 1 bit, not 1 bits", () => {
+  const pr = C.buildHighRollerProbe({ hrThreshold: 1 });
+  assert.match(pr.note, /One 1-bit cheer/);
+  assert.match(pr.note, /High Roller is on at 1 bit:/);
+  assert.doesNotMatch(pr.note, /1 bits/);
+  assert.match(C.buildHighRollerProbe({ hrThreshold: 25 }).note, /High Roller is on at 25 bits:/);
+  assert.equal(C.bitsWord(1), "1 bit");
+  assert.equal(C.bitsWord(25), "25 bits");
+  assert.doesNotMatch(C.modeNotice({ cheer: true, bits: 1, hrThreshold: 2 }), /1 bits|\(2 bit\)/);
+  assert.match(C.modeNotice({ cheer: true, bits: 50, hrThreshold: 100, bitsPerInch: 1, maxInches: 0 }), /threshold \(100 bits\)/);
+});

@@ -328,6 +328,9 @@
     var n = typeof b === "number" ? b : parseFloat(b);
     return isFinite(n) && n >= 1 ? Math.floor(n) : 100;
   }
+  // "1 bit", "25 bits": an amount of bits in words. Bits per cheer and the threshold go down
+  // to 1, and "1 bits" has shipped in a note before.
+  function bitsWord(n) { return n + (Number(n) === 1 ? " bit" : " bits"); }
   var NONCE_ALPHABET = ["0","1","2","3","4","5","6","7","8","9"]; // digits: visible and non-collapsing
   function makeNonce(i) {
     var a = NONCE_ALPHABET, base = a.length * a.length;
@@ -735,7 +738,8 @@
   //  - A TEXT block from before 1.0.0 becomes the nearest 1.0.0 render, keeping its text:
   //      Giant type ("giant")         -> big text; its layout kept (auto, lines, stack; the
   //                                      Emote layout becomes lines: names print as text on
-  //                                      this bot), its level as px (giantLevelPx)
+  //                                      this bot), its level as px (giantLevelPx); an Emote
+  //                                      level sized a picture, so those take "fit1"
   //      Type, or no render at all,   -> by its orientation: 0 big text (lines as typed,
   //      or anything else                fit one cheer), 180 the same upside down, 90
   //                                      sideways top to bottom, 270 sideways bottom to top
@@ -805,7 +809,10 @@
         c.render = "big";
         c.bigLayout = c.giantLayout === "lines" || c.giantLayout === "stack" ? c.giantLayout
                     : c.giantLayout === "emote" ? "lines" : "auto";
-        c.bigSize = giantLevelPx(c.giantSize);
+        // An Emote-layout level sized a 1em emote PICTURE, not letters: as px it printed the
+        // names as words cut off at the paper's edge ("Kappa Kappa" at 205px), so those go to
+        // the biggest size that fits one cheer instead.
+        c.bigSize = c.giantLayout === "emote" ? "fit1" : giantLevelPx(c.giantSize);
         delete c.bigFlip;
       } else if (orient === 90 || orient === 270) {
         c.render = "sideways";
@@ -848,14 +855,14 @@
   // What the one-time backup note says: what changed (including what the conversion could not
   // carry over: Giant type's emotes, and the old text's fonts and italics), and where the old
   // stack went, and that loading that backup converts it again (Export keeps it as it was).
-  function migrationNote(blocks, name) {
+  function migrationNote(blocks, name, loaded) {
     var list = Array.isArray(blocks) ? blocks : [], out = [];
     var styled = function (f) { return !!f && typeof f === "object" && (!!f.font || !!f.italic); };
     if (list.some(function (b) { return !!b && b.type === "takeover"; })) {
-      out.push("Your saved stack had a Takeover, which this version can't print. Its lines are now Text blocks and its pictures Glyph-art.");
+      out.push((loaded ? "This setup" : "Your saved stack") + " had a Takeover, which this version can't print. Its lines are now Text blocks and its pictures Glyph-art.");
     }
     if (list.some(isOldText)) {
-      out.push((out.length ? "Its" : "Your saved stack's") + " text blocks were made for the old printer-bot and now print as Big text or Sideways text.");
+      out.push((out.length ? "Its" : loaded ? "This setup's" : "Your saved stack's") + " text blocks were made for the old printer-bot and now print as Big text or Sideways text.");
     }
     if (list.some(function (b) { return isOldText(b) && b.render === "giant" && b.giantLayout === "emote"; })) {
       out.push("Emote names in them now print as words: this bot prints no emotes from this app.");
@@ -869,7 +876,9 @@
     })) {
       out.push("Big and sideways text are always bold Arial, so their fonts and italics are gone.");
     }
-    out.push("The stack as it was is saved as the preset \"" + name + "\". Loading it converts it again; Export JSON keeps it as it was.");
+    out.push(loaded
+      ? "The preset \"" + name + "\" itself is unchanged: loading it converts it again, and Export JSON keeps it as it was."
+      : "The stack as it was is saved as the preset \"" + name + "\". Loading it converts it again; Export JSON keeps it as it was.");
     return out.join(" ");
   }
 
@@ -902,7 +911,8 @@
   // Liberation Sans Bold on the bench, which has Arial Bold's advances; the modes bench's
   // advances.json). Exact and case-aware: the payload is never uppercased, so lowercase
   // keeps its own, narrower widths. A character not listed counts BIG_W_DEFAULT (as wide as
-  // the widest listed glyph, Æ, so it errs wide); an emoji (any grapheme holding an
+  // the widest listed glyph, Æ, so it errs wide), or BIG_W_WIDE when it is East Asian wide
+  // (Han, kana, Hangul: a full 1em already, so 1em has no margin); an emoji (any grapheme holding an
   // astral code point, U+FE0F or a keycap) counts BIG_W_EMOJI, since Segoe UI Emoji's
   // advance on the rig is unmeasured.
   var BIG_W = {
@@ -933,6 +943,17 @@
       "þ": 0.611, "ÿ": 0.556
   };
   var BIG_W_DEFAULT = 1.0, BIG_W_EMOJI = 1.3;
+  // East Asian wide and full-width characters (Han, kana, Hangul, full-width forms) are a
+  // full 1em in their own fonts, so BIG_W_DEFAULT's 1em left them no margin: the bench's kana
+  // face advances 1.0235em, and a stack of kana sized to the width overflowed 244px by 2.7px
+  // (round 3), which left-aligns the line and clips its right edge. They count BIG_W_WIDE.
+  var BIG_W_WIDE = 1.05;
+  function bigIsWide(cp) {
+    return (cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0x303E) || (cp >= 0x3041 && cp <= 0x33FF)
+      || (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xA000 && cp <= 0xA4CF)
+      || (cp >= 0xA960 && cp <= 0xA97F) || (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF)
+      || (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6);
+  }
   var BIG_LAYOUTS = ["auto", "lines", "stack", "each"];
   // Capitals' height: Arial Bold's cap height (0.716em), in cm at 96 CSS px per inch.
   var BIG_CAP_EM = 0.716, MM_PER_PX = 25.4 / 96;
@@ -1015,7 +1036,8 @@
       cp = cps[i].codePointAt(0);
       if (cp >= 0x10000 || cp === 0xFE0F || cp === 0x20E3) return BIG_W_EMOJI;
     }
-    return Object.prototype.hasOwnProperty.call(BIG_W, cps[0]) ? BIG_W[cps[0]] : BIG_W_DEFAULT;
+    if (Object.prototype.hasOwnProperty.call(BIG_W, cps[0])) return BIG_W[cps[0]];
+    return bigIsWide(cps[0].codePointAt(0)) ? BIG_W_WIDE : BIG_W_DEFAULT;
   }
   // A line's width in em (Arial Bold, no kerning: an upper bound) and its glyph count.
   function bigLineEm(line) {
@@ -1220,7 +1242,10 @@
       (function (k) {
         if (m.lines[k] === "") { units.push({ blank: true, h: LEAD_LINE_PX, chars: function () { return 4; } }); return; }
         var c = payloadLength(bigOpen(pxs[k], m.lhs[k], flip)) + m.lens[k] + BIG_CLOSE.length;
-        units.push({ blank: false, h: pxs[k] * parseFloat(m.lhs[k]), chars: function () { return c; } });
+        // A spaced line still too wide at its size (only at the smallest size, or a fixed size
+        // past its width fit) wraps on the bot's page, as in Lines: bigLineH counts the lines it
+        // wraps to. Counted as one line, a long sentence's part printed 20x taller than planned.
+        units.push({ blank: false, h: bigLineH(m, k, pxs[k], m.lhs[k]), chars: function () { return c; } });
       })(k);
     }
     return units;
@@ -1552,18 +1577,25 @@
   // ── SIDEWAYS (High Roller): the words run down the tape ──
   // <div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto">
   //   <line 1><br><line 2>...</div>
+  // where <DIR> is "vertical-rl;text-orientation:sideways" (down) or "sideways-lr" (up).
   // writing-mode turns the layout box itself, so the run's length is real height inside the
   // bot's message box: the receipt grows to fit it, and the bot's own length check sees it (a
   // transform-only rotation reserves no space and is cut off at both ends). Each line becomes
   // a column across the paper; line 1 reads on top once the tape is turned.
   //   down: vertical-rl, the letters' tops toward the right edge; turn the receipt
-  //         anticlockwise to read it. Works on every Edge.
+  //         anticlockwise to read it. Works on every Edge. text-orientation:sideways turns
+  //         EVERY character: without it vertical-rl stands Han, kana, Hangul and emoji
+  //         upright (they lie on their side once the tape is turned, and in a face without
+  //         vertical metrics they print over the next letters), and the length model, which
+  //         measures sideways advances, comes out wrong. For Latin it changes nothing (the
+  //         sideways design benched them pixel-identical). The bot's style allow-list keeps it;
+  //         sideways-lr turns everything already and needs no such declaration.
   //   up:   sideways-lr, the tops toward the left edge; turn it clockwise. Needs Edge 132 or
   //         newer on the streamer's PC (the bot targets a current Edge).
   // white-space:nowrap does nothing on today's bot (an orthogonal block's line length is the
   // 5000px window); it stays as a guard. Lengths and centring are Arial Bold's, pinned like big
   // text (the sideways design and its three reviews, benched through the bot's real page).
-  var SIDE_DIRS = { down: "vertical-rl", up: "sideways-lr" };
+  var SIDE_DIRS = { down: "vertical-rl;text-orientation:sideways", up: "sideways-lr" };
   var SIDE_MIN_PX = 20, SIDE_MAX_PX = 300;
   var SIDE_EDGE_PX = 6;
   function sideOpen(S, lh, dir) {
@@ -1612,30 +1644,53 @@
   // bound: 'HAPPY BIRTHDAY' measured 8.78em against 8.889) plus half a px a glyph, as for big
   // text's width.
   function sideSegLen(seg, S) { return seg ? S * bigLineEm(seg) + 0.5 * bigGraphemes(seg).length : 0; }
-  // One line cut into segments that each run at most maxLen down the tape and cost at most
-  // maxChars, at word boundaries; a word too long on its own is cut between letters. Never
-  // truncates. Each segment says whether it starts after a space (`sp`), so a word gap that
-  // falls between two bodies is kept (see sideEval).
-  function sideSegments(line, S, maxLen, maxChars) {
-    if (!line) return [{ t: "", sp: false }];
-    var segs = [], cur = "", curSp = false;
-    function fits(s) { return sideSegLen(s, S) <= maxLen + PX_EPS && payloadLength(escapeHtml(s)) <= maxChars; }
-    line.split(" ").forEach(function (w, wi) {
-      var pieces = [w];
-      if (!fits(w)) {
-        pieces = []; var c = "";
-        bigGraphemes(w).forEach(function (g) { var t = c + g; if (c && !fits(t)) { pieces.push(c); c = g; } else c = t; });
-        if (c) pieces.push(c);
+  // A line's words, measured once (nothing here depends on the size): each word as its
+  // graphemes, each with its Arial Bold advance (em) and what it costs once escaped (ch).
+  function sidePrep(line) {
+    if (!line) return [];
+    return line.split(" ").map(function (w) {
+      return bigGraphemes(w).map(function (g) { return { t: g, em: bigGlyphEm(g), ch: payloadLength(escapeHtml(g)) }; });
+    });
+  }
+  // A run of text as {t, sp, em, g, ch}: `run` (or nothing) extended by graphemes `gs`, after a
+  // space when `sep`. The advances are summed in reading order, exactly as bigLineEm sums the
+  // whole run, so sideSegLen(run.t, S) === S x run.em + 0.5 x run.g to the last bit.
+  function sideRun(run, gs, sep) {
+    var r = run ? { t: run.t, sp: run.sp, em: run.em, g: run.g, ch: run.ch } : { t: "", sp: false, em: 0, g: 0, ch: 0 };
+    if (sep) { r.t += " "; r.em += BIG_W[" "]; r.g += 1; r.ch += 1; }
+    for (var i = 0; i < gs.length; i++) { r.t += gs[i].t; r.em += gs[i].em; r.g += 1; r.ch += gs[i].ch; }
+    return r;
+  }
+  // One line (its sidePrep words) cut into segments that each run at most maxLen down the
+  // tape and cost at most maxChars, at word boundaries; a word too long on its own is cut
+  // between letters. Never truncates. Each segment says whether it starts after a space
+  // (`sp`), so a word gap that falls between two bodies is kept (see sideEval), and carries
+  // its measurements (em, g, ch), so nothing is measured again per size: fit1 tries every
+  // size (sidePlan), and measuring strings there made a long line take most of a second.
+  function sideSegments(words, S, maxLen, maxChars) {
+    if (!words.length) return [sideRun(null, [], false)];
+    var segs = [], cur = null;
+    function fits(r) { return S * r.em + 0.5 * r.g <= maxLen + PX_EPS && r.ch <= maxChars; }
+    words.forEach(function (gs, wi) {
+      var pieces = [gs];
+      if (!fits(sideRun(null, gs, false))) {
+        pieces = []; var c = [], cr = null;
+        gs.forEach(function (g) {
+          var t = sideRun(cr, [g], false);
+          if (c.length && !fits(t)) { pieces.push(c); c = [g]; cr = sideRun(null, [g], false); }
+          else { c.push(g); cr = t; }
+        });
+        if (c.length) pieces.push(c);
       }
       pieces.forEach(function (p, pi) {
-        if (pi > 0) { if (cur) segs.push({ t: cur, sp: curSp }); cur = p; curSp = false; return; }
-        var trial = cur ? cur + " " + p : p;
-        if (cur && !fits(trial)) { segs.push({ t: cur, sp: curSp }); cur = p; curSp = wi > 0; }
-        else { if (!cur) curSp = wi > 0; cur = trial; }
+        if (pi > 0) { if (cur) segs.push(cur); cur = sideRun(null, p, false); return; }
+        var trial = sideRun(cur, p, !!cur);
+        if (cur && !fits(trial)) { segs.push(cur); cur = sideRun(null, p, false); cur.sp = wi > 0; }
+        else { if (!cur) trial.sp = wi > 0; cur = trial; }
       });
     });
-    if (cur) segs.push({ t: cur, sp: curSp });
-    return segs.length ? segs : [{ t: "", sp: false }];
+    if (cur) segs.push(cur);
+    return segs.length ? segs : [sideRun(null, [], false)];
   }
   // One candidate size: cut every line by the room (one part's height after the lead) and by
   // an equal share of the characters, and make body k from segment k of every line, so the
@@ -1643,19 +1698,20 @@
   // empty line would otherwise vanish and shift the others). A body whose columns pick up
   // after a word gap opens with "<br>" (joinPx 21.6), so the gap survives when the packer
   // puts it after the previous body. Bottom to top ("up") reads the tape from the bottom,
-  // so the bodies go out LAST FIRST and the whole run reads in order.
-  function sideEval(lines, S, lh, dir, budget, room) {
-    var N = Math.max(1, lines.length), openL = payloadLength(sideOpen(S, lh, dir));
+  // so the bodies go out LAST FIRST and the whole run reads in order. `prep` is sidePrep of
+  // every line.
+  function sideEval(prep, S, lh, dir, budget, room) {
+    var N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir));
     var maxChars = Math.max(1, Math.floor((budget - 4 - openL - BIG_CLOSE.length - 4 * (N - 1)) / N));
-    var segs = lines.map(function (l) { return sideSegments(l, S, room, maxChars); });
+    var segs = prep.map(function (w) { return sideSegments(w, S, room, maxChars); });
     var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], k;
     for (k = 0; k < K; k++) {
-      var c = segs.map(function (s) { return s[k] ? s[k].t : ""; });
-      var sp = segs.some(function (s) { return !!(s[k] && s[k].sp); });
+      var c = segs.map(function (s) { return s[k] || null; });
+      var sp = c.some(function (x) { return !!(x && x.sp); });
       var chars = openL + BIG_CLOSE.length + 4 * (N - 1)
-        + c.reduce(function (t, x) { return t + (x ? payloadLength(escapeHtml(x)) : 1); }, 0);
-      var h = c.reduce(function (m, x) { return Math.max(m, sideSegLen(x, S)); }, 0);
-      cols.push(c);
+        + c.reduce(function (t, x) { return t + (x && x.t ? x.ch : 1); }, 0);
+      var h = c.reduce(function (m, x) { return Math.max(m, x && x.t ? S * x.em + 0.5 * x.g : 0); }, 0);
+      cols.push(c.map(function (x) { return x ? x.t : ""; }));
       src.push({ start: k, end: k + 1, heightPx: Math.round(h * 1000) / 1000, chars: chars, gapBefore: k > 0 && sp });
     }
     var em = bigEmit(src, dir === "up", budget, room);
@@ -1663,8 +1719,13 @@
              over: em.some(function (r) { return r.over; }), tall: em.some(function (r) { return r.tall; }) };
   }
   // The whole decision for one sideways block. opts = {dir, size, budget, heightPx (one part's
-  // room after the lead), contentW | paperMm, linear}. fit1 searches like big text: the
-  // biggest size with the least bad (over, tall, cheers), within the width rule.
+  // room after the lead), contentW | paperMm}. fit1 takes the biggest size with the least bad
+  // (over, tall, cheers) within the width rule, by trying EVERY size from 20px to the width
+  // rule's (at most 281). Big text's binary search assumes the badness only grows with the
+  // size; for sideways text it does not: where the word and letter cuts land moves the cheer
+  // count up and down (round 3: ", aOjcTQdCQJ, / Q" on 58 mm under a short box is 3 cheers
+  // at 20px, 2 at 21, 3 at 22 and 23, 2 at 24 and 28; the search said 34px for 3 cheers
+  // where 28px is 2). sidePrep makes each size cheap enough to try them all.
   function sidePlan(text, opts) {
     opts = opts || {};
     var o = sideOpts({ sideDir: opts.dir, sideSize: opts.size });
@@ -1673,13 +1734,14 @@
     var caps = lines.every(function (l) { return BIG_CAPS_SAFE.test(l); }), lh = caps ? BIG_LH_CAPS : BIG_LH_TEXT;
     var maxPx = Math.min(SIDE_MAX_PX, sideWidthPx(lines.length, caps, contentW));
     var emoji = lines.some(function (l) { return bigGraphemes(l).some(function (g) { return bigGlyphEm(g) === BIG_W_EMOJI; }); });
-    var ev = function (S) { var c = sideEval(lines, S, lh, o.dir, budget, room); c.fits = S <= maxPx; return c; };
+    var prep = lines.map(sidePrep);
+    var ev = function (S) { var c = sideEval(prep, S, lh, o.dir, budget, room); c.fits = S <= maxPx; return c; };
     var pick = null;
     if (lines.some(function (l) { return l !== ""; })) {
       if (typeof o.size === "number") pick = ev(o.size);
       else if (maxPx < SIDE_MIN_PX) pick = ev(SIDE_MIN_PX);
       else if (o.size === "width") pick = ev(maxPx);
-      else pick = bigSearch(ev, SIDE_MIN_PX, maxPx, opts.linear);
+      else pick = bigSearch(ev, SIDE_MIN_PX, maxPx, true);
     }
     return { dir: o.dir, size: o.size, lines: lines, caps: caps, lh: lh, maxPx: maxPx, emoji: emoji, pick: pick,
              dropped: cleaned.dropped, budget: budget, room: room, contentW: contentW };
@@ -1725,9 +1787,13 @@
     out.push("Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
       + costWords(cheers, opts.bits, !!opts.free, !g.fits));
     if (!g.fits) {
+      // A block wider than the paper can't be centred: it sits against the left edge and the
+      // right edge cuts it. Top to bottom puts line 1 on the right, so the FIRST lines go;
+      // bottom to top puts it on the left, so the LAST lines go.
+      var lost = g.dir === "up" ? "the last lines (the bottom of the turned receipt)" : "the first lines (the top of the turned receipt)";
       out.push(typeof g.size === "number"
-        ? "Too many lines to fit across the paper at this size: the outer ones will be cut off. Pick a smaller size or use fewer lines."
-        : "Too many lines to fit across the paper even at the smallest size: the outer ones will be cut off. Use fewer lines.");
+        ? "Too many lines to fit across the paper at this size: " + lost + " will be cut off. Pick a smaller size or use fewer lines."
+        : "Too many lines to fit across the paper even at the smallest size: " + lost + " will be cut off. Use fewer lines.");
     }
     if (gs.some(function (x) { return x.over; })) out.push("One piece is too long for a single Twitch message, so that cheer would be rejected. Use fewer lines.");
     if (gs.some(function (x) { return x.tall; })) out.push(tallWords("One letter", opts.limit));
@@ -1884,6 +1950,15 @@
   // part rides alone in its cheer (anything before the grid shifts every row) and every part
   // repeats the header and the token. Height = (header + R + token) lines x 21.6px.
   var HAN_CELL_PX = 16, QUOTE_PX = 6, HAN_LIGHT = "丶";
+  // Han tiling draws each typed line as a picture of its own (a canvas, on every refresh), so
+  // it takes at most HAN_MAX_LINES of them; any more are left out and the card says how many.
+  // It used to stop at 24 and say nothing, which mattered once every Big and Sideways block
+  // fell back to Han tiling below the threshold: a 26-line stack lost its last two letters.
+  var HAN_MAX_LINES = 100;
+  function hanTextLines(text) {
+    var lines = String(text == null ? "" : text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    return { lines: lines.slice(0, HAN_MAX_LINES), dropped: Math.max(0, lines.length - HAN_MAX_LINES) };
+  }
   function hanziCols(contentW) { return Math.floor(contentW / HAN_CELL_PX); }
   function designTHeader(paperMm, mode) {
     var p = paperSpec(paperMm), C = hanziCols(p.contentW);
@@ -1912,14 +1987,17 @@
     // As many cheers as `per` rows a cheer needs, with the rows spread evenly over them: the
     // last cheer used to carry whatever was left, sometimes one row (the bottom stroke of a
     // letter) for a whole cheer and a whole header.
+    // A box shorter than a header, one row and the token line (a High Roller cheer under the
+    // streamer's bits-per-inch or maximum length) still gets one row a part, and every part
+    // is then taller than the box: `tall`, so the card says the bot cuts each one.
     var out = [], size = Math.ceil(rows.length / Math.ceil(rows.length / per));
     for (var i = 0; i < rows.length; i += size) {
       var band = rows.slice(i, i + size);
       var html = header + band.map(function (r) { return r.join(""); }).join("");
-      out.push({ html: html, chars: payloadLength(html), alone: true,
-                 heightPx: Math.round((band.length + extra) * LEAD_LINE_PX * 1000) / 1000,
+      var hPx = Math.round((band.length + extra) * LEAD_LINE_PX * 1000) / 1000, tall = hPx > limit + PX_EPS;
+      out.push({ html: html, chars: payloadLength(html), alone: true, heightPx: hPx, tall: tall,
                  preview: { kind: "grid", grid: [header].concat(band.map(function (r) { return r.join(""); })).join("\n") },
-                 hanzi: { mode: mode, cols: C, header: h, rows: band.length, chunkIndex: out.length } });
+                 hanzi: { mode: mode, cols: C, header: h, rows: band.length, chunkIndex: out.length, tall: tall } });
     }
     out.forEach(function (b) { b.hanzi.chunkCount = out.length; });
     return out;
@@ -1985,7 +2063,7 @@
     if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
     else if (!works) note = "At the streamer's length settings a " + bits + "-bit cheer gets about " + cm + " of receipt, and the "
       + "Cheer line fills it, so this test can't show anything. Check the bits-per-inch and maximum length above.";
-    else note = "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bits + " bits"
+    else note = "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bitsWord(bits)
       + (checks.length ? ": check that " + list(checks) : "") + ". If it all prints small inside quote marks, the threshold is "
       + "higher than " + bits + "."
       + (left.length ? " At the streamer's length settings this cheer gets only about " + cm + " of receipt, so the test leaves out "
@@ -2096,12 +2174,12 @@
           + "the Cheer line, so nothing after it prints, whatever the bits."
         : "The streamer's bits-per-inch setting gives a " + cheerBits(o.bits) + "-bit cheer about "
           + Math.max(1, Math.round(lim.px * MM_PER_PX)) + " mm of receipt, and the Cheer line fills it, so nothing after "
-          + "it prints. The streamer gives 1 inch (2.5 cm) of receipt per " + bitsPerInchOf(o.bitsPerInch)
-          + " bits: set Bits per cheer higher for room to print.";
+          + "it prints. The streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch))
+          + ": set Bits per cheer higher for room to print.";
     }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
     return (t > 0
-        ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + t + " bits), so the bot prints plain text."
+        ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + bitsWord(t) + "), so the bot prints plain text."
         : "The streamer's High Roller threshold is 0 (off), so the bot prints every cheer as plain text.")
       + " Every block prints in its plain form: text as Han tiling, pictures as a grid of Han characters. "
       + (t > 0 ? "For big or sideways text, set Bits per cheer to " + t + " or more."
@@ -2213,7 +2291,7 @@
       var t = r.trimmed, inCm = function (x) { return (Math.round(Number(x) * 25.4) / 10).toFixed(1); };
       cut = (t.by === "cap"
         ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, the streamer's maximum length (" + t.limitIn + " in)"
-        : "The bot cuts this message at " + inCm(t.limitIn) + " cm, all that " + cheerBits(o.bits) + " bits buy at the streamer's bits-per-inch setting")
+        : "The bot cuts this message at " + inCm(t.limitIn) + " cm, all that " + bitsWord(cheerBits(o.bits)) + (cheerBits(o.bits) === 1 ? " buys" : " buy") + " at the streamer's bits-per-inch setting")
         + ". The whole message is " + inCm(t.fullIn) + " cm, so its end fades out.";
     } else if (d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
       cut = "The bot's message box cuts this message off at " + cm(d.measure.contentPx) + " cm, with no fade. The whole message is " + cm(d.measure.fullPx) + " cm.";
@@ -2311,9 +2389,8 @@
     // and line order is top-to-bottom in the feed = the order they were typed.
     // Returns a combined luma grid (rows × totalCols).
     function textColumnsLuma(text, totalCols, sizeFactor, weight, cellAspect) {
-      var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+      var lines = hanTextLines(text).lines;   // at most HAN_MAX_LINES; hanziBodies reports the rest
       if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
-      if (lines.length > 24) lines = lines.slice(0, 24);   // sanity cap on runaway input
       function blankRow() { var row = []; for (var z = 0; z < totalCols; z++) row.push(255); return row; }
       var grid = [], GAP = 2;
       lines.forEach(function (line, k) {
@@ -2409,10 +2486,12 @@
     // control code would draw a box on the canvas. Nothing left builds one empty body, which
     // the packer lets ride along without a part of its own.
     function hanziBodies(text, block, ctx) {
-      var t = bigClean(text).text;
-      if (!/\S/.test(t)) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
-      return buildDesignT(designTTextGrid(t, ctx.paperMm, hanziWeightOf(block.hanziWeight)),
+      var hl = hanTextLines(bigClean(text).text);
+      if (!hl.lines.length) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
+      var bodies = buildDesignT(designTTextGrid(hl.lines.join("\n"), ctx.paperMm, hanziWeightOf(block.hanziWeight)),
         { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
+      bodies.forEach(function (b) { if (b.hanzi) b.hanzi.droppedLines = hl.dropped; });
+      return bodies;
     }
     // Glyph-art: decoding is async (fetch via /px for a URL, or a picked File, read on this
     // device and never uploaded); the decoded Image is cached on block._img. Runtime-only
@@ -2579,8 +2658,8 @@
       els.bitsHint.textContent = "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
         + "so a run of parts costs bits × parts; the total is under the preview. "
         + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
-           : s.bits >= t ? "At " + s.bits + " bits the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
-           : "Below the streamer's High Roller threshold (" + t + " bits) the bot prints plain text, so every block prints as Han tiling.");
+           : s.bits >= t ? "At " + bitsWord(s.bits) + " the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
+           : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints as Han tiling.");
     }
     // --- clipboard -----------------------------------------------------------
     function fallbackCopy(text) {
@@ -3316,7 +3395,7 @@
         return (f.fits ? "" : " · letters cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
       };
       var sideFlags = function (f) {
-        return (f.fits ? "" : " · outer lines cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
+        return (f.fits ? "" : f.dir === "up" ? " · last lines cut off" : " · first lines cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
       };
       var relabel = function (ctx) {
         var text = block.text || "", r = blockRender(block), has = /\S/.test(bigClean(text).text);
@@ -3383,16 +3462,25 @@
         if (r === "hanzi" || plainNow) {
           var hs = where.own.filter(function (b) { return b.hanzi; });
           if (hs.length) {
-            var rows = hs.reduce(function (t, b) { return t + b.hanzi.rows; }, 0);
+            var rows = hs.reduce(function (t, b) { return t + b.hanzi.rows; }, 0), gone = hs[0].hanzi.droppedLines || 0;
             lines.push("Han tiling: " + rows + (rows === 1 ? " row" : " rows") + " of " + hs[0].hanzi.cols
               + " Han characters · " + cheersOf(where.inParts.length || hs.length));
+            if (gone) {
+              lines.push("Han tiling draws the first " + HAN_MAX_LINES + " lines only, so the last " + (gone === 1 ? "line is" : gone + " lines are")
+                + " left out. Put the rest in another block.");
+            }
+            if (hs.some(function (b) { return b.tall; })) {
+              lines.push("Even one row a part (with its light first row and the Cheer line, 3 lines) is taller than "
+                + boxWords(ctx.limit) + ", so the bot cuts every part."
+                + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
+            }
           } else if (!/\S/.test(bigClean(text).text)) {
             lines.push("Type something to print it.");
           }
           if (plainNow && r !== "hanzi") {
             lines.push(t0 > 0
-              ? "This cheer is below the streamer's High Roller threshold (" + t0 + " bits), so this block prints as "
-                + "Han tiling (plain text). The sizes above are what it prints at " + t0 + " bits or more."
+              ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
+                + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + " or more."
               : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
                 + "prints as Han tiling. The sizes above apply only if the streamer turns High Roller on.");
           }
@@ -3892,7 +3980,9 @@
           }));
         });
       });
-      Promise.all(jobs).then(function () {
+      // RETURNED: Load waits on it to say what it found. Without the return, applyPreset handed
+      // Load nothing to wait on, and "Checking its uploaded pictures still load…" never resolved.
+      return Promise.all(jobs).then(function () {
         blocks.forEach(function (b) {
           var urls = presetImageUrls([b]).filter(isMintedImageUrl);
           for (var i = 0; i < urls.length; i++) if (dead[urls[i]]) { b._expired = true; return; }
@@ -3934,7 +4024,9 @@
       return probeStackExpiry();
     }
     // The one-time conversion note, as a banner at the top of the blocks (where a returning
-    // user looks at a stack that changed), until it is dismissed. It used to be the small grey
+    // user looks at a stack that changed), on the load that converted the stack: until it is
+    // dismissed or the page is reloaded (the stack is converted by then, so there is nothing
+    // left to convert; loading the backup preset says it all again). It used to be the small grey
     // hint under the presets, at the bottom of every card.
     function migrationBanner(text) {
       var list = document.getElementById("blockList");
@@ -3995,11 +4087,15 @@
         disarm();
         var p = selectedPreset();
         if (!p) { presetNote("Nothing saved to load yet.", true); return; }
-        var minted = presetImageUrls(p.blocks).filter(isMintedImageUrl).length, seq = ++loadSeq, name = p.name;
-        var base = "Loaded \"" + name + "\"." + pictureFileNote(p.blocks);
+        var seq = ++loadSeq, name = p.name, old = migrationRewrites(p.blocks);
+        var job = applyPreset(p);
+        // Counted on the stack as LOADED (converted): a preset from before 1.0.0 keeps its
+        // uploaded picture inside a Takeover, which presetImageUrls no longer walks, and the
+        // conversion turns it into a Glyph-art block that the expiry check does see.
+        var minted = presetImageUrls(blocks).filter(isMintedImageUrl).length;
+        var base = "Loaded \"" + name + "\"." + (old ? " " + migrationNote(p.blocks, name, true) : "") + pictureFileNote(blocks);
         els.presetName.value = name;
         presetNote(base + (minted ? " Checking its uploaded pictures still load…" : ""));
-        var job = applyPreset(p);
         if (!minted || !job) return;
         job.then(function (r) {
           if (seq !== loadSeq) return;   // another Load since
@@ -4042,6 +4138,7 @@
       });
       els.presetList.addEventListener("change", function () {
         disarm();
+        presetNote("");   // a note about the last pick (a refused rename, say) is not about this one
         var p = selectedPreset();
         if (p) els.presetName.value = p.name;
       });
@@ -4063,11 +4160,12 @@
         }
         var res = parsePresets(els.presetJson.value);
         if (!res.ok) { presetNote(res.error, true); return; }
-        res.presets.forEach(function (p) { presets = upsertPreset(presets, p); });
+        // Say how many it really replaced (upsertPreset replaces a setup of the same name).
+        var replaced = 0;
+        res.presets.forEach(function (p) { if (presetIndexByName(p.name) >= 0) replaced++; presets = upsertPreset(presets, p); });
         persistPresets(); renderPresetList();
-        presetNote("Imported " + res.presets.length
-                   + (res.presets.length === 1 ? " setup." : " setups.")
-                   + " Same-named setups were replaced.");
+        presetNote("Imported " + res.presets.length + (res.presets.length === 1 ? " setup" : " setups")
+                   + (replaced ? ", replacing " + replaced + (replaced === 1 ? " saved setup" : " saved setups") + " with the same name." : "."));
       });
     }
     // Whether this app already says a part will be cut: it is taller than the bot's message box
@@ -4292,7 +4390,7 @@
       packStackBodies: packStackBodies,
       // Big text (High Roller).
       BIG_MIN_PX: BIG_MIN_PX, BIG_MAX_PX: BIG_MAX_PX, BIG_LH_CAPS: BIG_LH_CAPS, BIG_LH_TEXT: BIG_LH_TEXT,
-      BIG_CAPS_SAFE: BIG_CAPS_SAFE, BIG_W: BIG_W, BIG_W_DEFAULT: BIG_W_DEFAULT, BIG_W_EMOJI: BIG_W_EMOJI,
+      BIG_CAPS_SAFE: BIG_CAPS_SAFE, BIG_W: BIG_W, BIG_W_DEFAULT: BIG_W_DEFAULT, BIG_W_EMOJI: BIG_W_EMOJI, BIG_W_WIDE: BIG_W_WIDE,
       BIG_LAYOUTS: BIG_LAYOUTS, BIG_CAP_EM: BIG_CAP_EM, MM_PER_PX: MM_PER_PX, bigCapCm: bigCapCm,
       bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, bigClean: bigClean, bigGraphemes: bigGraphemes,
       bigGraphemesFallback: bigGraphemesFallback, bigLineEm: bigLineEm, bigFitPx: bigFitPx,
@@ -4309,7 +4407,8 @@
       brailleFontPx: brailleFontPx, glyphAspect: glyphAspect, buildCjkGrid: buildCjkGrid, buildMonoGrid: buildMonoGrid,
       buildBrailleGrid: buildBrailleGrid, buildGlyphBodies: buildGlyphBodies, HAN_CELL_PX: HAN_CELL_PX,
       HAN_LIGHT: HAN_LIGHT, hanziCols: hanziCols, designTHeader: designTHeader, designTPictureCols: designTPictureCols,
-      buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture,
+      buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture, HAN_MAX_LINES: HAN_MAX_LINES,
+      hanTextLines: hanTextLines, bitsWord: bitsWord,
       // The two rig tests.
       buildHighRollerProbe: buildHighRollerProbe, buildPlainProbe: buildPlainProbe,
       // Escaping; presets; the 1.0.0 migration of saved stacks.

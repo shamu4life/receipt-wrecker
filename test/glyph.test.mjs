@@ -202,6 +202,33 @@ test("Design T bands: 31 rows a cheer on 80 mm, 53 on 58 mm; every part repeats 
   assert.equal(C.packStackBodies(off, { cheer: false })[0].payload, off[0].html);
 });
 
+test("Design T under a box too short for header, row and token: every part is flagged tall", () => {
+  // bits 100 at 200 bits per inch: a 48px box. One row a part is still 3 lines (64.8px), so
+  // every part is cut; the card says so (round 3: it said only the row and cheer counts).
+  const k = ctx({ bitsPerInch: 200 });
+  assert.equal(k.limit.px, 48);
+  const o = { mode: "raw", paperMm: 80, cheer: true, bits: 100, noNonce: true, limitPx: k.limit.px };
+  const b = C.buildDesignT(disc(15, 4, CJK), o);
+  assert.equal(b.length, 4);
+  for (const x of b) { assert.equal(x.tall, true); assert.equal(x.hanzi.tall, true); }
+  // A box that holds them is not tall.
+  for (const x of C.buildDesignT(disc(15, 4, CJK), { ...o, limitPx: 384 })) assert.equal(!!x.tall, false);
+  for (const x of C.buildDesignT(disc(15, 40, CJK), { ...o, mode: "plain", limitPx: 1600 })) assert.equal(!!x.tall, false);
+});
+
+test("Han tiling takes at most HAN_MAX_LINES typed lines and says how many it left out", () => {
+  assert.equal(C.HAN_MAX_LINES, 100);
+  const t = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).join("\n");
+  const a = C.hanTextLines(t);
+  assert.equal(a.lines.length, 26, "26 letters, one a line: Y and Z are not dropped (the old cap was 24)");
+  assert.equal(a.dropped, 0);
+  const many = C.hanTextLines(Array.from({ length: 130 }, (_, i) => "L" + i).join("\r\n") + "\n\n  \n");
+  assert.equal(many.lines.length, 100);
+  assert.equal(many.lines[99], "L99");
+  assert.equal(many.dropped, 30);
+  eq(J(C.hanTextLines("  \n\n")), { lines: [], dropped: 0 });
+});
+
 test("Design T picture: a light frame column each side of C - 2 picture cells", () => {
   assert.equal(C.designTPictureCols(80), 13);
   assert.equal(C.designTPictureCols(58), 7);

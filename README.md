@@ -142,10 +142,11 @@ Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700
 quarter turn to the left) and it reads left to right, line 1 on top. *Bottom to top*: turn it
 **clockwise**.
 
-The letters sit in the middle of the paper. Capitals are centred as they are; lowercase and
-punctuation with tails take more line height and would sit toward the side their tails point
-to, so the app moves the block back by that much (`position:relative;left:…px`). Nothing is cut
-off.
+The letters sit in the middle of the paper. A column's ink isn't in the middle of its line:
+lowercase and punctuation with tails would sit toward the side their tails point to, and
+capitals a little toward their tops, so the app moves the block back by that much
+(`position:relative;left:…px`), worked out from Arial Bold, the streamer's font. Nothing is cut
+off. (A preview on a computer without Arial can show capitals a few pixels off the middle.)
 
 Each line you type is one column, and it never wraps: a sentence on one line prints as one
 thin column. When that makes the capitals small, the card says to press Enter between words:
@@ -267,7 +268,13 @@ still print), so judge those with the thermal view off.
   counts its characters ("230 / 500 characters").
 - If the streamer's length settings leave a cheer no room after its Cheer line, every part
   says it would print nothing else, its Copy is off, and the line under the parts says what to
-  change.
+  change. If they leave room, but less than even the smallest letters need, the card says to
+  raise Bits per cheer.
+- A part over 500 characters says Twitch would reject it, and the line under the parts says to
+  fix it before pasting.
+- A Glyph-art picture that isn't in the parts (still loading, a link or file that can't be
+  read, an expired upload, or a picked file to pick again after a reload) is named in red above
+  them. While one is still loading, nothing can be copied: the parts change when it arrives.
 
 ## Test cheaply first
 
@@ -303,7 +310,9 @@ print only as glyph-art.
 **Presets** save the whole block stack under a name, in this browser. **Export JSON** copies
 every preset out, to move it to another browser or keep it safe; **Import JSON** brings it
 back, and never replaces anything: a setup whose name is already taken (or repeated in the
-file) is added with a number after its name, and the note says which. Saving under a name that
+file) is added with a number after its name, and the note says which. A setup that is already
+saved exactly as it is (the same name and blocks) is left out, so importing what you just
+exported adds nothing. Saving under a name that
 is already taken asks before replacing it, and so does **Load** when the blocks on screen are
 not saved in any preset. An uploaded picture's link dies after 15 minutes, so a preset that
 used one loads with that block flagged: pick the file again or paste a fresh link. A glyph-art
@@ -321,7 +330,9 @@ Work saved by an older version is converted the first time you open 1.0.0:
 - the stack as it was is saved once, as a preset called **Before 1.0.0**, so nothing is lost.
   Your own presets are never overwritten. A preset is converted when you load it; the stored
   copy stays as it was, and **Export JSON** keeps it that way. A note above the blocks says
-  all this once.
+  all this once. If your saved presets can't be read (damaged or hand-edited), the backup isn't
+  written over them: the note says so, and the old stack's JSON is in the box under Presets,
+  ready to copy.
 
 ---
 

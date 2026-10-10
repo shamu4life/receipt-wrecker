@@ -92,10 +92,12 @@ page, built into the app and run in a sandboxed frame with no network access.
   than fit across the paper says which lines are cut off. The text is centred across the paper
   by its INK: `margin:auto` centres the line box, and lowercase and mixed text sat toward the
   descender side ('gg' 34.5px off centre on 80 mm), so the block gets a small
-  `position:relative;left` shift worked out from each letter's ink (capitals, already centred,
-  keep their exact payloads); benched within 1.7px at both widths and in both directions. Q
-  follows real Arial Bold's outline (its tail is far shorter than the bench font's): with Arial
-  on the bench, Q-led blocks came within 1.42px. One line of capitals goes up to the width rule
+  `position:relative;left` shift worked out from each letter's ink in Arial Bold, the
+  streamer's font. Capitals, digits, Q and Ç follow Arial Bold's own outlines (the bench's
+  Liberation Sans Bold has shorter capitals and a far longer Q tail), so capitals move about
+  3px at 300px too. With Arial on the bench, 74 blocks (capitals, lowercase, mixed, kana and
+  emoji) came within 1.9px of centre at both widths and in both directions, at least 4.9px from
+  either edge. One line of capitals goes up to the width rule
   (300px on 80 mm, 190px on 58 mm), where it used to stop at 280px and call 281-300px too wide.
   A long line Auto had to shrink gets a hint to press Enter for more, bigger columns.
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
@@ -188,7 +190,9 @@ page, built into the app and run in a sandboxed frame with no network access.
   stack, so an old Takeover's picture is checked too) and explains what converting an old
   preset changed; Load asks first when the blocks on screen are in no preset; Import never
   replaces a saved setup: a name taken by one (or repeated in the file) is added with a number
-  after it, and the note says which.
+  after it (kept within the 60 characters a name holds), and the note says which; a setup
+  already saved exactly as it is is left out, so importing what was just exported adds
+  nothing.
 - **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
   card says a reload or a preset won't keep it, and asks for it again when one didn't. A link
   that can't be read says so (and isn't fetched again on every edit). **Rotate** works for
@@ -212,7 +216,19 @@ page, built into the app and run in a sandboxed frame with no network access.
 - An expired upload link is worded for the block: a Glyph-art block asks for the file again
   (it stays on the device) or another link; a Real picture only says why the picture is gone
   from the card. An over-length part says how to fix it for what it holds (text has no
-  columns).
+  columns), and the line under the parts says to fix it before pasting instead of "send it".
+- **A picture the parts leave out is named.** A Glyph-art picture with a link or a picked file
+  that isn't in the parts (still loading, a link or file that can't be read, an expired upload,
+  a picked file to pick again after a reload or a preset) gets a red line above the parts;
+  while one is still loading nothing can be copied, because the parts change when it arrives.
+  The Image card names the picked file it is using.
+- When bits per inch leaves room after the Cheer line but less than even the smallest letters
+  need, the Big and Sideways notes say to raise Bits per cheer (or that the maximum length is
+  too short) instead of "Pick a smaller size", and no longer say "fits". The repeat number
+  counts only while its checkbox is enabled, so the tests carry no digits with Cheer-ready off.
+  While a test is shown the cards keep describing the stack. The Text box grows with its lines;
+  an emptied Detail field changes nothing until a number is typed; after ↑, ↓ or Undo the
+  keyboard stays on the card.
 
 ### Migration of saved work
 
@@ -237,8 +253,10 @@ The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
   picture, not letters.
 - When anything was rewritten, the stack as it was is saved **once** as the preset
   **Before 1.0.0** (or "Before 1.0.0 (2)" if that name is taken), merged into your presets
-  after they load, never over one of yours and never over a presets list that can't be read.
-  Stored presets themselves are not rewritten; a preset is converted when it is loaded.
+  after they load, never over one of yours and never over a presets list that can't be read
+  (then the note says the backup couldn't be saved and puts the old stack's JSON in the box
+  under Presets, ready to copy). Stored presets themselves are not rewritten; a preset is
+  converted when it is loaded.
 
 ### Field note: this channel's chat filter (2026-10-10)
 
@@ -266,7 +284,7 @@ blocks a form, the answer is the plain form, never a reworked message.
   sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
   Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
   caption says their texture is approximate.
-- **Tests**: 182 unit tests and 37 browser tests, including the tag allow-list test and the
+- **Tests**: 183 unit tests and 41 browser tests, including the tag allow-list test and the
   contract test against the vendored renderer (which carries the *Words wrapped* layout and a
   Han and an emoji run at a fixed size too wide for the paper).
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig

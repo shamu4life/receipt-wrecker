@@ -17,22 +17,27 @@ const build = (text, o, c) => {
 test("byte pins: top to bottom and bottom to top, one and two lines, a comma", () => {
   const html = (t, o, c) => build(t, o, c).map((b) => b.html);
   // One line of capitals takes the width rule's size (313px on 80 mm) up to the Size menu's 300.
-  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
-  eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 300px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
-  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto">HAPPY<br>BIRTHDAY</div>']);
-  // The comma's tail would clip at the capitals' 280px; with it the column's ink sits 14px
-  // toward the descenders' side, so the block moves 14px the other way (see the centring test).
-  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:14px">HI, BOB</div>']);
-  eq(html("HI, BOB", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:-14px">HI, BOB</div>']);
-  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 190px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  // Its ink is centred on Arial Bold's outlines: the capitals reach 0.716em (O, C, G and S
+  // 0.728, and 0.013 below the baseline), so a line-height .8 column's ink sits 0.0115em toward
+  // the letter tops, and the block moves 3px the other way at 300px (polish review 3).
+  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
+  eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:3px">HELLO</div>']);
+  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px">HAPPY<br>BIRTHDAY</div>']);
+  // The comma's tail would clip at the capitals' 280px; with it the column's ink sits 12px
+  // toward the descenders' side, so the block moves 12px the other way (see the centring test).
+  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:12px">HI, BOB</div>']);
+  eq(html("HI, BOB", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:-12px">HI, BOB</div>']);
+  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 190px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px">HELLO</div>']);
+  // Small enough that the ink is within half a px of the middle: no shift, the bare tag.
+  eq(html("HELLO", { size: 40 }), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 40px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   const parts = C.packStackBodies(build("HELLO", {}), ctx());
-  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
 });
 
 test("the width rule for 1-5 lines, capitals and mixed, 80 and 58 mm", () => {
   // One line of capitals was held to 280px (scaled to the paper), below the rule, and 281-300
-  // was called too wide while it printed whole (bench: HELLO at 300px 15.3 / 16.7px clear of
-  // the edges on 80 mm; at 190px 9.6 / 8.6px on 58 mm).
+  // was called too wide while it printed whole (bench with Arial Bold, the ink centred: HELLO at
+  // 300px 11.5 / 10.6px clear of the edges on 80 mm; at 190px 7.2 / 5.3px on 58 mm).
   eq([1, 2, 3, 4, 5].map((n) => C.sideWidthPx(n, true, 244)), [313, 150, 99, 73, 58]);
   eq([1, 2, 3, 4].map((n) => C.sideWidthPx(n, false, 244)), [193, 98, 66, 49]);
   eq([1, 2, 3, 4, 5].map((n) => C.sideWidthPx(n, true, 153)), [190, 91, 60, 44, 35]);
@@ -206,30 +211,32 @@ test("a long line with small capitals: the report says Enter makes more columns 
   }
 });
 
-test("the ink is centred, not the line box: lowercase and mixed text move toward the letter tops' side; capitals don't move", () => {
+test("the ink is centred, not the line box: lowercase and mixed text move toward the letter tops' side, capitals a little the other way", () => {
   // Benched through the pinned renderer (tools/forkbench.mjs, 80 and 58 mm, both directions):
   // 'gg' at 193px printed 34.5px off centre, "Happy birthday" 16.3px, "Hey, you" 19.8px; with the
-  // shift every one is within 2px (HELLO, capitals, was 0.5px off and keeps its exact payload).
+  // shift every one is within 2px.
   const fit = (t, o, c) => { const k = c || ctx(); return C.sideFit(t, Object.assign({ budget: k.budget, heightPx: k.room, contentW: k.contentW }, o || {})); };
-  eq([fit("gg").shift, fit("gg", { dir: "up" }).shift, fit("Happy birthday").shift, fit("Hey, you").shift], [36, -36, 17, 20]);
+  eq([fit("gg").shift, fit("gg", { dir: "up" }).shift, fit("Happy birthday").shift, fit("Hey, you").shift], [36, -36, 17, 18]);
   assert.match(build("gg", {})[0].html, /;margin:auto;position:relative;left:36px">gg<\/div>$/);
-  // Capitals never move, whatever the lines, paper, direction or size: their ink is already
-  // centred in a line-height .8 column, so their payloads stay byte for byte what they were.
-  for (const paperMm of [80, 58]) for (const dir of ["down", "up"]) for (const size of ["fit1", "width", 40]) {
-    for (const t of ["HELLO", "HAPPY\nBIRTHDAY", "I\nLOVE\nYOU\nSO\nMUCH", "GG WP 123", "NO WAY!"]) {
-      const b = build(t, { dir, size }, ctx({ paperMm }));
-      assert.ok(b.every((x) => x.side.shift === 0 && !/position/.test(x.html)), [paperMm, dir, size, t].join(" "));
-    }
-  }
-  // After the shift the modelled ink sits as far from one edge as from the other (within 2px),
-  // and never nearer than the width rule's 6px to either.
+  // Capitals take Arial Bold's own outlines (the rig's face): flat capitals reach 0.716em, O, C,
+  // G and S 0.728 with 0.013 below the baseline, digits 0.719. In a line-height .8 column that
+  // ink sits 0.0115em toward the letter tops, so capitals move the other way: 3px at 300px, 2px
+  // at 190 on 58 mm. They were modelled with Liberation Sans Bold's 0.70 and never moved, and on
+  // the bench with Arial Bold added (forkbench --fonts) they printed 2 to 3.5px off centre, and
+  // 3px from the paper's edge on 58 mm (polish review 3).
+  eq([fit("HELLO").shift, fit("HELLO", { dir: "up" }).shift, fit("HELLO", {}, ctx({ paperMm: 58 })).shift, fit("HELLO", { size: 40 }).shift], [-3, 3, -2, 0]);
+  // After the shift (any whole px, even 1: the ink moves to within half a px of the middle) the
+  // modelled ink sits as far from one edge as from the other, within 1px, and never nearer than
+  // the width rule's 6px to either. Capitals included.
   const texts = ["gg", "jumping", "Happy birthday", "Hey, you", "こんにちは", "GG 🎉🔥", "Rise, up", "HELLO\nworld", "gg\nWP\njoy",
-    "a\nb\nc\nd\ne", "quick brown fox", "(parens) [and] {braces}", "Ünïcödé", "x"];
-  for (const paperMm of [80, 58]) for (const dir of ["down", "up"]) for (const size of ["fit1", "width"]) for (const t of texts) {
+    "a\nb\nc\nd\ne", "quick brown fox", "(parens) [and] {braces}", "Ünïcödé", "x",
+    "HELLO", "HAPPY\nBIRTHDAY", "GOOD\nGAME", "I\nLOVE\nYOU\nSO\nMUCH", "GG WP 123", "NO WAY!", "SOS", "100%"];
+  for (const paperMm of [80, 58]) for (const dir of ["down", "up"]) for (const size of ["fit1", "width", 96]) for (const t of texts) {
     const f = fit(t, { dir, size }, ctx({ paperMm }));
+    if (!f.fits) continue;   // too many lines for the paper at 96px: it can't be centred (below)
     const label = [paperMm, dir, size, JSON.stringify(t), JSON.stringify(f.inkGaps)].join(" ");
     assert.ok(f.inkGaps, label);
-    assert.ok(Math.abs(f.inkGaps.top - f.inkGaps.bottom) <= 2 || f.shift === 0, label);
+    assert.ok(Math.abs(f.inkGaps.top - f.inkGaps.bottom) <= 1.1, label);
     assert.ok(f.inkGaps.top >= 6 && f.inkGaps.bottom >= 6, label);
   }
   // Q: its tail drops 0.072em in Arial Bold (the rig's face, measured from the font's outline)
@@ -243,7 +250,7 @@ test("the ink is centred, not the line box: lowercase and mixed text move toward
       assert.ok(Math.abs(f.inkGaps.top - f.inkGaps.bottom) <= 2 && f.inkGaps.top >= 6 && f.inkGaps.bottom >= 6, label);
     }
   }
-  eq([fit("QUIZ").shift, fit("QUIZ", { dir: "up" }).shift, fit("Quiz").shift, fit("HELLO\nQUEEN").shift], [3, -3, 3, 3]);
+  eq([fit("QUIZ").shift, fit("QUIZ", { dir: "up" }).shift, fit("Quiz").shift, fit("HELLO\nQUEEN").shift], [3, -3, 3, 2]);
   // A block wider than the paper sits against the left edge (margin:auto can't centre it), so it
   // is not moved; an unknown script's glyphs take the font's whole box, which moves nothing.
   assert.equal(fit("a b\nc d\ne f\ng h\ni j\nk l\nm n", { size: 300 }).shift, 0);

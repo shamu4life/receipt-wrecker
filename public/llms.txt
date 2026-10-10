@@ -41,8 +41,8 @@ in.
   own size; optionally upside down.
   Example: `Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>`.
 - Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
-  typed line becomes a column, centred across the paper by its ink (lowercase and mixed text
-  get a small `position:relative;left` shift). Top to bottom (read by turning the receipt
+  typed line becomes a column, centred across the paper by its ink, worked out from Arial
+  Bold (most blocks get a small `position:relative;left` shift). Top to bottom (read by turning the receipt
   anticlockwise) or bottom to top (turn it clockwise; needs Edge 132 or newer on the
   streamer's PC).
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
@@ -77,7 +77,8 @@ finds one (about 4.8 cm on 80 mm paper, 4.0 cm on 58 mm).
 - Copy says "Copied" only when the text reached the clipboard; when the browser refuses, the
   part shows its text, selected, to copy by hand.
 - Presets save the block stack in the browser and move between browsers as JSON. Import never
-  replaces a saved setup: a taken name gets a number. Loading a preset asks first when the
+  replaces a saved setup: a taken name gets a number, and a setup already saved exactly as it
+  is is left out. Loading a preset asks first when the
   blocks on screen are not saved in any preset.
 
 ## Privacy

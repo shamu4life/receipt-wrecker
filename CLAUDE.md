@@ -390,8 +390,13 @@ nothing that prints).
   cheers and bits (or, when the box leaves nothing after the Cheer line, `boxNoRoom`, "prints
   nothing" in place of a price, the tall line then left out: `costWords(…, noRoom)`), too wide
   (naming at most two lines, "and N more"), too long to send, taller than the box (`boxWords`
-  names the limit, in cm to one decimal like the part's verdict), invisible characters
-  dropped, emoji print grey. `cheerWords` flags standalone words
+  names the limit, in cm to one decimal like the part's verdict; the summary then says "1
+  cheer, but cut off", never "fits", `costWords(…, tall)`), invisible characters
+  dropped, emoji print grey. When even the smallest size is taller than the room after the
+  Cheer line (`tallWords(what, limit, minPx)`: one line at 20px, or sideways the block's longest
+  letter, `side.widestEm`), the note says the letters are cut at any size and to set Bits per
+  cheer higher (or, under a maximum length, that only a longer one helps), not "Pick a
+  smaller size", which it used to say at 20px too. `cheerWords` flags standalone words
   shaped like a cheermote (`Kappa50`); the note is flat for Twitch's global prefixes
   (`CHEER_GLOBALS`) and hedged for anything else, since a channel's own are unknowable.
   `bigSplitWords` (the `big` record's `splitWords`, `[{word, pieces}]`) names a STACKED word
@@ -415,45 +420,53 @@ nothing that prints).
 - `writing-mode` turns the layout box itself, so the run's length is real height inside the
   bot's box and the bot's length check sees it. A transform-only rotation reserves no space and
   is cut off at both ends.
-- Width rule (`sideWidthPx`), from Arial Bold's metrics: the outer columns may reach E =
-  contentW / 2 − 6 from the centre. Capitals-safe lines at LH .8: floor(E / (0.4N − 0.0305));
-  anything else at LH 1.15: floor(E / (0.575(N − 1) + 0.6)). On 80 mm that is 313 / 150 / 99
-  / 73 / 58 px for 1-5 lines of capitals (one line is held to the Size menu's 300) and 193 /
-  98 / 66 / 49 otherwise; on 58 mm 190 / 91 / 60 / 44 / 35 and 117 / 60 / 40 / 30. One line of
-  capitals used to be capped at 280 (scaled), below the rule, so 281-300px was called "too
-  wide" while it printed whole (HELLO at 300px benched 15.3 / 16.7px clear of the edges on
-  80 mm, at 190px 9.6 / 8.6px on 58 mm; polish review 2). The comma, semicolon and Q are not
-  capitals here (their tails clipped at the paper edge in review).
+- Width rule (`sideWidthPx`), from Arial Bold's metrics: the outer columns' ink may reach E =
+  contentW / 2 − 6 from the centre. Capitals-safe lines at LH .8: floor(E / (0.4N − 0.0305))
+  (a capital's ink, centred, reaches half its span, (0.728 + 0.013) / 2 = 0.3705em, either side
+  of its column's middle; the formula's 0.3695 is the same within 0.2px); anything else at LH
+  1.15: floor(E / (0.575(N − 1) + 0.6)). On 80 mm that is 313 / 150 / 99 / 73 / 58 px for 1-5
+  lines of capitals (one line is held to the Size menu's 300) and 193 / 98 / 66 / 49
+  otherwise; on 58 mm 190 / 91 / 60 / 44 / 35 and 117 / 60 / 40 / 30. One line of capitals
+  used to be capped at 280 (scaled), below the rule, so 281-300px was called "too wide" while
+  it printed whole (polish review 2). With Arial Bold on the bench, HELLO at 300px prints 11.5
+  / 10.6px clear of the edges on 80 mm and at 190px 7.2 / 5.3px on 58 mm: the model keeps 6px,
+  and the bench's rounding takes up to about a px of it (4.9px at the least, two columns of
+  capitals at 91px on 58 mm). The comma, semicolon and Q are not capitals here (their tails
+  clipped at the paper edge in review).
 - **The ink is centred, not the line box.** `margin:auto` centres a column's line box, but the
   baseline sits half the leading plus Arial's ascent (0.905em) from the side the letter tops
   face, so lowercase (nothing above the x-height, descenders below) and mixed text landed toward
   the descender side: 'gg' at 193px 34.5px off centre on 80 mm, "Happy birthday" 16.3px, "Hey,
   you" 19.8px (bench, polish round 1). `sideInk(g)` gives each grapheme an ink extent [lo, hi]
-  in em above the baseline from the classes in `SIDE_INK` (capitals and digits, x-height
-  letters, descenders, ascenders, accented capitals, punctuation; Arial Bold's metrics, which
-  the bench's Liberation Sans Bold misses by up to 0.03em, so the values sit between the two);
-  emoji take [−0.10, 0.89] and East Asian wide characters [−0.15, 0.72], both as the bench
-  measured them (their fonts on the rig are unmeasured); anything else the font's whole box
-  [−0.212, 0.905], which is centred and moves nothing. `sideInkSpan` unions every column's ink,
-  `sideShiftEm` is how far its middle sits from the box's, and `sideShiftPx` turns that into
-  `position:relative;left:<X>px` (both on the bot's allow-list; it moves the painted box and
-  leaves the layout alone), toward the letter tops' side (+ down, − up), in whole px, ONE value
-  for the whole block (body k carries the same shift as body 1, so columns don't jump between
-  pieces). It is left out when it is 1px or less, so capitals at LH .8, already centred, keep
-  their exact payloads, and for a block wider than the paper (margin:auto can't centre it).
-  Moving the ink to the middle only shrinks its worse gap to an edge, so the width rule still
-  holds; `sidePlan` reports the modelled gaps (`inkGaps`), and a unit test holds them within
-  2px of each other and at least 6px from both edges. Bench after (80 and 58 mm, down and up,
-  13 texts with kana and emoji): every one within 1.7px of centre. The shift's own characters
-  (about 27) count in the open tag's length.
-- **Q is the exception to "between the two fonts".** Its tail drops 0.072em in Arial Bold
-  (read from the font's own outline, polish review 2) and 0.197em in Liberation Sans Bold, so
-  no value suits both: the midpoint (−0.13) printed a Q-led block 3 to 6px off centre on the
-  bench, and would have the other way on the rig. `SIDE_INK` gives Q Arial Bold's values
-  (tail −0.07, top 0.73 with its overshoot). With Arial Bold added to the bench (`forkbench
-  --fonts`, your own copy, never committed) every Q-led block benched within 1.42px of centre;
-  with the bench's default Liberation the same blocks sit up to 14.6px toward the descenders'
-  side ("QUIZ" at 193px). Judge Q-led sideways blocks with Arial on the bench.
+  in em above the baseline from the classes in `SIDE_INK`; emoji take [−0.10, 0.89] and East
+  Asian wide characters [−0.15, 0.72], both as the bench measured them (their fonts on the rig
+  are unmeasured); anything else the font's whole box [−0.212, 0.905], which is centred and
+  moves nothing. `sideInkSpan` unions every column's ink, `sideShiftEm` is how far its middle
+  sits from the box's, and `sideShiftPx` turns that into `position:relative;left:<X>px` (both
+  on the bot's allow-list; it moves the painted box and leaves the layout alone), toward the
+  letter tops' side (+ down, − up), in whole px, ONE value for the whole block (body k carries
+  the same shift as body 1, so columns don't jump between pieces), whenever it rounds to 1px or
+  more (so the modelled ink sits within half a px of the middle), and never for a block wider
+  than the paper (margin:auto can't centre it). Moving the ink to the middle only shrinks its
+  worse gap to an edge, so the width rule still holds; `sidePlan` reports the modelled gaps
+  (`inkGaps`), and a unit test holds them within 1px of each other and at least 6px from both
+  edges, capitals included. The shift's own characters (about 27) count in the open tag's
+  length.
+- **Sideways centring is judged on the bench with Arial Bold** (`forkbench --fonts`, your own
+  copy, never committed), the rig's face. Capitals, digits and the symbols beside them, Q and Ç
+  take Arial Bold's own outlines (read from the font file): flat capitals 0 to 0.716em, O C G S
+  −0.013 to 0.728, digits up to 0.719, Q's tail −0.07 (0.197 in Liberation Sans Bold). The
+  other classes (x-height letters, descenders, ascenders, accented capitals, punctuation) sit
+  between Arial Bold and Liberation Sans Bold, which differ there by up to 0.03em. Capitals
+  used Liberation's 0.70 until polish review 3, so they never moved, and with Arial on the
+  bench they printed 2 to 3.5px off centre (3px from the paper's edge on 58 mm); at LH .8 their
+  ink sits 0.0115em toward the letter tops, so they now move about 3px the other way at 300px,
+  and the shift is no longer skipped at 1px. Bench after, with Arial (74 blocks: capitals,
+  digits, lowercase, mixed, kana, emoji; 80 and 58 mm, down and up): every one within 1.9px of
+  centre and at least 4.9px from both edges. With the bench's default Liberation, capitals sit
+  up to 4px toward the baseline side (its capitals are shorter) and Q-led blocks up to 14.6px
+  toward the descenders' side ("QUIZ" at 193px); a Linux or Mac preview drawing Arial with a
+  Liberation-like face shows the same.
 - Length = S × the line's em width + 0.5 px a glyph: an upper bound (kerning makes the real run
   1-18px shorter on the bench).
 - A long line is cut into segments at word boundaries, by height and by an equal share of the
@@ -576,13 +589,17 @@ words.
 - `migrationRewrites` is true when a takeover or an old text block is present.
   `migrationNote` writes the one-time note: what changed, what could not be carried over
   (Giant type's emotes now print as words; the old fonts and italics are gone), the backup's
-  name, and that loading it converts it again while Export JSON keeps it as it was. The glue
+  name, and that loading it converts it again while Export JSON keeps it as it was; with
+  `unsaved` (no backup could be written) it says so instead and points at the JSON box. The glue
   shows it as a banner above the blocks (`#migrationNote`) on the load that converted the stack,
   until "Got it" or the next reload (shown once: the stack is converted by then). Loading a
   pre-1.0.0 preset converts the loaded copy and puts `migrationNote(blocks, name, true)` in
   the presets note (the stored preset is unchanged). A Giant Emote-layout level sized a
   picture, so those blocks get `bigSize: "fit1"`, not the level's px. `MIGRATION_BACKUP_NAME` is `"Before 1.0.0"`;
-  `freePresetName` never takes a name the user already has.
+  `freePresetName` never takes a name the user already has, keeps "Name (2)" within the 60
+  characters a name holds (the base is cut; at 64 the next load cut it back to the very name it
+  was renamed away from), and keeps its set of taken names without a prototype ("constructor"
+  is taken only when a preset has it).
 
 **App state, read through sanitizers.** Settings and block fields arrive from storage, presets,
 imported JSON and form controls (as strings), so everything reads them through these:
@@ -605,8 +622,10 @@ name (the glue asks first: Save under a taken name turns into "Replace?" for a s
 `importPresets(presets, incoming)` is Import: it ADDS every preset and never replaces one, a
 name taken by a saved setup or by one added earlier in the same import getting
 `freePresetName`'s "Stream (2)" (upserting lost a setup when a file held two of one name, and
-replaced saved ones without asking); it returns `{presets, added, renamed}` and the note says
-which were renamed. `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
+replaced saved ones without asking); a preset already saved exactly as it is (same name, same
+blocks, compared by `canonJson`, keys sorted) is left out and listed in `same`, so Export then
+Import no longer doubles the list; it returns `{presets, added, renamed, same}` and the note
+says which were renamed and which were already saved. `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
 `isMintedImageUrl` matches only this Worker's own upload links, by shape, across all three
 generations; `presetImageUrls` walks a stack's picture links.
 
@@ -639,7 +658,10 @@ generations; `presetImageUrls` walks a stack's picture links.
   stamps `blockId` on every body so a card can find its own parts.
 - **Settings.** `getSettings` reads the panel through `normalizeControls`; `stackOpts(extra)`
   adds `noNonce` and any probe override. `syncModeUi` writes the Bits hint for the current
-  threshold; `syncNonceUi` disables (doesn't uncheck) the repeat number without Cheer-ready.
+  threshold; `syncNonceUi` disables (doesn't uncheck) the repeat number without Cheer-ready,
+  and `getNonce()` is on only while it is checked AND Cheer-ready is (every builder, both
+  probes and `copyPart` read it): the tests, real cheers either way, used to carry the digits
+  while the page showed the option as off.
   `saveControls` writes exactly `normalizeControls`' fields; `restoreControls` reads them back.
 - **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
   `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`) or Han tiling (`.sel-weight`). Every
@@ -656,31 +678,47 @@ generations; `presetImageUrls` walks a stack's picture links.
   back with it), and its index wait in `removedBlock`, and `renderComposer` draws "Removed a
   Text block (…). Undo" (`.undo-note`; the button `#undoRemove` takes the focus) where it was,
   until the next add, move, removal, Undo or preset load. Memory only, nothing stored, and no
-  timer: a note that vanished by itself would shift the cards under a finger. On a touchscreen
+  timer: a note that vanished by itself would shift the cards under a finger. After ↑ or ↓ the
+  focus goes back to the same button on the moved card (the other one when that is now
+  disabled), and after Undo to the restored card's first control (`blockCard(i)`): the redraw
+  used to drop it on the page body. On a touchscreen
   or below 700px the head's buttons are 44px targets and × stands apart from ↓ (a mis-tap
   while reordering used to delete the block for good). The tests count cards as
   `#blockList > .block-card`, since the note sits among them. The note
   (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
-  callback. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
+  callback, which always gets the STACK's last parts (`stackParts`), so a probe shown in the
+  parts never rewrites the cards (they went blank). The Text box has as many rows as typed
+  lines, 2 to 8. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
   box under a bits-per-inch setting); with High Roller off the note says so instead of "below
   the threshold (0 bits)". In a free test the note counts messages, not bits. `imageCard`: Kind
   (`.sel-kind`: Glyph-art or Real picture), URL, file (with a hint of what happens to it for
   that kind), Rotate (`.sel-rotate`, both kinds); for Glyph-art the Characters select
   (`.sel-tier`) with per-form hints and a column range that follows the form (the Detail field
   shows the columns the grid really uses, `glyphCols`, and committing a value writes the
-  clamped one back; a new block starts at 18, so a square picture is 449 characters, one cheer,
-  where 20 was two cheers and the face printed in halves), **Darkness** (the stored `contrast`,
+  clamped one back; an emptied field changes nothing while it is retyped and takes the default
+  when left empty; a new block starts at 18 (`GLYPH_COLS_DEFAULT`), so a square picture is 449
+  characters, one cheer, where 20 was two cheers and the face printed in halves), **Darkness** (the stored `contrast`,
   0..255 with 128 as is, shown centred as −128..127: it is a tone shift, not a contrast) and
   **Smooth shading (photos)** (the `dither` field: error diffusion over the characters, not the
   thermal view's dither); for a Real picture the red can't-print note, "Switch to Glyph-art", a
   thumbnail and brightness/contrast (baked and re-uploaded; they change the card's picture
   only, and the card says so). The file input is emptied once its file is taken and on a change
-  of kind, so picking the same file again always fires (it didn't after a switch to Real).
+  of kind, so picking the same file again always fires (it didn't after a switch to Real); the
+  line under it (`.file-use`) names the picked file in use ("Using “smiley.png”, read on this
+  device (not uploaded)"), and on a Real picture card says that file was never uploaded, so
+  there is nothing to show.
 - **Parts.** `composeParts` packs the stack. A stack with nothing printable, or only a Real
   picture, gives one non-copyable notice, drawn as wrapped prose (`.rcpt-placeholder`; it was
   receipt text in a fixed-width box, cut off mid-word); a part with nothing printable in it yet
-  (a picture still decoding) is shown but not copyable. When the streamer's settings leave a
+  (a picture still decoding) is shown but not copyable. `missingPictures` lists every Glyph-art
+  block with a source (a link or a picked file's name) that is not in the parts (still loading,
+  a link or file that can't be read, an expired upload, a file to pick again), and the parts
+  show it in a red notice under the mode notice (`#pictureNote`, `pictureAlert`, one line each,
+  "The picture in block 2 from the top …"): as long as another block printed, such a picture
+  dropped out of the run with one live Copy and "One 100-bit cheer. Paste it into chat and send
+  it." While any picture is still loading, no part is copyable (the parts change when it
+  lands). When the streamer's settings leave a
   High Roller cheer no room after its Cheer line (`boxNoRoom`), every part is `noRoom`: a red
   note says it prints nothing but that line (a plain grid: only its light first row), its Copy
   is disabled, and `noRoomAdvice` replaces the bits total. Without the repeat number, a part identical to
@@ -689,7 +727,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   carries a "Back to my stack" button (`#backToStack`) and, with Cheer-ready off, says the test
   is a real cheer anyway (it has to print to show anything). `renderParts` shows the mode notice, a
   persistent card per part and the total (bits, or a free test's message count; one part says
-  "One N-bit cheer" unless it carries a note of its own, as a probe does). A part's
+  "One N-bit cheer" unless it carries a note of its own, as a probe does). A part over 500
+  characters replaces the total with a red "too long for Twitch to send … Fix it before
+  pasting" (`.too-long`): it said "send it" under the part's own note that Twitch rejects it. A part's
   header (`.part-head`: "N / 500 characters" and the kind label in `.part-info`, which wraps
   beside the full-size Copy button, `.copy-btn`) is sticky, so Copy stays in view while a
   40 cm preview scrolls past; the part's note, then its preview and verdict, follow.
@@ -715,7 +755,10 @@ generations; `presetImageUrls` walks a stack's picture links.
 - **Presets and the expiry check.** `seedBlocks` migrates a saved stack once and saves it; when
   `migrationRewrites` is true it queues the backup preset, which `initPresets` writes only
   after the user's presets have loaded, merged in with `upsertPreset` under a free name, and
-  never over an unreadable `rw_presets_v1`. `applyPreset` migrates a deep copy; **stored
+  never over an unreadable `rw_presets_v1`. When it can't be written (presets unreadable, or
+  storage refuses it: `persistPresets` returns whether it took), the stack as it was goes into
+  the JSON box under Presets, shown, and the banner says so (`migrationNote(…, unsaved)`): the
+  converted stack is already saved, and it used to be converted with no word at all. `applyPreset` migrates a deep copy; **stored
   presets are never rewritten** (export gives back what was saved, and the backup keeps its
   takeovers), and a JSON import is added as is (`importPresets`: never over a saved setup) and
   migrated when loaded. Load asks first ("Replace stack?", `armedLoad`, like Save's

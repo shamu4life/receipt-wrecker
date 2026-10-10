@@ -1811,22 +1811,33 @@
   }
   // CENTRING THE INK. margin:auto centres a column's LINE BOX, and the baseline sits off the
   // middle of it: half the leading plus Arial's ascent (0.905em) from the side the letter tops
-  // face, so capitals at line-height .8 come out centred while lowercase (no ink above the
-  // x-height, descenders below) and mixed text land toward the descender side: 'gg' at 193px
-  // printed 35px (9 mm) off centre on 80 mm, "Happy birthday" 16px. So each grapheme gets an ink
-  // extent [lo, hi] in em above the baseline, from Arial Bold's metrics (the bench's Liberation
-  // Sans Bold differs by up to 0.03em; the values sit between the two), the block's ink is the
-  // union of its columns', and the block is moved by the difference between the ink's middle
-  // and the box's. Q is the exception: its tail drops 0.072em in Arial Bold (measured from the
-  // font's own outline, polish review 2) and 0.197em in Liberation Sans Bold, so no value suits
-  // both. It takes Arial's, the rig's face: the midpoint (-0.13) put a block led by Q 3 to 6px
-  // off centre in both faces, and the bench (Liberation) now shows such a block about 6% of
-  // its size toward the letter tops, where the rig prints it centred. Emoji and East Asian wide characters take what the bench measured (their
-  // fonts on the rig are unmeasured); anything else unknown takes the font's whole box, which
-  // is centred, so it moves nothing.
+  // face, so lowercase (no ink above the x-height, descenders below) and mixed text land toward
+  // the descender side: 'gg' at 193px printed 35px (9 mm) off centre on 80 mm, "Happy birthday"
+  // 16px. So each grapheme gets an ink extent [lo, hi] in em above the baseline, the block's ink
+  // is the union of its columns', and the block is moved by the difference between the ink's
+  // middle and the box's. Sideways centring is judged on the bench WITH Arial Bold (forkbench
+  // --fonts, your own copy), the rig's face; the bench's default Liberation Sans Bold differs.
+  //  - Capitals, digits and the symbols beside them, and Q and Ç, take Arial Bold's own
+  //    outlines: flat capitals 0 to 0.716em, O C G S 0.013 below the baseline to 0.728, digits
+  //    up to 0.719. In a line-height .8 column that ink sits 0.0115em toward the letter tops, so
+  //    capitals move the other way (3px at 300px). They took Liberation's 0.70 until polish
+  //    review 3 and never moved, and with Arial on the bench they printed 2 to 3.5px off centre,
+  //    3px from the paper's edge on 58 mm; now every one benched within 1.9px (74 blocks, 80 and
+  //    58 mm, down and up). With Liberation they sit up to 4px toward the baseline side instead
+  //    (its capitals are shorter), and so does a Linux or Mac preview that draws Arial with it.
+  //    Q's tail drops 0.072em in Arial Bold and 0.197em in Liberation (polish review 2): with
+  //    Liberation a Q-led block sits up to 14.6px ("QUIZ" at 193px) toward the descenders' side.
+  //  - The other classes (x-height letters, descenders, ascenders, accented capitals,
+  //    punctuation) sit between Arial Bold and Liberation Sans Bold, which differ there by up
+  //    to 0.03em; they bench within 1.2px with Arial.
+  //  - Emoji and East Asian wide characters take what the bench measured (their fonts on the
+  //    rig are unmeasured); anything else unknown takes the font's whole box, which is centred,
+  //    so it moves nothing.
   var SIDE_ASC = 0.905, SIDE_DESC = 0.212;
   var SIDE_INK = [
-    [/^[A-PR-Z0-9#%&!?£¥ÆÐÞ¢©®§¶]$/, -0.01, 0.70], [/^Q$/, -0.07, 0.73], [/^Ç$/, -0.21, 0.70],
+    [/^[ABDEFHIKLMNPRTVWXYZ!¥ÆÐÞ]$/, 0, 0.716], [/^[CGOS#£]$/, -0.013, 0.728], [/^[JU]$/, -0.012, 0.716],
+    [/^[1247]$/, 0, 0.719], [/^[035689]$/, -0.013, 0.719], [/^[%&]$/, -0.029, 0.728], [/^\?$/, 0, 0.723],
+    [/^[©®]$/, -0.018, 0.731], [/^[¢§¶]$/, -0.21, 0.728], [/^Q$/, -0.07, 0.73], [/^Ç$/, -0.205, 0.728],
     [/^[ÀÁÂÃÄÅÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝØ]$/, -0.01, 0.90],
     [/^[acemnorsuvwxzæø]$/, -0.01, 0.535], [/^[gpqyµç]$/, -0.21, 0.535], [/^t$/, -0.01, 0.66],
     [/^[bdfhiklßàáâãäåèéêëìíîïðñòóôõöùúûü]$/, -0.01, 0.73], [/^[jýþÿ()\[\]{}|¦]$/, -0.21, 0.73],
@@ -1864,28 +1875,34 @@
     return sp ? (sp[0] + sp[1]) / 2 - lines.length * lh / 2 : 0;
   }
   // The shift in whole px for size S: toward the side the letter tops face (right for top to
-  // bottom, left for bottom to top), only when it is more than 1px (so capitals, already
-  // centred, keep the exact payload they had), and never for a block wider than the paper,
-  // which margin:auto can't centre (it sits against the left edge and is cut anyway). Moving
-  // the ink to the middle shrinks its worse gap to the paper edge, so the width rule
-  // (sideWidthPx) still holds; sidePlan reports the modelled gaps (inkGaps).
+  // bottom, left for bottom to top), whenever it rounds to 1px or more, so the modelled ink sits
+  // within half a px of the middle (it used to skip 1px, to keep capitals' payloads as they
+  // were; with Arial's outlines they need it, and two columns of capitals at 91px on 58 mm
+  // printed 2.8px off centre and 3.9px from the edge without it). Never for a block wider than
+  // the paper, which margin:auto can't centre (it sits against the left edge and is cut
+  // anyway). Moving the ink to the middle shrinks its worse gap to the paper edge, so the width
+  // rule (sideWidthPx) still holds; sidePlan reports the modelled gaps (inkGaps).
   function sideShiftPx(shiftEm, S, n, lh, dir, contentW) {
     if (n * S * lh > contentW + PX_EPS) return 0;
     var px = Math.round(shiftEm * S);
-    return Math.abs(px) <= 1 ? 0 : (dir === "up" ? -px : px);
+    return px === 0 ? 0 : (dir === "up" ? -px : px);
   }
   // How big N columns can be across a contentW-wide message, from Arial Bold's metrics
   // (ascent .905, descent .212, cap height .716): whatever the line-height, the baseline sits
-  // 0.3465em off a column's centre, so capitals reach 0.3695em on the glyph-top side and
-  // anything else (descenders, accents) up to about 0.6em. The outer columns may reach
-  // E = contentW/2 - 6 from the centre (116px on 80 mm, 70.5 on 58 mm); columns are S x LH apart.
+  // 0.3465em off a column's centre, so capitals reach 0.3695em on the glyph-top side, and once
+  // their ink is centred (sideShiftPx) half its span, (0.728 + 0.013) / 2 = 0.3705em with O, C,
+  // G or S, each side: the same within 0.2px. Anything else (descenders, accents) reaches up to
+  // about 0.6em. The outer columns' ink may reach E = contentW/2 - 6 from the centre (116px on
+  // 80 mm, 70.5 on 58 mm); columns are S x LH apart.
   //   capitals-safe, LH .8:   floor(E / (0.4N - 0.0305))
   //   anything else, LH 1.15: floor(E / (0.575(N - 1) + 0.6))
   // On 80 mm that is 313/150/99/73/58 for 1-5 lines of capitals (one line is held to the Size
   // menu's 300) and 193/98/66/49 otherwise; on 58 mm 190/91/60/44/35 and 117/60/40/30. One line
   // of capitals was capped at 280 (scaled to the paper), below the rule, so 281-300px was
-  // called "too wide for the paper" and printed whole: HELLO at 300px benched 15.3 / 16.7px
-  // clear of the edges on 80 mm, and at 190px 9.6 / 8.6px on 58 mm (polish review 2).
+  // called "too wide for the paper" and printed whole (polish review 2). With Arial Bold on the
+  // bench HELLO at 300px prints 11.5 / 10.6px clear of the edges on 80 mm, and at 190px 7.2 /
+  // 5.3px on 58 mm: the model keeps 6px, and the bench's rounding takes up to about a px of it
+  // (4.9px at the least, two columns of capitals at 91px on 58 mm; polish review 3).
   // The comma, the semicolon and Q are NOT capitals here: their tails drop about 0.15em, and
   // at the capitals' sizes they printed clipped at the paper edge or ran into the next column
   // (all three reviews). BIG_CAPS_SAFE leaves them out, so they take the 1.15 rule.

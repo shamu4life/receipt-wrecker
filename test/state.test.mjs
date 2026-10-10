@@ -198,3 +198,12 @@ test("previewVerdict says what the bot's renderer said, in plain words", () => {
   assert.deepEqual(texts({ error: "boom" }, {}), ["! SassyTP's renderer could not draw this part (boom)."]);
   assert.deepEqual(texts(null, null), ["! SassyTP's renderer could not draw this part (no answer)."]);
 });
+
+test("noRoomAdvice: what to change when the streamer's settings leave no room after the Cheer line", () => {
+  const a = C.noRoomAdvice({ cheer: true, bits: 25, hrThreshold: 25, bitsPerInch: 200 });
+  assert.equal(a, "Nothing worth sending: every part would print only its Cheer line. Set Bits per cheer higher: the streamer gives 1 inch (2.5 cm) of receipt per 200 bits.");
+  assert.match(C.noRoomAdvice({ cheer: true, bits: 25, hrThreshold: 25, bitsPerInch: 1, maxInches: 0.2 }),
+    /whatever the bits\. The streamer's maximum length would have to be longer/);
+  assert.match(C.noRoomAdvice({ cheer: true, bits: 1, hrThreshold: 1, bitsPerInch: 1 / 0.1 }), /per 10 bits\.$/);
+});
+

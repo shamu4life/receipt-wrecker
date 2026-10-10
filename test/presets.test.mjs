@@ -129,3 +129,24 @@ test("cleanBlocks is the single definition of what a saved block is", () => {
   eq(cleanBlocks(null), []);
   assert.notEqual(cleanBlocks(b)[0], b[0], "cleanBlocks must copy, not alias");
 });
+
+test("import never replaces: a name taken by a saved setup, or by one added earlier in the same import, gets a number", () => {
+  const { importPresets } = C;
+  const saved = [makePreset("Stream", [{ id: 1, type: "text", text: "MINE" }], 1)];
+  const incoming = parsePresets(serializePresets([
+    makePreset("Stream", [{ id: 1, type: "text", text: "FIRST" }], 2),
+    makePreset("Stream", [{ id: 1, type: "text", text: "SECOND" }], 3),
+    makePreset("Other", [{ id: 1, type: "text", text: "THIRD" }], 4),
+  ])).presets;
+  const r = importPresets(saved, incoming);
+  eq(r.presets.map((p) => [p.name, p.blocks[0].text]),
+    [["Stream", "MINE"], ["Stream (2)", "FIRST"], ["Stream (3)", "SECOND"], ["Other", "THIRD"]]);
+  assert.equal(r.added, 3);
+  eq(r.renamed, [{ from: "Stream", to: "Stream (2)" }, { from: "Stream", to: "Stream (3)" }]);
+  // Neither input changes, and an empty saved list still numbers a duplicate within the file.
+  assert.equal(saved.length, 1);
+  eq(incoming.map((p) => p.name), ["Stream", "Stream", "Other"]);
+  const fresh = importPresets([], incoming.slice(0, 2));
+  eq(fresh.presets.map((p) => p.name), ["Stream", "Stream (2)"]);
+  eq(fresh.renamed, [{ from: "Stream", to: "Stream (2)" }]);
+});

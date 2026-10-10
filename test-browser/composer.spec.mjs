@@ -82,9 +82,12 @@ const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxI
 // own copy. `core: true` lets the page hand its pure core (and the two canvas-backed grid
 // functions) to the test through module.exports, which is how an expected payload that
 // needs a canvas is computed.
-async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core } = {}) {
+// `init`: one more init script, run after the clipboard stub (a test that needs the clipboard
+// to refuse, say).
+async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core, init } = {}) {
   const ctx = await browser.newContext(viewport ? { viewport } : {});
   await ctx.addInitScript(installClipboardStub);
+  if (init) await ctx.addInitScript(init);
   if (core) await ctx.addInitScript(() => { window.module = { exports: {} }; });
   for (const [key, value] of [["rw_blocks_v1", blocks], ["rw_presets_v1", presets], ["rw_controls_v1", controls]]) {
     if (!value) continue;
@@ -319,8 +322,14 @@ test("presets round-trip through a reload", async () => {
   const saved = await cardCount(page);
   await page.click("#addImageBtn");
   assert.equal(await cardCount(page), saved + 1);
+  // The stack on screen is in no preset now, so Load asks before it replaces it.
+  await page.click("#presetLoad");
+  assert.equal(await page.textContent("#presetLoad"), "Replace stack?");
+  assert.match(await page.textContent("#presetNote"), /^Loading "smoke setup" replaces the blocks you have now, which are not saved\. Press Replace stack\? to load it, or Save them first\.$/);
+  assert.equal(await cardCount(page), saved + 1, "the first press replaced the stack");
   await page.click("#presetLoad");
   await page.waitForFunction((n) => document.querySelectorAll("#blockList > *").length === n, saved);
+  assert.equal(await page.textContent("#presetLoad"), "Load");
   assert.equal(await cardCount(page), saved, "loading the preset did not restore the stack");
   await ctx.close();
 });
@@ -1017,6 +1026,8 @@ test("presets: names stay unique, Save asks before replacing, and Load, Rename a
 
   await page.selectOption("#presetList", { index: 1 });
   await page.click("#presetLoad");
+  assert.equal(await page.textContent("#presetLoad"), "Replace stack?", "the default stack is in no preset, so Load asks first");
+  await page.click("#presetLoad");
   assert.equal(await text(), "SECOND", "Load on the second A loaded another preset");
   assert.equal(await note(), 'Loaded "A".', "no uploaded pictures, so nothing to check and nothing promised");
 
@@ -1073,7 +1084,7 @@ test("a glyph-art picture from a picked file: read on this device, and after a r
   const card = cards(page).first();
   const cardNote = () => card.locator(".text-note").innerText();
   assert.equal(await cardNote(), "Paste an image link or pick a file.");
-  assert.match(await page.textContent("#parts"), /\(nothing to print yet: add a block, or type into one\)/);
+  assert.match(await page.textContent("#parts"), /Nothing to print yet: add a block, or type into one\./);
   assert.match(await card.innerText(), /A picked file is read on this device and never uploaded/);
 
   await card.locator("input[type=file]").setInputFiles({ name: "photo.png", mimeType: "image/png",
@@ -1299,7 +1310,7 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   await ctx.close();
 });
 
-test("round 3: an old preset's uploaded picture is checked on Load, explained, and worded for Glyph-art; Import counts what it replaced", async () => {
+test("round 3: an old preset's uploaded picture is checked on Load, explained, and worded for Glyph-art; Import adds under a free name", async () => {
   const minted = "https://i.uwutoowo.com/0123456789ab.png";
   const old = { v: 1, name: "Old", savedAt: 1, blocks: [{ id: 1, type: "takeover", items: [
     { kind: "pic", url: minted }, { kind: "text", text: "HI" }] }] };
@@ -1309,6 +1320,7 @@ test("round 3: an old preset's uploaded picture is checked on Load, explained, a
   await ctx.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 404, body: "gone" }));
   await page.selectOption("#presetList", "0");
   await page.click("#presetLoad");
+  await page.click("#presetLoad");   // the default stack is in no preset: the first press asks
   const note = page.locator("#presetNote");
   // It was 0 links (counted on the stored takeover), so it said nothing about them; and the
   // check's promise was never returned, so a count of 1 would have hung on "Checking…".
@@ -1316,7 +1328,7 @@ test("round 3: an old preset's uploaded picture is checked on Load, explained, a
   const t = await note.textContent();
   assert.match(t, /^Loaded "Old"\. This setup had a Takeover/);
   assert.match(t, /The preset "Old" itself is unchanged/);
-  assert.match(t, /1 picture's link has expired: pick the file again on the flagged block\./);
+  assert.match(t, /1 picture's link has expired: pick the file again or paste a fresh link on the flagged block\./);
   const card = cards(page).first();
   assert.equal(await card.locator(".sel-kind").inputValue(), "glyph");
   await page.waitForFunction(() => !!document.querySelector("#blockList .expired-note"));
@@ -1330,11 +1342,11 @@ test("round 3: an old preset's uploaded picture is checked on Load, explained, a
   // Picking another preset clears a note about the last one.
   await page.selectOption("#presetList", "1");
   assert.equal((await note.textContent()).trim(), "");
-  // Import says how many it really replaced.
+  // Import adds, and never replaces: a taken name gets a number, and the note says so.
   await page.click("#presetImport");
   await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, savedAt: 3 }, { ...keep, name: "New", savedAt: 4 }] }));
   await page.click("#presetImport");
-  assert.equal(await note.textContent(), "Imported 2 setups, replacing 1 saved setup with the same name.");
+  assert.equal(await note.textContent(), 'Imported 2 setups. "Keep" was already taken, so it was added as "Keep (2)".');
   await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [{ ...keep, name: "Newer", savedAt: 5 }] }));
   await page.click("#presetImport");
   assert.equal(await note.textContent(), "Imported 1 setup.");
@@ -1380,3 +1392,218 @@ test("round 3: Han tiling keeps every line (up to 50, and says so past it); a bo
   await c2.close();
 });
 let p2, c2;
+
+// ── Polish round 1 ─────────────────────────────────────────────────────────
+
+// The clipboard as the places viewers paste from often have it: writeText refused. `__clip`
+// picks what the execCommand fallback does: "fail" (copies nothing), "fallback" (copies) or
+// "ok" (writeText works). The app's page only, not the preview frames.
+function refusingClipboard() {
+  if (window.parent !== window) return;
+  window.__clip = "fail";
+  window.__copied = [];
+  const clip = { writeText: (t) => (window.__clip === "ok" ? (window.__copied.push(String(t)), Promise.resolve()) : Promise.reject(new Error("denied"))) };
+  Object.defineProperty(navigator, "clipboard", { configurable: true, get: () => clip });
+  const real = document.execCommand.bind(document);
+  document.execCommand = (c, ...a) => (c === "copy" ? window.__clip === "fallback" : real(c, ...a));
+}
+
+test("polish: Copy says Copied only when the clipboard took it; refused, the part shows its payload selected, to copy by hand", async () => {
+  const blocks = [BIG({ id: 1, text: "HELLO" }), BIG({ id: 2, text: "WORLD" })];
+  const { page, ctx, errors } = await freshPage({ blocks, init: refusingClipboard });
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 2);
+  const want = expectNode(blocks);
+  const part = (i) => page.locator("#parts .part").nth(i);
+  await part(1).locator(".copy-btn").click();
+  await page.waitForSelector("#parts .copy-fail textarea");
+  assert.equal(await part(1).locator(".copy-btn").textContent(), "Copy part 2", "it said Copied for a copy that failed");
+  assert.match(await part(1).locator(".copy-fail").innerText(), /^Couldn't copy automatically: select this text and copy it\./);
+  const box = await part(1).locator(".copy-fail textarea").evaluate((t) => ({ value: t.value, ro: t.readOnly,
+    focused: document.activeElement === t, a: t.selectionStart, b: t.selectionEnd }));
+  assert.deepEqual(box, { value: want[1], ro: true, focused: true, a: 0, b: want[1].length });
+  // It sits under that part's header, before its preview.
+  assert.ok(await part(1).evaluate((el) => {
+    const f = el.querySelector(".copy-fail"), h = el.querySelector(".part-head"), st = el.querySelector(".rcpt-stage");
+    return !!(h.compareDocumentPosition(f) & 4) && !!(f.compareDocumentPosition(st) & 4);
+  }), "the manual-copy box is not between the header and the preview");
+  assert.equal(await part(0).locator(".copy-fail").count(), 0);
+  // Typing elsewhere does not steal focus back to the box.
+  await cards(page).first().locator("textarea").fill("HELLO");
+  assert.equal(await page.evaluate(() => document.activeElement.closest(".copy-fail") === null), true);
+  // The execCommand fallback copying counts as copied, and the box goes.
+  await page.evaluate(() => { window.__clip = "fallback"; });
+  await part(1).locator(".copy-btn").click();
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part")[1].querySelector(".copy-btn").textContent === "Copied");
+  assert.equal(await page.locator("#parts .copy-fail").count(), 0);
+  await page.evaluate(() => { window.__clip = "ok"; });
+  await part(0).locator(".copy-btn").click();
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part")[0].querySelector(".copy-btn").textContent === "Copied");
+  assert.deepEqual(await page.evaluate(() => window.__copied), [want[0]]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("polish: presets: Load asks before replacing an unsaved stack; Import never replaces; the expiry note counts Glyph-art only", async () => {
+  const P = (name, text, at) => ({ v: 1, name, savedAt: at, blocks: [BIG({ id: 1, text })] });
+  const { page, ctx, errors } = await freshPage({ presets: { v: 1, presets: [P("Stream", "FIRST", 1)] } });
+  const names = () => page.locator("#presetList option").allTextContents();
+  const text = () => cards(page).first().locator("textarea").inputValue();
+  const note = () => page.textContent("#presetNote");
+  // Import: two of one name in the file, one of them also a saved name. Everything is added.
+  await page.click("#presetImport");
+  await page.fill("#presetJson", JSON.stringify({ v: 1, presets: [P("Stream", "SECOND", 2), P("Stream", "THIRD", 3), P("Other", "FOURTH", 4)] }));
+  await page.click("#presetImport");
+  assert.deepEqual(await names(), ["Stream", "Stream (2)", "Stream (3)", "Other"]);
+  assert.equal(await note(), 'Imported 3 setups. 2 had names already in use, so they were added with a number after the name: "Stream (2)" and "Stream (3)".');
+  assert.deepEqual((await stored(page, "rw_presets_v1")).presets.map((p) => p.blocks[0].text), ["FIRST", "SECOND", "THIRD", "FOURTH"]);
+  // The stack on screen (the default HELLO) is in no preset: Load asks first, and any other
+  // preset action or a new pick disarms it.
+  await page.selectOption("#presetList", { index: 1 });
+  await page.click("#presetLoad");
+  assert.equal(await page.textContent("#presetLoad"), "Replace stack?");
+  assert.equal(await text(), "HELLO");
+  await page.selectOption("#presetList", { index: 2 });
+  assert.equal(await page.textContent("#presetLoad"), "Load", "a new pick did not disarm Load");
+  // Saved first, it loads on the first press, and a loaded stack is a saved one.
+  await page.fill("#presetName", "Mine");
+  await page.click("#presetSave");
+  await page.selectOption("#presetList", { label: "Stream (2)" });
+  await page.click("#presetLoad");
+  assert.equal(await text(), "SECOND", "a saved stack still made Load ask");
+  await page.selectOption("#presetList", { label: "Other" });
+  await page.click("#presetLoad");
+  assert.equal(await text(), "FOURTH");
+  // Edited, it is unsaved again.
+  await cards(page).first().locator("textarea").fill("FOURTH!");
+  await page.selectOption("#presetList", { label: "Mine" });
+  await page.click("#presetLoad");
+  assert.equal(await page.textContent("#presetLoad"), "Replace stack?");
+  await page.click("#presetLoad");
+  assert.equal(await text(), "HELLO");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // A preset whose Glyph-art AND Real picture links have both expired: only the Glyph-art one
+  // stops printing, so only it is counted, and the advice fits it.
+  const dead = (n) => "https://i.uwutoowo.com/" + n.repeat(12) + ".png";
+  const img = (id, imgKind, url) => ({ id, type: "image", imgKind, url, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                                       tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false });
+  const pics = { v: 1, name: "Pics", savedAt: 1, blocks: [img(1, "glyph", dead("a")), img(2, "real", dead("b"))] };
+  const t = await freshPage({ blocks: [img(1, "glyph", "")], presets: { v: 1, presets: [pics] } });
+  await t.ctx.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 404, body: "gone" }));
+  await t.page.click("#presetLoad");
+  await t.page.waitForFunction(() => /expired|still load/.test(document.getElementById("presetNote").textContent), null, { timeout: 8000 });
+  assert.match(await t.page.textContent("#presetNote"), /^Loaded "Pics"\. 1 picture's link has expired: pick the file again or paste a fresh link on the flagged block\.$/);
+  assert.deepEqual(t.errors, []);
+  await t.ctx.close();
+});
+
+test("polish: a probe scrolls into view and takes focus; Back to my stack does the same for the stack", async () => {
+  // A stack about 40 cm tall, on a phone, the probe buttons pressed from where they are.
+  const tall = [BIG({ id: 1, text: "HELLO WORLD", bigLayout: "stack", bigSize: 200 })];
+  for (const reduced of [true, false]) {
+    const { page, ctx, errors } = await freshPage({ blocks: tall, viewport: { width: 390, height: 844 } });
+    if (reduced) await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.waitForFunction(() => document.querySelectorAll("#parts .part").length >= 2);
+    const inView = (sel) => page.waitForFunction((sel) => {
+      const r = document.querySelector(sel).getBoundingClientRect();
+      return r.top >= -2 && r.top < innerHeight / 2;
+    }, sel, { timeout: 5000 });
+    await page.locator("#hrProbeBtn").scrollIntoViewIfNeeded();
+    await page.click("#hrProbeBtn");
+    await inView("#modeNote");
+    assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.matches("#parts .part .copy-btn")), true,
+      "focus is not on the probe's Copy");
+    await page.locator("#plainProbeBtn").scrollIntoViewIfNeeded();
+    await page.click("#plainProbeBtn");
+    await inView("#modeNote");
+    await page.click("#backToStack");
+    await inView("#parts");
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector("#parts .part .copy-btn")), true,
+      "Back to my stack did not focus the stack's first Copy");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  // A probe with nothing to copy (High Roller off) focuses the way back.
+  const { page, ctx } = await freshPage({ blocks: tall, controls: { ...SETTINGS, hrThreshold: 0 } });
+  await page.click("#hrProbeBtn");
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), "backToStack");
+  await ctx.close();
+});
+
+test("polish: a box with no room after the Cheer line: every part says so, Copy is off, and the total gives the advice", async () => {
+  for (const [s, advice] of [
+    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its Cheer line\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/],
+    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its Cheer line, whatever the bits\./],
+  ]) {
+    const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "text", render: "hanzi", text: "HI" }], controls: s });
+    await page.waitForFunction(() => document.querySelectorAll("#parts .part").length >= 2);
+    const n = await page.locator("#parts .part").count();
+    for (let i = 0; i < n; i++) {
+      const part = page.locator("#parts .part").nth(i);
+      assert.equal(await part.locator(".copy-btn").isDisabled(), true, "part " + (i + 1) + " can still be copied");
+      assert.match(await part.locator(".over-note").first().textContent(), /^Prints (nothing but the Cheer line|only its light first row)/);
+    }
+    const total = await page.textContent("#partsTotal");
+    assert.match(total, advice);
+    assert.ok(!/bits total/.test(total), total);
+    assert.match(await page.textContent("#modeNote"), /nothing after it prints/);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("polish: the cards: move buttons stop at the ends, the layout hint follows the layout, long hints fold, the file input empties, placeholders wrap", async () => {
+  const { page, ctx, errors, requests } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO", bigLayout: "lines" })], viewport: { width: 390, height: 844 } });
+  const btn = (i, name) => cards(page).nth(i).getByRole("button", { name });
+  assert.equal(await btn(0, "Move block up").isDisabled(), true);
+  assert.equal(await btn(0, "Move block down").isDisabled(), true);
+  await page.click("#addImageBtn");
+  assert.deepEqual([await btn(0, "Move block up").isDisabled(), await btn(0, "Move block down").isDisabled(),
+                    await btn(1, "Move block up").isDisabled(), await btn(1, "Move block down").isDisabled()], [true, false, false, true]);
+  // The layout hint is about the layout picked, and only that one.
+  const card = cards(page).first(), hint = card.locator(".layout-hint");
+  assert.match(await hint.textContent(), /^Each line you typed prints as one line/);
+  await card.locator(".sel-layout").selectOption("auto");
+  assert.match(await hint.textContent(), /^Auto tries your lines as typed/);
+  for (const [v, re] of [["wrap", /wrapped to the paper's width/], ["stack", /^One letter a line/], ["each", /^Every line you typed at its own size/]]) {
+    await card.locator(".sel-layout").selectOption(v);
+    assert.match(await hint.textContent(), re, v);
+    assert.ok(!/Auto/.test(await hint.textContent()), v);
+  }
+  // Long explanations are folded, open on a click, and nothing about them is saved.
+  const more = card.locator("details.more");
+  assert.ok(await more.count() >= 2);
+  assert.equal(await more.first().evaluate((d) => d.open), false);
+  assert.ok(!/bold Arial and can't be changed/.test(await card.innerText()), "a folded hint shows");
+  await card.locator("details.more summary", { hasText: "What's this?" }).nth(1).click();
+  assert.match(await card.innerText(), /bold Arial and can't be changed/);
+  assert.equal(await page.locator(".preview > details.more").evaluate((d) => d.open), false, "the thermal caption's detail is folded");
+  assert.match(await page.locator(".preview > .hint").first().textContent(), /give or take fonts: this computer's fonts may differ from the streamer's/);
+  // The Cheer-ready hint says where the word goes.
+  assert.match(await page.locator("#cheer").locator("xpath=../following-sibling::div[1]").textContent(),
+    /^Adds "Cheer<bits>" to each message \(at the start, or at the end of a plain-text part\) so it triggers the print/);
+  // The part header names its unit.
+  assert.match(await page.locator("#parts .part-count").first().textContent(), /^\d+ \/ 500 characters$/);
+  // The file input: emptied once a file is taken, and on a change of kind, so the same file
+  // picked again on a Real picture card uploads.
+  const img = cards(page).nth(1), file = img.locator("input[type=file]");
+  const pic = { name: "photo.png", mimeType: "image/png", buffer: Buffer.from(PIC.split(",")[1], "base64") };
+  await file.setInputFiles(pic);
+  assert.equal(await file.evaluate((f) => f.files.length), 0, "the input kept the file it handed over");
+  await settled(page);
+  await img.locator(".sel-kind").selectOption("real");
+  assert.equal(await file.evaluate((f) => f.files.length), 0);
+  await file.setInputFiles(pic);
+  // The test server has no /upload, so the upload is asked for and fails.
+  await page.waitForFunction(() => /Upload failed/.test(document.querySelectorAll("#blockList > *")[1].innerText), null, { timeout: 5000 });
+  assert.ok(requests.some((u) => new URL(u).pathname === "/upload"), "picking the same file on the Real card uploaded nothing");
+  // A placeholder part is prose, wrapped to the column: nothing cut off.
+  await cards(page).nth(1).getByRole("button", { name: "Remove block" }).click();
+  await cards(page).first().locator("textarea").fill("");
+  const ph = page.locator("#parts .rcpt-placeholder");
+  assert.match(await ph.textContent(), /^Nothing to print yet: add a block, or type into one\.$/);
+  assert.ok(await ph.evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && getComputedStyle(e).whiteSpace === "normal"), "the placeholder is cut off");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

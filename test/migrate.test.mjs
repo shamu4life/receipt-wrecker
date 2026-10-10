@@ -285,11 +285,18 @@ test("every converted text block builds, at 80 and 58 mm", () => {
 
 test("migrationNote says what changed and names the backup", () => {
   const n = (blocks) => C.migrationNote(blocks, "Before 1.0.0");
-  assert.match(n([ITEMS_TK]), /^Your saved stack had a Takeover.*saved as the preset "Before 1\.0\.0"\.$/);
+  assert.match(n([ITEMS_TK]), /^Your saved stack had a Takeover.*saved as the preset "Before 1\.0\.0"\. Loading it converts it again/);
   assert.ok(!/text blocks were made/.test(n([ITEMS_TK])));
-  assert.match(n([GIANT]), /^Your saved stack's text blocks were made for the old printer-bot and now print as Big text or Sideways text\. The stack as it was is saved as the preset "Before 1\.0\.0"\.$/);
+  assert.match(n([GIANT]), /^Your saved stack's text blocks were made for the old printer-bot and now print as Big text or Sideways text\. The stack as it was is saved as the preset "Before 1\.0\.0"\. Loading it converts it again; Export JSON keeps it as it was\.$/);
   assert.match(n([ITEMS_TK, TYPE]), /Takeover.* Its text blocks were made for the old printer-bot/);
-  assert.match(C.migrationNote([GIANT], "Before 1.0.0 (2)"), /"Before 1\.0\.0 \(2\)"\.$/);
+  assert.match(C.migrationNote([GIANT], "Before 1.0.0 (2)"), /"Before 1\.0\.0 \(2\)"\. Loading it converts it again; Export JSON keeps it as it was\.$/);
+  // What the conversion could not carry over is said too: emotes, fonts and italics.
+  assert.match(n([{ ...GIANT, giantLayout: "emote" }]), /Emote names in them now print as words/);
+  assert.ok(!/Emote/.test(n([GIANT])));
+  assert.match(n([TYPE]), /always bold Arial, so their fonts and italics are gone/);
+  assert.match(n([{ ...TYPE, fmt: { italic: true } }]), /fonts and italics are gone/);
+  assert.match(n([ITEMS_TK]), /fonts and italics are gone/, "its lines had a font and italics");
+  assert.ok(!/fonts and italics/.test(n([GIANT])), "Giant type had no fonts");
 });
 
 test("freePresetName never hands back a name the user already has", () => {

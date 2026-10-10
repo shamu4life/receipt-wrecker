@@ -176,7 +176,7 @@
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
       <label class="thermal-toggle">Dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select></label>
-      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from, with a grey box where the Twitch logo goes. The thermal view is what the printer gets, give or take fonts and a dot or two: this computer's fonts may differ from the streamer's, and some lines land a dot or two off where the bot puts them. Pick the dither the streamer's dock is set to.</div>
+      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from, with a grey box where the Twitch logo goes. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's. It is drawn one pixel per printer dot, so it shows larger than the preview. Big and sideways text land within a dot or two of where the bot puts them; small character grids on 58 mm, and Braille, can land up to 3 dots off, so their texture here is approximate. Pick the dither the streamer's dock is set to (the Dither menu works while the thermal view is on).</div>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
@@ -845,16 +845,31 @@
       return !!b && (b.type === "takeover" || isOldText(b));
     });
   }
-  // What the one-time backup note says: what changed, and where the old stack went.
+  // What the one-time backup note says: what changed (including what the conversion could not
+  // carry over: Giant type's emotes, and the old text's fonts and italics), and where the old
+  // stack went, and that loading that backup converts it again (Export keeps it as it was).
   function migrationNote(blocks, name) {
     var list = Array.isArray(blocks) ? blocks : [], out = [];
+    var styled = function (f) { return !!f && typeof f === "object" && (!!f.font || !!f.italic); };
     if (list.some(function (b) { return !!b && b.type === "takeover"; })) {
       out.push("Your saved stack had a Takeover, which this version can't print. Its lines are now Text blocks and its pictures Glyph-art.");
     }
     if (list.some(isOldText)) {
       out.push((out.length ? "Its" : "Your saved stack's") + " text blocks were made for the old printer-bot and now print as Big text or Sideways text.");
     }
-    out.push("The stack as it was is saved as the preset \"" + name + "\".");
+    if (list.some(function (b) { return isOldText(b) && b.render === "giant" && b.giantLayout === "emote"; })) {
+      out.push("Emote names in them now print as words: this bot prints no emotes from this app.");
+    }
+    if (list.some(function (b) {
+      if (!b || typeof b !== "object") return false;
+      if (b.type === "takeover") {
+        return [b.f1, b.f2, b.f3].some(styled) || (Array.isArray(b.items) && b.items.some(function (it) { return it && styled(it.fmt); }));
+      }
+      return isOldText(b) && styled(b.fmt);
+    })) {
+      out.push("Big and sideways text are always bold Arial, so their fonts and italics are gone.");
+    }
+    out.push("The stack as it was is saved as the preset \"" + name + "\". Loading it converts it again; Export JSON keeps it as it was.");
     return out.join(" ");
   }
 
@@ -1788,25 +1803,37 @@
     return (grid || []).map(function (r) { return Array.isArray(r) ? r.slice() : Array.from(String(r)); });
   }
   function glyphEmpty(note) { return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: note || "" } }]; }
-  // Band rows greedily: as many as keep open + rows + separators + close within the budget
-  // and rows x rowH within the room, at least one a band.
+  // Band rows: as many as keep open + rows + separators + close within the budget and rows x
+  // rowH within the room, at least one a band. The greedy pass says how many bands the grid
+  // needs; the rows are then spread evenly over that many (9/9/2 became 7/7/6), so the last
+  // cheer never carries a sliver of two rows for a whole header. A room of 0 or less is a box
+  // the Cheer line already fills: nothing after it prints whatever the band's height, so the
+  // rows are banded by characters alone, rather than one cheer per row.
   function glyphBand(rows, open, close, sep, rowH, budget, room, info) {
-    var fixed = payloadLength(open) + payloadLength(close), sepL = payloadLength(sep), out = [], i = 0;
+    var fixed = payloadLength(open) + payloadLength(close), sepL = payloadLength(sep), out = [];
     var esc = rows.map(function (r) { return escapeHtml(r.join("")); });
-    var lens = esc.map(payloadLength);
-    while (i < rows.length) {
-      var j = i, c = fixed;
-      while (j < rows.length) {
-        var add = lens[j] + (j > i ? sepL : 0);
-        if (j > i && (c + add > budget || (j - i + 1) * rowH > room + PX_EPS)) break;
-        c += add; j++;
+    var lens = esc.map(payloadLength), roomH = room > PX_EPS ? room : Infinity;
+    function spans(cap) {
+      var sp = [], i = 0;
+      while (i < rows.length) {
+        var j = i, c = fixed;
+        while (j < rows.length) {
+          var add = lens[j] + (j > i ? sepL : 0);
+          if (j > i && (j - i >= cap || c + add > budget || (j - i + 1) * rowH > roomH + PX_EPS)) break;
+          c += add; j++;
+        }
+        sp.push([i, j]);
+        i = j;
       }
-      var html = open + esc.slice(i, j).join(sep) + close;
+      return sp;
+    }
+    var greedy = spans(Infinity), even = spans(Math.ceil(rows.length / greedy.length));
+    (even.length === greedy.length ? even : greedy).forEach(function (s) {
+      var i = s[0], j = s[1], html = open + esc.slice(i, j).join(sep) + close;
       out.push({ html: html, chars: payloadLength(html), heightPx: Math.round((j - i) * rowH * 1000) / 1000,
                  preview: { kind: "grid", grid: rows.slice(i, j).map(function (r) { return r.join(""); }).join("\n") },
                  glyph: Object.assign({ rows: j - i, chunkIndex: out.length }, info) });
-      i = j;
-    }
+    });
     out.forEach(function (b) { b.glyph.chunkCount = out.length; });
     return out;
   }
@@ -1917,26 +1944,56 @@
   // shapes worth checking at once: BIG (styling is on), MMMMM sized to the width rule (does
   // the right edge survive the rig's text rendering?), "jog" at 1.15 (descenders), BIG again
   // upside down, and UP running bottom to top (does the streamer's Edge draw sideways-lr?).
+  // The shapes are only worth sending if they print, and the cheer is exactly the threshold:
+  // under the streamer's bits-per-inch or maximum length that may buy less receipt than all
+  // five take (about 7 cm), and the bot would fade out the ones the note asks about. So they
+  // are kept in order of what they prove (BIG, then UP, the upside-down BIG, jog, MMMMM) while
+  // they fit the box after the Cheer line, still printed in their usual order, and the note
+  // names only what was kept and says what was left out. When not even BIG fits, the test
+  // can't show anything at these settings and is not offered (`works` false).
+  // o = {hrThreshold, bits, paperMm, bitsPerInch, maxInches}. Returns {bits, mode, bodies,
+  // note, works, left (the shapes left out)}.
   function buildHighRollerProbe(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), bits = t > 0 ? t : cheerBits(o.bits), p = paperSpec(o.paperMm);
     var mPx = Math.floor(bigFitPx(p.contentW, 5) / bigLineEm("MMMMM"));
-    var html = bigOpen(60, BIG_LH_CAPS) + "BIG" + BIG_CLOSE
-      + bigOpen(mPx, BIG_LH_CAPS) + "MMMMM" + BIG_CLOSE
-      + bigOpen(60, BIG_LH_TEXT) + "jog" + BIG_CLOSE
-      + bigOpen(60, BIG_LH_CAPS, true) + "BIG" + BIG_CLOSE
-      + sideOpen(40, BIG_LH_CAPS, "up") + "UP" + BIG_CLOSE;
-    var h = 60 * 0.8 + mPx * 0.8 + 60 * 1.15 + 60 * 0.8 + sideSegLen("UP", 40);
-    var note = t > 0
-      ? "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bits
-        + " bits: check that MMMMM keeps its right edge, jog keeps its tails, the second BIG is upside down and UP runs up "
-        + "the tape (if UP lies flat, the streamer's Edge can't print bottom to top: use top to bottom). If it all prints "
-        + "small inside quote marks, the threshold is higher than " + bits + "."
-      : "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
+    var lim = contentLimitPx({ bits: bits, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches }), room = lim.px - LEAD_LINE_PX;
+    var shapes = [
+      { id: "big", rank: 0, html: bigOpen(60, BIG_LH_CAPS) + "BIG" + BIG_CLOSE, h: 60 * 0.8 },
+      { id: "m", rank: 4, html: bigOpen(mPx, BIG_LH_CAPS) + "MMMMM" + BIG_CLOSE, h: mPx * 0.8,
+        check: "MMMMM keeps its right edge", name: "MMMMM" },
+      { id: "jog", rank: 3, html: bigOpen(60, BIG_LH_TEXT) + "jog" + BIG_CLOSE, h: 60 * 1.15,
+        check: "jog keeps its tails", name: "jog" },
+      { id: "flip", rank: 2, html: bigOpen(60, BIG_LH_CAPS, true) + "BIG" + BIG_CLOSE, h: 60 * 0.8,
+        check: "the second BIG is upside down", name: "the upside-down BIG" },
+      { id: "up", rank: 1, html: sideOpen(40, BIG_LH_CAPS, "up") + "UP" + BIG_CLOSE, h: sideSegLen("UP", 40),
+        check: "UP runs up the tape (if UP lies flat, the streamer's Edge can't print bottom to top: use top to bottom)", name: "UP" }
+    ];
+    var keep = {}, used = 0;
+    shapes.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (s) {
+      if (used + s.h <= room + PX_EPS && (s.id === "big" || keep.big)) { keep[s.id] = true; used += s.h; }
+    });
+    var works = t > 0 && !!keep.big, kept = shapes.filter(function (s) { return keep[s.id]; });
+    if (!kept.length) kept = [shapes[0]];
+    var left = shapes.filter(function (s) { return !keep[s.id] && s.name; }).map(function (s) { return s.name; });
+    var html = kept.map(function (s) { return s.html; }).join("");
+    var h = kept.reduce(function (n, s) { return n + s.h; }, 0);
+    var checks = kept.filter(function (s) { return s.check; }).map(function (s) { return s.check; });
+    var cm = (Math.round(lim.px * MM_PER_PX) / 10).toFixed(1) + " cm";
+    var list = function (xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; };
+    var note;
+    if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
+    else if (!works) note = "At the streamer's length settings a " + bits + "-bit cheer gets about " + cm + " of receipt, and the "
+      + "Cheer line fills it, so this test can't show anything. Check the bits-per-inch and maximum length above.";
+    else note = "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bits + " bits"
+      + (checks.length ? ": check that " + list(checks) : "") + ". If it all prints small inside quote marks, the threshold is "
+      + "higher than " + bits + "."
+      + (left.length ? " At the streamer's length settings this cheer gets only about " + cm + " of receipt, so the test leaves out "
+        + list(left) + "." : "");
     return { bits: bits, mode: "raw",
              bodies: [{ html: html, chars: payloadLength(html), heightPx: Math.round(h * 1000) / 1000,
                         preview: { kind: "html", html: html }, probe: "highroller" }],
-             note: note };
+             note: note, works: works, left: left };
   }
   // Plain test: one bit under the threshold (1 bit when High Roller is off), a small Design T
   // grid: a light header, "HI" in block letters inside the light frame, a gap, and a row of
@@ -2151,11 +2208,13 @@
     out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included.", warn: false });
     var cut = "";
     if (r.trimmed) {
-      var t = r.trimmed;
+      // In cm like every other length here; the inches only where they echo a streamer setting
+      // that is set in inches (the maximum length).
+      var t = r.trimmed, inCm = function (x) { return (Math.round(Number(x) * 25.4) / 10).toFixed(1); };
       cut = (t.by === "cap"
-        ? "The bot cuts this message at the streamer's maximum length, " + t.limitIn + " in"
-        : "The bot cuts this message at " + t.limitIn + " in, all that " + cheerBits(o.bits) + " bits buy at the streamer's bits-per-inch setting")
-        + ". The whole message is " + t.fullIn + " in, so its end fades out.";
+        ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, the streamer's maximum length (" + t.limitIn + " in)"
+        : "The bot cuts this message at " + inCm(t.limitIn) + " cm, all that " + cheerBits(o.bits) + " bits buy at the streamer's bits-per-inch setting")
+        + ". The whole message is " + inCm(t.fullIn) + " cm, so its end fades out.";
     } else if (d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
       cut = "The bot's message box cuts this message off at " + cm(d.measure.contentPx) + " cm, with no fade. The whole message is " + cm(d.measure.fullPx) + " cm.";
     }
@@ -2750,12 +2809,14 @@
     // names. Shown at the printer's dots, one canvas pixel per dot. The SVG image's viewport is
     // the dot width, not the bot's page, so the frame writes every vw out in px before it hands
     // the receipt over (previewGlue's serialise). Compared with the bot's own screenshot of the
-    // same page (tools/forkbench.mjs, the pristine pinned renderer): the same height, plain and
-    // glyph grids dot for dot, big and sideways text the same shapes with a few edge dots
-    // dithered differently; the header and footer text, and some big or sideways lines, sit a
-    // dot or two lower or further left, because this page lays the receipt out at 1 CSS px per
-    // px and then scales it, where the bot lays it out at its dot scale. The caption says so. The grey logo placeholder prints as dots in Detailed and Soft, and
-    // not at all in Crisp (it is lighter than Crisp's cut-off).
+    // same page (tools/forkbench.mjs, the pristine pinned renderer): the same height; plain text
+    // and 80 mm Han grids dot for dot; big and sideways text the same shapes with a few edge dots
+    // dithered differently; the header and footer text, and some big or sideways lines, a dot or
+    // two lower or further left. Small fixed-pitch grids on 58 mm, and Braille on either paper,
+    // drift further (rows up to 3 dots off, review round 2), because this page lays the receipt
+    // out at 1 CSS px per px and then scales it, where the bot lays it out at its dot scale. The
+    // caption says all of that. The grey logo placeholder prints as dots in Detailed and Soft,
+    // and not at all in Crisp (it is lighter than Crisp's cut-off).
     function thermalCanvas(doc, h0, paperMm, mode) {
       var p = paperSpec(paperMm), w0 = p.cssWidth, W = p.dots, H = Math.max(1, Math.round(h0 * W / w0));
       var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '">' +
@@ -2780,6 +2841,10 @@
             ctx.putImageData(data, 0, 0);
           } catch (e) { /* tainted: keep the grey raster */ }
           canvas.className = "rcpt-thermal";
+          // One scale for both papers: one canvas pixel per printer dot, at most the column's
+          // width for 80 mm's 576 dots and the same fraction of it for 58 mm's 384, so 58 mm
+          // shows two thirds as wide as 80 mm, as it prints.
+          canvas.style.width = "min(" + W + "px, " + (Math.round(W / PAPERS[80].dots * 1e6) / 1e4) + "%)";
           resolve(canvas);
         };
         img.onerror = function () { reject(new Error("the receipt would not rasterise")); };
@@ -3868,6 +3933,19 @@
       update();
       return probeStackExpiry();
     }
+    // The one-time conversion note, as a banner at the top of the blocks (where a returning
+    // user looks at a stack that changed), until it is dismissed. It used to be the small grey
+    // hint under the presets, at the bottom of every card.
+    function migrationBanner(text) {
+      var list = document.getElementById("blockList");
+      if (!list || !list.parentNode) return;
+      var box = mkEl("div", { "class": "mode-note", id: "migrationNote", role: "status" }, text);
+      var ok = mkEl("button", { type: "button" }, "Got it");
+      ok.addEventListener("click", function () { if (box.parentNode) box.parentNode.removeChild(box); });
+      box.appendChild(document.createElement("br"));
+      box.appendChild(ok);
+      list.parentNode.insertBefore(box, list);
+    }
     function initPresets() {
       if (!els.presetList) return;
       presets = loadPresets();
@@ -3877,7 +3955,7 @@
         pendingBackup.name = freePresetName(presets, pendingBackup.name);
         presets = upsertPreset(presets, pendingBackup);
         persistPresets();
-        presetNote(migrationNote(pendingBackup.blocks, pendingBackup.name));
+        migrationBanner(migrationNote(pendingBackup.blocks, pendingBackup.name));
       }
       pendingBackup = null;
       renderPresetList();
@@ -4053,12 +4131,13 @@
     function probeParts(kind) {
       var s = getSettings();
       var pr = kind === "hrprobe"
-        ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm })
+        ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm,
+                                 bitsPerInch: s.bitsPerInch, maxInches: s.maxInches })
         : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !s.nonce });
       var so = stackOpts({ cheer: true, bits: pr.bits, mode: pr.mode, nonceFn: nonceForPart }), ctx = stackContext(so), po = {}, k;
       for (k in ctx) po[k] = ctx[k];
       po.nonceFn = nonceForPart;
-      var works = kind === "hrprobe" ? s.hrThreshold > 0 : pr.mode === "plain";
+      var works = kind === "hrprobe" ? pr.works : pr.mode === "plain";
       return packStackBodies(pr.bodies, po).map(function (p) {
         return { payload: p.payload, chars: p.chars, copyable: works, bodies: p.bodies, lead: p.lead, alone: !!p.alone,
                  mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note, warned: partWarned(p, ctx),
@@ -4152,6 +4231,18 @@
         // the stack prints its High Roller or its plain forms.
         el.addEventListener(el.tagName === "SELECT" ? "change" : "input", update);
       });
+      // A number field shows the value the app uses once it is committed (change: Enter, or
+      // leaving the field): 0 or nothing in Bits is 100 (a cheer is at least 1 bit), a maximum
+      // length of 50 inches is the dock's 40, junk in the threshold is its default 25. Not while
+      // it is being typed, which would fight the keyboard.
+      [["bitsAmount", "bits"], ["hrThreshold", "hrThreshold"], ["bitsPerInch", "bitsPerInch"], ["maxInches", "maxInches"]].forEach(function (f) {
+        var el = els[f[0]];
+        if (!el) return;
+        el.addEventListener("change", function () {
+          var v = String(getSettings()[f[1]]);
+          if (el.value !== v) { el.value = v; update(); }
+        });
+      });
 
       // The probes are a view, not a block: any edit drops back out (update() resets
       // currentKind to "compose").
@@ -4159,7 +4250,10 @@
       els.plainProbeBtn.addEventListener("click", function () { currentKind = "plainprobe"; refresh(); });
       // Toggling the thermal view or its dither just refreshes: each card keeps its drawing and
       // shows (or takes away) its dithered canvas (thermalPart).
-      els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
+      // The dither only means something while the Thermal preview is on.
+      var syncDitherUi = function () { if (els.thermalDither) els.thermalDither.disabled = !els.thermalView.checked; };
+      syncDitherUi();
+      els.thermalView.addEventListener("change", function () { syncDitherUi(); saveControls(); refresh(); });
       els.thermalDither.addEventListener("change", function () { saveControls(); refresh(); });
 
       // Composer: seed the block stack (migrating a saved one), draw the cards, and wire the

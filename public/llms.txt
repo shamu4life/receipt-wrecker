@@ -64,7 +64,7 @@ shows the receipt at the printer's dot width with the bot's own dither methods.
 
 ## Privacy
 
-Text in every mode, and a picture picked from disk, never leave the device. Some picture
+Text in every mode, and a picture picked from disk for glyph-art, never leave the device. Some picture
 operations call this project's own Cloudflare Worker and nothing else:
 
 - Pasting a picture link fetches the picture through an image proxy, because a browser canvas

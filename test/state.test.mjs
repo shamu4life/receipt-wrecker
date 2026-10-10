@@ -172,9 +172,11 @@ test("previewVerdict says what the bot's renderer said, in plain words", () => {
   assert.deepEqual(texts(ok(), {}), ["About 7.8 cm of receipt (295 px), header and footer included."]);
   // render()'s own cut: the streamer's bits-per-inch limit, or the maximum length.
   const bits = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 3, fullIn: 4.38, by: "bits" }, security: [] } }), { bits: 300, warned: true });
-  assert.match(bits[1], /^! The bot cuts this message at 3 in, all that 300 bits buy at the streamer's bits-per-inch setting\. The whole message is 4\.38 in, so its end fades out\.$/);
+  // In cm, like every other length here (3 in = 7.6 cm, 4.38 in = 11.1 cm).
+  assert.match(bits[1], /^! The bot cuts this message at 7\.6 cm, all that 300 bits buy at the streamer's bits-per-inch setting\. The whole message is 11\.1 cm, so its end fades out\.$/);
   const cap = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 2, fullIn: 4.38, by: "cap" }, security: [] } }), { warned: false });
-  assert.match(cap[1], /^! The bot cuts this message at the streamer's maximum length, 2 in\..* This app expected it to fit: this computer's fonts may differ/);
+  // The maximum length is set in inches, so it is echoed in inches too.
+  assert.match(cap[1], /^! The bot cuts this message at 5\.1 cm, the streamer's maximum length \(2 in\)\..* This app expected it to fit: this computer's fonts may differ/);
   // The 1600px box cuts hard and render() never reports it: the frame's own measurement does.
   const box = texts(ok({ measure: { contentPx: 1600, fullPx: 1700 } }), { warned: true });
   assert.match(box[1], /^! The bot's message box cuts this message off at 42\.3 cm, with no fade\. The whole message is 45\.0 cm\.$/);

@@ -389,10 +389,17 @@ test("a saved 0.12 stack holding takeovers loads as Text and Glyph-art cards, ba
   assert.deepEqual(ps.map((p) => p.name), ["mine", "Before 1.0.0"]);
   assert.deepEqual(ps[0], mine.presets[0], "the user's own preset changed");
   assert.deepEqual(ps[1].blocks, old, "the backup is not the stack as it was saved");
-  const note = await page.textContent("#presetNote");
+  // Said in a banner at the top of the blocks, where a returning user looks, until dismissed.
+  const note = await page.textContent("#migrationNote");
   assert.match(note, /had a Takeover/);
   assert.match(note, /text blocks were made for the old printer-bot/);
-  assert.match(note, /saved as the preset "Before 1\.0\.0"/);
+  assert.match(note, /saved as the preset "Before 1\.0\.0"\. Loading it converts it again; Export JSON keeps it as it was\./);
+  assert.ok(await page.evaluate(() => {
+    const n = document.getElementById("migrationNote"), list = document.getElementById("blockList");
+    return n.nextElementSibling === list;
+  }), "the banner sits right above the blocks");
+  await page.locator("#migrationNote").getByRole("button", { name: "Got it" }).click();
+  assert.equal(await page.locator("#migrationNote").count(), 0);
 
   // Once: a reload converts nothing more and writes no second backup.
   await page.reload();
@@ -633,8 +640,11 @@ test("the streamer's settings and the dither are fields of rw_controls_v1: they 
   await page.fill("#bitsPerInch", "100");
   await page.fill("#maxInches", "3");
   await page.selectOption("#paperMm", "58");
+  // The Dither menu only works while the Thermal view is on (it does nothing otherwise).
+  assert.equal(await page.locator("#thermalDither").isDisabled(), true);
+  await page.check("#thermalView");
   await page.selectOption("#thermalDither", "threshold");
-  const s = { ...SETTINGS, bitsPerInch: 100, maxInches: 3, paperMm: 58, thermalDither: "threshold" };
+  const s = { ...SETTINGS, bitsPerInch: 100, maxInches: 3, paperMm: 58, thermalView: true, thermalDither: "threshold" };
   const after = await copyPayload(page);
   assert.notEqual(after, before, "the settings did not change the payload");
   assert.deepEqual([after], expectNode([BIG({ id: 1 })], s));
@@ -647,6 +657,7 @@ test("the streamer's settings and the dither are fields of rw_controls_v1: they 
   assert.equal(await page.inputValue("#maxInches"), "3");
   assert.equal(await page.inputValue("#paperMm"), "58");
   assert.equal(await page.inputValue("#thermalDither"), "threshold");
+  assert.equal(await page.locator("#thermalDither").isDisabled(), false, "restored with the Thermal view on, yet disabled");
   assert.equal(await copyPayload(page), after, "the reload changed the payload");
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -982,4 +993,244 @@ test("the repeat number: off by default, two digits when on, kept across a reloa
   assert.equal(await p3.locator("#parts .part .parts-note").count(), 0, "a repeat with a different part between was flagged");
   assert.deepEqual(errors3, []);
   await ctx3.close();
+});
+
+// ── Review round 2 ─────────────────────────────────────────────────────────
+
+test("presets: names stay unique, Save asks before replacing, and Load, Rename and Delete act on the one picked", async () => {
+  // Keyed on the name, two presets called "A" were one entry: Load on the second loaded the
+  // first, and one Delete removed both. An older build could have saved such a list, so it is
+  // seeded here, and the list must still tell the two apart.
+  const P = (name, text, at) => ({ v: 1, name, savedAt: at, blocks: [BIG({ id: 1, text })] });
+  const presets = { v: 1, presets: [P("A", "FIRST", 1), P("A", "SECOND", 2), P("B", "THIRD", 3)] };
+  const { page, ctx, errors } = await freshPage({ presets });
+  const names = () => page.locator("#presetList option").allTextContents();
+  const text = () => cards(page).first().locator("textarea").inputValue();
+  const note = () => page.textContent("#presetNote");
+  assert.deepEqual(await names(), ["A", "A", "B"]);
+
+  await page.selectOption("#presetList", { index: 1 });
+  await page.click("#presetLoad");
+  assert.equal(await text(), "SECOND", "Load on the second A loaded another preset");
+  assert.equal(await note(), 'Loaded "A".', "no uploaded pictures, so nothing to check and nothing promised");
+
+  // Delete removes the one picked, and only after a second press.
+  await page.selectOption("#presetList", { index: 0 });
+  await page.click("#presetDelete");
+  assert.equal(await page.textContent("#presetDelete"), "Really?");
+  await page.click("#presetDelete");
+  assert.deepEqual(await names(), ["A", "B"], "one Delete removed both A's");
+  assert.deepEqual((await stored(page, "rw_presets_v1")).presets.map((p) => p.blocks[0].text), ["SECOND", "THIRD"]);
+
+  // Rename onto a taken name is refused; renaming to the same name says so.
+  await page.selectOption("#presetList", { label: "B" });
+  await page.fill("#presetName", "A");
+  await page.click("#presetRename");
+  assert.match(await note(), /^There's already a setup called "A"\./);
+  assert.deepEqual(await names(), ["A", "B"]);
+  await page.fill("#presetName", "B");
+  await page.click("#presetRename");
+  assert.match(await note(), /^"B" is already its name\./);
+  await page.fill("#presetName", "C");
+  await page.click("#presetRename");
+  assert.equal(await note(), 'Renamed "B" to "C".');
+  assert.deepEqual(await names(), ["A", "C"]);
+
+  // Save under a taken name asks first; the second press replaces it, and says so.
+  await cards(page).first().locator("textarea").fill("NEW");
+  await page.fill("#presetName", "C");
+  await page.click("#presetSave");
+  assert.equal(await page.textContent("#presetSave"), "Replace?");
+  assert.match(await note(), /^There's already a setup called "C"\. Press Replace\?/);
+  assert.equal((await stored(page, "rw_presets_v1")).presets[1].blocks[0].text, "THIRD", "replaced without asking");
+  await page.click("#presetSave");
+  assert.equal(await page.textContent("#presetSave"), "Save");
+  assert.equal(await note(), 'Replaced "C" with this stack (1 block).');
+  assert.deepEqual(await names(), ["A", "C"]);
+  assert.equal((await stored(page, "rw_presets_v1")).presets[1].blocks[0].text, "NEW");
+  // A new name in the box disarms the question.
+  await page.fill("#presetName", "A");
+  await page.click("#presetSave");
+  assert.equal(await page.textContent("#presetSave"), "Replace?");
+  await page.fill("#presetName", "D");
+  assert.equal(await page.textContent("#presetSave"), "Save");
+  await page.click("#presetSave");
+  assert.deepEqual(await names(), ["A", "C", "D"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("a glyph-art picture from a picked file: read on this device, and after a reload or in a preset the app asks for it again", async () => {
+  const blank = { id: 1, type: "image", imgKind: "glyph", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                  tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false };
+  const { page, ctx, errors, requests } = await freshPage({ blocks: [blank] });
+  const card = cards(page).first();
+  const cardNote = () => card.locator(".text-note").innerText();
+  assert.equal(await cardNote(), "Paste an image link or pick a file.");
+  assert.match(await page.textContent("#parts"), /\(nothing to print yet: add a block, or type into one\)/);
+  assert.match(await card.innerText(), /A picked file is read on this device and never uploaded/);
+
+  await card.locator("input[type=file]").setInputFiles({ name: "photo.png", mimeType: "image/png",
+    buffer: Buffer.from(PIC.split(",")[1], "base64") });
+  await settled(page);
+  const pay = await copyPayload(page);
+  assertTags(pay);
+  assert.match(pay, /^Cheer100 <div style=width:16\.2em;/);
+  assert.match(await cardNote(), /^16 columns × \d+ rows · 1 cheer/);
+  assert.ok(!/Decoding/.test(await card.innerText()), "a finished read still says Decoding…");
+  const saved = (await stored(page, "rw_blocks_v1"))[0];
+  assert.equal(saved.fileName, "photo.png");
+  assert.equal(saved.url, "");
+
+  // A preset can't hold the picture; Save says so.
+  await page.fill("#presetName", "Pic");
+  await page.click("#presetSave");
+  assert.match(await page.textContent("#presetNote"), /^Saved "Pic" with 1 block\. A picture picked from a file isn't saved with it/);
+
+  // After a reload the block can't print, and every place that would show it says why.
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /^Pick “photo\.png” again: a picked file isn't kept after a reload/);
+  assert.match(await page.textContent("#parts"), /pick the picture's file again on its Image card/);
+  assert.equal(await page.locator("#parts .part button").count(), 0, "a cheer with nothing to print was offered");
+  // Nothing was uploaded or fetched for it.
+  assert.deepEqual(requests.filter((u) => /\/upload|\/px/.test(u)), []);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // A file that isn't a picture says so instead of "Decoding…" for ever.
+  const { page: p2, ctx: c2 } = await freshPage({ blocks: [blank] });
+  await cards(p2).first().locator("input[type=file]").setInputFiles({ name: "bad.png", mimeType: "image/png", buffer: Buffer.from("not a png") });
+  await p2.waitForFunction(() => /couldn't be read as a picture/.test(document.querySelector("#blockList .text-note").innerText), null, { timeout: 5000 });
+  assert.ok(!/Decoding/.test(await cards(p2).first().innerText()));
+  await c2.close();
+});
+
+test("a link that can't be read says so, and is not fetched again on every edit", async () => {
+  // The test server has no /px, so every read fails. Before, the failure was never remembered:
+  // each refresh started the read again (every keystroke anywhere, twice per Copy) and the card
+  // said "Reading the picture…" for ever.
+  const dead = { id: 1, type: "image", imgKind: "glyph", url: "https://example.com/dead.png", width: 70, rotate: 0,
+                 adjBright: 0, adjContrast: 0, tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false };
+  const { page, ctx, errors, requests } = await freshPage({ blocks: [dead, BIG({ id: 2, text: "HI" })] });
+  const pxReads = () => requests.filter((u) => u.includes("/px?u=")).length;
+  const card = cards(page).first();
+  await page.waitForFunction(() => /couldn't be read/.test(document.querySelector("#blockList .text-note").innerText), null, { timeout: 5000 });
+  assert.match(await card.locator(".text-note").innerText(), /^The picture couldn't be read\. Check the link, or pick the file instead/);
+  const n = pxReads();
+  assert.equal(n, 1);
+  for (const b of ["101", "102", "103"]) await page.fill("#bitsAmount", b);
+  await copyPayload(page, 0);
+  await page.waitForTimeout(400);
+  assert.equal(pxReads(), n, "the dead link was fetched again by an unrelated edit");
+  // A new link is read once.
+  await card.locator("input[type=url]").fill("https://example.com/also-dead.png");
+  await page.waitForFunction(() => /couldn't be read/.test(document.querySelector("#blockList .text-note").innerText), null, { timeout: 5000 });
+  assert.equal(pxReads(), n + 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("Copy sits in each part's header, full size, and the header stays in view while its preview scrolls", async () => {
+  for (const viewport of [undefined, { width: 390, height: 844 }]) {
+    const { page, ctx } = await freshPage({ viewport, blocks: [BIG({ id: 1, text: "HELLO" }), BIG({ id: 2, text: "WORLD" })] });
+    await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 2);
+    for (let i = 0; i < 2; i++) {
+      const part = page.locator("#parts .part").nth(i);
+      assert.equal(await part.locator("button").count(), 1, "one Copy a part");
+      const btn = part.locator(".part-head button.copy-btn");
+      assert.equal(await btn.textContent(), "Copy part " + (i + 1));
+      const b = await btn.boundingBox(), stage = await part.locator(".rcpt-stage").boundingBox();
+      assert.ok(b.height >= 44, "Copy is " + b.height + "px tall");
+      assert.ok(b.y + b.height <= stage.y + 1, "Copy is below its preview");
+      assert.equal(await part.locator(".part-head").evaluate((e) => getComputedStyle(e).position), "sticky");
+    }
+    // Scrolled half way down part 1's preview, its header (and Copy) is still on screen.
+    const stage = await page.locator("#parts .part").first().locator(".rcpt-stage").boundingBox();
+    await page.evaluate((y) => window.scrollTo(0, y), stage.y + stage.height / 2);
+    const head = await page.locator("#parts .part").first().locator(".part-head").boundingBox();
+    assert.ok(head.y >= -1 && head.y < 5, "the header scrolled away: y " + head.y);
+    await ctx.close();
+  }
+});
+
+test("a probe shows the way back to the stack; number fields show the values the app uses; the dither waits for the thermal view", async () => {
+  const { page, ctx, errors } = await freshPage();
+  const stack = await copyPayload(page);
+  await page.click("#hrProbeBtn");
+  assert.match(await page.textContent("#modeNote"), /This is the High Roller test, not your stack/);
+  await page.click("#backToStack");
+  assert.equal(await page.locator("#backToStack").count(), 0);
+  assert.equal(await copyPayload(page), stack, "Back to my stack did not bring the stack back");
+  // The High Roller test is built for the receipt the threshold buys: at 50 bits per inch, 25
+  // bits buy 48px, which the Cheer line fills, so there is nothing to test and no Copy.
+  await page.fill("#bitsPerInch", "50");
+  await page.click("#hrProbeBtn");
+  assert.equal(await page.locator("#parts .part button").count(), 0);
+  assert.match(await page.textContent("#parts"), /this test can't show anything/);
+  await page.click("#backToStack");
+  await page.fill("#bitsPerInch", "0");
+
+  // 0 bits is 100 (a cheer is at least 1 bit), and the field says so once committed.
+  await page.fill("#bitsAmount", "0");
+  await page.locator("#bitsAmount").press("Tab");
+  assert.equal(await page.inputValue("#bitsAmount"), "100");
+  assert.match(await copyPayload(page), /^Cheer100 /);
+  await page.fill("#maxInches", "50");
+  await page.locator("#maxInches").press("Tab");
+  assert.equal(await page.inputValue("#maxInches"), "40", "the dock's maximum length is 40 inches");
+
+  assert.equal(await page.locator("#thermalDither").isDisabled(), true);
+  await page.check("#thermalView");
+  assert.equal(await page.locator("#thermalDither").isDisabled(), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("the cards' notes: High Roller off, labels at the threshold's bits, a free test's cost, and Han columns as printed", async () => {
+  const pic = (o) => ({ id: 2, type: "image", imgKind: "glyph", url: PIC, width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
+                        tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false, ...o });
+  // High Roller off (threshold 0): no "below the threshold (0 bits)".
+  let { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), pic()],
+                                                controls: { ...SETTINGS, hrThreshold: 0 } });
+  await settled(page);
+  const tn = await cards(page).nth(0).locator(".text-note").innerText(), gn = await cards(page).nth(1).locator(".text-note").innerText();
+  assert.match(tn, /High Roller is off \(threshold 0\)/);
+  assert.ok(!/threshold \(0 bits\)|at the threshold or more/.test(tn), tn);
+  assert.match(gn, /High Roller is off \(threshold 0\), so every picture prints as a plain grid/);
+  await ctx.close();
+
+  // Below a threshold of 1000 with 100 bits per inch, the labels describe a 1000-bit cheer
+  // (960px of receipt), not this 1-bit cheer's 1px box.
+  ({ page, ctx } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" })],
+                                     controls: { ...SETTINGS, bits: 1, hrThreshold: 1000, bitsPerInch: 100 } }));
+  const fit1 = await cards(page).first().locator(".sel-size option[value=fit1]").textContent();
+  assert.ok(!/cut off by the box/.test(fit1), fit1);
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /The sizes above are what it prints at 1000 bits or more/);
+  await ctx.close();
+
+  // A free test costs nothing: messages, not bits.
+  ({ page, ctx } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), BIG({ id: 3, text: "WORLD" })],
+                                     controls: { ...SETTINGS, cheer: false } }));
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 2);
+  assert.match(await page.textContent("#partsTotal"), /2 messages, free/);
+  const fn = await cards(page).first().locator(".text-note").innerText();
+  assert.match(fn, /1 message, free/);
+  assert.match(fn, /Your whole stack takes 2 messages/);
+  assert.ok(!/bits/.test(fn), fn);
+  await ctx.close();
+
+  // A block saved with 40 columns of Han characters prints 30, and the field says 30.
+  ({ page, ctx, errors } = await freshPage({ blocks: [pic({ id: 1 })] }));
+  await settled(page);
+  assert.equal(await cards(page).first().locator("input.num-cols").inputValue(), "30");
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /^30 columns ×/);
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].cols, 40, "showing the clamp rewrote the block");
+  // Committing a value writes back the one that prints.
+  await cards(page).first().locator("input.num-cols").fill("45");
+  await cards(page).first().locator("input.num-cols").press("Tab");
+  assert.equal(await cards(page).first().locator("input.num-cols").inputValue(), "30");
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].cols, 30);
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });

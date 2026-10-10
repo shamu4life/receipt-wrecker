@@ -103,8 +103,10 @@ test("still ALLOWS an IPv4-mapped IPv6 that embeds a PUBLIC address", () => {
 // i.uwutoowo.com is a custom domain on this same Worker, so fetch()-ing it asks
 // Cloudflare to route a request from the Worker back into the Worker. Measured on
 // production: a 522 from the edge, surfaced as `upstream said 522`, against a link
-// that returned 200 to curl a second earlier. The Thermal preview could therefore
-// never inline an uploaded picture — it drew blank paper where one really prints.
+// that returned 200 to curl a second earlier. So the Worker answers its own links from
+// KV instead. Since 1.0.0 nothing uploaded prints and the Thermal preview fetches
+// nothing; this path serves glyph-art's decoding of a minted link and the Real
+// picture card's brightness/contrast bake, which both read the link through /px.
 import worker from "../src/worker.js";
 
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer;

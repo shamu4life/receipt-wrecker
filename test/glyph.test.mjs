@@ -81,9 +81,11 @@ test("R4: Courier New <pre>, rows escaped and joined by <br>, spaces kept", () =
   // Escaping: a cell that is < & > goes out as an entity, never as markup.
   const hostile = C.buildMonoGrid([["<", "&", ">", "i"], ["a", "b", "<", "s"]], {})[0].html;
   assert.ok(!/[<>]/.test(hostile.replace(/^<pre[^>]*>|<\/pre>$|<br>/g, "")), hostile);
-  // Rows a cheer: 15 at 24 columns with the bare Cheer100 lead.
+  // Rows a cheer: at most 15 at 24 columns with the bare Cheer100 lead, so 40 rows take three
+  // cheers, and the rows are spread evenly over them: 14/14/12, not 15/15/10.
+  assert.equal(Math.floor((491 - 52 - 6 + 4) / 28), 15);
   const tall = C.buildMonoGrid(disc(24, 40, ascii), opts(ctx()));
-  assert.equal(tall[0].glyph.rows, Math.floor((491 - 52 - 6 + 4) / 28));
+  eq(tall.map((x) => x.glyph.rows), [14, 14, 12]);
   for (const x of tall) assert.ok(x.chars <= 491);
   for (let c = 8; c <= 48; c++) assert.ok(C.monoK(c) * 1.81 * c * 0.6 <= 152 + 1e-9, "58 mm row, C=" + c);
 });
@@ -229,4 +231,29 @@ test("every glyph builder emits only div, pre and br, and nothing of the user's 
       }
     }
   }
+});
+
+test("a grid that needs several cheers is spread evenly over them, never a sliver in the last", () => {
+  const k = ctx(), ascii = C.getTier("ascii").ramp;
+  // 40 columns x 20 rows: 9 rows a cheer at most. Greedy was 9/9/2: the third cheer printed two
+  // rows (one of them blank) for a whole header and footer.
+  const b = C.buildMonoGrid(disc(40, 20, ascii), opts(k));
+  eq(b.map((x) => x.glyph.rows), [7, 7, 6]);
+  for (const x of b) assert.ok(x.chars <= k.budget);
+  const flat = b.flatMap((x) => rowsOf(x.html, x.html.slice(0, x.html.indexOf(">") + 1), "</pre>", "<br>"));
+  eq(flat, J(disc(40, 20, ascii).map((r) => r.join(""))), "every row once, in order");
+  // Han characters and Braille band the same way.
+  const cj = C.buildCjkGrid(disc(30, 40, C.getTier("cjk").ramp), opts(k));
+  const rows = cj.map((x) => x.glyph.rows);
+  assert.ok(Math.max(...rows) - Math.min(...rows) <= 1 || rows.length === 1, JSON.stringify(rows));
+});
+
+test("a box the Cheer line fills: the grid is banded by characters, not one cheer per row", () => {
+  // 1 bit at 1000 bits per inch: a 1px box. Nothing after the Cheer line prints whatever a
+  // band's height, so cutting the picture by height made a cheer of every row.
+  const k = ctx({ bits: 1, hrThreshold: 1, bitsPerInch: 1000 });
+  assert.ok(k.room <= 0);
+  const b = C.buildCjkGrid(disc(14, 11, C.getTier("cjk").ramp), opts(k));
+  assert.equal(b.length, 1);
+  assert.equal(C.packStackBodies(b, k).length, 1);
 });

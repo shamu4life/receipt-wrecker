@@ -168,7 +168,7 @@ switch (spec.kind) {
     break;
   }
   case "hrprobe": {
-    const p = C.buildHighRollerProbe({ hrThreshold: threshold, bits, paperMm });
+    const p = C.buildHighRollerProbe({ hrThreshold: threshold, bits, paperMm, bitsPerInch: spec.bpi, maxInches: spec.maxin });
     bodies = p.bodies; note = p.note;
     break;
   }

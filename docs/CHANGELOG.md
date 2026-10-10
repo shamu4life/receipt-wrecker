@@ -67,7 +67,10 @@ page, built into the app and run in a sandboxed frame with no network access.
   much receipt the streamer gives per bit.
 - **Big text** (High Roller): `<div style="font:700 <px>px/<lh> Arial">` in bold Arial, sized
   from Arial Bold's real advance widths (every printable ASCII and Latin-1 character measured). Layouts *Auto*, *Lines as you typed them*, *Stack the
-  letters* and *Each line its own size*; sizes *Auto* (biggest in one cheer), *Fill the
+  letters* and *Each line its own size*; Auto also tries the typed lines with the words wrapped
+  to the paper (balanced, every word whole), so a sentence typed on one line prints wrapped
+  rather than tiny or as a long column of small letters, and keeps whichever is biggest in one
+  cheer. A line too wide at a fixed size is counted by the lines its words really wrap to; sizes *Auto* (biggest in one cheer), *Fill the
   paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
   1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
   print as grey dots; invisible characters are left out and the card says so. Every option is
@@ -137,6 +140,18 @@ page, built into the app and run in a sandboxed frame with no network access.
   save.
 - The test harness picks the app's script by its id (`<script id="rw-app">`), because the
   vendored page has a `<script>` of its own.
+- **Copy** is a full-size button in each part's header, which stays in view while a tall
+  preview scrolls past. A probe's view has a **Back to my stack** button.
+- **Presets**: saving under a taken name asks before replacing it; a rename onto a taken name
+  is refused; Load, Rename and Delete act on the preset picked even when two share a name; Load
+  says whether its uploaded pictures still load.
+- **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
+  card says a reload or a preset won't keep it, and asks for it again when one didn't. A link
+  that can't be read says so (and isn't fetched again on every edit). **Rotate** works for
+  glyph-art too. Grids that need several cheers are spread evenly over them. The Detail field
+  shows the columns the grid really uses.
+- A free test counts messages, not bits; with High Roller off the cards say so; number fields
+  show the value the app uses once committed; lengths in a part's verdict are in cm.
 
 ### Migration of saved work
 
@@ -150,6 +165,9 @@ The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
 - A **Type** block becomes Big text (straight), Big text upside down (180°), or Sideways text
   top to bottom (90°) or bottom to top (270°).
 - An Image block loses its carrier pick; everything else, the upload link included, stays.
+  A Glyph-art block made from a Takeover picture gets 20 columns.
+- A note above the blocks says what changed (including that emote names now print as words
+  and the old fonts and italics are gone), once, until dismissed.
 - When anything was rewritten, the stack as it was is saved **once** as the preset
   **Before 1.0.0** (or "Before 1.0.0 (2)" if that name is taken), merged into your presets
   after they load, never over one of yours and never over a presets list that can't be read.
@@ -177,9 +195,11 @@ blocks a form, the answer is the plain form, never a reworked message.
   grids and an upside-down each-line block at 58 mm; plain and Han tiling) were benched too,
   and the 1-bit prints checked by eye.
 - **Preview vs bench**: the in-app preview and the bench agree on height, cut and sanitizer
-  notes in every case compared; plain and glyph grids match dot for dot; big and sideways text
-  differ only in a few edge dots, and header text sits a dot or two lower.
-- **Tests**: 162 unit tests and 18 browser tests, including the tag allow-list test and the
+  notes in every case compared; plain text and 80 mm Han grids match dot for dot; big and
+  sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
+  Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
+  caption says their texture is approximate.
+- **Tests**: 167 unit tests and 24 browser tests, including the tag allow-list test and the
   contract test against the vendored renderer.
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig
   yet. The bench cannot see the rig's fonts (Segoe UI, Arial, the CJK face, Courier New, the

@@ -327,7 +327,9 @@ test("a box no taller than the Cheer line is NO room, not the default 1600px box
     assert.ok(s.some((x) => x.tall || x.side.tall), "sideways is flagged too");
     assert.match(C.sideReport(s, { bits, limit: k.limit }), /Nothing after the Cheer line prints/);
     const g = C.buildCjkGrid([["丶", "鬱"], ["鬱", "丶"]].map((r) => r.concat(Array(10).fill("丶"))), { budget: k.budget, heightPx: k.room, paperMm: 80 });
-    assert.equal(g.length, 2, "glyph rows band one a part, as for any box shorter than a row");
+    // Nothing after the Cheer line prints whatever a band's height, so the rows are banded by
+    // characters alone: one cheer, where banding by height made a cheer of every row.
+    assert.equal(g.length, 1, "glyph rows band by characters in a box the Cheer line fills");
     const parts = C.packStackBodies(b.concat(build("WORLD", {}, k)), k);
     assert.equal(parts.length, 2, "the packer gives each over-tall body its own part rather than packing for 1600px");
     assert.match(C.modeNotice({ cheer: true, bits, hrThreshold: 20, bitsPerInch: bpi }),

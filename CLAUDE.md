@@ -220,7 +220,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **131 keys**. Regenerate the list instead of trusting this one:
+test harness **132 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -232,7 +232,7 @@ test harness **131 keys**. Regenerate the list instead of trusting this one:
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
-`bigFitPx`, `bigLineHeight`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
+`bigFitPx`, `bigLineHeight`, `bigWrapWords`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
 `bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
@@ -314,16 +314,32 @@ nothing that prints).
   accents and emoji have ink below the baseline that `.8` clips.
 - Width: a line may use `bigFitPx(contentW, glyphs)` = contentW − 2 − 0.5 per glyph (margin for
   the rig's rounding). Height: lines × px × LH, within 0.15px on the bench.
+- `bigWrapWords(line, px, contentW)` is a greedy word wrap at px against `bigFitPx`: the lines a
+  too-wide spaced line really breaks into on the page (a word wider than a line sits alone,
+  clipped, never broken). The height model counts a line too wide at an explicit size by it,
+  so it can only over-count (a cheer spent), never under-count (a cut). Its predecessor,
+  ceil(width / line width), under-counted: 20 lines of "WWW WWW WWW" at 48px are 60 printed
+  lines, it said 40, and the bot's box cut a third off (benched: 1173.3px against 1173.6
+  predicted for 10 of those lines).
 - `bigClean` drops what prints nothing (`BIG_INVISIBLE`: the BMP Default_Ignorable set, the
   C0/C1 controls, U+FFF0-FFFB) but keeps emoji with their joiner and presentation selectors
   (Edge draws colour emoji; they dither to grey dots). CR, CRLF, U+2028/2029 → newline; U+2800
   → space. It reports what it dropped. `bigGraphemes` uses `Intl.Segmenter` with a fallback.
 - `bigLines(text, layout)`: `stack` is one grapheme a line with each whitespace run as one
   blank line (a word gap); `lines` and `each` keep the lines as typed.
-- Layouts (`bigOpts`): `auto` (tries `lines` and `stack`; a layout whose letters are cut off
-  never wins, then a clean one, then the bigger type when both fit one cheer, else the fewer
-  cheers, ties to `lines`; never picks `each`), `lines`, `stack`, `each` (every line its own
-  size and line height; an explicit px acts as a cap). Sizes (`bigSizeOf`): `fit1` (the
+- Layouts (`bigOpts`): `auto`, `lines`, `stack`, `each` (every line its own size and line
+  height; an explicit px acts as a cap). `auto` tries three candidates in order, `lines`, then
+  `wrap`, then `stack`, and `bigBetter` decides: a layout whose letters are cut off never wins,
+  then a clean one, then the bigger type when both fit one cheer (or the size is `width`), else
+  the fewer cheers; a tie keeps the earlier; it never picks `each`. `wrap` (`bigWrapPlan`,
+  Auto only, never a block's own layout) is the typed lines with each too-wide line broken at
+  its spaces by `bigWrapWords` at the size being tried, then fitted like `lines`; the size it
+  settles on is then balanced (the same number of lines, each as short as it can be: "WE ARE /
+  SO BACK", not "WE ARE SO / BACK"), which changes neither the height nor the characters. It is
+  what a sentence typed on one line gets: as one line it was tiny, and stacked a long column of
+  small letters. A short phrase whose stacked letters come out bigger still stacks (Auto keeps
+  the biggest); the card's Layout hint says to press Enter and pick Lines for breaks of one's
+  own. `bigFit(...).layout` can therefore read `wrap`. Sizes (`bigSizeOf`): `fit1` (the
   biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
   (fill the paper, any number of cheers) or a whole px 20..400.
 - `fit1` is a binary search (`bigSearch`) that a test checks against a linear scan on 450
@@ -394,7 +410,10 @@ The tier picks the form (`GLYPH_FORMS`):
   paperMm)` gives the rows: `GLYPH_ASPECT` (cjk 1, mono 0.5, plain 16 / 21.6), and for Braille
   0.733F / (F + 2), which follows the font size (sampled square, a round picture printed 1.6 to
   1.8 times too tall). `glyphGrid` and `tools/payload.mjs` both size the rows this way. Every grid is banded into bodies by characters
-  (the tags repeat in each band) and by height (the room).
+  (the tags repeat in each band) and by height (the room), the rows spread evenly over the
+  bands the greedy pass needs (7/7/6, never 9/9/2: a last cheer with a sliver of two rows). A
+  room of 0 or less (a box the Cheer line fills) bands by characters alone: nothing after the
+  Cheer line prints whatever a band's height, and banding by height made a cheer of every row.
 
 **Plain: Design T (Han tiling).** Below the threshold the bot prints text: 16px, a line every
 21.6px, centred, in quotes, wrapping anywhere. A Han glyph is exactly 1em, so a line holds
@@ -422,8 +441,13 @@ paper. Each returns `{bits, mode, bodies, note}` and goes through the normal pac
 one-part stack.
 - `buildHighRollerProbe`: exactly the threshold. BIG at 60px, MMMMM sized to the width rule
   (does the right edge survive?), "jog" at LH 1.15 (descenders), BIG upside down, and UP in
-  `sideways-lr` (does the streamer's Edge draw it?). With High Roller off it says so and the
-  glue offers no Copy.
+  `sideways-lr` (does the streamer's Edge draw it?), about 250px in all. It is built against
+  the box the threshold's bits buy (`contentLimitPx` with the streamer's bits per inch and
+  maximum length): the shapes are kept in order of what they prove (BIG, UP, the upside-down
+  BIG, jog, MMMMM) while they fit after the Cheer line, printed in their usual order, and the
+  note asks only about the ones kept and names the ones left out (`left`). It returns `works`:
+  false with High Roller off, or when not even BIG fits (the note says the test can't show
+  anything at these settings), and the glue then offers no Copy.
 - `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off): a Design T
   grid with HI in block letters and a row of the ramp's tones. When the threshold is 1, every
   cheer is High Roller and it says there is no plain test.
@@ -443,9 +467,16 @@ words.
   180 → the same with `bigFlip`, 90 → sideways down, 270 → sideways up. The old fields
   (`giantLayout`, `giantSize`, `orient`, `rotateLen`) go; `size`, `cols` and `fmt` stay, unused.
   Han tiling keeps its render.
-- An **image block** loses `renderAs` and `embedV` (the old carrier pick).
+- An **image block** loses `renderAs` and `embedV` (the old carrier pick). A Glyph-art block
+  made from a takeover picture gets 20 columns (`newBlock`'s; the 40 an older build used would
+  print as 30, the most Han characters take).
+- A Giant type level keeps its px even when that is too wide for the paper (the spec's
+  mapping); the card then says the letters are cut off rather than "fits".
 - `migrationRewrites` is true when a takeover or an old text block is present.
-  `migrationNote` writes the one-time note. `MIGRATION_BACKUP_NAME` is `"Before 1.0.0"`;
+  `migrationNote` writes the one-time note: what changed, what could not be carried over
+  (Giant type's emotes now print as words; the old fonts and italics are gone), the backup's
+  name, and that loading it converts it again while Export JSON keeps it as it was. The glue
+  shows it as a banner above the blocks (`#migrationNote`) until "Got it". `MIGRATION_BACKUP_NAME` is `"Before 1.0.0"`;
   `freePresetName` never takes a name the user already has.
 
 **App state, read through sanitizers.** Settings and block fields arrive from storage, presets,
@@ -462,7 +493,7 @@ arithmetic shifts as in the C#, the ≥ 250 / ≤ 5 clamps, transparent pixels o
 
 **Presets.** `makePreset` deep-copies (a preset outlives the stack it came from);
 `parsePresets` validates untrusted JSON and says what is wrong; `upsertPreset` replaces by
-name; `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
+name (the glue asks first: Save under a taken name turns into "Replace?" for a second press); `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
 `isMintedImageUrl` matches only this Worker's own upload links, by shape, across all three
 generations; `presetImageUrls` walks a stack's picture links.
 
@@ -474,8 +505,14 @@ generations; `presetImageUrls` walks a stack's picture links.
   the feed; `rasterizeImage`; `computeGrid(kind, tier, o)` samples with `o.cellAspect` (text)
   or `o.charAspect` (images) so the cells keep the picture's shape.
 - **Blocks to bodies.** `renderBlockBodies(block, ctx)`: a Real picture → nothing; a Glyph-art
-  picture → `glyphImageBodies` (decoded once into `block._img`; `glyphGrid` samples it for the
-  tier's form, or for Design T in plain mode); text → `hanziBodies` when the render is `hanzi`
+  picture → `glyphImageBodies` (decoded once into `block._img` by `decodeGlyphImage`, turned by
+  `block.rotate` on a canvas by `glyphSource`; `glyphGrid` samples it for the tier's form, or
+  for Design T in plain mode). Runtime-only decode state: `_decoding`, `_decodeKey` (a slow
+  read of an older link never lands over a newer one) and `_decodeFailed` (the source that
+  could not be read; it is not asked again until the link changes, where every refresh used
+  to re-fetch it through /px). A picked file is read on the device and never uploaded, so it
+  replaces the link (`url` ""), and its name is kept as `fileName` (a saved field): after a
+  reload or in a preset the card, the parts placeholder and Save all say to pick it again; text → `hanziBodies` when the render is `hanzi`
   or the stack is plain, else `buildSideBodies` / `buildBigBodies`. `packStack(blocks, opts)`
   builds every block against ONE `stackContext(opts)` and packs with that same object, and
   stamps `blockId` on every body so a card can find its own parts.
@@ -489,18 +526,30 @@ generations; `presetImageUrls` walks a stack's picture links.
   in cm, cheers, cut-off flags), computed for a High Roller cheer and cached by key. The note
   (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
-  callback. `imageCard`: Kind (`.sel-kind`: Glyph-art or Real picture), URL, file; for
-  Glyph-art the Characters select (`.sel-tier`) with per-form hints and a column range that
-  follows the form; for a Real picture the red can't-print note, "Switch to Glyph-art", a
-  thumbnail, rotate and brightness/contrast (baked and re-uploaded; shown on the card only).
+  callback. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
+  box under a bits-per-inch setting); with High Roller off the note says so instead of "below
+  the threshold (0 bits)". In a free test the note counts messages, not bits. `imageCard`: Kind
+  (`.sel-kind`: Glyph-art or Real picture), URL, file (with a hint of what happens to it for
+  that kind), Rotate (`.sel-rotate`, both kinds); for Glyph-art the Characters select
+  (`.sel-tier`) with per-form hints and a column range that follows the form (the Detail field
+  shows the columns the grid really uses, `glyphCols`, and committing a value writes the
+  clamped one back); for a Real picture the red can't-print note, "Switch to Glyph-art", a
+  thumbnail and brightness/contrast (baked and re-uploaded; they change the card's picture
+  only, and the card says so).
 - **Parts.** `composeParts` packs the stack. A stack with nothing printable, or only a Real
   picture, gives one non-copyable notice; a part with nothing printable in it yet (a picture
   still decoding) is shown but not copyable. Without the repeat number, a part identical to
   the one right before it gets a note (Twitch won't send the same message twice in a row
-  within 30 seconds). `probeParts(kind)` builds a probe the same way. `renderParts` shows the
-  mode notice, a persistent card per part (char count, kind label, the preview, its verdict,
-  Copy) and the bits total. `copyPart` advances that part's nonce only when the repeat number
-  is on.
+  within 30 seconds). `probeParts(kind)` builds a probe the same way; its view's notice
+  carries a "Back to my stack" button (`#backToStack`). `renderParts` shows the mode notice, a
+  persistent card per part and the total (bits, or a free test's message count). A part's
+  header (`.part-head`: char count, kind label and the full-size Copy button, `.copy-btn`) is
+  sticky, so Copy stays in view while a 40 cm preview scrolls past; the part's note, then its
+  preview and verdict, follow. `partWarned` (the app already expects a cut: too tall for the
+  box, or a block too wide for the paper) keeps the verdict from blaming fonts. `copyPart`
+  advances that part's nonce only when the repeat number is on. Committing a number field
+  (change) writes back the value the app uses (0 bits → 100, 50 inches → 40); the Dither
+  select is disabled while the Thermal view is off.
 - **Presets and the expiry check.** `seedBlocks` migrates a saved stack once and saves it; when
   `migrationRewrites` is true it queues the backup preset, which `initPresets` writes only
   after the user's presets have loaded, merged in with `upsertPreset` under a free name, and
@@ -508,7 +557,12 @@ generations; `presetImageUrls` walks a stack's picture links.
   presets are never rewritten** (export gives back what was saved, and the backup keeps its
   takeovers), and a JSON import is stored as is and migrated when loaded.
   `probeStackExpiry` checks this Worker's upload links (15-minute TTL) by loading each into a
-  `new Image()` (no CORS grant, no `fetch`), and flags a dead one on its card.
+  `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card, and resolves with
+  how many it flagged, which Load reports ("Its uploaded pictures still load" / "N pictures'
+  links have expired"); a preset with no uploaded link promises no check. The preset list is
+  keyed by INDEX, not name (`renderPresetList(pick)`, `selectedIndex`), so a list that holds
+  two presets of one name (an older build could save one) still loads, renames and deletes the
+  one picked; Rename refuses a name another preset has, and says when the name is unchanged.
 
 ## The preview: SassyTP's own renderer
 
@@ -567,12 +621,17 @@ page-policy violations; and, under an `up` sideways part, that this browser can'
 XHTML (vw written out as px in the copy). The app draws that into an SVG `<foreignObject>`
 scaled to 576 / 384 dots, onto a canvas, and runs `forkDither` in the mode the select names
 (Detailed / Soft / Crisp = floyd / atkinson / threshold), one canvas pixel per printer dot.
-Compared with the bot's own screenshot of the same page (forkbench): same heights; plain and
-glyph grids dot for dot; big and sideways text the same shapes with a few edge dots dithered
-differently; header and footer text one or two dots lower (this page lays out at 1 CSS px per
-px and scales, the bot lays out at its dot scale). The grey logo placeholder prints as dots in
-Detailed and Soft and not at all in Crisp. The caption says the computer's fonts may differ
-from the streamer's.
+Compared with the bot's own screenshot of the same page (forkbench): same heights; plain text
+and 80 mm Han grids dot for dot; big and sideways text the same shapes with a few edge dots
+dithered differently; header and footer text one or two dots lower. Small fixed-pitch grids on
+58 mm, and Braille on either paper, drift further: rows up to 3 dots off, and their texture
+differs (review round 2: 58 mm Braille 33.5% of dark pixels after the best shift). The cause is
+that this page lays out at 1 CSS px per px and scales, where the bot lays out at its dot scale;
+rasterising at the dot scale would fix it and has not been done. The caption says all of this
+(the computer's fonts may differ; small grids and Braille are approximate). The canvas is shown
+at one scale for both papers (`min(576px, 100%)` and `min(384px, 66.67%)`), so 58 mm is two
+thirds of 80 mm, and the Dither select is disabled while the view is off. The grey logo
+placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 
 ### "SassyTP shipped a new version"
 
@@ -590,8 +649,12 @@ from the streamer's.
 ## Measuring: the bench
 
 "Does it print?" is answered by measuring. The tools are dev-only, never shipped, never in CI
-(CI is offline), and no test imports them. Everything they write or cache goes to the
-gitignored `.render/`. Never commit a font or the upstream renderer page.
+(CI is offline), and no test imports them. (One test reads one: `test/state.test.mjs` takes
+forkbench's `forkDither` source out of `tools/forkbench.mjs` with a regex, without importing or
+running the tool, to check that its port of the bot's ditherer and the app's agree dot for dot.
+Keep that function's shape, `function forkDither(` to a closing brace at the start of a line,
+or that test fails.) Everything they write or cache goes to the gitignored `.render/`. Never
+commit a font or the upstream renderer page.
 
 - **`tools/forkbench.mjs`** (`npm run bench -- …`) renders one message through SassyTP's real
   `renderer.html` in Playwright's Chromium, the way the action drives it: `--paper 80|58` gives

@@ -92,9 +92,12 @@ Your words in bold Arial, as big as the paper allows. `HELLO` with Layout set to
 Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
 ```
 
-- **Layout**: *Auto* (the bigger of the two below, in one cheer), *Lines as you typed them*,
-  *Stack the letters, one per line* (much bigger letters for short words), or *Each line its
-  own size* (every line as wide as the paper).
+- **Layout**: *Auto* (the biggest in one cheer of: your lines as typed, the same lines with
+  the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Stack
+  the letters, one per line* (much bigger letters for short words), or *Each line its own
+  size* (every line as wide as the paper). A sentence typed on one line comes out wrapped,
+  every word whole; to choose the line breaks yourself, press Enter between words and pick
+  Lines.
 - **Size**: *Auto* (the biggest that fits one cheer, the default), *Fill the paper's width*
   (may cost more cheers) or a fixed size from 20 to 400 px.
 - **Upside down** turns the letters round, so the tape reads the right way up when it is
@@ -184,9 +187,11 @@ The picture as a grid of characters. Pick the characters:
   streamer's PC uses for Braille on this bot yet, so send one cheer to check it before a
   bigger run.
 
-The grid's font size is in `vw` (a share of the receipt's width), so the same message fits
-80 mm and 58 mm paper. Detail (columns), Contrast, Dither and Invert are on the card. Rows
-that don't fit one message carry on in the next cheer.
+The Han and Courier New grids size their font in `vw` (a share of the receipt's width), so
+the same message fits 80 mm and 58 mm paper. Braille is sized in px for the paper width you
+picked, so a Braille message made for 80 mm is too wide for 58 mm. Detail (columns), Rotate,
+Contrast, Dither and Invert are on the card. Rows that don't fit one message carry on in the
+next cheer, spread evenly over the cheers they need.
 
 ### Below the threshold
 
@@ -268,8 +273,10 @@ print only as glyph-art.
 
 **Presets** save the whole block stack under a name, in this browser. **Export JSON** copies
 every preset out, to move it to another browser or keep it safe; **Import JSON** brings it
-back. An uploaded picture's link dies after 15 minutes, so a preset that used one loads with
-that block flagged for re-upload.
+back. Saving under a name that is already taken asks before replacing it. An uploaded
+picture's link dies after 15 minutes, so a preset that used one loads with that block flagged
+for re-upload. A glyph-art picture picked from a file is read in the browser and never
+uploaded, so neither a preset nor a reload keeps it: the block asks for the file again.
 
 Work saved by an older version is converted the first time you open 1.0.0:
 
@@ -277,9 +284,12 @@ Work saved by an older version is converted the first time you open 1.0.0:
   a Glyph-art block;
 - old Giant type and Type blocks become Big text or Sideways text (the nearest match:
   upside-down text stays upside down, sideways stays sideways);
+- emote names print as words, and the old fonts and italics are gone (big text is always
+  bold Arial);
 - the stack as it was is saved once, as a preset called **Before 1.0.0**, so nothing is lost.
   Your own presets are never overwritten. A preset is converted when you load it; the stored
-  copy stays as it was.
+  copy stays as it was, and **Export JSON** keeps it that way. A note above the blocks says
+  all this once.
 
 ---
 

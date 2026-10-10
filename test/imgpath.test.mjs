@@ -24,7 +24,7 @@ test("links minted before the change keep resolving", () => {
   assert.equal(imageKeyFor("/" + HEX32 + ".png"), HEX32);     // long key on the new path
 });
 
-test("every extension the printer's engine tolerates is stripped", () => {
+test("every image extension a minted link may carry is stripped", () => {
   // Minted links carry an image extension (the printer engine before 1.0.0 failed the whole
   // print on a subresource with an unknown one), and links minted then may still be in saved
   // presets, so serving must ignore the extension rather than 404 on it.

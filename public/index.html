@@ -14,8 +14,8 @@
   .gh-link svg { width: 1.1em; height: 1.1em; fill: currentColor; }
   .intro { font-size: .9rem; opacity: .85; margin: 0 0 1rem; }
   .layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
-  /* min-width:0 lets a column shrink below its content so a wide preview (census,
-     a 48-col grid) scrolls inside .receipt instead of blowing the page width out. */
+  /* min-width:0 lets a column shrink below its content so a wide preview scrolls inside
+     its box instead of blowing the page width out. */
   .controls, .preview { flex: 1 1 320px; min-width: 0; }
   .preview { max-width: 100%; }
   .controls label { display: block; margin-bottom: .75rem; }
@@ -31,43 +31,24 @@
     margin: 0 0 .5rem; align-self: flex-start; max-width: 100%; box-sizing: border-box;
     box-shadow: 0 1px 4px rgba(0,0,0,.15);
   }
-  /* Faithful receipt preview, modelled on printer-bot's #receipt-container (the sim
-     is reverse-engineered from nutty.gg's own printer code, so trust its geometry):
-     an 80mm roll, printed as a 72mm page (paperWidth-8mm, below) at 203dpi.
-     Avatar / 100 BITS / username / content / twitch / date, centered. View-only, so
-     pointer-events:none: a rotated preview's box can jut far past the paper, and it
-     would otherwise swallow clicks meant for the controls beside it. */
-  /* Numbers mirror the printer-bot's real template: the page wkhtmltopdf prints is
-     72mm (--page-width {paperWidth-8}mm on an 80mm roll) with a 1em body margin, 16px
-     base, avatar max-height 15em / max-width 90%, title 1.5em/900, subtitle 1.2em/700,
-     content .5em 0, date .7em. Keeping these identical makes the browser preview render
-     nearly the same as the real wkhtmltopdf print.
-     THE CONTENT BOX IS PAPER_PX (240px), and it has to be exact. This was 80mm for a
-     long time, which left 268px of content against the 240px the tape really has, so a
-     line that wraps or runs off the paper (a manual Giant type size, a long line) sat
-     whole in the preview: letters looked complete here and came off the tape cut. 72mm
-     minus the 2em margin is 240.1px. That is also why the frame is an OUTLINE, not a
-     border: border-box counts a border into the width and left 238px, and the thermal
-     raster (which drops the border) 2px wider than the live preview. An outline takes
-     no layout space, so the live box and the raster agree. (outline/shadow are
-     screen-only chrome; the thermal raster never draws them.) */
+  /* INTERIM receipt preview: one page of the streamer's paper wide (the width is set inline:
+     272 CSS px on 80 mm, 181 on 58 mm) with 14px of padding each side, so a message has the
+     244 / 153 px it has on the tape. The header and footer are placeholders. RCPT_CSS in the
+     script repeats these rules for the thermal raster (page CSS does not reach into it).
+     View-only, so pointer-events:none. Paper has an edge and the printer honours it, so the
+     preview clips there too. */
   .rcpt {
-    width: 72mm; max-width: 100%; box-sizing: border-box; margin: 0 0 .5rem;
-    padding: 1em; background: #fff; color: #000; outline: 1px solid #bbb;
-    border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    font-size: 16px; pointer-events: none; position: relative;
-    /* Paper has an edge, and the printer honours it: anything past it is not drawn, so
-       the preview clips there too instead of showing ink the tape never gets. */
-    overflow: hidden;
+    box-sizing: border-box; margin: 0 0 .5rem; padding: 16px 14px 14px; background: #fff; color: #000;
+    outline: 1px solid #bbb; border-radius: 2px; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: center;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px; line-height: 1.35; pointer-events: none; position: relative; overflow: hidden;
   }
-  .rcpt-av { width: 15em; max-width: 90%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; object-fit: cover; margin: 0 auto; }
-  .rcpt-title { font-weight: 900; font-size: 1.5em; text-transform: uppercase; }
-  .rcpt-sub { font-weight: 700; font-size: 1.2em; }
-  .rcpt-body { padding: .5em 0; }
-  .rcpt-body > svg, .rcpt-body > img { max-width: 100%; height: auto; display: block; margin: 0 auto; }
-  .rcpt-foot { font-weight: 700; font-size: .85em; color: #772ce8; }
-  .rcpt-date { font-size: .7em; text-transform: uppercase; margin: .5em 0; }
+  .rcpt-av { width: 11.5em; max-width: 100%; aspect-ratio: 1; border-radius: 50%; background: #dcdcdc; margin: 0 auto; }
+  .rcpt-title { font-weight: 700; font-size: 1.35em; line-height: 1.15; letter-spacing: .06em; text-transform: uppercase; margin: .4em 0 0; }
+  .rcpt-sub { font-size: 1em; margin: 0 0 .4em; }
+  .rcpt-body { border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 6px 0; overflow: hidden; }
+  .rcpt-plain { overflow-wrap: anywhere; white-space: normal; }
+  .rcpt-date { font-size: .75em; margin: .5em 0 0; }
   /* 1-bit thermal render of a receipt frame (see thermalize()). Shown at print-dot
      resolution; pixelated so the dither texture survives any responsive down-scale. */
   .rcpt-thermal { display: block; margin: 0 0 .5rem; max-width: 100%; height: auto;
@@ -106,20 +87,18 @@
      treatment as an over-budget part. */
   .expired-note { color: #d33; font-weight: 700; margin: .25rem 0; }
   .img-thumb { display: block; max-width: 100%; max-height: 220px; margin: .45rem 0; border: 1px solid #ccc; }
-  /* A Giant type card's live report. */
-  .giant-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; }
-  .giant-note > div { margin: 0 0 .25rem; }
-  .giant-note .giant-warn { color: #a60; }
-  .giant-note .giant-fine { opacity: .8; }
-  .giant-note.over .giant-sum { color: #d33; font-weight: 700; }
-  .giant-nudge { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .8rem; margin: .35rem 0 .2rem; }
-  .giant-nudge button { padding: .15rem .5rem; }
+  /* A card's live report: what the block prints, and where it is in the run. */
+  .text-note { font-size: .8rem; color: #555; margin: .4rem 0 0; font-variant-numeric: tabular-nums; }
+  .text-note > div { margin: 0 0 .25rem; }
+  .text-note .note-warn { color: #a60; }
+  .text-note .note-fine { opacity: .8; }
+  .text-note.over .note-sum { color: #d33; font-weight: 700; }
+  /* Why the stack prints the way it does (plain text below the threshold, a free test). */
+  .mode-note { font-size: .85rem; border: 1px solid #c90; background: rgba(204,153,0,.1); border-radius: 4px; padding: .45rem .6rem; margin: 0 0 .8rem; }
+  .part-kind { font-size: .75rem; opacity: .75; border: 1px solid #999; border-radius: 999px; padding: 0 .45rem; }
+  #streamer { margin-top: .9rem; border-top: 1px solid #ddd; padding-top: .7rem; }
   .block-card .bc-val { font-weight: 700; }
   .block-card .bc-reset { margin-left: .4rem; padding: 0 .4rem; font-size: .9rem; line-height: 1.3; cursor: pointer; }
-  .fmt-row { display: flex; gap: .3rem; align-items: center; margin: 0 0 .5rem; flex-wrap: wrap; }
-  .fmt-row select { flex: 1 1 7rem; min-width: 6rem; }
-  .fmt-tog { width: 2rem; padding: .25rem 0; font-weight: 700; cursor: pointer; }
-  .fmt-tog.on { background: #772ce8; color: #fff; border-color: #772ce8; }
   .meta { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: .9rem; }
   .reminder { font-size: .85rem; opacity: .8; margin-top: 1rem; }
   @media (max-width: 700px) {
@@ -139,7 +118,7 @@
       GitHub
     </a>
   </div>
-  <p class="intro">Your words as giant type, or a picture as glyph-art (from a link or a file). Paste the result into Twitch chat as a Cheer100 and it prints on the streamer's receipt printer.</p>
+  <p class="intro">Your words as big text, sideways text or Han tiling, or a picture as glyph-art (from a link or a file), for a streamer whose receipt printer runs SassyTP's printer-bot. Paste the result into Twitch chat as a cheer and it prints on the receipt.</p>
   <div class="layout">
     <section class="controls">
       <div id="composer">
@@ -172,31 +151,41 @@
         </div>
       </div>
       <label><input type="checkbox" id="cheer" checked> Cheer-ready</label>
-      <div class="hint">Starts each message with "Cheer&lt;bits&gt; " so it triggers the print. Turn it off to send a <strong>free test</strong>: a message with no cheer never reaches the printer, but it does go through chat's filters, so it shows whether the channel lets this text through before you spend bits on it.</div>
+      <div class="hint">Starts each message with "Cheer&lt;bits&gt; " so it triggers the print. Turn it off to send a <strong>free test</strong>: a message with no cheer never reaches the printer, but it does go through chat's filters, so it shows whether the channel lets this markup through before you spend bits on it.</div>
+
+      <label>Bits per cheer: <input type="number" id="bitsAmount" min="1" step="1" value="100" style="width:7em"></label>
+      <div class="hint" id="bitsHint">How many bits each cheer spends (1 or more). Each taped part is its own cheer, so a run of parts costs bits &times; parts; the total is under the preview.</div>
 
       <label><input type="checkbox" id="cheerNonce"> Add a repeat number</label>
       <div class="hint" id="cheerNonceHint">Puts two rotating digits after the cheer ("Cheer100 07"). Twitch won't send the same message twice in a row within 30 seconds (it just isn't sent, and no bits are spent), and the digits make each copy different. They also print on the receipt, which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.</div>
 
-      <label>Bits per receipt: <input type="number" id="bitsAmount" min="1" step="1" value="100" style="width:6em"></label>
-      <div class="hint">How many bits each cheer spends (1 or more). Each taped part is its own cheer, so a multi-part message costs bits &times; parts. The total is shown under the preview.</div>
-
-      <label>Receipt length: <input type="number" id="receiptLen" min="100" max="500" step="1" value="297" style="width:6em">mm</label>
-      <div class="hint">How long one receipt prints before it is cut. Most 80&nbsp;mm thermal printers stop at the <strong>Windows driver's paper length</strong>, often <strong>A4 (297&nbsp;mm)</strong> — a tall stack is simply cut off there, not shrunk. Tall content is split across several receipts so none is lost (each is its own cheer, with printer-bot's header between them). If yours prints longer, or you set the driver to <strong>Roll Paper / continuous</strong>, raise this; the <strong>Print size ruler</strong> below shows where each number lands so you can read your real length off the tape.</div>
+      <div id="streamer">
+        <div class="composer-h">The streamer's printer-bot settings</div>
+        <div class="hint">You can't see these from chat: ask the streamer, or leave the defaults (SassyTP's own). They decide how big a cheer may print.</div>
+        <label>Paper width: <select id="paperMm" style="width:auto"><option value="80" selected>80 mm</option><option value="58">58 mm</option></select></label>
+        <label>High Roller threshold: <input type="number" id="hrThreshold" min="0" max="1000000" step="1" value="25" style="width:7em"> bits</label>
+        <div class="hint">A cheer of at least this many bits is a High Roller cheer, and the bot prints its big text, sideways text and glyph-art. Below it the bot prints plain text, so every block prints as Han tiling. 0 = High Roller off (every cheer prints as plain text).</div>
+        <label>Bits per inch: <input type="number" id="bitsPerInch" min="0" step="any" value="0" style="width:7em"></label>
+        <label>Maximum length: <input type="number" id="maxInches" min="0" max="40" step="any" value="0" style="width:7em"> inches</label>
+        <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's 1600px box, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
+      </div>
     </section>
     <section class="preview">
-      <label class="thermal-toggle" title="Render the preview the way the printer does: 1-bit black &amp; white, dithered">
-        <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dithered, like the real printer
+      <label class="thermal-toggle" title="The preview the way the printer gets it: 1-bit black and white, dithered by the bot's own method">
+        <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
+      <label class="thermal-toggle">Dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select></label>
+      <div class="hint">What the printer gets, give or take fonts: this computer's fonts may differ from the streamer's. Pick the dither the streamer's dock is set to.</div>
       <div id="parts"></div>
       <div class="meta">
-        <button type="button" id="censusBtn">Print test strip</button>
-        <button type="button" id="rulerBtn">Print size ruler</button>
+        <button type="button" id="hrProbeBtn">High Roller test</button>
+        <button type="button" id="plainProbeBtn">Plain test</button>
       </div>
-      <div class="hint"><strong>Print size ruler</strong> is one cheer that prints the numbers 1 to 13, each one a size bigger than the last. If the numbers grow, Giant type works on this printer today, and you can see every size it offers on real paper. If they all come out the same size, printer-bot changed its style: use Hanzi tiling instead.</div>
+      <div class="hint">Two one-cheer tests of the streamer's settings. <strong>High Roller test</strong> cheers exactly the threshold: if BIG prints big, High Roller is on at that amount. <strong>Plain test</strong> cheers one bit under it: it should print small, inside quote marks, with every line the same length.</div>
     </section>
   </div>
-  <p class="reminder">Paste into the <strong>official Twitch web/mobile chat</strong> and send as a &ge;100-bit cheer. Only the first-party client actually cheers.</p>
-  <p class="reminder"><strong>Held or blocked by chat?</strong> Bot filters (symbols, repetition, duplicates) move around as mods tune them. This tool already stacks the odds in your favor: letters-only art keeps the symbol ratio low, and run-capping avoids repetition walls. Short of a VIP or bot permit, which bypass all of it, there is no way to <em>guarantee</em> delivery. If a message is held, resend it, shorten it, or drop the column count and try again.</p>
+  <p class="reminder">Paste into the <strong>official Twitch web or mobile chat</strong> and send it as a cheer. Only the first-party client actually cheers.</p>
+  <p class="reminder"><strong>Held or blocked by chat?</strong> That is the channel's moderation saying no, so don't rework the message to get it past. A free test (Cheer-ready off) shows what chat lets through before you spend bits; if the channel blocks the big-text markup, Han tiling, which is plain text, is the fallback.</p>
 </main>
 <script>
   "use strict";
@@ -852,34 +841,73 @@
     for (n = 2; ; n++) { name = base + " (" + n + ")"; if (!taken[name]) return name; }
   }
 
-  // ── MIGRATION (1.0.0): SAVED STACKS FROM THE nutty.gg BUILDS ─────────────
+  // ── MIGRATION (1.0.0): SAVED STACKS FROM THE BUILDS BEFORE 1.0.0 ─────────
   // The name the one-time backup of a pre-1.0.0 stack is saved under, in rw_presets_v1.
   var MIGRATION_BACKUP_NAME = "Before 1.0.0";
+  // The text renders 1.0.0 has: "big" and "sideways" (High Roller cheers) and "hanzi" (Han
+  // tiling, plain text, which prints at any cheer size).
+  var TEXT_RENDERS = ["big", "sideways", "hanzi"];
+  // Which render a TEXT block uses. Absent or unknown reads as "big", the default: by the
+  // time a block reaches the card or the builders, migrateBlocks has already turned every
+  // older render into one of the three, so this only ever meets junk from a hand-edited
+  // preset. The card's select and the payload both read it, so they cannot disagree.
+  function blockRender(b) {
+    var r = b && b.render;
+    return TEXT_RENDERS.indexOf(r) >= 0 ? r : "big";
+  }
+  // Fields only the old text renders had: Giant type's layout and level, the SVG Type
+  // render's orientation and its sideways strip length.
+  var OLD_TEXT_FIELDS = ["giantLayout", "giantSize", "orient", "rotateLen"];
+  // A Giant type size, as big text's size. "fit1" and "width" mean the same thing in both.
+  // A level n (a number, or the string a <select> stored) was n nested 1.2x steps on a 16px
+  // base, so it becomes round(16 x 1.2^n) px, n clamped to the 1..18 levels Giant type had,
+  // then to big text's 20..400 px. The constants are written out here on purpose: Giant
+  // type's own are deleted later in this release, and this has to keep working after that.
+  function giantLevelPx(size) {
+    if (size === "fit1" || size === "width") return size;
+    var n = typeof size === "number" ? Math.round(size) : (typeof size === "string" ? parseInt(size, 10) : NaN);
+    if (!isFinite(n)) return "fit1";
+    n = Math.max(1, Math.min(18, n));
+    return Math.max(BIG_MIN_PX, Math.min(BIG_MAX_PX, Math.round(16 * Math.pow(1.2, n))));
+  }
+  // Whether a block is a TEXT block from before 1.0.0: anything that is not an image or a
+  // takeover was rendered as text (the old builders fell through to text for any other
+  // shape), and its render is not one of 1.0.0's.
+  function isOldText(b) {
+    return !!b && typeof b === "object" && b.type !== "image" && b.type !== "takeover"
+      && TEXT_RENDERS.indexOf(b.render) < 0;
+  }
   // A saved stack (rw_blocks_v1) or a loaded preset, brought to blocks that still exist.
   // PURE and IDEMPOTENT: it never mutates its input, and running it on its own output
   // changes nothing. Decided by SHAPE, not by a version stamp, so a stack or a preset
   // from any older build arrives the same way. Never silently drops the user's words.
   //
   //  - A TAKEOVER (and its Fake-cheer style) no longer exists: it was an SVG lifted over
-  //    printer-bot's header, and SassyTP's bot prints neither SVG nor anything outside the
-  //    message box. Each of its lines becomes a Text block of its own, in order (lines as
-  //    typed, the biggest size that fits one cheer; its font settings come along); each
-  //    picture becomes a Glyph-art Image block with the same link. A takeover with no text
-  //    and no picture carried nothing of the user's and is dropped. Per-line size,
+  //    the old bot's header, and SassyTP's bot prints neither SVG nor anything outside the
+  //    message box. Each of its lines becomes a Big text block of its own, in order (lines
+  //    as typed, the biggest size that fits one cheer; its font settings ride along unused);
+  //    each picture becomes a Glyph-art Image block with the same link. A takeover with no
+  //    text and no picture carried nothing of the user's and is dropped. Per-line size,
   //    alignment and nudges have nowhere to go and are dropped with it.
   //  - Every block made from a takeover gets a FRESH id, above every id already in the
   //    stack. They must not share the takeover's id or each other's: removeBlock filters
   //    by id, so two blocks with one id are deleted together, and the cards find their
   //    own parts by id.
+  //  - A TEXT block from before 1.0.0 becomes the nearest 1.0.0 render, keeping its text:
+  //      Giant type ("giant")         -> big text; its layout kept (auto, lines, stack; the
+  //                                      Emote layout becomes lines: names print as text on
+  //                                      this bot), its level as px (giantLevelPx)
+  //      Type, or no render at all,   -> by its orientation: 0 big text (lines as typed,
+  //      or anything else                fit one cheer), 180 the same upside down, 90
+  //                                      sideways top to bottom, 270 sideways bottom to top
+  //    Giant type's and Type's own fields go (OLD_TEXT_FIELDS); the rest stays (an unused
+  //    `fmt` or `size` costs nothing). A block of any other shape becomes a text block.
+  //    Han tiling ("hanzi") keeps its render; only those old fields go from it.
   //  - An IMAGE block loses `renderAs` and `embedV`: the carrier-tag pick (which HTML tag
   //    carried a real picture) and its migration stamp. There is no carrier any more
   //    (SassyTP's bot loads pictures only from emote servers, and this channel's chat
   //    filter blocks the picture tag), so a Real picture block sends nothing at all.
   //    Everything else on it is kept, the upload link included.
-  //
-  // The new Text blocks use the Giant type render for now; the text renders are
-  // replaced for SassyTP's bot in a later step of the same release, and that step
-  // migrates "giant" along with everything else.
   function migrateBlocks(blocks) {
     var src = Array.isArray(blocks) ? blocks : [], out = [], maxId = 0, i, b;
     for (i = 0; i < src.length; i++) {
@@ -889,8 +917,7 @@
     var nextId = maxId + 1;
     function line(t) { return String(t == null ? "" : t).replace(/[\r\n\t]+/g, " ").trim(); }
     function textBlock(t, fmt) {
-      var tb = { id: nextId++, type: "text", render: "giant", giantLayout: "lines", giantSize: "fit1",
-                 orient: 0, text: t, size: 90, rotateLen: 800, cols: 15 };
+      var tb = { id: nextId++, type: "text", render: "big", bigLayout: "lines", bigSize: "fit1", text: t };
       if (fmt && typeof fmt === "object") tb.fmt = JSON.parse(JSON.stringify(fmt));
       return tb;
     }
@@ -931,6 +958,26 @@
       }
       return made;
     }
+    function fromOldText(c) {
+      var orient = parseInt(c.orient, 10) || 0;
+      if (c.render === "giant") {
+        c.render = "big";
+        c.bigLayout = c.giantLayout === "lines" || c.giantLayout === "stack" ? c.giantLayout
+                    : c.giantLayout === "emote" ? "lines" : "auto";
+        c.bigSize = giantLevelPx(c.giantSize);
+        delete c.bigFlip;
+      } else if (orient === 90 || orient === 270) {
+        c.render = "sideways";
+        c.sideDir = orient === 90 ? "down" : "up";
+        c.sideSize = "fit1";
+      } else {
+        c.render = "big";
+        c.bigLayout = "lines";
+        c.bigSize = "fit1";
+        if (orient === 180) c.bigFlip = true; else delete c.bigFlip;
+      }
+      c.type = "text";
+    }
     for (i = 0; i < src.length; i++) {
       b = src[i];
       if (!b || typeof b !== "object") continue;        // junk in a hand-edited preset
@@ -938,16 +985,36 @@
       var c = {}, k;
       for (k in b) c[k] = b[k];
       if (c.type === "image") { delete c.renderAs; delete c.embedV; }
+      else {
+        if (isOldText(c)) fromOldText(c);
+        for (k = 0; k < OLD_TEXT_FIELDS.length; k++) delete c[OLD_TEXT_FIELDS[k]];
+      }
       out.push(c);
     }
     return out;
   }
-  // Whether migrateBlocks REWRITES a block of this stack into different blocks (a takeover
-  // becomes Text and Image blocks, or nothing). That cannot be undone from the result, so
-  // seedBlocks keeps the stack as it was in a backup preset first. A field clean-up that
-  // loses nothing the user made does not count, so it never adds a preset on its own.
+  // Whether migrateBlocks REWRITES a block of this stack into a different one: a takeover
+  // becomes Text and Image blocks (or nothing), and an old text block takes a new render
+  // (an older build would read "big" or "sideways" as its dead SVG render). Neither can be
+  // undone from the result, so seedBlocks keeps the stack as it was in a backup preset
+  // first. A field clean-up that loses nothing the user made (an image block's carrier
+  // pick, a Han tiling block's unused orientation) does not count, so it never adds one.
   function migrationRewrites(blocks) {
-    return (Array.isArray(blocks) ? blocks : []).some(function (b) { return !!b && b.type === "takeover"; });
+    return (Array.isArray(blocks) ? blocks : []).some(function (b) {
+      return !!b && (b.type === "takeover" || isOldText(b));
+    });
+  }
+  // What the one-time backup note says: what changed, and where the old stack went.
+  function migrationNote(blocks, name) {
+    var list = Array.isArray(blocks) ? blocks : [], out = [];
+    if (list.some(function (b) { return !!b && b.type === "takeover"; })) {
+      out.push("Your saved stack had a Takeover, which this version can't print. Its lines are now Text blocks and its pictures Glyph-art.");
+    }
+    if (list.some(isOldText)) {
+      out.push((out.length ? "Its" : "Your saved stack's") + " text blocks were made for the old printer-bot and now print as Big text or Sideways text.");
+    }
+    out.push("The stack as it was is saved as the preset \"" + name + "\".");
+    return out.join(" ");
   }
 
   // ══ 1.0.0 BUILDERS FOR SassyTP's printer-bot ═══════════════════════════════════
@@ -1940,6 +2007,133 @@
     return { bits: bits, mode: mode, bodies: bodies, note: note };
   }
 
+  // ── APP STATE: settings and block fields, read through sanitizers (1.0.0) ──
+  // Settings and block fields arrive from saved stacks, presets, imported JSON and form
+  // controls (as strings), all untrusted, so everything that reads them goes through these.
+  //
+  // The settings panel (the fields of rw_controls_v1), from a saved blob or anything else:
+  // every field validated, absent or junk -> its default. Fields an older build saved (the
+  // hidden single-mode UI's, the takeover's covers, the cheer-gem tuck, the receipt length)
+  // are not read, so the next save drops them.
+  //   cheer          Cheer-ready, default on
+  //   bits           bits per cheer, a whole number from 1 (cheerBits), default 100
+  //   hrThreshold    the streamer's High Roller threshold, 0..1,000,000, default 25; 0 = off
+  //   bitsPerInch    the streamer's bits-per-inch setting, default 0 (off)
+  //   maxInches      the streamer's maximum length, inches, at most 40, default 0 (off)
+  //   paperMm        80 or 58, default 80
+  //   nonce          "Add a repeat number", default off: only an explicit true turns it on,
+  //                  which includes every blob saved back when the digits were always sent
+  //   thermalView    the Thermal preview, default off
+  //   thermalDither  "floyd" | "atkinson" | "threshold": the dock's Detailed, Soft and Crisp,
+  //                  default "floyd" (the bot's own default)
+  var THERMAL_DITHERS = ["floyd", "atkinson", "threshold"];
+  function normalizeControls(s) {
+    s = s && typeof s === "object" ? s : {};
+    return { cheer: s.cheer !== false, bits: cheerBits(s.bits), hrThreshold: hrThresholdOf(s.hrThreshold),
+             bitsPerInch: bitsPerInchOf(s.bitsPerInch), maxInches: maxInchesOf(s.maxInches),
+             paperMm: paperSpec(s.paperMm).mm, nonce: s.nonce === true, thermalView: s.thermalView === true,
+             thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd" };
+  }
+  // Han tiling's stroke weight: 400, or 700 for anything else.
+  function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
+  // An Image block's glyph-art fields. tier: one of the five picture tiers (the "text" tier
+  // is the old binary tier and never a picture's), default "cjk"; contrast 0..255, default
+  // 128; dither on unless false; invert off unless true. The columns depend on the tier's
+  // form and on the paper, so they are read with glyphCols where the paper is known.
+  var GLYPH_TIERS = ["cjk", "ascii", "asciifull", "safe", "braille"];
+  function glyphOpts(block) {
+    var b = block || {}, c = typeof b.contrast === "number" ? b.contrast : parseFloat(b.contrast);
+    return { tier: GLYPH_TIERS.indexOf(b.tier) >= 0 ? b.tier : "cjk",
+             contrast: isFinite(c) ? Math.max(0, Math.min(255, Math.round(c))) : 128,
+             dither: b.dither !== false, invert: b.invert === true };
+  }
+  // The notice above the parts that says why a stack prints the way it does. opts = the
+  // settings (normalizeControls' fields; `cheer`, `bits` and `hrThreshold` are read). ""
+  // when the stack prints as built, in its High Roller forms.
+  function modeNotice(o) {
+    o = o || {};
+    if (!o.cheer) {
+      return "Free test: Cheer-ready is off, so this message never reaches the printer. It still goes "
+        + "through the channel's chat filter, so sending it shows whether chat lets this markup through "
+        + "before you spend bits.";
+    }
+    if (printMode(o) === "raw") return "";
+    var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
+    return (t > 0
+        ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + t + " bits), so the bot prints plain text."
+        : "The streamer's High Roller threshold is 0 (off), so the bot prints every cheer as plain text.")
+      + " Every block prints in its plain form: text as Han tiling, pictures as a grid of Han characters. "
+      + (t > 0 ? "For big or sideways text, set Bits per cheer to " + t + " or more."
+               : "Big and sideways text need the streamer to set a High Roller threshold.");
+  }
+  // SassyTP's printer-bot turns its screenshot into dots with its own C# Ditherer; this is a
+  // line-for-line port (integer arithmetic and arithmetic right shifts, exactly as the C#),
+  // with the bot's grey (77R + 151G + 28B) >> 8, a transparent pixel blended over white.
+  //   floyd      Floyd-Steinberg (the bot's default; the dock calls it Detailed)
+  //   atkinson   Atkinson, which diffuses 6/8 of the error (Soft)
+  //   threshold  black below 128, no diffusion (Crisp)
+  // The diffusion modes force grey >= 250 to white and <= 5 to black first, as the bot does.
+  // rgba = ImageData.data, w x h; outWidth = the printer's dots (576 or 384). Returns a
+  // Uint8Array of outWidth x h, 1 = black. The Thermal preview draws with it, and so does the
+  // bench (tools/forkbench.mjs carries the same port).
+  function forkDither(rgba, w, h, outWidth, mode) {
+    var gray = new Uint8Array(w * h), i, p;
+    for (i = 0, p = 0; i < w * h; i++, p += 4) {
+      var l = (rgba[p] * 77 + rgba[p + 1] * 151 + rgba[p + 2] * 28) >> 8, a = rgba[p + 3];
+      if (a !== 255) l = 255 - (((255 - l) * a / 255) | 0);
+      gray[i] = l;
+    }
+    var out = new Uint8Array(outWidth * h), n = Math.min(w, outWidth), pw = outWidth + 4;
+    var a0 = new Int32Array(pw), a1 = new Int32Array(pw), a2 = new Int32Array(pw), t;
+    var thr = mode === "threshold", atk = mode === "atkinson";
+    for (var y = 0; y < h; y++) {
+      var go = y * w, bo = y * outWidth, x, v, err, e;
+      if (thr) { for (x = 0; x < n; x++) if (gray[go + x] < 128) out[bo + x] = 1; }
+      else if (atk) {
+        var next1 = 0, next2 = 0;
+        for (x = 0; x < n; x++) {
+          v = gray[go + x];
+          if (v >= 250) { next1 = next2; next2 = 0; }
+          else if (v <= 5) { out[bo + x] = 1; next1 = next2; next2 = 0; }
+          else {
+            v += a0[x + 2] + next1;
+            if (v < 128) { out[bo + x] = 1; err = v; } else err = v - 255;
+            if (err !== 0) { e = err >> 3; next1 = next2 + e; next2 = e; a1[x + 1] += e; a1[x + 2] += e; a1[x + 3] += e; a2[x + 2] += e; }
+            else { next1 = next2; next2 = 0; }
+          }
+        }
+      } else {
+        var carry = 0;
+        for (x = 0; x < n; x++) {
+          v = gray[go + x];
+          if (v >= 250) carry = 0;
+          else if (v <= 5) { out[bo + x] = 1; carry = 0; }
+          else {
+            v += a0[x + 2] + carry;
+            if (v < 128) { out[bo + x] = 1; err = v; } else err = v - 255;
+            if (err !== 0) { carry = (err * 7) >> 4; a1[x + 1] += (err * 3) >> 4; a1[x + 2] += (err * 5) >> 4; a1[x + 3] += err >> 4; }
+            else carry = 0;
+          }
+        }
+      }
+      t = a0; a0 = a1; a1 = a2; a2 = t;
+      for (x = 0; x < pw; x++) a2[x] = 0;
+    }
+    return out;
+  }
+  // INTERIM PREVIEW HELPER (until the preview draws through the bot's own renderer). The
+  // glyph grids size their font in vw, which on the bot is the PAGE's width (its window is
+  // exactly one page wide: 272 or 181 CSS px), but in this app's page it would be the app's
+  // window. For the preview only, every vw inside OUR tags becomes px at the paper's page
+  // width. Tags only: user text is escaped, so it holds no "<", and "5vw" typed as text is
+  // left alone. The payload itself is never touched.
+  function previewHtml(html, paperMm) {
+    var w = paperSpec(paperMm).cssWidth;
+    return String(html).replace(/<[^>]*>/g, function (tag) {
+      return tag.replace(/(\d+(?:\.\d+)?)vw\b/g, function (m, n) { return Math.round(parseFloat(n) * w * 10) / 1000 + "px"; });
+    });
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // Everything in this block is either (a) a function *definition* (never executes its
   // body until called) or (b) the single `document.addEventListener("DOMContentLoaded", init)`
@@ -2080,22 +2274,17 @@
     // Han tiling for Design T: the text drawn sideways down a column exactly as many cells wide
     // as a plain line holds (hanziCols), on cells 16 x 21.6px (cellAspect BASE_LH), quantized to
     // the CJK ramp without dither. Read by turning the tape. buildDesignT frames it.
-    function designTTextGrid(text, paperMm, weight) {
+    var designTTextGrid = function (text, paperMm, weight) {
       var C = hanziCols(paperSpec(paperMm).contentW);
       return computeGrid("text", getTier("cjk"), { cols: C, threshold: 128, invert: false, dither: false,
         sizeFactor: 0.9, text: text || "", weight: weight === 400 ? 400 : 700, cellAspect: BASE_LH });
-    }
+    };
 
     // --- state (assigned only inside init()/handlers, never at load time) --
     var els, partNonces, lastParts, currentKind, sessionNonceCounter;
     var CHAR_ASPECT = 0.5;       // monospace glyphs are roughly twice as tall as wide
     var STORAGE_KEY = "rw_controls_v1";
     var NONCE_KEY = "rw_nonce_seq";
-
-    function rowsForImage(cols, w, h) {
-      if (!w || !h) return Math.max(1, Math.round(cols / 2));
-      return Math.max(1, Math.min(120, Math.round(cols * (h / w) * CHAR_ASPECT)));
-    }
 
     function nextNonce() {
       var i = 0;
@@ -2500,14 +2689,6 @@
       }
       return bodies;
     };
-    // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
-    // proven on the real engine). Default transform-origin (centre) so it flips in place.
-    function bigTypeBodies(text, factor, orient, fmt) {
-      var svg = buildBigTextSvg(text || " ", factor || 0.9, fmt);
-      var h = parseInt((svg.match(/height="(\d+)"/) || [])[1], 10) || 120;
-      var html = orient === 180 ? '<div style="-webkit-transform:rotate(180deg)">' + svg + '</div>' : svg;
-      return [{ html: html, chars: payloadLength(html), heightPx: h, preview: { kind: "html", html: html } }];
-    }
     // The picture a Real picture block shows: the rotated/adjusted re-upload once it is
     // ready, else the original. Processing always starts FROM block.url so it never
     // compounds; block.outUrl holds the result. Shown on the card only: SassyTP's bot
@@ -2772,13 +2953,6 @@
       var b = block || {};
       return { layout: GIANT_LAYOUTS.indexOf(b.giantLayout) >= 0 ? b.giantLayout : "auto",
                size: giantSizeOf(b.giantSize) };
-    };
-    // Which renderer a TEXT block uses. Absent or unknown is "type", because that is what
-    // renderBlockBodies has always fallen through to, so the card's select and the payload
-    // can never disagree about a block imported with a junk value.
-    var blockRender = function (b) {
-      var r = b && b.render;
-      return r === "giant" || r === "hanzi" ? r : "type";
     };
     // Characters per body a giant builder may spend: MAX_CHARS minus the lead. A missing or
     // junk budget falls back to the Cheer100 lead's.
@@ -3343,43 +3517,24 @@
       }
       return out.join("\n");
     };
-    // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.
-    // Banded into messages; cols is the resolution lever (size is floored so tiny
-    // letters can't turn illegible). CJK ramp + defaults, no per-block glyph knobs beyond
-    // Detail (columns).
-    // `budget` = characters per body after the lead (packStack's MAX_CHARS - leadLength);
-    // see bandReserve for why the band is sized against it rather than a constant.
-    function hanziBodies(text, cols, sizeFactor, weight, budget) {
-      var tier = getTier("cjk");
-      // cols IS THE WRAP WIDTH, and getting it wrong shears the whole image.
-      // This body is pure text with no row separator: rows only become rows because
-      // the line wraps at the paper edge. So the grid width has to equal what the
-      // printer actually fits on one line, in FULL-WIDTH glyphs. Han characters are
-      // full-width — twice the advance of an ASCII digit — so the Census ruler, which
-      // is a run of half-width digits, reports roughly TWICE the number this wants.
-      // Reading the ruler's count straight into this box is what makes every row start
-      // half a row late and the picture slant. 15 is the field-proven full-width count
-      // for the target RP332 (the same number receiptify's art grid is built on, and
-      // that is where this tier's ramp came from too).
-      var o = { cols: Math.max(8, Math.min(48, cols || 15)), threshold: 128, invert: false,
-                dither: false, sizeFactor: Math.max(0.85, sizeFactor || 0.9), text: text || "",
-                weight: weight === 400 ? 400 : 700 };
-      var grid = computeGrid("text", tier, o);
-      if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
-      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - bandReserve(budget)) / o.cols));
-      var bodies = [];
-      for (var r = 0; r < grid.length; r += rowsPerMsg) {
-        var band = grid.slice(r, r + rowsPerMsg);
-        var g = render(band);
-        bodies.push({ html: g, chars: payloadLength(g), heightPx: band.length * 18,
-                      preview: { kind: "grid", grid: band.map(function (row) { return row.join(""); }).join("\n") } });
-      }
-      return bodies.length ? bodies : [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
+    // ── BLOCKS -> BODIES (1.0.0) ─────────────────────────────────────────────
+    // Every block is built against ONE stack context (stackContext: the print mode, the
+    // paper, the message box, the characters left after the lead), the same object the
+    // packer then packs with, so a block's sizes and the parts it lands in cannot disagree.
+    //
+    // Han tiling BODIES (Design T, plain text): the text drawn sideways down a column exactly
+    // as many Han characters wide as a plain line holds, framed and banded by buildDesignT.
+    // Invisible and control characters go first (bigClean): they print nothing, and a
+    // control code would draw a box on the canvas. Nothing left builds one empty body, which
+    // the packer lets ride along without a part of its own.
+    function hanziBodies(text, block, ctx) {
+      var t = bigClean(text).text;
+      if (!/\S/.test(t)) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
+      return buildDesignT(designTTextGrid(t, ctx.paperMm, hanziWeightOf(block.hanziWeight)),
+        { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
     }
-    // Glyph-art picture BODIES: tile a decoded image into a monospace grid, banded like
-    // the old Image mode. Decoding is async (fetch via /px for a URL, or a picked File);
-    // the decoded Image is cached on block._img (a runtime-only field, stripped on save).
-    // Produces markup-free text — no upload needed, and it's the un-filterable fallback.
+    // Glyph-art: decoding is async (fetch via /px for a URL, or a picked File); the decoded
+    // Image is cached on block._img (a runtime-only field, stripped on save).
     function decodeGlyphImage(block, file) {
       block._decoding = true;
       var p = file
@@ -3396,106 +3551,105 @@
         block._img = im; block._decoding = false; saveBlocks(); update();
       })["catch"](function () { block._decoding = false; });
     }
-    function glyphImageBodies(block, budget) {
+    // A decoded picture as a glyph grid for this stack. In a High Roller cheer: the block's
+    // tier, sampled for its form's cell shape (GLYPH_ASPECT) at the columns that form takes on
+    // this paper (glyphCols). Below the threshold: the plain Design T picture, which is always
+    // the cjk ramp, at the frame's columns (designTPictureCols), with no dither (the light
+    // cell is the only one the frame and the header can share). A `var`, not a declaration,
+    // so module.exports can carry it to the browser tests; it needs a real canvas.
+    var glyphGrid = function (block, img, ctx) {
+      var g = glyphOpts(block), plain = ctx.mode === "plain";
+      var tierId = plain ? "cjk" : g.tier, form = plain ? "plain" : glyphForm(tierId);
+      var cols = plain ? designTPictureCols(ctx.paperMm) : glyphCols(form, block.cols, ctx.paperMm);
+      var aspect = GLYPH_ASPECT[form];
+      return computeGrid("image", getTier(tierId), { cols: cols, charAspect: aspect,
+        rows: gridRows(cols, img.naturalWidth || img.width, img.naturalHeight || img.height, aspect),
+        threshold: g.contrast, invert: g.invert, dither: plain ? false : g.dither, img: img });
+    };
+    function glyphImageBodies(block, ctx) {
       if (!block._img) {
         if (block.url && !block._decoding) decodeGlyphImage(block);
-        return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: block._decoding ? "(decoding image…)" : "(paste an image URL or pick a file)" } }];
+        return [{ html: "", chars: 0, heightPx: 0, waiting: true,
+                  preview: { kind: "grid", grid: block._decoding ? "(decoding image…)" : "(paste an image URL or pick a file)" } }];
       }
-      var tier = getTier(block.tier || "cjk");
-      var o = { cols: Math.max(8, Math.min(48, block.cols || 40)),
-                threshold: block.contrast != null ? block.contrast : 128,
-                invert: !!block.invert, dither: block.dither != null ? block.dither : true,
-                img: block._img };
-      o.rows = rowsForImage(o.cols, block._img.naturalWidth || block._img.width, block._img.naturalHeight || block._img.height);
-      var raw = computeGrid("image", tier, o);
-      var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
-      var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));
-      var open = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">';
-      var overhead = LEAD_GUARD.length + open.length + 7 + bandReserve(budget);
-      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - overhead) / (o.cols + 4)));
-      var bodies = [];
-      for (var r = 0; r < grid.length; r += rowsPerMsg) {
-        var strip = grid.slice(r, r + rowsPerMsg);
-        var body = open + strip.map(function (row) { return escapeHtml(row.join("")); }).join("<br>") + "</span>";
-        bodies.push({ html: body, chars: payloadLength(body), heightPx: strip.length * F,
-                      preview: { kind: "grid", grid: strip.map(function (row) { return row.join(""); }).join("\n") } });
+      var grid = glyphGrid(block, block._img, ctx);
+      if (ctx.mode === "plain") {
+        return buildDesignTPicture(grid, { mode: "plain", paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
+                                           noNonce: ctx.noNonce, limitPx: ctx.limit.px });
       }
-      return bodies;
+      return buildGlyphBodies(glyphOpts(block).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm });
     }
-    // Turn one composer block into its ordered BODIES (1+; rotate/hanzi/glyph-art band).
-    // `budget` = characters a body may spend after the lead (MAX_CHARS - leadLength(opts));
-    // the banded and giant builders size against it, because the packer never splits a
-    // single body. Both optional: absent means the Cheer100 lead and the default height.
-    function renderBlockBodies(block, budget, heightPx) {
-      if (block.type === "image") {
-        if (block.imgKind === "glyph") return glyphImageBodies(block, budget);
-        // A Real picture sends NOTHING. SassyTP's bot draws a picture only from an emote
-        // server, and this channel's chat filter blocks the picture tag, so any markup we
-        // built would either never arrive or print blank. No body, no characters, no part.
-        return [];
+    // Turn one composer block into its ordered BODIES for the stack context `ctx`.
+    //  - Below the streamer's High Roller threshold (ctx.mode "plain") the bot prints the
+    //    message as plain text, markup and all, so EVERY block prints its plain form: text as
+    //    Han tiling, a glyph-art picture as the plain Design T grid.
+    //  - In a High Roller cheer (and in a free test with Cheer-ready off, which builds the
+    //    High Roller form so it can check the markup against chat): big text, sideways text or
+    //    Han tiling as the block says (blockRender, the card's select reads it too), and the
+    //    glyph grid in its tier's form.
+    //  - A Real picture sends NOTHING. SassyTP's bot draws a picture only from an emote
+    //    server, and this channel's chat filter blocks the picture tag.
+    function renderBlockBodies(block, ctx) {
+      ctx = ctx || stackContext({ cheer: true });
+      if (block.type === "image") return block.imgKind === "glyph" ? glyphImageBodies(block, ctx) : [];
+      var text = block.text || "", r = blockRender(block);
+      if (r === "hanzi" || ctx.mode === "plain") return hanziBodies(text, block, ctx);
+      if (r === "sideways") {
+        var so = sideOpts(block);
+        return buildSideBodies(text, { dir: so.dir, size: so.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
       }
-      var text = block.text || "";
-      // Giant type FIRST, and every branch through blockRender: anything that is neither
-      // "giant" nor "hanzi" (absent, or junk from an imported preset) falls through to Type,
-      // exactly as it always has, so the card's select can mirror this one decision.
-      var render = blockRender(block);
-      if (render === "giant") {
-        var go = giantOpts(block);
-        return buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, heightPx: heightPx });
-      }
-      var factor = block.size ? Math.max(0.25, Math.min(1, block.size / 100)) : 0.9;
-      if (render === "hanzi") return hanziBodies(text, block.cols, factor, block.hanziWeight, budget);
-      var orient = block.orient || 0;
-      if (orient === 90 || orient === 270) return rotateBodies(text, factor, block.rotateLen, orient, block.fmt);
-      return bigTypeBodies(text, factor, orient, block.fmt);   // 0 or 180
+      var bo = bigOpts(block);
+      return buildBigBodies(text, { layout: bo.layout, size: bo.size, flip: bo.flip, budget: ctx.budget,
+                                    heightPx: ctx.room, contentW: ctx.contentW });
     }
-    // Pack a whole block stack into receipt Parts. Central packaging: block bodies ->
-    // dual-budget packer -> cheer-wrapped parts. Empty/placeholder handled by the caller.
+    // Pack a whole block stack into Parts. opts = the stack options (stackOpts(): the
+    // settings plus noNonce) and nonceFn. The bodies and the packer both use stackContext(opts).
     function packStack(blocks, opts) {
       opts = opts || {};
-      var bodies = [], i, j, bs;
-      // The per-body character budget, from the SAME lead the packer will emit. Bodies the
-      // packer can't split (a Hanzi band, a glyph-art strip, a giant chunk) are sized
-      // against it, so a longer lead (a 5-digit bit amount, the repeat digits) shrinks them
-      // rather than pushing a whole part over 500.
-      var budget = MAX_CHARS - leadLength(opts);
-      // The per-receipt height ceiling, from the user's receipt length. Threaded to the body
-      // builders (so a giant chunk sizes against the real page) and carried on opts to
-      // packStackBodies (so the packer splits at it too). Both read the SAME value.
-      var heightPx = giantHeight(opts.heightPx);
+      var ctx = stackContext(opts), bodies = [], po = {}, i, j, k, bs;
       for (i = 0; i < blocks.length; i++) {
-        bs = renderBlockBodies(blocks[i], budget, heightPx);
+        bs = renderBlockBodies(blocks[i], ctx);
         // Stamp the source block on every body. The packer decides which part a block
         // lands in, and a card that wants to say "you're in part 2 of 3" has no other
         // way to find itself in the result.
         for (j = 0; j < bs.length; j++) bs[j].blockId = blocks[i].id;
         bodies = bodies.concat(bs);
       }
-      return packStackBodies(bodies, opts);
+      for (k in ctx) po[k] = ctx[k];
+      po.nonceFn = opts.nonceFn;
+      return packStackBodies(bodies, po);
+    }
+    // The settings panel as one object (normalizeControls' fields), read from the controls.
+    function getSettings() {
+      var v = function (el) { return el ? el.value : undefined; };
+      return normalizeControls({
+        cheer: !!els.cheer.checked, bits: v(els.bitsAmount), hrThreshold: v(els.hrThreshold),
+        bitsPerInch: v(els.bitsPerInch), maxInches: v(els.maxInches), paperMm: v(els.paperMm),
+        nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
+        thermalDither: v(els.thermalDither)
+      });
+    }
+    // What a stack is built and packed with (stackContext's options): the settings, the
+    // repeat number as `noNonce`, and any `extra` (a probe's bits and mode).
+    function stackOpts(extra) {
+      var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
+        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm }, k;
+      for (k in (extra || {})) o[k] = extra[k];
+      return o;
     }
     // Bits per cheer: any whole number from 1 up (cheerBits). The "100" in "Cheer100" is
     // just the bit count, so a different amount is a different token.
-    function getBits() {
-      return cheerBits(parseInt(els.bitsAmount && els.bitsAmount.value, 10));
-    }
+    function getBits() { return getSettings().bits; }
     // "Add a repeat number" (#cheerNonce): the two rotating digits after the cheer token.
     // Absent control or unchecked = off, and off is the default: the digits print on the
     // receipt, and all they do is make repeat copies differ (Twitch won't send the same
-    // message twice in a row within 30 seconds), which a cheer rarely needs. The packer only
-    // reads it when cheering; the census, which always carries the token, reads it too.
+    // message twice in a row within 30 seconds), which a cheer rarely needs.
     function getNonce() {
       return !!(els && els.cheerNonce && els.cheerNonce.checked);
     }
-    // The receipt length (mm) the stack packs against, clamped to the control's range. Feeds
-    // heightBudget() — the per-receipt height ceiling — so every size label, cheer count and
-    // split reflects the user's real page, not the 500mm wkhtmltopdf sheet.
-    function getReceiptMm() {
-      return clampReceiptMm(els && els.receiptLen ? parseFloat(els.receiptLen.value) : RECEIPT_MM_DEFAULT);
-    }
-    function getHeightPx() { return heightBudget(getReceiptMm()); }
     // The repeat-number checkbox's state and hint: disabled (not unchecked) without
-    // Cheer-ready, since a message with no cheer has no lead to put the
-    // digits in, and turning Cheer-ready back on brings the user's choice back with it.
+    // Cheer-ready, since a message with no cheer has no token to put the digits after, and
+    // turning Cheer-ready back on brings the user's choice back with it.
     function syncNonceUi() {
       if (!els || !els.cheerNonce) return;
       var on = !!els.cheer.checked;
@@ -3507,25 +3661,16 @@
         + "spent), and the digits make each copy different. They also print on the receipt, "
         + "which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.";
     }
-    // Cap any run of identical chars at maxRun by nudging the offender to the
-    // next ramp level — deterministically defeats Nightbot's repetition filter
-    // even in flat regions that dither leaves solid (pure black/white).
-    function breakRuns(rows, ramp, maxRun) {
-      return rows.map(function (row) {
-        var out = row.slice(), run = 1;
-        for (var i = 1; i < out.length; i++) {
-          // Break runs of INK only; leave blank (space) runs alone so light areas
-          // stay clean. (If space-repetition turns out to be filtered, revisit.)
-          if (out[i] === out[i - 1] && out[i] !== " ") {
-            if (++run > maxRun) {
-              var idx = ramp.indexOf(out[i]);
-              out[i] = ramp[idx + 1 < ramp.length ? idx + 1 : idx - 1] || out[i];
-              run = 1;
-            }
-          } else { run = 1; }
-        }
-        return out;
-      });
+    // The Bits hint says what this amount gets from the streamer's bot.
+    function syncModeUi() {
+      syncNonceUi();
+      if (!els.bitsHint) return;
+      var s = getSettings(), t = s.hrThreshold;
+      els.bitsHint.textContent = "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
+        + "so a run of parts costs bits × parts; the total is under the preview. "
+        + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
+           : s.bits >= t ? "At " + s.bits + " bits the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
+           : "Below the streamer's High Roller threshold (" + t + " bits) the bot prints plain text, so every block prints as Han tiling.");
     }
     // --- clipboard -----------------------------------------------------------
     function fallbackCopy(text) {
@@ -3553,140 +3698,112 @@
         return raw ? JSON.parse(raw) : null;
       } catch (e) { return null; }
     }
+    // Writes exactly normalizeControls' fields, as fields of rw_controls_v1 (never a new
+    // storage key). Fields an older build wrote are not carried over, so they go here.
     function saveControls() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          cheer: els.cheer.checked, bits: els.bitsAmount.value,
-          // A field of rw_controls_v1, not a new storage key.
-          receiptLen: els.receiptLen ? els.receiptLen.value : "",
-          // "Add a repeat number". Guarded: this is ONE try block, so a missing element would
-          // throw and silently stop persisting every other control along with it. A field of
-          // rw_controls_v1, not a new storage key.
-          nonce: !!(els.cheerNonce && els.cheerNonce.checked),
-          thermalView: els.thermalView.checked,
-        }));
-      } catch (e) { /* ignore (private mode/quota) */ }
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(getSettings())); } catch (e) { /* private mode/quota */ }
     }
+    // Every field through normalizeControls: an old blob's unknown fields are ignored, and a
+    // missing one (every blob saved before it existed) takes its default.
     function restoreControls() {
-      // Fields an older version saved (the hidden single-mode UI's mode, tier, cols,
-      // dither, contrast, invert, text, textSize, bigStyle, rotateLen, imgUrl, imgWidth;
-      // the takeover's covers toggle; the cheer-gem tuck) are simply not read; the next
-      // save drops them.
-      var saved = loadSavedControls();
-      if (!saved) return;
-      els.cheer.checked = saved.cheer !== false;
-      if (parseInt(saved.bits, 10) >= 1) els.bitsAmount.value = cheerBits(parseInt(saved.bits, 10));
-      // Receipt length: absent (every settings blob older than 0.11.0) falls back to the
-      // default (A4). Validated against the same min/max the control enforces.
-      if (els.receiptLen && saved.receiptLen != null && isFinite(parseFloat(saved.receiptLen))) {
-        els.receiptLen.value = clampReceiptMm(parseFloat(saved.receiptLen));
-      }
-      // The repeat number defaults OFF, and that includes every settings blob saved before the
-      // toggle existed, when the digits were always sent: only an explicit true turns it on.
-      // The digits print on the receipt, and dropping them was the point of the toggle.
-      if (els.cheerNonce) els.cheerNonce.checked = saved.nonce === true;
-      els.thermalView.checked = !!saved.thermalView;
+      var s = normalizeControls(loadSavedControls());
+      els.cheer.checked = s.cheer;
+      els.bitsAmount.value = String(s.bits);
+      if (els.hrThreshold) els.hrThreshold.value = String(s.hrThreshold);
+      if (els.bitsPerInch) els.bitsPerInch.value = String(s.bitsPerInch);
+      if (els.maxInches) els.maxInches.value = String(s.maxInches);
+      if (els.paperMm) els.paperMm.value = String(s.paperMm);
+      if (els.cheerNonce) els.cheerNonce.checked = s.nonce;
+      els.thermalView.checked = s.thermalView;
+      if (els.thermalDither) els.thermalDither.value = s.thermalDither;
     }
 
     // --- render pipeline -----------------------------------------------------
-    // Wrap the visual preview in a printer-bot-style receipt: avatar, 100 BITS, the
-    // streamer name, the content, the Twitch mark, a date. The header/footer values
-    // are placeholders — they exist so you see your text/image IN CONTEXT (modelled
-    // on the "shamu simulator", which mirrors the real print). bodyNode becomes the
-    // content slot.
-    function receiptFrame(bodyNode) {
-      var r = document.createElement("div");
+    // INTERIM PREVIEW. The receipt box is one page of the streamer's paper wide (272 CSS px on
+    // 80 mm, 181 on 58 mm) with 14px of padding each side, so a message gets the same 244 /
+    // 153 px it gets on the tape. The header and footer are placeholders. A High Roller part
+    // shows its lead as text and its bodies as the very HTML the cheer carries (our own
+    // markup; every user character is escaped), a plain part shows its message as text.
+    // This is not a model of the bot's receipt: the preview is to be drawn by the bot's own
+    // renderer, and until then this only shows the parts sensibly.
+    function receiptFrame(bodyNode, bits, paperMm) {
+      var p = paperSpec(paperMm), r = document.createElement("div");
       r.className = "rcpt";
-      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">' + getBits() + ' BITS</div><div class="rcpt-sub">shamu4life</div>';
+      r.style.width = p.cssWidth + "px";
+      r.setAttribute("data-dots", String(p.dots));
+      r.innerHTML = '<div class="rcpt-av"></div><div class="rcpt-title">' + cheerBits(bits) + ' BITS</div><div class="rcpt-sub">viewer</div>';
       bodyNode.className = "rcpt-body";
       r.appendChild(bodyNode);
-      r.insertAdjacentHTML("beforeend", '<div class="rcpt-foot"><svg viewBox="0 0 24 24" width="22" height="22" fill="#772ce8" style="display:block;margin:0 auto" aria-label="twitch"><path d="M2.149 0 .521 4.093v16.353h5.62V24h3.077l3.541-3.554h4.545L24 14.272V0H2.149zM21.393 13.191l-3.541 3.554h-5.62l-3.078 3.082v-3.082H4.706V2.149h16.687v11.042zM12.149 4.735H9.999v6.174h2.15V4.735zm5.619 0h-2.149v6.174h2.149V4.735z"/></svg></div><div class="rcpt-date">Fri Jul 11 2026 20:05</div>');
+      r.insertAdjacentHTML("beforeend", '<div class="rcpt-date">Sat Oct 10 2026 20:05</div>');
       return r;
     }
 
     // ── THERMAL PREVIEW ────────────────────────────────────────────────────
-    // Show the preview the way the printer actually renders it: 1-bit black &
-    // white, Atkinson-dithered, at the real print-dot resolution. The upstream
-    // "shamu simulator" does NOT do this (it's a plain CSS preview) — the real
-    // dithering happens downstream in the printer's wkhtmltopdf→raster chain, so
-    // we reproduce it here. Approach (validated, no libraries, CSP-safe):
-    // serialize the receipt node → SVG <foreignObject> data-URL scaled to the
-    // dot width → draw to canvas → Rec.601 luma → Atkinson dither.
-    // The raster's width in print dots: the 72mm page (.rcpt, 272.1 CSS px) x 8 dots/mm at
-    // 203dpi = 576, so 576 / 272.1 = 2.117 dots per CSS px against the 2.119 measured on
-    // the engine (CLAUDE.md, "the 1:1 rule"). It was 560 ("70mm printable"), sized for a
-    // box that is no longer the one rasterized: 2.06 dots per CSS px, ~3% coarse, so the
-    // dither texture and 1-dot detail were resampled rather than shown 1:1. The physical
-    // RP332 row is not field-measured; 576 is the nominal and bench figure.
-    var THERMAL_W = 576;
-    // Page CSS does NOT cascade into a serialized-SVG foreignObject, so the
-    // receipt styling must ride along as an embedded <style>. Kept in sync with
-    // the .rcpt* rules above (screen-only chrome — border/shadow — is dropped).
-    // GIANT TYPE IN THE PREVIEW, shared by the page <style> (injected in init) and RCPT_CSS
-    // below, so the live preview and the thermal raster cannot disagree about it.
-    //  - .rw-giant wraps one giant body's preview. A block, so it starts on its own line
-    //    the way the body's leading <br> starts it on the tape. Two giant bodies in a row
-    //    leave one small blank line between them on the tape (the first one's trailing <br>
-    //    plus the next one's leading <br>: 23px on the real engine), hence the margin.
-    //  - .rw-emote-ph stands in for an emote printer-bot would swap in: a dashed square
-    //    exactly 1em of the giant size it sits in (an emote is .emote{height:1em} and
-    //    square), labelled with the name AS TYPED. text-transform:none because .title
-    //    uppercases, and the case is precisely the mistake that stops Twitch recognising
-    //    an emote; the preview must not hide it. No <img> and no fetch: the network rule
-    //    in CLAUDE.md. The box is 8em at 1/8 the font size (= 1em of the parent) so its
-    //    label can be small; inline-block with overflow:hidden puts its bottom edge on
-    //    the baseline, which is where the real <img> sits.
-    var GIANT_PREVIEW_CSS =
-      '.rcpt .rw-giant{display:block;}' +
-      '.rcpt .rw-giant+.rw-giant{margin-top:1.33em;}' +
-      '.rcpt .rw-emote-ph{display:inline-block;box-sizing:border-box;width:8em;height:8em;font-size:.125em;' +
-        'border:.32em dashed currentColor;overflow:hidden;vertical-align:baseline;text-transform:none;' +
-        'font-weight:700;line-height:1.15;padding:3em .3em 0;text-align:center;word-break:break-all;}';
+    // The preview the way the printer gets it: the receipt rasterized at the printer's dot
+    // width (576 dots on 80 mm, 384 on 58 mm: deviceScaleFactor 576/272 or 384/181, as the
+    // bot screenshots it), turned to grey and dithered with the bot's own Ditherer
+    // (forkDither, in the mode the select names). Approach (no libraries, CSP-safe):
+    // serialize the receipt node -> SVG <foreignObject> data URL scaled to the dot width ->
+    // draw to canvas -> forkDither.
+    // Page CSS does NOT cascade into a serialized-SVG foreignObject, so the receipt styling
+    // rides along as an embedded <style>, kept in sync with the .rcpt* rules above.
     var RCPT_CSS =
-      // overflow:hidden mirrors the page rule — the thermal raster must clip at the
-      // paper edge too, or it shows ink the printer will never lay down. Width and
-      // position:relative mirror it too (72mm page, 240px content; see the page rule).
-      '.rcpt{width:72mm;max-width:100%;box-sizing:border-box;padding:1em;background:#fff;color:#000;overflow:hidden;text-align:center;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;position:relative;}' +
-      // aspect-ratio, like the page rule, not a fixed height:15em. They only agreed while
-      // the content box was wide enough for 15em to clear max-width:90%; at the real 240px
-      // the avatar is 216px wide (printer-bot's own max-width:90%), and a fixed height made
-      // the raster's avatar 24px taller than the live one it was measured from.
-      '.rcpt-av{width:15em;max-width:90%;aspect-ratio:1;border-radius:50%;background:#dcdcdc;object-fit:cover;margin:0 auto;}' +
-      '.rcpt-title{font-weight:900;font-size:1.5em;text-transform:uppercase;}' +
-      '.rcpt-sub{font-weight:700;font-size:1.2em;}' +
-      '.rcpt-body{padding:.5em 0;}' +
-      '.rcpt-body>svg,.rcpt-body>img{max-width:100%;height:auto;display:block;margin:0 auto;}' +
-      '.rcpt-foot{font-weight:700;font-size:.85em;color:#772ce8;}' +
-      '.rcpt-date{font-size:.7em;text-transform:uppercase;margin:.5em 0;}' +
-      // printer-bot's own class rules (giant type's .title), from the PB_CLASSES table, so
-      // a re-tuned class moves the thermal preview with it.
-      pbPreviewCss(".rcpt") + GIANT_PREVIEW_CSS;
-    // Atkinson dither, in place on ImageData: Rec.601 gray, threshold 128,
-    // diffuse err/8 to 6 neighbours — the soft, slightly-blown-out look of a
-    // cheap thermal head (leaks 2/8 of the error, so highlights lift out).
-    function atkinsonDither(imageData) {
-      var w = imageData.width, h = imageData.height, d = imageData.data;
-      var gray = new Float32Array(w * h), i;
-      for (i = 0; i < w * h; i++) gray[i] = 0.299 * d[i*4] + 0.587 * d[i*4+1] + 0.114 * d[i*4+2];
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          var idx = y * w + x, oldV = gray[idx], newV = oldV < 128 ? 0 : 255, err = (oldV - newV) / 8;
-          gray[idx] = newV;
-          if (x + 1 < w) gray[idx + 1] += err;
-          if (x + 2 < w) gray[idx + 2] += err;
-          if (y + 1 < h) {
-            if (x - 1 >= 0) gray[idx + w - 1] += err;
-            gray[idx + w] += err;
-            if (x + 1 < w) gray[idx + w + 1] += err;
-          }
-          if (y + 2 < h) gray[idx + 2*w] += err;
-        }
-      }
-      for (i = 0; i < w * h; i++) { var v = gray[i]; d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255; }
-      return imageData;
+      '.rcpt{box-sizing:border-box;padding:16px 14px 14px;background:#fff;color:#000;overflow:hidden;text-align:center;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.35;position:relative;}' +
+      '.rcpt-av{width:11.5em;max-width:100%;aspect-ratio:1;border-radius:50%;background:#dcdcdc;margin:0 auto;}' +
+      '.rcpt-title{font-weight:700;font-size:1.35em;line-height:1.15;letter-spacing:.06em;text-transform:uppercase;margin:.4em 0 0;}' +
+      '.rcpt-sub{font-size:1em;margin:0 0 .4em;}' +
+      '.rcpt-body{border-top:2px solid #000;border-bottom:2px solid #000;padding:6px 0;overflow:hidden;}' +
+      '.rcpt-plain{overflow-wrap:anywhere;white-space:normal;}' +
+      '.rcpt-date{font-size:.75em;margin:.5em 0 0;}';
+    // Rasterize a receipt node and REPLACE it with a 1-bit dithered <canvas>. The frame
+    // holds no picture, so the canvas stays un-tainted and getImageData works; the
+    // try/catch is a belt-and-braces guard that keeps the plain raster rather than crash.
+    function thermalize(node, mode) {
+      return Promise.resolve().then(function () {
+        var rect = node.getBoundingClientRect();
+        var w0 = rect.width, h0 = rect.height;
+        if (!w0 || !h0) throw new Error("node not laid out");
+        var W = parseInt(node.getAttribute("data-dots"), 10) || PAPERS[80].dots;
+        var S = W / w0, targetH = Math.max(1, Math.round(h0 * S));
+        var clone = node.cloneNode(true);
+        clone.style.margin = "0"; clone.style.background = "#fff"; clone.style.width = w0 + "px";
+        return new Promise(function (resolve, reject) {
+          var xhtml = new XMLSerializer().serializeToString(clone);
+          var svg =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + targetH + '">' +
+              '<g transform="scale(' + S + ')">' +
+                '<foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
+                  '<div xmlns="http://www.w3.org/1999/xhtml"><style>' + RCPT_CSS + '</style>' + xhtml + '</div>' +
+                '</foreignObject>' +
+              '</g>' +
+            '</svg>';
+          var img = new Image();
+          img.onload = function () {
+            var canvas = document.createElement("canvas");
+            canvas.width = W; canvas.height = targetH;
+            var ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, targetH);
+            ctx.drawImage(img, 0, 0);
+            try {
+              var data = ctx.getImageData(0, 0, W, targetH), d = data.data;
+              var dots = forkDither(d, W, targetH, W, mode);
+              for (var i = 0; i < dots.length; i++) {
+                var v = dots[i] ? 0 : 255;
+                d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255;
+              }
+              ctx.putImageData(data, 0, 0);
+            } catch (e) { /* still tainted somehow: keep the un-dithered raster */ }
+            canvas.className = "rcpt-thermal";
+            if (node.parentNode) node.parentNode.replaceChild(canvas, node);
+            resolve(canvas);
+          };
+          img.onerror = function () { reject(new Error("svg raster failed")); };
+          img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        });
+      });
     }
-    // The pictures that print are characters (glyph-art), so a receipt frame never holds
-    // an <img>, and the raster needs no remote bytes: nothing here fetches anything.
+    // The pictures that print are characters (glyph-art), so a receipt frame never holds an
+    // <img>, and the raster needs no remote bytes: nothing here fetches anything.
     // decodeGlyphImage and processImage still read a pasted link through our own Worker
     // (/px), because reading a cross-origin image's pixels is exactly what CORS forbids.
     function proxied(url) {
@@ -3694,73 +3811,36 @@
       try { if (new URL(url, location.href).origin === location.origin) return url; } catch (e) {}
       return "/px?u=" + encodeURIComponent(url);
     }
-    // Rasterize a receipt node and REPLACE it with a 1-bit dithered <canvas>.
-    // The frame holds no picture (see above), so the canvas stays un-tainted and
-    // getImageData works. The try/catch is kept as a belt-and-braces guard: if
-    // something still taints it, keep the faithful raster rather than crash.
-    function thermalize(node) {
-      return Promise.resolve().then(function () {
-        var rect = node.getBoundingClientRect();
-        var w0 = rect.width, h0 = rect.height;
-        if (!w0 || !h0) throw new Error("node not laid out");
-        var S = THERMAL_W / w0, targetH = Math.max(1, Math.round(h0 * S));
-        var clone = node.cloneNode(true);
-        clone.style.border = "none"; clone.style.boxShadow = "none"; clone.style.margin = "0";
-        clone.style.background = "#fff"; clone.style.width = w0 + "px"; clone.style.maxWidth = "none";
-        return Promise.resolve().then(function () {
-          return new Promise(function (resolve, reject) {
-            var xhtml = new XMLSerializer().serializeToString(clone);
-            var svg =
-              '<svg xmlns="http://www.w3.org/2000/svg" width="' + THERMAL_W + '" height="' + targetH + '">' +
-                '<g transform="scale(' + S + ')">' +
-                  '<foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
-                    '<div xmlns="http://www.w3.org/1999/xhtml"><style>' + RCPT_CSS + '</style>' + xhtml + '</div>' +
-                  '</foreignObject>' +
-                '</g>' +
-              '</svg>';
-            var img = new Image();
-            img.onload = function () {
-              var canvas = document.createElement("canvas");
-              canvas.width = THERMAL_W; canvas.height = targetH;
-              var ctx = canvas.getContext("2d", { willReadFrequently: true });
-              ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, THERMAL_W, targetH);
-              ctx.drawImage(img, 0, 0);
-              try {
-                var data = ctx.getImageData(0, 0, THERMAL_W, targetH);
-                atkinsonDither(data); ctx.putImageData(data, 0, 0);
-              } catch (e) { /* still tainted somehow — keep the un-dithered raster */ }
-              canvas.className = "rcpt-thermal";
-              if (node.parentNode) node.parentNode.replaceChild(canvas, node);
-              resolve(canvas);
-            };
-            img.onerror = function () { reject(new Error("svg raster failed")); };
-            img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-          });
-        });
-      });
-    }
-    // Debounced pass: after a render settles, replace each thermalable frame with
-    // its dithered canvas. Debounced so live typing doesn't rasterize per keystroke.
+    // Debounced pass: after a render settles, replace each thermalable frame with its
+    // dithered canvas. Debounced so live typing doesn't rasterize per keystroke.
     var thermalTimer = null;
     function scheduleThermal() {
       if (!(els.thermalView && els.thermalView.checked)) return;
       if (thermalTimer) clearTimeout(thermalTimer);
       thermalTimer = setTimeout(function () {
         var ready = (typeof document !== "undefined" && document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+        var mode = getSettings().thermalDither;
         ready.then(function () {
           var frames = els.parts.querySelectorAll(".rcpt[data-thermalable]");
-          for (var i = 0; i < frames.length; i++) thermalize(frames[i])["catch"](function () {});
+          for (var i = 0; i < frames.length; i++) thermalize(frames[i], mode)["catch"](function () {});
         });
       }, 220);
     }
-    // Render 1..N parts into #parts: each gets a header (the "Part i of N" prefix
-    // is omitted when there's only one part), a receipt-strip <pre>, and — unless
-    // it's a non-copyable placeholder — its own Copy button. lastParts mirrors
-    // what's on screen so copyPart() can look up the exact payload it just
-    // (re)computed.
-    function renderParts(items) {
+    // Render 1..N parts into #parts: the stack's notice first (why it prints the way it does,
+    // when that needs saying), then each part with a header (the "Part i of N" prefix is
+    // omitted when there's only one part), its receipt and, unless it's a non-copyable
+    // placeholder, its own Copy button. lastParts mirrors what's on screen so copyPart() can
+    // look up the exact payload it just (re)computed.
+    function renderParts(items, notice) {
       var container = els.parts;
       container.textContent = "";
+      if (notice) {
+        var mn = document.createElement("div");
+        mn.className = "mode-note";
+        mn.id = "modeNote";
+        mn.textContent = notice;
+        container.appendChild(mn);
+      }
       var n = items.length;
       items.forEach(function (item, i) {
         var card = document.createElement("div");
@@ -3773,45 +3853,42 @@
           count.textContent = (n > 1 ? "Part " + (i + 1) + " of " + n + ", " : "")
             + item.chars + " / " + MAX_CHARS;
           head.appendChild(count);
+          if (item.kindLabel) head.appendChild(mkEl("span", { "class": "part-kind" }, item.kindLabel));
           card.appendChild(head);
         }
-        // Twitch rejects (doesn't truncate) an over-length message, so an
-        // over-budget part would silently fail to send — say why and how to fix.
+        // Twitch rejects (doesn't truncate) an over-length message, so an over-budget part
+        // would silently fail to send: say why and how to fix it.
         if (item.chars > MAX_CHARS) {
           var warn = document.createElement("div");
           warn.className = "over-note";
-          warn.textContent = "Too long for Twitch (~500 chars). Trim it: clear the formatting, fewer columns, shorter text, or a smaller size.";
+          warn.textContent = "Too long for Twitch (500 characters). Shorten the text, use fewer columns, or pick a smaller size.";
           card.appendChild(warn);
         }
         if (item.bodies) {
-          // Composed stack: render each block's preview, in order, inside one receipt.
-          var stackBody = document.createElement("div");
-          // The message carries this text before the first body, and it takes up a line
-          // in the printed receipt. Rendering it here is what makes the preview agree with
-          // the tape. A text node: the lead is plain text (the cheer token, digits, or the
-          // nbsp guard), never markup.
-          if (item.lead) stackBody.appendChild(document.createTextNode(item.lead));
-          item.bodies.forEach(function (b) {
-            var pv = b.preview || {};
-            if (pv.kind === "grid") {
-              var pre2 = document.createElement("pre"); pre2.className = "receipt"; pre2.textContent = pv.grid || "";
-              stackBody.appendChild(pre2);
-            } else {
-              // html (big SVG / rotate span): append as direct children so the
-              // .rcpt-body > svg centering rule (and the rotate div's own margin) apply.
-              stackBody.insertAdjacentHTML("beforeend", pv.html || b.html);
-            }
-          });
-          var frame2 = receiptFrame(stackBody);
-          frame2.setAttribute("data-thermalable", "1");
-          card.appendChild(frame2);
+          var body = document.createElement("div");
+          if (item.alone) {
+            // A plain part: the message as text. Below the threshold the bot prints it inside
+            // quote marks; in a High Roller cheer a Han tiling block is text all the same.
+            var pl = document.createElement("div");
+            pl.className = "rcpt-plain";
+            pl.textContent = item.mode === "plain" && item.cheer ? "“" + item.payload + "”" : item.payload;
+            body.appendChild(pl);
+          } else {
+            // The lead is text (the cheer token, its digits, or the nbsp guard), never markup.
+            if (item.lead) body.appendChild(document.createTextNode(item.lead));
+            body.insertAdjacentHTML("beforeend", previewHtml(item.bodies.map(function (b) { return b.html; }).join(""), item.paperMm));
+          }
+          var frame = receiptFrame(body, item.bits, item.paperMm);
+          frame.setAttribute("data-thermalable", "1");
+          card.appendChild(frame);
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";
           pre.textContent = item.payload;
           card.appendChild(pre);
         }
-        // A part's own one-line explanation (the size ruler says what to look for).
+        // A part's own one-line explanation (a probe says how to read it; a repeated part
+        // says why it has to wait).
         if (item.note) {
           var inote = document.createElement("p");
           inote.className = "parts-note";
@@ -3823,8 +3900,7 @@
           btn.type = "button";
           // Feedback has to be render STATE, not a DOM poke after the click: copyPart() calls
           // refresh(), which rebuilds this whole container, so the button you clicked is detached
-          // by the time the copy resolves. Setting its text afterwards updated a node nobody can
-          // see, which is why clicking Copy used to give no signal at all.
+          // by the time the copy resolves.
           var justCopied = (i === lastCopiedIdx) && (Date.now() - lastCopiedAt < COPY_FLASH_MS);
           btn.textContent = justCopied ? "Copied" : "Copy";
           if (justCopied) btn.className = "copied";
@@ -3833,66 +3909,32 @@
         }
         container.appendChild(card);
       });
-      var copyableParts = items.filter(function (it) { return it.copyable; }).length;
-      if (n > 1) {
-        var note = document.createElement("p");
+      var copyable = items.filter(function (it) { return it.copyable; });
+      if (copyable.length > 1) {
+        var bits = copyable[0].bits, note = document.createElement("p");
         note.className = "parts-note";
-        note.textContent = "Paste the parts into chat in order. Each is a separate " + getBits()
-          + "-bit cheer (" + copyableParts + " × " + getBits() + " = " + (copyableParts * getBits()) + " bits total).";
-        // Giant type borrows a style printer-bot's author can change any day, and when it
-        // goes it fails QUIETLY: the text prints normal-sized and every cheer still spends.
-        // On a multi-cheer run the cheap insurance is to look at the tape after the first
-        // part that carries it.
-        // It names the FIRST part that carries giant type, which is not always part 1: in a
-        // [Hanzi, Giant] stack part 1 has no .title at all, so "send part 1 and look"
-        // asked for a check that part could not show, and the first part that could test
-        // the style was the last one, after every other cheer had been spent.
-        var firstGiant = -1;
-        items.some(function (it, k) {
-          var has = it.bodies && it.bodies.some(function (b) { return b.giant && b.giant.levels > 0; });
-          if (has) firstGiant = k;
-          return has;
-        });
-        if (firstGiant === 0) {
-          note.textContent += " Send part 1 first and look at the printer. If the letters came out "
-            + "normal-sized, stop: printer-bot changed its style, and the rest would print small too.";
-        } else if (firstGiant > 0) {
-          note.textContent += " Part " + (firstGiant + 1) + " is the first with Giant type (the parts before "
-            + "it print normally either way): send up to part " + (firstGiant + 1) + ", then look at the printer. "
-            + "If the giant letters came out normal-sized, stop: printer-bot changed its style, and the rest "
-            + "would print small too.";
-        }
+        note.textContent = "Paste the parts into chat in order. Each is a separate " + bits
+          + "-bit cheer (" + copyable.length + " × " + bits + " = " + (copyable.length * bits) + " bits total), "
+          + "and the bot prints its header between them.";
         container.appendChild(note);
       }
       scheduleThermal();   // if the toggle is on, swap thermalable frames for their dithered render
     }
-    // Census and Image route through the same 1-part list shape as Big Text's
-    // (possibly multi-part) list, so renderParts never needs to special-case them.
     // ============ COMPOSER (block stack) ============
     var blocks = [], blockIdSeq = 1, BLOCKS_KEY = "rw_blocks_v1";
-    // The one-time "Before 1.0.0" backup preset seedBlocks queues when a migration changed
+    // The one-time "Before 1.0.0" backup preset seedBlocks queues when a migration rewrote
     // the saved stack; initPresets writes it once the user's own presets are loaded.
     var pendingBackup = null;
     function newBlock(type) {
       // A new Image block is Glyph-art: the picture tiled into characters, which is the
-      // only way a picture prints (a Real picture sends nothing; see imageCard). tier
-      // defaults to "cjk": Han glyphs are uniform-width with no spaces, so <br>-separated
-      // rows line up even without a monospace, space-preserving wrapper.
+      // only way a picture prints (a Real picture sends nothing; see imageCard). Han
+      // characters by default: uniform-width cells line up at any column count.
       if (type === "image") return { id: blockIdSeq++, type: "image", imgKind: "glyph", url: "", width: 70,
         rotate: 0, adjBright: 0, adjContrast: 0,
-        tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false };
-      // render defaults to "giant" (since 0.10.0): printer-bot's sanitizer strips `style`
-      // but keeps `class`, and its printed receipt carries nutty's whole global.css, so
-      // nested `<b class=title>` prints real capitals up to ~5.5 cm (about 3.8 cm for a
-      // five-letter word; see PB_CLASSES).
-      // Field-proven by one real cheer. Hanzi tiling (0.9.x's default: pure text, no
-      // markup) stays one select away as the backup for the day that style changes, and
-      // saved blocks keep whatever render they had: no migration, because a returning
-      // user's hanzi block still prints, and the card offers the switch instead.
-      // "auto"/"fit1": the larger of lines-as-typed and one-letter-per-line that fits ONE
-      // cheer. Old blocks switched to giant later get the same through giantOpts.
-      return { id: blockIdSeq++, type: "text", render: "giant", giantLayout: "auto", giantSize: "fit1",
-               orient: 0, text: "", size: 90, rotateLen: 800, cols: 15 };
+        tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
+      // Big text, Auto layout (the bigger of lines as typed and one letter a line), at the
+      // biggest size that fits ONE cheer.
+      return { id: blockIdSeq++, type: "text", render: "big", bigLayout: "auto", bigSize: "fit1", text: "" };
     }
     function blockHasContent(b) {
       // A Real picture prints nothing (SassyTP's bot, this channel's chat filter: see
@@ -3902,14 +3944,9 @@
         if (b.imgKind !== "glyph") return false;
         return !!((b.url && String(b.url).trim()) || b._img);
       }
-      // Giant type drops what the printer can't draw (emoji, joiners, zero-width and
-      // control characters: giantClean), so text can be
-      // non-blank and still print NOTHING: "🔥" alone used to count as content and send a
-      // whole cheer whose only ink was the cheer gem. Ask the same line-splitter the
-      // builder uses. Emptiness doesn't depend on the layout (every layout is empty
-      // exactly when nothing but whitespace survives giantClean), so "lines" serves all.
-      if (blockRender(b) === "giant") return giantLines(b.text, "lines").length > 0;
-      return !!(b.text && String(b.text).trim());
+      // bigClean drops what prints nothing (zero-width characters, control codes), so a text
+      // can be non-blank and still print NOTHING. Ask the same cleaner every text render uses.
+      return /\S/.test(bigClean(b.text).text);
     }
     function saveBlocks() {
       try {
@@ -3925,12 +3962,13 @@
     function seedBlocks() {
       var saved = loadBlocks();
       if (saved && saved.length) {
-        // A stack the migration rewrites (it held a takeover) is kept as it was, once, as a
-        // preset the user can export: the conversion cannot be undone from its result.
-        // Only queued here. rw_presets_v1 is not loaded yet (initPresets runs after this),
-        // and writing the in-memory list now would replace every preset the user has with
-        // just this one; initPresets merges it in once the real list is loaded.
-        // makePreset deep-copies, so the backup is the stack exactly as it was saved.
+        // A stack the migration rewrites (it held a takeover, or text blocks made for the old
+        // printer-bot) is kept as it was, once, as a preset the user can export: the
+        // conversion cannot be undone from its result. Only queued here. rw_presets_v1 is not
+        // loaded yet (initPresets runs after this), and writing the in-memory list now would
+        // replace every preset the user has with just this one; initPresets merges it in once
+        // the real list is loaded. makePreset deep-copies, so the backup is the stack exactly
+        // as it was saved.
         if (migrationRewrites(saved)) pendingBackup = makePreset(MIGRATION_BACKUP_NAME, saved, Date.now());
         // migrateBlocks is pure and idempotent: a stack that needs nothing comes back equal.
         blocks = migrateBlocks(saved);
@@ -4003,402 +4041,310 @@
       head.appendChild(up); head.appendChild(dn); head.appendChild(rm);
       return head;
     }
+    // ── CARD NOTES: what a block prints, read off the PACKED parts ──
+    // Which parts carry this block's ink, and its bodies. The packer can share a part between
+    // blocks, so a block's own chunk count is not its cheer count; only the parts say which
+    // part it is in. A body that prints nothing (an empty text) rides along in whatever part
+    // it lands next to, and that part is not "where this block is", so it is not counted.
+    function blockParts(block, parts) {
+      var own = [], inParts = [], over = false, i, j, bs;
+      for (i = 0; parts && i < parts.length; i++) {
+        bs = parts[i].bodies || [];
+        for (j = 0; j < bs.length; j++) {
+          if (bs[j].blockId !== block.id) continue;
+          own.push(bs[j]);
+          if (!bs[j].html || inParts.indexOf(i) >= 0) continue;
+          inParts.push(i);
+          if (parts[i].chars > MAX_CHARS) over = true;
+        }
+      }
+      return { own: own, inParts: inParts, over: over };
+    }
+    // The lines every card adds under its own report: a part over 500, and where the block
+    // sits in a run of several cheers.
+    function partLines(where, parts) {
+      var out = [], ip = where.inParts;
+      if (where.over) {
+        out.push((ip.length === 1 ? "Its part is" : "One of its parts is") + " over " + MAX_CHARS
+          + " characters, so Twitch rejects that message and it never prints.");
+      }
+      if (parts && parts.length > 1 && ip.length) {
+        // A range of one reads "parts 2 to 2"; that sentence bug has shipped here before.
+        out.push("Your whole stack needs " + parts.length + " cheers; this block is in "
+          + (ip.length === 1 ? "part " + (ip[0] + 1) : "parts " + (ip[0] + 1) + " to " + (ip[ip.length - 1] + 1)) + ".");
+      }
+      return out;
+    }
+    // Write a card's note: the first line is the summary, the rest warnings; `fine` lines
+    // (always said) come last and quieter.
+    function writeNote(el, lines, fine, over) {
+      el.textContent = "";
+      el.className = "text-note" + (over ? " over" : "");
+      lines.forEach(function (t, k) { el.appendChild(mkEl("div", { "class": k === 0 ? "note-sum" : "note-warn" }, t)); });
+      (fine || []).forEach(function (t) { el.appendChild(mkEl("div", { "class": "note-fine" }, t)); });
+    }
+    var cmOf = function (x) { return x.toFixed(1) + " cm"; };
+    var cheersOf = function (n) { return n === 1 ? "1 cheer" : n + " cheers"; };
+    // A size select: the two automatic sizes, then fixed px steps (plus the block's own px
+    // when it is not one of the steps: a migrated Giant level lands between them).
+    var BIG_SIZE_STEPS = [20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 112, 128, 144, 160, 192, 224, 256, 288, 320, 360, 400];
+    var SIDE_SIZE_STEPS = [20, 24, 28, 32, 40, 48, 56, 64, 72, 80, 96, 112, 128, 144, 160, 192, 224, 256, 300];
+    function fillSizes(sel, labels, steps, cur) {
+      sel.appendChild(opt("fit1", labels.fit1, cur === "fit1"));
+      sel.appendChild(opt("width", labels.width, cur === "width"));
+      var list = steps.slice();
+      if (typeof cur === "number" && list.indexOf(cur) < 0) { list.push(cur); list.sort(function (a, b) { return a - b; }); }
+      list.forEach(function (px) { sel.appendChild(opt(String(px), px + " px", cur === px)); });
+    }
+    // A size select's value as a block field: "fit1" | "width" | a whole number of px (never
+    // the select's string "64"; bigOpts and sideOpts would read either, but saved stacks stay tidy).
+    function sizeVal(v) { return v === "fit1" || v === "width" ? v : parseInt(v, 10); }
+    function sidewaysLrSupported() {
+      try { return typeof CSS !== "undefined" && !!CSS.supports && CSS.supports("writing-mode", "sideways-lr"); }
+      catch (e) { return false; }
+    }
     function textCard(block) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block));
       card.appendChild(mkEl("label", null, "Text"));
-      // No autocapitalize/autocorrect/spellcheck. A phone keyboard turning "nuttyHi" into
-      // "NuttyHi" breaks an emote name (they are case-sensitive, and .title's uppercase
-      // hides the mistake on screen), and "correcting" shouted text is never wanted.
+      // No autocapitalize/autocorrect/spellcheck: the payload is sent exactly as typed (big
+      // text never uppercases it), and "correcting" shouted text is never wanted.
       var ta = mkEl("textarea", { rows: "2", autocapitalize: "off", autocorrect: "off", spellcheck: "false" });
       ta.value = block.text || "";
       ta.addEventListener("input", function () { block.text = ta.value; saveBlocks(); update(); });
       card.appendChild(ta);
-      // Render: Giant type (printer-bot's own .title class), markup-free Hanzi tiling (the
-      // backup), or the old SVG Type. Every branch goes through blockRender, the SAME
-      // decision renderBlockBodies makes, so a block imported with an absent or junk render
-      // shows "Type" selected because Type is exactly what it renders as. Type is offered
-      // ONLY to a block that already is one: it no longer prints (the sanitizer strips
-      // <svg>), so it is kept for honesty about old blocks, not as a choice.
+      // Render: every branch goes through blockRender, the SAME decision renderBlockBodies
+      // makes, so the select can never show one render while the payload is another.
       var rNow = blockRender(block);
       card.appendChild(mkEl("label", null, "Render"));
-      var render = mkEl("select");
-      render.appendChild(opt("giant", "Giant type — big bold capitals (prints)", rNow === "giant"));
-      render.appendChild(opt("hanzi", "Hanzi tiling — backup if Giant type prints small", rNow === "hanzi"));
-      if (rNow === "type") render.appendChild(opt("type", "Type (crisp) — no longer prints", true));
+      var render = mkEl("select", { "class": "sel-render" });
+      render.appendChild(opt("big", "Big text (High Roller cheers)", rNow === "big"));
+      render.appendChild(opt("sideways", "Sideways text (High Roller cheers)", rNow === "sideways"));
+      render.appendChild(opt("hanzi", "Han tiling (plain text, any cheer)", rNow === "hanzi"));
       card.appendChild(render);
-      // Returning users' blocks are hanzi (0.9.x's default) and are deliberately NOT
-      // migrated, so this is how they find out: one line and one click, on the card.
-      var nudge = mkEl("div", { "class": "giant-nudge" });
-      nudge.appendChild(mkEl("span", null, "New: Giant type prints real capitals up to about 4 cm tall."));
-      var nudgeBtn = mkEl("button", { type: "button" }, "Switch this block");
-      nudgeBtn.addEventListener("click", function () {
-        render.value = "giant";
-        render.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      nudge.appendChild(nudgeBtn);
-      card.appendChild(nudge);
       var RENDER_HINTS = {
-        giant: "Giant type borrows a heading style printer-bot's own page already has: each "
-          + "level makes the letters 1.2× bigger, nested as deep as the paper allows. It is "
-          + "plain text and a few ordinary tags the sanitizer keeps (bold, with a class), so "
-          + "none of the markup is disguised from chat or the printer. printer-bot's author can "
-          + "change that style any time; the Print size ruler under the preview checks it for one cheer.",
-        hanzi: "Hanzi tiling builds the letters out of Han characters: pure text with no "
-          + "markup, so the sanitizer can't touch it. It's the backup if Giant type ever "
-          + "prints normal-sized. It needs a CJK font on the printer (the target RP332 has "
-          + "one); if it comes out blank, the printer has none.",
-        type: "printer-bot's sanitizer deletes the <svg> that Type (every orientation, "
-          + "sideways included) is built from, so this text no longer prints. Switch it to "
-          + "Giant type, or to Hanzi tiling.",
+        big: "Your words in bold Arial, as big as the paper allows. Big text needs a High Roller cheer: "
+          + "at least the streamer's High Roller threshold. Below it the bot prints plain text, and this "
+          + "block prints as Han tiling instead.",
+        sideways: "Your words running down the tape, as big as the paper's width allows: each line of "
+          + "your text becomes a column across the paper. Turn the receipt to read it. Needs a High "
+          + "Roller cheer, like Big text.",
+        hanzi: "Your words drawn sideways out of Han characters, as plain text with no markup at all, so "
+          + "it prints the same at any cheer size: it is also what every block prints as below the "
+          + "streamer's High Roller threshold. Turn the receipt to read it. It needs a CJK font on the "
+          + "streamer's PC (Windows has one)."
       };
       var renderHint = mkEl("div", { "class": "hint" });
       card.appendChild(renderHint);
-      var isSideways = function (o) { return o === 90 || o === 270; };
-      // Type-only controls: orientation + (length when sideways).
-      var typeWrap = mkEl("div");
-      typeWrap.appendChild(mkEl("label", null, "Orientation"));
-      var orient = mkEl("select");
-      orient.appendChild(opt("0", "Normal", block.orient === 0));
-      orient.appendChild(opt("180", "Upside-down", block.orient === 180));
-      orient.appendChild(opt("90", "Giant sideways ▷", block.orient === 90));
-      orient.appendChild(opt("270", "Giant sideways ◁", block.orient === 270));
-      var lenWrap;
-      orient.addEventListener("change", function () {
-        block.orient = parseInt(orient.value, 10) || 0;
-        if (lenWrap) lenWrap.style.display = isSideways(block.orient) ? "" : "none";
-        syncFontNote();
-        saveBlocks(); update();
-      });
-      typeWrap.appendChild(orient);
-      lenWrap = mkEl("div"); lenWrap.style.display = isSideways(block.orient) ? "" : "none";
-      var len = mkEl("input", { type: "range", min: "300", max: "1400", step: "50" }); len.value = block.rotateLen || 800;
-      len.addEventListener("input", function () { block.rotateLen = parseInt(len.value, 10); saveBlocks(); update(); });
-      lenWrap.appendChild(sliderRow("Length per receipt", len, 800, "px"));
-      typeWrap.appendChild(lenWrap);
-      card.appendChild(typeWrap);
-      // Hanzi-only control: Detail (columns) — the resolution lever for tiled glyphs.
-      var hanziWrap = mkEl("div");
-      var cols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); cols.value = block.cols || 15;
-      cols.addEventListener("input", function () { block.cols = parseInt(cols.value, 10) || 15; saveBlocks(); update(); });
-      hanziWrap.appendChild(sliderRow("Detail (columns)", cols, 15, ""));
-      hanziWrap.appendChild(mkEl("div", { "class": "hint" },
-        "This is the wrap width, not a quality dial, and it is the one setting that can "
-        + "ruin the print. Hanzi rows are plain text with no line breaks in them: a row "
-        + "only becomes a row because the paper wraps it. Set this wider than the printer "
-        + "really fits and every row starts late, so the picture slants. "
-        + "Count Han characters, not the test strip's ruler: that ruler is ASCII digits, "
-        + "which are half as wide as a Han glyph, so it reports about double what this "
-        + "wants. 15 suits the target printer; if yours slants, drop it a character at a "
-        + "time until the edges line up."));
-      // Stroke weight. Two positions on purpose — see renderColumn's note: 600, 700 and
-      // 900 all rasterize to the identical grid because Arial has no face above bold, so
-      // a 100-900 slider would be inert across most of its range. Bold is the default
-      // because it is what the old hardcoded "900" actually produced.
-      hanziWrap.appendChild(mkEl("label", null, "Stroke weight"));
-      var hw = mkEl("select");
-      hw.appendChild(opt("700", "Bold (default)", block.hanziWeight !== 400));
-      hw.appendChild(opt("400", "Regular — lighter, keeps letter holes open", block.hanziWeight === 400));
-      hw.addEventListener("change", function () {
-        block.hanziWeight = parseInt(hw.value, 10) === 400 ? 400 : 700; saveBlocks(); update();
-      });
-      hanziWrap.appendChild(hw);
-      hanziWrap.appendChild(mkEl("div", { "class": "hint" },
-        "How heavy the letters are before they get tiled. Bold survives the shrink to a "
-        + "few characters wide, but at low column counts its strokes thicken until the "
-        + "holes in letters like A, O and R fill in and the word turns into a block. "
-        + "Regular keeps those holes open. Anything heavier than bold is the same as bold: "
-        + "Arial has no face above it, so 900 and 700 rasterize identically."));
-      card.appendChild(hanziWrap);
-      // Size (both renders use it). The floor differs by render, and the control says so
-      // rather than offering travel that silently does nothing: tiled Hanzi clamps at 85%
-      // (below that the letters stop filling the paper width and there are too few
-      // columns left to read them), while the vector renders keep the full 25-100%.
-      // Giant type has no use for it (its size is the Size select in giantWrap, in whole
-      // .title levels), so the row is captured to be hidden there.
-      var hanziNow = rNow === "hanzi";
-      var size = mkEl("input", { type: "range", min: hanziNow ? "85" : "25", max: "100", step: "5" });
-      size.value = Math.max(hanziNow ? 85 : 25, block.size || 90);
-      size.addEventListener("input", function () { block.size = parseInt(size.value, 10); saveBlocks(); update(); });
-      var sizeRow = sliderRow("Size", size, 90, "%");
-      card.appendChild(sizeRow);
-      // Formatting row — hidden for Hanzi (see applyRender below). One fmt per block (a
-      // text block is one run of type). Weight is a select because Bold and Black are both
-      // wanted and a boolean can only carry one of them.
-      //
-      // CONTRACT: bigWeightFor(fmt) treats an absent weight as the 800 baseline that
-      // sideways Big Text has always rendered at — absent is not 400. So block.fmt is
-      // created lazily (curFmt) and a property is written onto it ONLY from a control's
-      // own change/click handler, never materialised with defaults up front. An untouched
-      // block must keep block.fmt undefined (or, once touched, must never gain a
-      // weight:400 key it wasn't given).
-      var fmtWrap = mkEl("div");
-      var curFmt = function () { return block.fmt || (block.fmt = {}); };
-      var fmtRow = mkEl("div", { "class": "fmt-row" });
-      var font = mkEl("select");
-      for (var fi = 0; fi < FONTS.length; fi++) {
-        font.appendChild(opt(FONTS[fi].id, FONTS[fi].label, ((block.fmt || {}).font || "") === FONTS[fi].id));
-      }
-      font.addEventListener("change", function () { curFmt().font = font.value; saveBlocks(); update(); syncFontNote(); });
-      fmtRow.appendChild(font);
-      // Weight defaults to "Default" (absent), not "Normal" (400) — bigWeightFor
-      // resolves an absent weight to 800 for sideways rendering, not 400, so a select
-      // that could only say 400/700/900 had no way to represent the actual current
-      // state of an untouched sideways block truthfully. "Default" is what the font
-      // select already does for its "" entry; this mirrors it. Selecting Default
-      // deletes the key (genuinely absent again), never writes 400 or 800 — writing
-      // either would be a different lie, and 800 isn't offered as a value at all.
-      var wsel = mkEl("select");
-      var wNow = (block.fmt || {}).weight;
-      wsel.appendChild(opt("", "Default", wNow === undefined));
-      wsel.appendChild(opt("400", "Normal", wNow === 400));
-      wsel.appendChild(opt("700", "Bold", wNow === 700));
-      wsel.appendChild(opt("900", "Black", wNow === 900));
-      wsel.addEventListener("change", function () {
-        if (wsel.value === "") { delete curFmt().weight; }
-        else { curFmt().weight = parseInt(wsel.value, 10); }
-        saveBlocks(); update();
-      });
-      fmtRow.appendChild(wsel);
-      [["italic", "I"], ["underline", "U"], ["strike", "S"]].forEach(function (t) {
-        var on = !!(block.fmt || {})[t[0]];
-        var b = mkEl("button", { type: "button", "class": "fmt-tog" + (on ? " on" : "") }, t[1]);
-        b.addEventListener("click", function () {
-          var v = !curFmt()[t[0]];
-          curFmt()[t[0]] = v;
-          b.className = "fmt-tog" + (v ? " on" : "");
-          saveBlocks(); update();
-        });
-        fmtRow.appendChild(b);
-      });
-      fmtWrap.appendChild(fmtRow);
-      // The preview cannot prove what the printer will do with a font: it renders with
-      // YOUR fonts, the print with the STREAMER'S. Sharper on sideways, where a wrong
-      // font doesn't just look different — the strip is measured in your browser's font,
-      // so a fallback on the streamer's PC shears the last letters off.
-      var fontNote = mkEl("div", { "class": "hint" });
-      var syncFontNote = function () {
-        var f = (block.fmt || {}).font || "";
-        var sideways = block.orient === 90 || block.orient === 270;
-        if (!f) { fontNote.style.display = "none"; return; }
-        fontNote.style.display = "";
-        fontNote.textContent = sideways
-          ? "Sideways strips are sized by measuring this font in your browser. If the "
-            + "streamer's PC doesn't have it, it draws something else, the strip is the "
-            + "wrong length, and the last letters shear off. Default (Arial) is the safe "
-            + "pick for sideways."
-          : "The preview uses your fonts; the printer uses the streamer's. Every font here "
-            + "is standard on Windows, and Script and Papyrus keep a generic behind them so "
-            + "they still draw something if they aren't. Serif and Monospace are generics, "
-            + "which means the streamer's PC picks the face. If a font isn't there it falls "
-            + "back, and one test print settles it.";
-      };
-      fmtWrap.appendChild(fontNote);
-      syncFontNote();
-      card.appendChild(fmtWrap);
-      // ── Giant type controls ──
-      // Layout and Size, every option labelled with what it would PRINT for the text as it
-      // stands ("capitals 3.8 cm · 1 cheer"), relabelled on every refresh. A level number
-      // or a font-size in px tells nobody what comes off the tape, and "Lines" vs "Stack"
-      // is a 3x difference in letter height for the same cheer ("HAPPY BIRTHDAY": 0.5 cm
-      // as typed, 1.4 cm stacked), which nobody would guess from the names. The cost in
-      // cheers is what people need BEFORE they pick, not after the bits are gone.
-      // The values are giantOpts' vocabulary; giantSize is stored as "fit1" | "width" | an
-      // integer, never the select's string "15" (giantOpts would clamp that anyway).
-      var giantWrap = mkEl("div");
+
+      // ── Big text: Layout, Size, Upside down ──
+      // Every option is labelled with what it would PRINT for the text as it stands
+      // ("capitals 3.1 cm · 2 cheers"), relabelled when anything it depends on changes. "Lines"
+      // vs "Stack" can be a 3x difference in letter height for the same cheer, which nobody
+      // would guess from the names, and the cost in cheers is what people need BEFORE they pick.
+      var bigWrap = mkEl("div");
       var LAYOUT_LABELS = {
         auto: "Auto — biggest in one cheer",
         lines: "Lines as you typed them",
         stack: "Stack the letters, one per line",
-        emote: "Emote names (needs one test print)",
+        each: "Each line its own size"
       };
-      var SIZE_LABELS = {
+      var BIG_SIZE_LABELS = {
         fit1: "Auto — biggest that fits one cheer (recommended)",
-        width: "Auto — fill the paper width (may cost more cheers)",
+        width: "Fill the paper's width (may cost more cheers)"
       };
-      var goNow = giantOpts(block);
-      giantWrap.appendChild(mkEl("label", null, "Layout"));
-      var gLayout = mkEl("select");
-      GIANT_LAYOUTS.forEach(function (l) { gLayout.appendChild(opt(l, LAYOUT_LABELS[l], goNow.layout === l)); });
-      gLayout.addEventListener("change", function () { block.giantLayout = gLayout.value; saveBlocks(); update(); });
-      giantWrap.appendChild(gLayout);
-      giantWrap.appendChild(mkEl("label", null, "Size"));
-      var gSize = mkEl("select");
-      gSize.appendChild(opt("fit1", SIZE_LABELS.fit1, goNow.size === "fit1"));
-      gSize.appendChild(opt("width", SIZE_LABELS.width, goNow.size === "width"));
-      for (var lv = 1; lv <= GIANT_MAX_LEVELS; lv++) gSize.appendChild(opt(String(lv), "Level " + lv, goNow.size === lv));
-      gSize.addEventListener("change", function () {
-        var v = gSize.value;
-        block.giantSize = (v === "fit1" || v === "width") ? v : parseInt(v, 10);
-        saveBlocks(); update();
-      });
-      giantWrap.appendChild(gSize);
-      giantWrap.appendChild(mkEl("div", { "class": "hint" },
-        "Font and weight come from printer-bot (bold Segoe UI on Windows) and can't be "
-        + "changed here. Prints in CAPITALS."));
-      var giantNote = mkEl("div", { "class": "giant-note" });
-      giantWrap.appendChild(giantNote);
-      card.appendChild(giantWrap);
-      var EMOTE_HINT = "Type Twitch emote names separated by spaces, with the exact capitals "
-        + "(Kappa, not kappa). printer-bot swaps each name for the emote's picture at this "
-        + "size. Only emotes you're allowed to use in that chat get swapped (a channel's sub "
-        + "emotes need a sub); anything else prints as the name in giant capitals. BTTV, 7TV "
-        + "and FFZ emotes may not work. Emotes with < or > in the name, like <3, can’t be "
-        + "sent this way and print as text. The picture is a small image blown up, so expect "
-        + "chunky pixels. Try one cheer before a bigger run.";
-      // "Barely bigger than chat text": three .title levels (27.6px type) or less, shrink
-      // steps included, which is why it is a size and not a level count.
-      var SMALL_PX = GIANT_BASE_PX * Math.pow(GIANT_RATIO, 3) + 0.01;
-      var cm = function (x) { return x.toFixed(1) + " cm"; };
-      var cheersOf = function (n) { return n === 1 ? "1 cheer" : n + " cheers"; };
-      // What one size prints, in words: capital height (Segoe UI cap height, via
-      // giantCapCm), or for emotes the square's own height, which is the whole 1em.
-      var heightOf = function (px, layout) {
-        return layout === "emote" ? "emotes " + cm(giantEmoteCm(px)) : "capitals " + cm(giantCapCm(px));
+      var boNow = bigOpts(block);
+      bigWrap.appendChild(mkEl("label", null, "Layout"));
+      var bLayout = mkEl("select", { "class": "sel-layout" });
+      BIG_LAYOUTS.forEach(function (l) { bLayout.appendChild(opt(l, LAYOUT_LABELS[l], boNow.layout === l)); });
+      bLayout.addEventListener("change", function () { block.bigLayout = bLayout.value; saveBlocks(); update(); });
+      bigWrap.appendChild(bLayout);
+      bigWrap.appendChild(mkEl("label", null, "Size"));
+      var bSize = mkEl("select", { "class": "sel-size" });
+      fillSizes(bSize, BIG_SIZE_LABELS, BIG_SIZE_STEPS, boNow.size);
+      bSize.addEventListener("change", function () { block.bigSize = sizeVal(bSize.value); saveBlocks(); update(); });
+      bigWrap.appendChild(bSize);
+      var flipLbl = mkEl("label"), flip = mkEl("input", { type: "checkbox", "class": "chk-flip" });
+      flip.checked = boNow.flip;
+      flipLbl.appendChild(flip); flipLbl.appendChild(document.createTextNode(" Upside down"));
+      flip.addEventListener("change", function () { block.bigFlip = flip.checked; saveBlocks(); update(); });
+      // In a div of its own: `label + .hint` pulls a hint up under a label, into the checkbox.
+      var flipRow = mkEl("div");
+      flipRow.appendChild(flipLbl);
+      bigWrap.appendChild(flipRow);
+      bigWrap.appendChild(mkEl("div", { "class": "hint" },
+        "The font is bold Arial and can't be changed: the streamer's Windows has it, so the sizes here are "
+        + "the sizes on the tape. Upside down turns the letters (and the order of the lines) round, so the "
+        + "tape reads the right way up when it is turned over."));
+      card.appendChild(bigWrap);
+
+      // ── Sideways: Direction, Size ──
+      var sideWrap = mkEl("div");
+      var SIDE_SIZE_LABELS = {
+        fit1: "Auto — biggest that fits one cheer (recommended)",
+        width: "As big as the paper's width allows (may cost more cheers)"
       };
-      var cutOf = function (fit, layout) { return fit.fits ? "" : (layout === "emote" ? " · cut off" : " · letters cut off"); };
-      // The labels are ~24 plans: 2-8ms for a word, ~40ms for a 480-character paragraph
-      // (measured). Every refresh runs this, and Copy alone refreshes twice plus once more
-      // when its flash ends, so the labels are only rebuilt when something they depend on
-      // changed. The note below is cheap and always rebuilt: it reads the packed parts.
+      var soNow = sideOpts(block);
+      sideWrap.appendChild(mkEl("label", null, "Direction"));
+      var sDir = mkEl("select", { "class": "sel-dir" });
+      sDir.appendChild(opt("down", "Top to bottom — turn the receipt anticlockwise to read", soNow.dir === "down"));
+      sDir.appendChild(opt("up", "Bottom to top — turn the receipt clockwise to read", soNow.dir === "up"));
+      sDir.addEventListener("change", function () { block.sideDir = sDir.value; saveBlocks(); update(); });
+      sideWrap.appendChild(sDir);
+      sideWrap.appendChild(mkEl("label", null, "Size"));
+      var sSize = mkEl("select", { "class": "sel-side-size" });
+      fillSizes(sSize, SIDE_SIZE_LABELS, SIDE_SIZE_STEPS, soNow.size);
+      sSize.addEventListener("change", function () { block.sideSize = sizeVal(sSize.value); saveBlocks(); update(); });
+      sideWrap.appendChild(sSize);
+      sideWrap.appendChild(mkEl("div", { "class": "hint" },
+        "Each line of your text becomes a column across the paper, line 1 on top once the receipt is turned. "
+        + "Bottom to top needs a current Edge on the streamer's PC (version 132 or newer); top to bottom "
+        + "works on every version. Bold Arial, fixed, like Big text."));
+      card.appendChild(sideWrap);
+
+      // ── Han tiling: stroke weight ──
+      // Two positions on purpose (see renderColumn's note): 600, 700 and 900 rasterize to the
+      // same grid because Arial has no face above bold. The columns are not a setting: a plain
+      // line holds exactly 15 Han characters on 80 mm and 9 on 58 mm, and any other width
+      // shears every row.
+      var hanziWrap = mkEl("div");
+      hanziWrap.appendChild(mkEl("label", null, "Stroke weight"));
+      var hw = mkEl("select", { "class": "sel-weight" });
+      hw.appendChild(opt("700", "Bold (default)", hanziWeightOf(block.hanziWeight) === 700));
+      hw.appendChild(opt("400", "Regular — lighter, keeps letter holes open", hanziWeightOf(block.hanziWeight) === 400));
+      hw.addEventListener("change", function () { block.hanziWeight = hanziWeightOf(hw.value); saveBlocks(); update(); });
+      hanziWrap.appendChild(hw);
+      hanziWrap.appendChild(mkEl("div", { "class": "hint" },
+        "How heavy the letters are before they get tiled. Bold survives the shrink to a few characters "
+        + "wide, but its strokes can fill in the holes of letters like A, O and R; Regular keeps them open. "
+        + "Each line is exactly as many Han characters as the paper holds (15 on 80 mm, 9 on 58 mm)."));
+      card.appendChild(hanziWrap);
+
+      var note = mkEl("div", { "class": "text-note" });
+      card.appendChild(note);
+
+      // The labels are dozens of plans; every refresh runs this (Copy alone refreshes twice),
+      // so they are only rebuilt when something they depend on changed. The note below is
+      // cheap and always rebuilt: it reads the packed parts.
       var labelKey = "";
-      // Relabel both selects for `text` as it stands. planFor is giantPlan bound to the
-      // budget the packer will use.
-      var relabel = function (planFor, go, has) {
-        var i, o, p, label;
-        // Layout options, each at the block's CURRENT size setting.
-        for (i = 0; i < gLayout.options.length; i++) {
-          o = gLayout.options[i];
-          label = LAYOUT_LABELS[o.value];
-          if (has) {
-            p = planFor(o.value, go.size);
-            if (p.fit.levels) {
-              label += " · " + (o.value === "auto" ? (p.layout === "stack" ? "stacked, " : "as lines, ") : "")
-                + heightOf(p.fit.px, p.layout)
-                + (p.fit.cheers > 1 ? " · " + cheersOf(p.fit.cheers) : "") + cutOf(p.fit, p.layout);
-            }
-          }
-          o.textContent = label;
+      var capsOf = function (f) {
+        if (f.pxs) {
+          var ink = f.pxs.filter(function (p) { return p > 0; });
+          var lo = Math.min.apply(null, ink), hi = Math.max.apply(null, ink);
+          if (lo !== hi) return "capitals " + bigCapCm(lo).toFixed(1) + "–" + cmOf(bigCapCm(hi));
         }
-        // Size options, each in the block's CURRENT layout.
-        for (i = 0; i < gSize.options.length; i++) {
-          o = gSize.options[i];
-          if (SIZE_LABELS[o.value]) {
-            label = SIZE_LABELS[o.value];
+        return "capitals " + cmOf(bigCapCm(f.px));
+      };
+      var bigFlags = function (f) {
+        return (f.fits ? "" : " · letters cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
+      };
+      var sideFlags = function (f) {
+        return (f.fits ? "" : " · outer lines cut off") + (f.tall ? " · cut off by the box" : "") + (f.over ? " · too long to send" : "");
+      };
+      var relabel = function (ctx) {
+        var text = block.text || "", r = blockRender(block), has = /\S/.test(bigClean(text).text);
+        var bo = bigOpts(block), so = sideOpts(block);
+        var key = JSON.stringify([text, r, bo, so, ctx.budget, ctx.room, ctx.contentW]);
+        if (key === labelKey) return;
+        labelKey = key;
+        var i, o, f, label;
+        if (r === "big") {
+          var fitFor = function (layout, size) {
+            return bigFit(text, { layout: layout, size: size, flip: bo.flip, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+          };
+          for (i = 0; i < bLayout.options.length; i++) {
+            o = bLayout.options[i]; label = LAYOUT_LABELS[o.value];
             if (has) {
-              p = planFor(go.layout, o.value);
-              if (p.fit.levels) label += " · " + heightOf(p.fit.px, p.layout) + " · " + cheersOf(p.fit.cheers) + cutOf(p.fit, p.layout);
+              f = fitFor(o.value, bo.size);
+              if (f.px) {
+                label += " · " + (o.value === "auto" ? (f.layout === "stack" ? "stacked, " : "as lines, ") : "")
+                  + capsOf(f) + (f.cheers > 1 ? " · " + cheersOf(f.cheers) : "") + bigFlags(f);
+              }
             }
-          } else {
-            var n = parseInt(o.value, 10);
-            label = "Level " + n + " · " + heightOf(GIANT_BASE_PX * Math.pow(GIANT_RATIO, n), go.layout);
-            if (has) {
-              p = planFor(go.layout, n);
-              label += " · " + cheersOf(p.fit.cheers) + cutOf(p.fit, p.layout);
-            }
+            o.textContent = label;
           }
-          o.textContent = label;
+          for (i = 0; i < bSize.options.length; i++) {
+            o = bSize.options[i];
+            if (BIG_SIZE_LABELS[o.value]) {
+              label = BIG_SIZE_LABELS[o.value];
+              if (has) { f = fitFor(bo.layout, o.value); if (f.px) label += " · " + capsOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
+            } else {
+              var px = parseInt(o.value, 10);
+              label = px + " px · capitals " + cmOf(bigCapCm(px));
+              if (has) { f = fitFor(bo.layout, px); label += " · " + cheersOf(f.cheers) + bigFlags(f); }
+            }
+            o.textContent = label;
+          }
+        } else if (r === "sideways") {
+          var sFor = function (size) {
+            return sideFit(text, { dir: so.dir, size: size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+          };
+          var tape = function (f) { return cmOf(f.lengthPx * MM_PER_PX / 10) + " of tape"; };
+          for (i = 0; i < sSize.options.length; i++) {
+            o = sSize.options[i];
+            if (SIDE_SIZE_LABELS[o.value]) {
+              label = SIDE_SIZE_LABELS[o.value];
+              if (has) { f = sFor(o.value); if (f.px) label += " · capitals " + cmOf(bigCapCm(f.px)) + ", " + tape(f) + " · " + cheersOf(f.cheers) + sideFlags(f); }
+            } else {
+              var spx = parseInt(o.value, 10);
+              label = spx + " px · capitals " + cmOf(bigCapCm(spx));
+              if (has) { f = sFor(spx); label += ", " + tape(f) + " · " + cheersOf(f.cheers) + sideFlags(f); }
+            }
+            o.textContent = label;
+          }
         }
       };
-      var syncGiant = function (parts) {
-        if (blockRender(block) !== "giant") return;
-        var go = giantOpts(block), text = block.text || "";
-        // The SAME budget packStack sizes bodies with, so a label's "1 cheer" is the
-        // packer's answer and not a second opinion that can disagree with it.
-        var cheer = !!els.cheer.checked, bits = getBits();
-        var budget = MAX_CHARS - leadLength({ cheer: cheer, bits: bits, noNonce: !getNonce() });
-        var heightPx = getHeightPx(), receiptMm = getReceiptMm();
-        // The receipt length is in the key: changing it re-plans every label (the cheer
-        // counts and cut-off flags move with the page).
-        var key = [text, go.layout, go.size, budget, heightPx].join("\u0000");
-        if (key !== labelKey) {
-          labelKey = key;
-          relabel(function (layout, size) {
-            return giantPlan(text, { layout: layout, size: size, budget: budget, heightPx: heightPx });
-          }, go, giantLines(text, "lines").length > 0);
-        }
-        // THE NOTE reads the PACKED parts: the packer
-        // can share a part with a neighbouring block, so this block's chunk count is not
-        // its cheer count, and only the parts say which part it is in. Census or ruler on
-        // screen (or an empty stack) leaves nothing to find, so plan it alone.
-        var own = [], inParts = [], over = false, i, j, bs;
-        for (i = 0; parts && i < parts.length; i++) {
-          bs = parts[i].bodies || [];
-          for (j = 0; j < bs.length; j++) {
-            if (bs[j].blockId !== block.id || !bs[j].giant) continue;
-            own.push(bs[j]);
-            if (inParts.indexOf(i) < 0) {
-              inParts.push(i);
-              if (parts[i].chars > MAX_CHARS) over = true;
-            }
+      var syncText = function (parts) {
+        var ctx = stackContext(stackOpts()), raw = stackContext(stackOpts({ mode: "raw" }));
+        // Labelled for a High Roller cheer whatever the bits: below the threshold the block
+        // prints as Han tiling, and the labels then say what it prints at the threshold.
+        relabel(raw);
+        var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
+        var lines = [], fine = [], plainNow = ctx.mode === "plain";
+        if (r === "hanzi" || plainNow) {
+          var hs = where.own.filter(function (b) { return b.hanzi; });
+          if (hs.length) {
+            var rows = hs.reduce(function (t, b) { return t + b.hanzi.rows; }, 0);
+            lines.push("Han tiling: " + rows + (rows === 1 ? " row" : " rows") + " of " + hs[0].hanzi.cols
+              + " Han characters · " + cheersOf(where.inParts.length || hs.length));
+          } else if (!/\S/.test(bigClean(text).text)) {
+            lines.push("Type something to print it.");
+          }
+          if (plainNow && r !== "hanzi") {
+            lines.push("This cheer is below the streamer's High Roller threshold (" + hrThresholdOf(stackOpts().hrThreshold)
+              + " bits), so this block prints as Han tiling (plain text). The sizes above are what it prints at the threshold or more.");
+          }
+          fine.push("Han tiling needs a CJK font on the streamer's PC (Windows has one): if the receipt comes out blank, it has none.");
+        } else {
+          var own = where.own.filter(function (b) { return r === "big" ? b.big : b.side; }), cheers;
+          if (own.length) cheers = where.inParts.length;
+          else if (r === "big") {
+            var bo = bigOpts(block);
+            own = buildBigBodies(text, { layout: bo.layout, size: bo.size, flip: bo.flip, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+          } else {
+            var so = sideOpts(block);
+            own = buildSideBodies(text, { dir: so.dir, size: so.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+          }
+          var rep = (r === "big" ? bigReport : sideReport)(own, { cheers: cheers, bits: ctx.bits, limit: ctx.limit });
+          lines = rep ? rep.split("\n") : [];
+          if (r === "sideways" && sideOpts(block).dir === "up" && !sidewaysLrSupported()) {
+            lines.push("This browser can't draw bottom-to-top text, so the preview shows it lying flat. A current Edge, "
+              + "which is what the streamer's bot uses, prints it running up the tape.");
           }
         }
-        var cheers;
-        if (own.length) cheers = inParts.length;
-        else {
-          own = buildGiantBodies(text, { layout: go.layout, size: go.size, budget: budget, heightPx: heightPx });
-          cheers = own[0].giant.cheers || 1;
-        }
-        var g = own[0].giant;
-        // A block that prints nothing (emoji or invisible characters only) still has its
-        // empty body in some part, because the packer lets it ride along in whatever part
-        // it lands next to. That part is not "where this text is", and its length is not
-        // this block's problem: say neither. The report says nothing is left to print.
-        if (!g.levels) { inParts = []; over = false; }
-        giantNote.textContent = "";
-        giantNote.className = "giant-note" + (over ? " over" : "");
-        var line = function (t, cls) { giantNote.appendChild(mkEl("div", cls ? { "class": cls } : null, t)); };
-        var rep = giantReport(own, { cheers: cheers, bits: bits, receiptMm: receiptMm });
-        (rep ? rep.split("\n") : []).forEach(function (t, k) { line(t, k === 0 ? "giant-sum" : "giant-warn"); });
-        if (over) {
-          line((inParts.length === 1 ? "Its part is" : "One of its parts is") + " over " + MAX_CHARS
-            + " characters, so Twitch rejects that message and it never prints.", "giant-sum");
-        }
-        if (parts && parts.length > 1 && inParts.length) {
-          // A range of one reads "parts 2 to 2"; that sentence bug has shipped here before.
-          line("Your whole stack needs " + parts.length + " cheers; this text is in "
-            + (inParts.length === 1 ? "part " + (inParts[0] + 1)
-               : "parts " + (inParts[0] + 1) + " to " + (inParts[inParts.length - 1] + 1)) + ".");
-        }
-        if (g.levels) {
-          if (g.layout === "emote") line(EMOTE_HINT);
-          else if (g.px <= SMALL_PX) {
-            line("That's barely bigger than normal chat text. "
-              + (g.layout === "stack" ? "Shorten it." : "Shorten it, or set Layout to Stack the letters."), "giant-warn");
-          }
-        }
-        // Always said, because each one is a way bits get spent on a print that doesn't
-        // come out giant, and none of them shows up anywhere else before the tape does.
-        line("Confirmed printing big on 1 Oct 2026. If a print comes out normal-sized, "
-          + "printer-bot changed its style — switch Render to Hanzi tiling.", "giant-fine");
-        line("Chat sees the raw tags; if the channel's mod bot removes repeated text, send it "
-          + "once WITHOUT Cheer-ready first (free) to check.", "giant-fine");
-        line("Sized for 80 mm printers.", "giant-fine");
+        writeNote(note, lines.concat(partLines(where, parts)), fine, where.over);
       };
       var applyRender = function () {
-        var r = blockRender(block), hanzi = r === "hanzi";
-        typeWrap.style.display = r === "type" ? "" : "none";
-        hanziWrap.style.display = hanzi ? "" : "none";
-        fmtWrap.style.display = r === "type" ? "" : "none";
-        // Giant type sizes itself in whole .title levels (the Size select above); the %
-        // slider means nothing to it, so it goes rather than sitting there inert.
-        sizeRow.style.display = r === "giant" ? "none" : "";
-        giantWrap.style.display = r === "giant" ? "" : "none";
-        nudge.style.display = r === "giant" ? "none" : "";
+        var r = blockRender(block);
+        bigWrap.style.display = r === "big" ? "" : "none";
+        sideWrap.style.display = r === "sideways" ? "" : "none";
+        hanziWrap.style.display = r === "hanzi" ? "" : "none";
         renderHint.textContent = RENDER_HINTS[r];
-        // The Size floor follows the render. Tiled Hanzi ignores anything under 85%, so
-        // the slider stops there rather than offering travel that does nothing; switching
-        // back to a vector render hands the full range back. A value carried over from
-        // the other mode is lifted to the floor so the thumb never sits off its own track.
-        size.min = hanzi ? "85" : "25";
-        if (hanzi && (block.size || 90) < 85) { block.size = 85; size.value = "85"; }
       };
       render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
       applyRender();
-      // Registered for every text card, not only giant ones: switching Render to giant
-      // has to start reporting without rebuilding the card. It returns at once otherwise.
-      costSyncs.push(syncGiant);
-      syncGiant(lastParts);
+      costSyncs.push(syncText);
+      syncText(lastParts);
       return card;
     }
     // Adjust brightness/contrast in place on ImageData. br, ct in -100..100 (0 = none).
@@ -4513,7 +4459,7 @@
       // the real picture, which is kept so an upload can be seen, rotated and adjusted, but
       // sends nothing (see the note below).
       card.appendChild(mkEl("label", null, "Kind"));
-      var kind = mkEl("select");
+      var kind = mkEl("select", { "class": "sel-kind" });
       kind.appendChild(opt("glyph", "Glyph-art (prints as characters)", block.imgKind === "glyph"));
       kind.appendChild(opt("real", "Real picture (can't print)", block.imgKind !== "glyph"));
       card.appendChild(kind);
@@ -4583,29 +4529,68 @@
       card.appendChild(realWrap);
 
       // --- Glyph-art controls ---
+      // The characters decide the form: Han characters build a square grid (12 to 30
+      // columns), the letters and blocks build Courier New rows (8 to 48), Braille packs 2x4
+      // dots a character. Below the streamer's High Roller threshold every picture prints as
+      // the plain Han grid whatever is picked here, and the note says so.
       var glyphWrap = mkEl("div");
-      glyphWrap.appendChild(mkEl("label", null, "Tier (glyph set)"));
-      var tier = mkEl("select");
-      [["cjk", "Hanzi — the one that survives the sanitizer (default)"], ["ascii", "ASCII letters — sheared by the sanitizer"], ["asciifull", "ASCII, full detail — sheared by the sanitizer"], ["safe", "Blocks ░▒▓█"], ["braille", "Braille (experimental)"]]
-        .forEach(function (t) { tier.appendChild(opt(t[0], t[1], (block.tier || "cjk") === t[0])); });
+      glyphWrap.appendChild(mkEl("label", null, "Characters"));
+      var tier = mkEl("select", { "class": "sel-tier" });
+      [["cjk", "Han characters (default)"], ["ascii", "ASCII letters"], ["asciifull", "ASCII, full detail"],
+       ["safe", "Blocks ░▒▓█"], ["braille", "Braille (needs a test print)"]]
+        .forEach(function (t) { tier.appendChild(opt(t[0], t[1], glyphOpts(block).tier === t[0])); });
       glyphWrap.appendChild(tier);
-      glyphWrap.appendChild(mkEl("div", { "class": "hint" },
-        "Glyph-art rows used to ride in a monospace, space-preserving <span>. The sanitizer "
-        + "strips that styling, so ASCII art — which leans on spaces and equal letter widths "
-        + "— collapses and shears. Han glyphs are uniform-width with no spaces, so Hanzi "
-        + "still lines up: it's the default and the safe choice. Blocks/Braille usually tofu "
-        + "on this printer anyway."));
-      var gcols = mkEl("input", { type: "number", min: "8", max: "48", step: "1" }); gcols.value = block.cols || 40;
-      glyphWrap.appendChild(sliderRow("Detail (columns)", gcols, 40, ""));
-      var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = block.contrast != null ? block.contrast : 128;
+      var TIER_HINTS = {
+        cjk: "Han characters from light (丶) to dark (鬱), in a square grid of 12 to 30 columns. Every cell is "
+          + "the same width in any CJK font, so the rows line up on both paper widths. Bold shapes read best; "
+          + "the tones are soft.",
+        mono: "Rows of characters in Courier New, which the streamer's Windows has, 8 to 48 columns. The light "
+          + "areas are spaces, and they keep their width.",
+        braille: "Braille packs 2 × 4 dots into each character, the finest detail here. Courier New has no "
+          + "Braille, so the streamer's PC draws it in another font that nobody has measured on this bot "
+          + "yet: send one cheer to check it before a bigger run."
+      };
+      var tierHint = mkEl("div", { "class": "hint" });
+      glyphWrap.appendChild(tierHint);
+      var gcols = mkEl("input", { type: "number", step: "1", "class": "num-cols" }); gcols.value = block.cols || 20;
+      glyphWrap.appendChild(sliderRow("Detail (columns)", gcols, 20, ""));
+      var contrast = mkEl("input", { type: "range", min: "0", max: "255" }); contrast.value = glyphOpts(block).contrast;
       glyphWrap.appendChild(sliderRow("Contrast", contrast, 128, ""));
-      var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = block.dither !== false;
+      var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = glyphOpts(block).dither;
       ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Dither (photos)"));
       glyphWrap.appendChild(ditherLbl);
-      var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = !!block.invert;
+      var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = glyphOpts(block).invert;
       invLbl.appendChild(invert); invLbl.appendChild(document.createTextNode(" Invert"));
       glyphWrap.appendChild(invLbl);
+      var gnote = mkEl("div", { "class": "text-note" });
+      glyphWrap.appendChild(gnote);
       card.appendChild(glyphWrap);
+      // The column range follows the form, and so does the hint.
+      var syncTier = function () {
+        var form = glyphForm(glyphOpts(block).tier);
+        gcols.min = form === "cjk" ? "12" : "8";
+        gcols.max = form === "cjk" ? "30" : "48";
+        tierHint.textContent = TIER_HINTS[form];
+      };
+      // What the picture prints as, read off the packed parts like the text cards.
+      var syncGlyph = function (parts) {
+        if (block.imgKind !== "glyph") return;
+        var ctx = stackContext(stackOpts()), where = blockParts(block, parts), lines = [];
+        var gs = where.own.filter(function (b) { return b.glyph || b.hanzi; });
+        if (gs.length) {
+          var rows = gs.reduce(function (t, b) { return t + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
+          var cols = gs[0].glyph ? gs[0].glyph.cols : designTPictureCols(ctx.paperMm);
+          lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · " + cheersOf(where.inParts.length || gs.length));
+        } else if (block.url || block._img) {
+          lines.push(block._decoding ? "Reading the picture…" : "The picture couldn't be read. Check the link, or pick the file again.");
+        }
+        if (ctx.mode === "plain") {
+          lines.push("This cheer is below the streamer's High Roller threshold, so the picture prints as a plain grid of "
+            + "Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever the characters above say.");
+        }
+        writeNote(gnote, lines.concat(partLines(where, parts)), [], where.over);
+      };
+      costSyncs.push(syncGlyph);
 
       var applyKind = function () {
         var glyph = block.imgKind === "glyph";
@@ -4640,13 +4625,15 @@
         kind.value = "glyph";
         kind.dispatchEvent(new Event("change"));
       });
-      tier.addEventListener("change", function () { block.tier = tier.value; saveBlocks(); update(); });
-      gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 40; saveBlocks(); update(); });
+      tier.addEventListener("change", function () { block.tier = tier.value; syncTier(); saveBlocks(); update(); });
+      gcols.addEventListener("input", function () { block.cols = parseInt(gcols.value, 10) || 20; saveBlocks(); update(); });
       contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10); saveBlocks(); update(); });
       dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
       applyKind();
+      syncTier();
       syncThumb();
+      syncGlyph(lastParts);
       return card;
     }
     function renderComposer() {
@@ -4884,11 +4871,19 @@
           ? "(nothing to print: a Real picture can't print on SassyTP's bot. Switch it to Glyph-art, or add some text)"
           : "(add a block above, or type into one)", chars: 0, copyable: false, showHead: false }];
       }
-      var cheer = !!els.cheer.checked;
-      var parts = packStack(blocks, { bits: getBits(), cheer: cheer, noNonce: !getNonce(), nonceFn: nonceForPart,
-                                      heightPx: getHeightPx() });
+      var so = stackOpts({ nonceFn: nonceForPart }), ctx = stackContext(so);
+      var parts = packStack(blocks, so);
       return parts.map(function (p, i) {
-        var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead };
+        var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
+                     alone: !!p.alone, mode: ctx.mode, cheer: ctx.cheer, bits: ctx.bits, paperMm: ctx.paperMm,
+                     kindLabel: !ctx.cheer ? "free test" : p.alone || ctx.mode === "plain" ? "plain text" : "High Roller" };
+        // A part with nothing printable in it (a picture still decoding) would be a cheer that
+        // prints only the lead: it is shown, but it can't be copied until there is ink.
+        if (!p.bodies.some(function (b) { return b.html; })) {
+          item.copyable = false;
+          item.payload = "(nothing to print in this part yet: a picture is still loading, or its link can't be read)";
+          return item;
+        }
         // Without the repeat number nothing makes two parts differ, so a stack that repeats
         // itself (the same block twice, say) can produce the SAME message twice in a row,
         // and Twitch won't send the same message twice in a row within 30 seconds. Nothing
@@ -4899,35 +4894,35 @@
           item.note = "Same message as part " + i + ". Twitch won't send the same message twice in a "
             + "row within 30 seconds (it just isn't sent, and no bits are spent), so wait 30 seconds "
             + "after part " + i + " before sending this one"
-            + (cheer ? ", or turn on “Add a repeat number”." : ".");
+            + (ctx.cheer ? ", or turn on “Add a repeat number”." : ".");
         }
         return item;
       });
     }
-    function computeParts() {
-      if (currentKind === "census") {
-        // The census builds its own markup-free payload (trailing token) without the packer.
-        // With the repeat number on, the digits let a re-print go out within Twitch's 30 seconds.
-        var body = buildCensus() + (getNonce() ? " " + nonceForPart(0) : "");
-        return [{ payload: body, chars: payloadLength(body), copyable: true }];
-      }
-      if (currentKind === "ruler") return rulerParts();
-      return composeParts();
+    // The two rig probes ("High Roller test", "Plain test"): one cheer each, at the bits the
+    // probe names (the threshold, or one under it), through the normal packer as a one-part
+    // stack, with its own note on how to read the print. A probe always cheers: a message
+    // that doesn't never reaches the printer. A probe that cannot show what it is for (the
+    // High Roller test with High Roller off, the plain test when every cheer is High Roller)
+    // says why and offers no Copy.
+    function probeParts(kind) {
+      var s = getSettings();
+      var pr = kind === "hrprobe"
+        ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm })
+        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !s.nonce });
+      var so = stackOpts({ cheer: true, bits: pr.bits, mode: pr.mode, nonceFn: nonceForPart }), ctx = stackContext(so), po = {}, k;
+      for (k in ctx) po[k] = ctx[k];
+      po.nonceFn = nonceForPart;
+      var works = kind === "hrprobe" ? s.hrThreshold > 0 : pr.mode === "plain";
+      return packStackBodies(pr.bodies, po).map(function (p) {
+        return { payload: p.payload, chars: p.chars, copyable: works, bodies: p.bodies, lead: p.lead, alone: !!p.alone,
+                 mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note,
+                 kindLabel: kind === "hrprobe" ? "High Roller test" : "Plain test" };
+      });
     }
-    // "Print size ruler": 1..13 at every .title depth, one cheer. Through the normal packer
-    // so it carries the ordinary lead (and the repeat number when that's on). Rendered as a
-    // stack part so the preview draws it in the receipt the way it will print.
-    function rulerParts() {
-      var body = buildGiantRuler();
-      // The ruler is ONE body and packStackBodies never splits a single body, so it stays one
-      // cheer even when it overruns a short receipt — which is the point: it is the length
-      // gauge. giantReport turns the current Receipt length into "numbers up to N print" plus
-      // where each lands, so the user can read their real length off the tape.
-      return packStackBodies([body], { bits: getBits(), cheer: els.cheer.checked, noNonce: !getNonce(), nonceFn: nonceForPart })
-        .map(function (p) {
-          return { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
-                   note: giantReport(body, { receiptMm: getReceiptMm() }) };
-        });
+    function computeParts() {
+      if (currentKind === "hrprobe" || currentKind === "plainprobe") return probeParts(currentKind);
+      return composeParts();
     }
     // Cards showing a live character cost register a callback here. refresh() runs them
     // after the parts are recomputed, so a card can report what the WHOLE stack is doing
@@ -4937,11 +4932,12 @@
     var costSyncs = [];
     function refresh() {
       lastParts = computeParts();
-      renderParts(lastParts);
+      renderParts(lastParts, currentKind === "compose" ? modeNotice(getSettings()) : "");
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](lastParts);
     }
     function update() {
       currentKind = "compose";
+      syncModeUi();
       refresh();
       saveControls();
     }
@@ -4956,7 +4952,7 @@
       if (getNonce()) partNonces[index] = nextNonce();
       refresh();
       var item = lastParts[index];
-      if (!item) return;
+      if (!item || !item.copyable) return;
       copyToClipboard(item.payload || "");
       lastCopiedIdx = index; lastCopiedAt = Date.now();
       refresh();                                     // repaint with the button showing "Copied"
@@ -4976,7 +4972,11 @@
         cheerNonce: document.getElementById("cheerNonce"),
         cheerNonceHint: document.getElementById("cheerNonceHint"),
         bitsAmount: document.getElementById("bitsAmount"),
-        receiptLen: document.getElementById("receiptLen"),
+        bitsHint: document.getElementById("bitsHint"),
+        hrThreshold: document.getElementById("hrThreshold"),
+        bitsPerInch: document.getElementById("bitsPerInch"),
+        maxInches: document.getElementById("maxInches"),
+        paperMm: document.getElementById("paperMm"),
         presetName: document.getElementById("presetName"),
         presetSave: document.getElementById("presetSave"),
         presetList: document.getElementById("presetList"),
@@ -4988,50 +4988,33 @@
         presetJson: document.getElementById("presetJson"),
         presetNote: document.getElementById("presetNote"),
         parts: document.getElementById("parts"),
-        censusBtn: document.getElementById("censusBtn"),
-        rulerBtn: document.getElementById("rulerBtn"),
+        hrProbeBtn: document.getElementById("hrProbeBtn"),
+        plainProbeBtn: document.getElementById("plainProbeBtn"),
         thermalView: document.getElementById("thermalView"),
+        thermalDither: document.getElementById("thermalDither"),
       };
 
-      // printer-bot's own class rules for the PREVIEW, from the PB_CLASSES table (the same
-      // string RCPT_CSS carries into the thermal raster), plus the giant preview styles.
-      // Injected rather than written into the <style> above so the class names and their
-      // declarations live in exactly one place; scoped under .rcpt so .title and friends
-      // can never touch the app's own UI.
-      var pbStyle = document.createElement("style");
-      pbStyle.id = "pbPreviewCss";
-      pbStyle.textContent = pbPreviewCss(".rcpt") + GIANT_PREVIEW_CSS;
-      document.head.appendChild(pbStyle);
-
       restoreControls();
-      syncNonceUi();
+      syncModeUi();
 
-      [els.cheer, els.cheerNonce, els.bitsAmount, els.receiptLen].forEach(function (el) {
+      [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm].forEach(function (el) {
         if (!el) return;
-        el.addEventListener("input", function () {
-          syncNonceUi();       // Cheer-ready gates the repeat number; the bit amount is in its example
-          update();
-        });
+        // Cheer-ready gates the repeat number, and the bits and the threshold decide whether
+        // the stack prints its High Roller or its plain forms.
+        el.addEventListener(el.tagName === "SELECT" ? "change" : "input", update);
       });
 
-      els.censusBtn.addEventListener("click", function () {
-        currentKind = "census";
-        refresh();
-      });
-      // Same lifecycle as the census: a view, not a block, so any edit drops back out
-      // (update() resets currentKind to "compose").
-      if (els.rulerBtn) {
-        els.rulerBtn.addEventListener("click", function () {
-          currentKind = "ruler";
-          refresh();
-        });
-      }
-      // Toggling thermal view just re-renders: renderParts rebuilds clean frames,
-      // then scheduleThermal() dithers them when the box is checked (no-op when off).
+      // The probes are a view, not a block: any edit drops back out (update() resets
+      // currentKind to "compose").
+      els.hrProbeBtn.addEventListener("click", function () { currentKind = "hrprobe"; refresh(); });
+      els.plainProbeBtn.addEventListener("click", function () { currentKind = "plainprobe"; refresh(); });
+      // Toggling the thermal view or its dither just re-renders: renderParts rebuilds clean
+      // frames, then scheduleThermal() dithers them when the box is checked (no-op when off).
       els.thermalView.addEventListener("change", function () { saveControls(); refresh(); });
+      els.thermalDither.addEventListener("change", function () { saveControls(); refresh(); });
 
-      // Composer: seed the block stack (migrating old single-text state), draw the
-      // cards, and wire the add buttons. Seed BEFORE the first update() so it composes.
+      // Composer: seed the block stack (migrating a saved one), draw the cards, and wire the
+      // add buttons. Seed BEFORE the first update() so it composes.
       seedBlocks();
       // A stack restored from localStorage has exactly the same problem a preset does —
       // an uploaded link older than 15 minutes is dead — so it gets the same check. The
@@ -5095,8 +5078,14 @@
       presetImageUrls: presetImageUrls, makePreset: makePreset,
       serializePresets: serializePresets, parsePresets: parsePresets,
       upsertPreset: upsertPreset, freePresetName: freePresetName,
-      migrateBlocks: migrateBlocks, migrationRewrites: migrationRewrites,
-      MIGRATION_BACKUP_NAME: MIGRATION_BACKUP_NAME,
+      migrateBlocks: migrateBlocks, migrationRewrites: migrationRewrites, migrationNote: migrationNote,
+      MIGRATION_BACKUP_NAME: MIGRATION_BACKUP_NAME, TEXT_RENDERS: TEXT_RENDERS, giantLevelPx: giantLevelPx,
+      // The app's state, read through sanitizers; the plain-mode notice; the bot's ditherer.
+      THERMAL_DITHERS: THERMAL_DITHERS, normalizeControls: normalizeControls, hanziWeightOf: hanziWeightOf,
+      GLYPH_TIERS: GLYPH_TIERS, glyphOpts: glyphOpts, modeNotice: modeNotice, forkDither: forkDither,
+      previewHtml: previewHtml,
+      // Canvas-backed glue, exported for the browser tests only (a null DOM can't run them).
+      designTTextGrid: designTTextGrid, glyphGrid: glyphGrid,
       bigFontFor: bigFontFor, BIG_FONT: BIG_FONT, buildBigTextSvg: buildBigTextSvg,
       bigWeightFor: bigWeightFor, bigItalicFor: bigItalicFor, rotateBodies: rotateBodies,
       bigFitBasis: bigFitBasis, PAPER_PX: PAPER_PX, BIG_FIT_PX: BIG_FIT_PX,

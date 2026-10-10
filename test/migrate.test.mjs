@@ -11,10 +11,9 @@ import { loadCore, eq } from "./_harness.mjs";
 
 const C = loadCore();
 const clone = (x) => JSON.parse(JSON.stringify(x));
-// What a Text block made from a takeover line looks like (the fields a new Giant block has,
-// in "lines as typed" layout); `id` and `fmt` are checked separately.
-const TEXT_SHAPE = { type: "text", render: "giant", giantLayout: "lines", giantSize: "fit1",
-                     orient: 0, size: 90, rotateLen: 800, cols: 15 };
+// What a Text block made from a takeover line looks like: Big text, lines as typed, the
+// biggest size that fits one cheer; `id` and `fmt` are checked separately.
+const TEXT_SHAPE = { type: "text", render: "big", bigLayout: "lines", bigSize: "fit1" };
 const GLYPH_SHAPE = { type: "image", imgKind: "glyph", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
                       tier: "cjk", cols: 40, dither: true, contrast: 128, invert: false };
 function shape(b) { const o = { ...b }; delete o.id; delete o.text; delete o.url; delete o.fmt; return o; }
@@ -98,7 +97,8 @@ test("a takeover that carried nothing of the user's is dropped", () => {
     { id: 4, type: "takeover" },
   ];
   eq(C.migrateBlocks(empties), []);
-  eq(C.migrateBlocks([...empties, { id: 5, type: "text", text: "kept" }]), [{ id: 5, type: "text", text: "kept" }]);
+  eq(C.migrateBlocks([...empties, { id: 5, type: "text", render: "big", text: "kept" }]),
+     [{ id: 5, type: "text", render: "big", text: "kept" }]);
 });
 
 test("an image block loses only the carrier pick (renderAs, embedV), and that asks for no backup", () => {
@@ -144,9 +144,17 @@ test("idempotent: a second run changes nothing, and asks for no second backup", 
 
 test("migrationRewrites: true exactly when the stack holds a block the migration converts", () => {
   assert.equal(C.migrationRewrites([ITEMS_TK]), true);
-  assert.equal(C.migrationRewrites([{ id: 1, type: "text", text: "x" }, { id: 2, type: "takeover", items: [] }]), true,
+  assert.equal(C.migrationRewrites([{ id: 1, type: "text", render: "big", text: "x" }, { id: 2, type: "takeover", items: [] }]), true,
     "an empty takeover is still rewritten (dropped)");
-  assert.equal(C.migrationRewrites([{ id: 1, type: "text", text: "x" }, { id: 2, type: "image", url: "u" }]), false);
+  assert.equal(C.migrationRewrites([{ id: 1, type: "text", render: "hanzi", text: "x", orient: 0 },
+                                    { id: 2, type: "image", url: "u" }]), false);
+  // An old text block takes a new render, which an older build can't read: that is a rewrite.
+  for (const render of ["giant", "type", undefined, "junk"]) {
+    assert.equal(C.migrationRewrites([{ id: 1, type: "text", render, text: "x" }]), true, String(render));
+  }
+  for (const render of ["big", "sideways", "hanzi"]) {
+    assert.equal(C.migrationRewrites([{ id: 1, type: "text", render, text: "x" }]), false, render);
+  }
   assert.equal(C.migrationRewrites([]), false);
   assert.equal(C.migrationRewrites(null), false);
   assert.equal(C.migrationRewrites([null, 3]), false);
@@ -155,19 +163,133 @@ test("migrationRewrites: true exactly when the stack holds a block the migration
 test("junk in, a clean list out: not an array, null entries, ids that aren't numbers", () => {
   eq(C.migrateBlocks(null), []);
   eq(C.migrateBlocks({ blocks: [] }), []);
-  eq(C.migrateBlocks([null, 7, "x", { id: 1, type: "text", text: "ok" }]), [{ id: 1, type: "text", text: "ok" }]);
+  eq(C.migrateBlocks([null, 7, "x", { id: 1, type: "text", render: "hanzi", text: "ok" }]),
+     [{ id: 1, type: "text", render: "hanzi", text: "ok" }]);
   // No usable id anywhere: the new blocks still get distinct ones, from 1.
   const out = C.migrateBlocks([{ type: "takeover", items: [{ kind: "text", text: "a" }, { kind: "text", text: "b" }] },
-                               { id: "7", type: "text", text: "c" }]);
+                               { id: "7", type: "text", render: "big", text: "c" }]);
   eq(out.map((b) => b.id), [1, 2, "7"]);
 });
 
-test("a migrated line prints: it is a working Giant type block today", () => {
+test("a migrated line prints: it is a working Big text block", () => {
   const tb = C.migrateBlocks([ITEMS_TK]).find((b) => b.text === "IRS");
-  assert.equal(C.blockRender(tb), "giant");
-  eq(C.giantOpts(tb), { layout: "lines", size: "fit1" });
-  const bodies = C.buildGiantBodies(tb.text, C.giantOpts(tb));
+  assert.equal(C.blockRender(tb), "big");
+  eq(C.bigOpts(tb), { layout: "lines", size: "fit1", flip: false });
+  const bodies = C.buildBigBodies(tb.text, C.bigOpts(tb));
   assert.ok(bodies.length >= 1 && bodies[0].html.includes(">IRS<"), JSON.stringify(bodies.map((b) => b.html)));
+});
+
+// ── Text blocks from before 1.0.0: Giant type and the SVG Type render ──
+
+const GIANT = { id: 1, type: "text", render: "giant", giantLayout: "auto", giantSize: "fit1", orient: 0,
+                text: "HELLO", size: 90, rotateLen: 800, cols: 15 };
+const TYPE = { id: 1, type: "text", render: "type", orient: 0, text: "OK", size: 90, rotateLen: 800, cols: 15,
+               fmt: { font: "impact", weight: 900 } };
+
+test("Giant type becomes Big text: layout kept (emote -> lines), sizes carried over, old fields gone", () => {
+  const one = (o) => C.migrateBlocks([{ ...GIANT, ...o }])[0];
+  for (const l of ["auto", "lines", "stack"]) assert.equal(one({ giantLayout: l }).bigLayout, l);
+  // The Emote layout's names print as text on this bot (the picture tag is blocked).
+  assert.equal(one({ giantLayout: "emote" }).bigLayout, "lines");
+  for (const junk of [undefined, null, "", "constructor", 3]) assert.equal(one({ giantLayout: junk }).bigLayout, "auto", String(junk));
+  assert.equal(one({ giantSize: "fit1" }).bigSize, "fit1");
+  assert.equal(one({ giantSize: "width" }).bigSize, "width");
+  const b = one({});
+  eq(Object.keys(b).sort(), ["bigLayout", "bigSize", "cols", "id", "render", "size", "text", "type"]);
+  assert.equal(b.render, "big");
+  assert.equal(b.text, "HELLO");
+  assert.ok(!("bigFlip" in b));
+});
+
+test("a Giant level n becomes round(16 x 1.2^n) px, from a number or a select's string, clamped", () => {
+  const px = (size) => C.migrateBlocks([{ ...GIANT, giantSize: size }])[0].bigSize;
+  // Written out: 16 x 1.2^n, rounded.
+  const want = { 2: 23, 5: 40, 8: 69, 10: 99, 12: 143, 14: 205, 15: 247, 16: 296, 17: 355 };
+  for (const [n, p] of Object.entries(want)) {
+    assert.equal(px(Number(n)), p, "level " + n);
+    assert.equal(px(n), p, "level '" + n + "' (a string)");
+  }
+  // Level 1 is 19.2px, under big text's 20px floor; 18 is 426px, over its 400px top.
+  assert.equal(px(1), 20);
+  assert.equal(px(18), 400);
+  // Out of Giant type's range is clamped to it first, then to big text's.
+  assert.equal(px(0), 20);
+  assert.equal(px(-4), 20);
+  assert.equal(px(1e6), 400);
+  assert.equal(px("1e9"), 20, "parseInt('1e9') is 1");
+  for (const junk of [undefined, null, "", "abc", NaN, {}]) assert.equal(px(junk), "fit1", String(junk));
+  assert.equal(C.giantLevelPx(15), 247);
+});
+
+test("Type becomes Big text or Sideways by its orientation; no render at all is Type", () => {
+  const one = (o) => C.migrateBlocks([{ ...TYPE, ...o }])[0];
+  const kept = (b) => { const o = { ...b }; delete o.id; delete o.text; return o; };
+  eq(kept(one({ orient: 0 })), { type: "text", render: "big", bigLayout: "lines", bigSize: "fit1", size: 90, cols: 15,
+                                 fmt: { font: "impact", weight: 900 } });
+  eq(kept(one({ orient: 180 })), { type: "text", render: "big", bigLayout: "lines", bigSize: "fit1", bigFlip: true,
+                                   size: 90, cols: 15, fmt: { font: "impact", weight: 900 } });
+  eq(kept(one({ orient: 90 })), { type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", size: 90, cols: 15,
+                                  fmt: { font: "impact", weight: 900 } });
+  eq(kept(one({ orient: 270 })), { type: "text", render: "sideways", sideDir: "up", sideSize: "fit1", size: 90, cols: 15,
+                                   fmt: { font: "impact", weight: 900 } });
+  assert.equal(one({ orient: "90" }).sideDir, "down", "an orientation saved as a string");
+  // The oldest blocks have no render (the builders fell through to Type), and junk renders
+  // and junk types were drawn as Type too.
+  eq(C.migrateBlocks([{ id: 1, type: "text", text: "keep me" }]),
+     [{ id: 1, type: "text", text: "keep me", render: "big", bigLayout: "lines", bigSize: "fit1" }]);
+  eq(C.migrateBlocks([{ id: 2, type: "text", render: "zzz", orient: 270, text: "x" }])[0].render, "sideways");
+  eq(C.migrateBlocks([{ id: 3, text: "untyped" }])[0], { id: 3, text: "untyped", render: "big", bigLayout: "lines", bigSize: "fit1", type: "text" });
+  for (const b of C.migrateBlocks([{ ...TYPE, orient: 90 }, { ...TYPE, orient: 180 }])) {
+    for (const k of ["orient", "rotateLen", "giantLayout", "giantSize"]) assert.ok(!(k in b), k + " survived");
+  }
+});
+
+test("Han tiling keeps its render and its fields; only the old renders' fields go from it", () => {
+  const hz = { id: 4, type: "text", render: "hanzi", orient: 0, text: "HI", size: 90, rotateLen: 800, cols: 15, hanziWeight: 400 };
+  eq(C.migrateBlocks([hz]), [{ id: 4, type: "text", render: "hanzi", text: "HI", size: 90, cols: 15, hanziWeight: 400 }]);
+  assert.equal(C.migrationRewrites([hz]), false, "a Han tiling block's clean-up asks for no backup");
+});
+
+test("idempotent across every old text shape, and the result needs no second backup", () => {
+  const stack = [GIANT, { ...GIANT, id: 2, giantLayout: "emote", giantSize: "12" }, { ...TYPE, id: 3 },
+                 { ...TYPE, id: 4, orient: 90 }, { ...TYPE, id: 5, orient: 180 }, { ...TYPE, id: 6, orient: 270 },
+                 { id: 7, type: "text", text: "bare" }, { id: 8, type: "text", render: "hanzi", text: "H", orient: 0 },
+                 ITEMS_TK];
+  const once = C.migrateBlocks(stack);
+  eq(C.migrateBlocks(once), clone(once));
+  assert.equal(C.migrationRewrites(stack), true);
+  assert.equal(C.migrationRewrites(once), false);
+  for (const b of once) {
+    if (b.type === "text") assert.ok(C.TEXT_RENDERS.includes(b.render), JSON.stringify(b));
+  }
+  const ids = once.map((b) => b.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
+test("every converted text block builds, at 80 and 58 mm", () => {
+  const stack = C.migrateBlocks([GIANT, { ...GIANT, giantSize: 15 }, { ...TYPE, orient: 90 }, { ...TYPE, orient: 270 },
+                                 { ...TYPE, orient: 180, text: "UPSIDE" }]);
+  for (const paperMm of [80, 58]) {
+    const ctx = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, paperMm });
+    for (const b of stack) {
+      const r = C.blockRender(b);
+      const bodies = r === "sideways"
+        ? C.buildSideBodies(b.text, { ...C.sideOpts(b), budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW })
+        : C.buildBigBodies(b.text, { ...C.bigOpts(b), budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+      const ink = bodies.map((x) => x.html.replace(/<[^>]*>/g, "")).join("").replace(/\s/g, "");
+      assert.equal(ink, b.text.replace(/\s/g, ""), JSON.stringify(bodies.map((x) => x.html)));
+      for (const p of C.packStackBodies(bodies, ctx)) assert.ok(p.chars <= C.MAX_CHARS);
+    }
+  }
+});
+
+test("migrationNote says what changed and names the backup", () => {
+  const n = (blocks) => C.migrationNote(blocks, "Before 1.0.0");
+  assert.match(n([ITEMS_TK]), /^Your saved stack had a Takeover.*saved as the preset "Before 1\.0\.0"\.$/);
+  assert.ok(!/text blocks were made/.test(n([ITEMS_TK])));
+  assert.match(n([GIANT]), /^Your saved stack's text blocks were made for the old printer-bot and now print as Big text or Sideways text\. The stack as it was is saved as the preset "Before 1\.0\.0"\.$/);
+  assert.match(n([ITEMS_TK, TYPE]), /Takeover.* Its text blocks were made for the old printer-bot/);
+  assert.match(C.migrationNote([GIANT], "Before 1.0.0 (2)"), /"Before 1\.0\.0 \(2\)"\.$/);
 });
 
 test("freePresetName never hands back a name the user already has", () => {

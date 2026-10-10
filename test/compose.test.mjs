@@ -190,50 +190,56 @@ test("the packer never touches a body: no <br> is added or stripped, whatever op
   }
 });
 
-test("a full 15-column Hanzi band fits its message at every lead", () => {
-  // hanziBodies sizes a band as floor((MAX_CHARS - bandReserve(budget)) / cols) rows of
-  // pure text, and the packer never splits a band: 32 rows (480 chars, 492 with
-  // "Cheer100 nn "). (hanziBodies itself needs a canvas, so its formula is replayed here
-  // from the two exported pieces it uses; the structural check below pins that it still
-  // calls them.)
-  const rowsFor = (opts, cols) =>
-    Math.max(1, Math.floor((C.MAX_CHARS - C.bandReserve(C.MAX_CHARS - C.leadLength(opts))) / cols));
-  for (const opts of [{ cheer: true, bits: 100 }, { cheer: true, bits: 10000 }, { cheer: false },
-                      { cheer: true, bits: 1, noNonce: true }]) {
-    assert.equal(rowsFor(opts, 15), 32, "band changed for " + JSON.stringify(opts));
-    assert.equal(C.bandReserve(C.MAX_CHARS - C.leadLength(opts)), 14, "reserve must stay 14");
-  }
-  for (const bits of [1, 100, 1000, 10000, 99999]) {
-    const opts = { cheer: true, bits };
-    for (const cols of [8, 15, 23, 48]) {
-      const rows = rowsFor(opts, cols), band = "丶".repeat(rows * cols);
-      const parts = C.packStackBodies([body(rows * cols, rows * 18, band)], opts);
-      assert.equal(parts.length, 1);
-      assert.ok(parts[0].chars <= C.MAX_CHARS, cols + "-column band at " + bits + " bits: " + parts[0].chars + " characters");
+test("a full Han tiling (Design T) band fits its message at every lead, on both papers", () => {
+  // buildDesignT bands a grid by characters (500, its trailing token included) and by the
+  // message box, and every plain part rides alone: the packer never splits one, so a band
+  // sized for a shorter token than the one sent goes over 500 and Twitch rejects the cheer.
+  for (const paperMm of [80, 58]) {
+    const Cc = C.hanziCols(C.paperSpec(paperMm).contentW);
+    const grid = Array.from({ length: 200 }, () => Array.from({ length: Cc }, () => "鬱"));
+    for (const bits of [1, 24, 100, 10000, 99999]) {
+      for (const noNonce of [true, false]) {
+        const ctx = C.stackContext({ cheer: true, bits, noNonce, hrThreshold: 1000000, paperMm });
+        assert.equal(ctx.mode, "plain");
+        const bodies = C.buildDesignT(grid, { mode: ctx.mode, paperMm, cheer: true, bits, noNonce, limitPx: ctx.limit.px });
+        const parts = C.packStackBodies(bodies, ctx);
+        assert.equal(parts.length, bodies.length, "a plain band shared a part");
+        for (const p of parts) {
+          assert.ok(p.chars <= C.MAX_CHARS, `${paperMm} mm, ${bits} bits: ${p.chars} characters`);
+          assert.ok(p.contentPx <= ctx.limit.px + 1e-6, `${paperMm} mm, ${bits} bits: ${p.contentPx}px`);
+          assert.ok(p.payload.endsWith(" Cheer" + bits + (noNonce ? "" : " " + p.nonce)), p.payload.slice(-12));
+        }
+      }
     }
   }
 });
 
-test("the banded builders size against the real lead (a structural check: they need a canvas)", () => {
+test("the glue builds every block against the stack context it packs with (a structural check: it needs a canvas)", () => {
   // hanziBodies and glyphImageBodies rasterize on a <canvas>, which the null-DOM sandbox
-  // cannot run, so their band arithmetic is replayed above from the two exported pieces it
-  // uses. This pins that they still USE them: the packer never splits a band, so a band
-  // sized for a shorter lead than the one sent goes over 500 and Twitch rejects the cheer.
+  // cannot run. This pins that they, renderBlockBodies and packStack still hand the builders
+  // the ONE stackContext the packer then packs with: a body sized for another budget or
+  // another box than its part's goes over 500 (Twitch rejects it) or past the bot's box.
   const here = dirname(fileURLToPath(import.meta.url));
   const src = readFileSync(join(here, "../public/index.html"), "utf8");
   const fn = (name) => {
     const m = src.match(new RegExp("function " + name + "\\(([^)]*)\\)\\s*\\{[\\s\\S]*?\\n    \\}\\n"));
     assert.ok(m, "could not find " + name + " in index.html");
-    return m;
+    return m[0];
   };
-  for (const name of ["hanziBodies", "glyphImageBodies"]) {
-    const m = fn(name);
-    assert.ok(/\bbudget\b/.test(m[1]), name + " no longer takes the per-body budget");
-    assert.ok(m[0].includes("bandReserve(budget)"), name + " sizes its band without bandReserve(budget)");
-    assert.ok(!/MAX_CHARS - 14\b|\+ 14\b/.test(m[0]), name + " is back to a hardcoded 14-character lead");
+  const hz = fn("hanziBodies");
+  assert.ok(/buildDesignT\(/.test(hz) && /limitPx: ctx\.limit\.px/.test(hz) && /mode: ctx\.mode/.test(hz), "hanziBodies: " + hz);
+  for (const k of ["cheer", "bits", "noNonce", "paperMm"]) assert.ok(new RegExp(k + ": ctx\\." + k).test(hz), "hanziBodies drops ctx." + k);
+  const gl = fn("glyphImageBodies");
+  assert.ok(/buildGlyphBodies\([^;]*budget: ctx\.budget[^;]*heightPx: ctx\.room[^;]*paperMm: ctx\.paperMm/.test(gl), "glyphImageBodies: " + gl);
+  assert.ok(/buildDesignTPicture\(/.test(gl), "glyphImageBodies lost the plain picture");
+  // The band reservation is the real lead's and nothing more (no extra LEAD_GUARD on top).
+  assert.ok(!/LEAD_GUARD|bandReserve/.test(gl), "glyphImageBodies reserves more than the lead");
+  const rbb = fn("renderBlockBodies");
+  for (const b of ["buildBigBodies", "buildSideBodies"]) {
+    assert.ok(new RegExp(b + "\\([^;]*budget: ctx\\.budget[^;]*heightPx: ctx\\.room[^;]*contentW: ctx\\.contentW").test(rbb), b + " in " + rbb);
   }
-  const rbb = fn("renderBlockBodies")[0];
-  assert.ok(/glyphImageBodies\(block, budget\)/.test(rbb), "renderBlockBodies stopped passing the budget to glyph-art");
-  assert.ok(/hanziBodies\([^)]*\bbudget\)/.test(rbb), "renderBlockBodies stopped passing the budget to Hanzi");
-  assert.ok(/MAX_CHARS - leadLength\(opts\)/.test(fn("packStack")[0]), "packStack no longer derives the budget from the lead");
+  assert.ok(/ctx\.mode === "plain"/.test(rbb), "renderBlockBodies no longer falls back to the plain form");
+  const ps = fn("packStack");
+  assert.ok(/stackContext\(opts\)/.test(ps) && /renderBlockBodies\(blocks\[i\], ctx\)/.test(ps), "packStack: " + ps);
+  assert.ok(/for \(k in ctx\) po\[k\] = ctx\[k\]/.test(ps) && /packStackBodies\(bodies, po\)/.test(ps), "packStack packs with another context");
 });

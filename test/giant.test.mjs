@@ -771,15 +771,6 @@ test("hostile options finish fast and still fit one message", () => {
   }
 });
 
-test("blockRender: giant and hanzi by name, anything else is Type (today's fall-through)", () => {
-  assert.equal(C.blockRender({ render: "giant" }), "giant");
-  assert.equal(C.blockRender({ render: "hanzi" }), "hanzi");
-  assert.equal(C.blockRender({ render: "type" }), "type");
-  for (const junk of [{}, { render: "zzz" }, { render: "GIANT" }, { render: null }, null, undefined]) {
-    assert.equal(C.blockRender(junk), "type", JSON.stringify(junk));
-  }
-});
-
 test("Print size ruler: 1..13, one level deeper each, balanced, one cheer on one page", () => {
   const ru = C.buildGiantRuler();
   assert.ok(ru.html.startsWith("<br>"), "the ruler starts on its own line, below the lead");

@@ -1702,6 +1702,174 @@
     return out.concat(cheerWordNotes(words, "remove it, or put it on a line of its own.")).join("\n");
   }
 
+  // ── GLYPH-ART (High Roller): a picture as a grid of characters ──
+  // The canvas work (decode, rotate, sample, quantize) stays in the browser glue; these take
+  // the finished grid (rows of cells) and build the bodies. The form follows the tier:
+  //   cjk                 R1  <div style=width:<C>.2em;font-size:<K>vw;line-height:1><C x R cells></div>
+  //                           Cells are 1em squares and the row breaks itself at C cells
+  //                           (the .2em slack lets C fit and not C+1); no <br>, so a row
+  //                           costs nothing. K = floor(100 x 152 / (1.81 x (C + 0.2))) / 100
+  //                           keeps a row inside 58 mm's 153px; vw is the page width, so the
+  //                           same message fits both papers (about 228 of 244px on 80 mm).
+  //                           Aligned at every C from 12 to 30 on both papers (bench R1).
+  //   ascii, asciifull,   R4  <pre style="font:<K>vw/1.2 'Courier New';margin:0"><row><br>...</pre>
+  //   safe (blocks)           Courier New is 0.6em on the rig and on the bench (Liberation
+  //                           Mono); <pre> keeps the spaces the ASCII ramps need. K =
+  //                           floor(100 x 152 / (C x 0.6 x 1.81)) / 100. Rows escaped.
+  //   braille             R6  <div style=font-size:<F>px;line-height:<F+2>px><row><br>...</div>
+  //                           Each cell is 2x4 dots. The rig's Braille face (Courier New has
+  //                           none) is unmeasured, so F leaves a 15% margin on the bench's
+  //                           0.733em; it needs a test print before anyone relies on it.
+  // Every grid is banded into bodies by characters (the open and close tags are repeated in
+  // each band) and by height (one part's room after the lead).
+  var GLYPH_FORMS = { cjk: "cjk", ascii: "mono", asciifull: "mono", safe: "mono", braille: "braille" };
+  function glyphForm(tier) { return GLYPH_FORMS[tier] || "cjk"; }
+  // A cell's width over its height, for sampling a picture into rows: R1's cells are square,
+  // a Courier New cell is 0.6em x 1.2em, a plain Han cell prints 16 x 21.6px (Design T).
+  var GLYPH_ASPECT = { cjk: 1, mono: 0.5, plain: 16 / 21.6 };
+  var CJK_COLS_MIN = 12, CJK_COLS_MAX = 30, GLYPH_COLS_MIN = 8, GLYPH_COLS_MAX = 48;
+  var BRAILLE_ADV = 0.733, BRAILLE_MIN_PX = 6, BRAILLE_MAX_PX = 12;
+  // The columns a form can take on this paper: R1 12..30; the others 8..48, and Braille no
+  // more than fit the paper at its smallest font.
+  function glyphCols(form, cols, paperMm) {
+    var n = Math.round(Number(cols)); if (!isFinite(n)) n = form === "cjk" ? 16 : 40;
+    if (form === "cjk") return Math.max(CJK_COLS_MIN, Math.min(CJK_COLS_MAX, n));
+    var hi = GLYPH_COLS_MAX;
+    if (form === "braille") hi = Math.min(hi, Math.floor(paperSpec(paperMm).contentW * 0.85 / (BRAILLE_ADV * BRAILLE_MIN_PX)));
+    return Math.max(GLYPH_COLS_MIN, Math.min(hi, n));
+  }
+  // Rows for a picture imgW x imgH at `cols` cells of the given width/height aspect.
+  function gridRows(cols, imgW, imgH, aspect) {
+    if (!imgW || !imgH) return Math.max(1, Math.round(cols / 2));
+    return Math.max(1, Math.min(120, Math.round(cols * (imgH / imgW) * (aspect || 1))));
+  }
+  function cjkGridK(C) { return Math.floor(100 * 152 / (1.81 * (C + 0.2))) / 100; }
+  function monoK(C) { return Math.floor(100 * 152 / (C * 0.6 * 1.81)) / 100; }
+  function brailleFontPx(C, contentW) {
+    return Math.max(BRAILLE_MIN_PX, Math.min(BRAILLE_MAX_PX, Math.floor(contentW * 0.85 / (C * BRAILLE_ADV))));
+  }
+  function glyphRowsOf(grid) {
+    return (grid || []).map(function (r) { return Array.isArray(r) ? r.slice() : Array.from(String(r)); });
+  }
+  function glyphEmpty(note) { return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: note || "" } }]; }
+  // Band rows greedily: as many as keep open + rows + separators + close within the budget
+  // and rows x rowH within the room, at least one a band.
+  function glyphBand(rows, open, close, sep, rowH, budget, room, info) {
+    var fixed = payloadLength(open) + payloadLength(close), sepL = payloadLength(sep), out = [], i = 0;
+    var esc = rows.map(function (r) { return escapeHtml(r.join("")); });
+    var lens = esc.map(payloadLength);
+    while (i < rows.length) {
+      var j = i, c = fixed;
+      while (j < rows.length) {
+        var add = lens[j] + (j > i ? sepL : 0);
+        if (j > i && (c + add > budget || (j - i + 1) * rowH > room + PX_EPS)) break;
+        c += add; j++;
+      }
+      var html = open + esc.slice(i, j).join(sep) + close;
+      out.push({ html: html, chars: payloadLength(html), heightPx: Math.round((j - i) * rowH * 1000) / 1000,
+                 preview: { kind: "grid", grid: rows.slice(i, j).map(function (r) { return r.join(""); }).join("\n") },
+                 glyph: Object.assign({ rows: j - i, chunkIndex: out.length }, info) });
+      i = j;
+    }
+    out.forEach(function (b) { b.glyph.chunkCount = out.length; });
+    return out;
+  }
+  // opts for the three builders: {budget, heightPx (one part's room after the lead), paperMm}.
+  function buildCjkGrid(grid, opts) {
+    opts = opts || {};
+    var rows = glyphRowsOf(grid);
+    if (!rows.length || !rows[0].length) return glyphEmpty();
+    var C = rows[0].length, K = cjkGridK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
+    return glyphBand(rows, "<div style=width:" + C + ".2em;font-size:" + K + "vw;line-height:1>", BIG_CLOSE, "",
+      F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "cjk", cols: C, fontPx: F });
+  }
+  function buildMonoGrid(grid, opts) {
+    opts = opts || {};
+    var rows = glyphRowsOf(grid);
+    if (!rows.length || !rows[0].length) return glyphEmpty();
+    var C = rows[0].length, K = monoK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
+    return glyphBand(rows, "<pre style=\"font:" + K + "vw/1.2 'Courier New';margin:0\">", "</pre>", "<br>",
+      1.2 * F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "mono", cols: C, fontPx: F });
+  }
+  function buildBrailleGrid(grid, opts) {
+    opts = opts || {};
+    var rows = glyphRowsOf(grid);
+    if (!rows.length || !rows[0].length) return glyphEmpty();
+    var C = rows[0].length, F = brailleFontPx(C, paperSpec(opts.paperMm).contentW);
+    return glyphBand(rows, "<div style=font-size:" + F + "px;line-height:" + (F + 2) + "px>", BIG_CLOSE, "<br>",
+      F + 2, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "braille", cols: C, fontPx: F });
+  }
+  function buildGlyphBodies(tier, grid, opts) {
+    var f = glyphForm(tier);
+    return f === "mono" ? buildMonoGrid(grid, opts) : f === "braille" ? buildBrailleGrid(grid, opts) : buildCjkGrid(grid, opts);
+  }
+
+  // ── PLAIN (below the threshold): Han glyphs as plain text, "Design T" ──
+  // Below the streamer's High Roller threshold the bot prints the message as text: 16px,
+  // line-height 1.35 (a row every 21.6px), centred, inside quote marks, wrapping anywhere.
+  // A Han glyph is exactly 1em, so a line holds C = floor(contentW / 16) of them: 15 on
+  // 80 mm, 9 on 58 mm. Design T makes that a grid with no markup at all:
+  //   <header of light cells><row 1>...<row R> Cheer<bits>[ <repeat digits>]
+  //   - every row exactly C cells, so the paper's own wrapping makes the rows;
+  //   - the header puts the opening quote on a line of its own: on 80 mm quote + 15 glyphs
+  //     is wider than 244px, so the header is 14 cells (and line 1 is the quote and 14); on
+  //     58 mm quote + 9 fits, so it is a full 9. Cheer-ready off, or a plain grid in a High
+  //     Roller cheer (no quotes there), it is a full C;
+  //   - the cheer token goes LAST, after a space, so the closing quote rides on the token's
+  //     own line (a closing quote cannot start a line; it would drag the last cell down).
+  // Never a space, Latin letter or U+3000 inside the grid, and the light cell is 丶. A plain
+  // part rides alone in its cheer (anything before the grid shifts every row) and every part
+  // repeats the header and the token. Height = (header + R + token) lines x 21.6px.
+  var HAN_CELL_PX = 16, QUOTE_PX = 6, HAN_LIGHT = "丶";
+  function hanziCols(contentW) { return Math.floor(contentW / HAN_CELL_PX); }
+  function designTHeader(paperMm, mode) {
+    var p = paperSpec(paperMm), C = hanziCols(p.contentW);
+    return mode === "plain" && QUOTE_PX + C * HAN_CELL_PX > p.contentW ? C - 1 : C;
+  }
+  // The columns a Design T picture's own cells take: C less the light frame column each side.
+  function designTPictureCols(paperMm) { return hanziCols(paperSpec(paperMm).contentW) - 2; }
+  // grid: rows of exactly C cells (a row of another length is padded with light cells or cut,
+  // so it cannot shear the rows after it). opts = {mode ("plain" | "raw"), paperMm, cheer,
+  // bits, noNonce, limitPx (the message box: 1600 for a plain part; a High Roller part may
+  // have the streamer's bits-per-inch limit)}.
+  function buildDesignT(grid, opts) {
+    opts = opts || {};
+    var p = paperSpec(opts.paperMm), C = hanziCols(p.contentW), mode = opts.mode === "raw" ? "raw" : "plain";
+    var rows = glyphRowsOf(grid).map(function (r) {
+      r = r.slice(0, C);
+      while (r.length < C) r.push(HAN_LIGHT);
+      return r;
+    });
+    if (!rows.length) return glyphEmpty();
+    var h = designTHeader(p.mm, mode), header = new Array(h + 1).join(HAN_LIGHT);
+    var trail = trailLength({ cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce });
+    var extra = 1 + (trail ? 1 : 0);
+    var limit = (typeof opts.limitPx === "number" && isFinite(opts.limitPx) && opts.limitPx > 0) ? opts.limitPx : CONTENT_CEILING_PX;
+    var per = Math.max(1, Math.min(Math.floor((MAX_CHARS - trail - h) / C), Math.floor(limit / LEAD_LINE_PX + 1e-9) - extra));
+    var out = [];
+    for (var i = 0; i < rows.length; i += per) {
+      var band = rows.slice(i, i + per);
+      var html = header + band.map(function (r) { return r.join(""); }).join("");
+      out.push({ html: html, chars: payloadLength(html), alone: true,
+                 heightPx: Math.round((band.length + extra) * LEAD_LINE_PX * 1000) / 1000,
+                 preview: { kind: "grid", grid: [header].concat(band.map(function (r) { return r.join(""); })).join("\n") },
+                 hanzi: { mode: mode, cols: C, header: h, rows: band.length, chunkIndex: out.length } });
+    }
+    out.forEach(function (b) { b.hanzi.chunkCount = out.length; });
+    return out;
+  }
+  // A picture in Design T: its cells (C - 2 a row) framed by a light column each side, which
+  // absorbs a one-cell slip if the quote turns out wider than expected.
+  function buildDesignTPicture(grid, opts) {
+    var w = designTPictureCols(opts && opts.paperMm);
+    var rows = glyphRowsOf(grid).map(function (r) {
+      r = r.slice(0, w);
+      while (r.length < w) r.push(HAN_LIGHT);
+      return [HAN_LIGHT].concat(r, [HAN_LIGHT]);
+    });
+    return buildDesignT(rows, opts);
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // Everything in this block is either (a) a function *definition* (never executes its
   // body until called) or (b) the single `document.addEventListener("DOMContentLoaded", init)`
@@ -1735,7 +1903,10 @@
     // offered as Regular/Bold rather than a 100-900 slider, which would be theatre on
     // nine tenths of its travel. It defaults to bold, which is what the hardcoded "900"
     // here was really producing all along.
-    function renderColumn(line, cwCols, sizeFactor, weight) {
+    // `cellAspect` is a cell's height over its width: 1 for a square cell (the default), and
+    // BASE_LH (1.35) for a plain Han cell, which prints 16px wide on a 21.6px line. The rows
+    // follow it, so the letters keep their shape on the paper (Design T).
+    function renderColumn(line, cwCols, sizeFactor, weight, cellAspect) {
       var wt = weight === 400 ? 400 : 700;
       var CELL = 24, w = Math.max(1, cwCols * CELL);
       var s = String(line).toUpperCase().split(/\s+/).filter(Boolean).join(" ");
@@ -1771,7 +1942,7 @@
         // x = leftPx so the ink's left edge sits at the top of the tape (deviceY = 0).
         ctx.fillText(s, leftPx, w / 2 + (ascPx - descPx) / 2);
       }, w, canvasH);
-      var rows = Math.max(1, Math.round(cwCols * (canvasH / w)));   // aspect-true; sf already in the scale
+      var rows = Math.max(1, Math.round(cwCols * canvasH / (w * (cellAspect || 1))));   // aspect-true; sf already in the scale
       return { luma: sampleLuma(buf.pixels, buf.w, buf.h, cwCols, rows), rows: rows };
     }
     // Split text into lines (CR/LF). Each line renders at the FULL column width and
@@ -1782,7 +1953,7 @@
     // longer strip (banding just adds receipts). Blank rows separate stacked lines,
     // and line order is top-to-bottom in the feed = the order they were typed.
     // Returns a combined luma grid (rows × totalCols).
-    function textColumnsLuma(text, totalCols, sizeFactor, weight) {
+    function textColumnsLuma(text, totalCols, sizeFactor, weight, cellAspect) {
       var lines = String(text).split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
       if (!lines.length) { var b = []; for (var z = 0; z < totalCols; z++) b.push(255); return [b]; }
       if (lines.length > 24) lines = lines.slice(0, 24);   // sanity cap on runaway input
@@ -1790,7 +1961,7 @@
       var grid = [], GAP = 2;
       lines.forEach(function (line, k) {
         if (k > 0) for (var g = 0; g < GAP; g++) grid.push(blankRow());
-        var cd = renderColumn(line, totalCols, sizeFactor, weight);
+        var cd = renderColumn(line, totalCols, sizeFactor, weight, cellAspect);
         for (var r = 0; r < cd.luma.length; r++) grid.push(cd.luma[r]);
       });
       return grid;
@@ -1811,7 +1982,7 @@
     // right height for its width.
     function computeGrid(kind, tier, o) {
       if (kind === "text") {
-        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2, o.sizeFactor, o.weight) : textColumnsLuma(o.text, o.cols, o.sizeFactor, o.weight);
+        var tl = tier.kind === "braille" ? textColumnsLuma(o.text, o.cols * 2, o.sizeFactor, o.weight) : textColumnsLuma(o.text, o.cols, o.sizeFactor, o.weight, o.cellAspect);
         if (tier.kind === "braille") return packBraille(lumaToDots(tl, { threshold: o.threshold, invert: o.invert }));
         if (tier.kind === "binary") return quantizeBinary(tl, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
         if (o.dither) tl = ditherFloydSteinberg(tl, tier.ramp.length);
@@ -1823,14 +1994,26 @@
         var fineCols = o.cols * 2, fineRows = Math.max(1, Math.round(fineCols * (buf.h / buf.w)));
         return packBraille(lumaToDots(sampleLuma(buf.pixels, buf.w, buf.h, fineCols, fineRows), { threshold: o.threshold, invert: o.invert }));
       }
-      var rawFineH = Math.max(1, Math.round(o.rows / CHAR_ASPECT));
+      // o.charAspect: a cell's width over its height for the form being built (GLYPH_ASPECT);
+      // absent, the old monospace 0.5.
+      var asp = o.charAspect || CHAR_ASPECT;
+      var rawFineH = Math.max(1, Math.round(o.rows / asp));
       var b = rasterizeImage(o.img, { fineW: o.cols, fineH: rawFineH });
-      var rows = Math.max(1, Math.round(o.cols * (b.h / b.w) * CHAR_ASPECT));
+      var rows = Math.max(1, Math.round(o.cols * (b.h / b.w) * asp));
       var luma = sampleLuma(b.pixels, b.w, b.h, o.cols, rows);
       if (tier.kind === "binary") return quantizeBinary(luma, { on: tier.on, off: tier.off, threshold: o.threshold, invert: o.invert });
       if (o.dither) luma = ditherFloydSteinberg(luma, tier.ramp.length);
       var toneShift = 128 - o.threshold;
       return quantizeTone(luma.map(function (row) { return row.map(function (v) { return Math.max(0, Math.min(255, v + toneShift)); }); }), tier.ramp, { invert: o.invert });
+    }
+
+    // Han tiling for Design T: the text drawn sideways down a column exactly as many cells wide
+    // as a plain line holds (hanziCols), on cells 16 x 21.6px (cellAspect BASE_LH), quantized to
+    // the CJK ramp without dither. Read by turning the tape. buildDesignT frames it.
+    function designTTextGrid(text, paperMm, weight) {
+      var C = hanziCols(paperSpec(paperMm).contentW);
+      return computeGrid("text", getTier("cjk"), { cols: C, threshold: 128, invert: false, dither: false,
+        sizeFactor: 0.9, text: text || "", weight: weight === 400 ? 400 : 700, cellAspect: BASE_LH });
     }
 
     // --- state (assigned only inside init()/handlers, never at load time) --
@@ -4824,6 +5007,13 @@
       SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen,
       sideWidthPx: sideWidthPx, sideLines: sideLines, sideSizeOf: sideSizeOf, sideOpts: sideOpts,
       sidePlan: sidePlan, sideFit: sideFit, buildSideBodies: buildSideBodies, sideReport: sideReport,
+      // Glyph-art (High Roller) and Design T (plain).
+      GLYPH_FORMS: GLYPH_FORMS, glyphForm: glyphForm, GLYPH_ASPECT: GLYPH_ASPECT, CJK_COLS_MIN: CJK_COLS_MIN,
+      CJK_COLS_MAX: CJK_COLS_MAX, glyphCols: glyphCols, gridRows: gridRows, cjkGridK: cjkGridK, monoK: monoK,
+      brailleFontPx: brailleFontPx, buildCjkGrid: buildCjkGrid, buildMonoGrid: buildMonoGrid,
+      buildBrailleGrid: buildBrailleGrid, buildGlyphBodies: buildGlyphBodies, HAN_CELL_PX: HAN_CELL_PX,
+      HAN_LIGHT: HAN_LIGHT, hanziCols: hanziCols, designTHeader: designTHeader, designTPictureCols: designTPictureCols,
+      buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
       LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,

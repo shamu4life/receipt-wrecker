@@ -1870,6 +1870,76 @@
     return buildDesignT(rows, opts);
   }
 
+  // ── RIG PROBES: one cheer each, to learn how this streamer's printer-bot is set ──
+  // The app cannot see the streamer's High Roller threshold, so these two cheers answer it
+  // on paper for the price of one cheer each. Each returns {bits, mode, bodies, note}; the
+  // glue sends the bodies through the normal packer as a one-part stack at `bits`.
+  // High Roller test: exactly the threshold (the cheapest High Roller cheer), carrying a few
+  // shapes worth checking at once: BIG (styling is on), MMMMM sized to the width rule (does
+  // the right edge survive the rig's text rendering?), "jog" at 1.15 (descenders), BIG again
+  // upside down, and UP running bottom to top (does the streamer's Edge draw sideways-lr?).
+  function buildHighRollerProbe(o) {
+    o = o || {};
+    var t = hrThresholdOf(o.hrThreshold), bits = t > 0 ? t : cheerBits(o.bits), p = paperSpec(o.paperMm);
+    var mPx = Math.floor(bigFitPx(p.contentW, 5) / bigLineEm("MMMMM"));
+    var html = bigOpen(60, BIG_LH_CAPS) + "BIG" + BIG_CLOSE
+      + bigOpen(mPx, BIG_LH_CAPS) + "MMMMM" + BIG_CLOSE
+      + bigOpen(60, BIG_LH_TEXT) + "jog" + BIG_CLOSE
+      + bigOpen(60, BIG_LH_CAPS, true) + "BIG" + BIG_CLOSE
+      + sideOpen(40, BIG_LH_CAPS, "up") + "UP" + BIG_CLOSE;
+    var h = 60 * 0.8 + mPx * 0.8 + 60 * 1.15 + 60 * 0.8 + sideSegLen("UP", 40);
+    var note = t > 0
+      ? "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bits
+        + " bits: check that MMMMM keeps its right edge, jog keeps its tails, the second BIG is upside down and UP runs up "
+        + "the tape (if UP lies flat, the streamer's Edge can't print bottom to top: use top to bottom). If it all prints "
+        + "small inside quote marks, the threshold is higher than " + bits + "."
+      : "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
+    return { bits: bits, mode: "raw",
+             bodies: [{ html: html, chars: payloadLength(html), heightPx: Math.round(h * 1000) / 1000,
+                        preview: { kind: "html", html: html }, probe: "highroller" }],
+             note: note };
+  }
+  // Plain test: one bit under the threshold (1 bit when High Roller is off), a small Design T
+  // grid: a light header, "HI" in block letters inside the light frame, a gap, and a row of
+  // the ramp's tones. It shows that plain mode is what this amount gets, that every line holds
+  // C glyphs and the rows line up (the rig's quote width and Han face), and how the tones print.
+  var PROBE_LETTERS = {
+    15: ["X...X.XXX", "X...X..X.", "X...X..X.", "XXXXX..X.", "X...X..X.", "X...X..X.", "X...X.XXX"],
+    9: ["X.X.XXX", "X.X..X.", "X.X..X.", "XXX..X.", "X.X..X.", "X.X..X.", "X.X.XXX"]
+  };
+  function probeHiGrid(C) {
+    var ramp = getTier("cjk").ramp, dark = ramp[ramp.length - 1], w = C - 2, rows = [];
+    var art = PROBE_LETTERS[C] || PROBE_LETTERS[15].map(function (r) { return r.slice(0, w); });
+    art.forEach(function (r) {
+      var cells = Array.from(r).map(function (c) { return c === "X" ? dark : HAN_LIGHT; });
+      var pad = w - cells.length, left = Math.floor(pad / 2), row = [];
+      for (var i = 0; i < left; i++) row.push(HAN_LIGHT);
+      row = row.concat(cells);
+      while (row.length < w) row.push(HAN_LIGHT);
+      rows.push(row);
+    });
+    var blank = []; while (blank.length < w) blank.push(HAN_LIGHT);
+    rows.push(blank);
+    var tones = [];
+    for (var k = 0; k < w; k++) tones.push(ramp[Math.round(k * (ramp.length - 1) / Math.max(1, w - 1))]);
+    rows.push(tones);
+    return rows.map(function (r) { return [HAN_LIGHT].concat(r, [HAN_LIGHT]); });
+  }
+  function buildPlainProbe(o) {
+    o = o || {};
+    var t = hrThresholdOf(o.hrThreshold), bits = t > 1 ? t - 1 : 1, p = paperSpec(o.paperMm);
+    var mode = printMode({ cheer: true, bits: bits, hrThreshold: t });
+    var bodies = buildDesignT(probeHiGrid(hanziCols(p.contentW)),
+      { mode: mode, paperMm: p.mm, cheer: true, bits: bits, noNonce: !!o.noNonce, limitPx: CONTENT_CEILING_PX });
+    bodies.forEach(function (b) { b.probe = "plain"; });
+    var note = mode === "plain"
+      ? "One " + bits + "-bit cheer, one under the threshold. It should print small, inside quote marks: a light first line, "
+        + "HI in Han characters, a row of tones, then Cheer" + bits + ". Check that every line holds " + hanziCols(p.contentW)
+        + " characters and the edges of HI line up."
+      : "The threshold is 1 bit, so every cheer is a High Roller cheer and nothing prints as plain text: there is no plain test to send.";
+    return { bits: bits, mode: mode, bodies: bodies, note: note };
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // Everything in this block is either (a) a function *definition* (never executes its
   // body until called) or (b) the single `document.addEventListener("DOMContentLoaded", init)`
@@ -5014,6 +5084,7 @@
       buildBrailleGrid: buildBrailleGrid, buildGlyphBodies: buildGlyphBodies, HAN_CELL_PX: HAN_CELL_PX,
       HAN_LIGHT: HAN_LIGHT, hanziCols: hanziCols, designTHeader: designTHeader, designTPictureCols: designTPictureCols,
       buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture,
+      buildHighRollerProbe: buildHighRollerProbe, buildPlainProbe: buildPlainProbe,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
       LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,

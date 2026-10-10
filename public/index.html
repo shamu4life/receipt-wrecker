@@ -503,13 +503,6 @@
     var n = ((i % base) + base) % base;
     return a[Math.floor(n / a.length)] + a[n % a.length];
   }
-  function packageCheer(body, opts) {
-    opts = opts || {};
-    if (!opts.cheer) return body;
-    var token = opts.cheerToken || CHEER_TOKEN;
-    var nonce = opts.nonce || "";
-    return body + " " + token + (nonce ? " " + nonce : "");
-  }
   // ── PER-RECEIPT HEIGHT BUDGET (length-derived; replaces the old 1400 literal) ──
   // printer-bot lays the page out at --page-height 500mm, so the app used to pack up to a
   // fixed ~1400px (~37cm) per receipt. FIELD FIX (0.10.0): the real printer stops far
@@ -2283,10 +2276,6 @@
       if (!isFinite(cols)) cols = 15;
       return Math.max(6, Math.min(48, cols));
     }
-    function getImgWidth() {
-      var w = parseInt(els.imgWidth.value, 10);
-      return isFinite(w) ? Math.max(10, Math.min(70, w)) : 70;   // 70mm = full printable width
-    }
 
     // The Size slider is now a fill fraction (a percent, 25..100) of the paper/tape
     // width, shared by Big type (SVG) and Hanzi tiling — both auto-fit the width, so
@@ -2294,12 +2283,6 @@
     function getSizeFactor() {
       var f = parseFloat(els.textSize.value);
       return isFinite(f) ? Math.max(0.25, Math.min(1, f / 100)) : 0.9;
-    }
-    // Kept for the escaped-CSS big-text fallback (buildBigTextHtml); unused while big
-    // text renders as SVG. Treats the slider as a rough px size for that path only.
-    function getFontSizePx() {
-      var f = parseInt(els.textSize.value, 10);
-      return isFinite(f) ? Math.max(12, Math.min(220, f * 2)) : 90;
     }
     // Max rotated-tape length (px) per receipt before Rotate splits to the next
     // strip. Calibrated by the user to their printer's page break — see the hint.
@@ -2314,15 +2297,6 @@
     }
     // escapeHtml / escapeAttr live in the pure core (shared with the embed builders
     // and unit-tested there).
-    // Big Text is REAL oversized type, not a glyph mosaic: the chat message carries
-    // its own inline CSS, which printer-bot drops straight into the page via
-    // innerHTML (confirmed live — <br> prints a line break). Size/weight/family ride
-    // in the `font:` shorthand rather than `font-size:`/`font-weight:` so the literal
-    // "font-size" substring never appears — dodges a chat filter keyed on it.
-    function buildBigTextHtml(text, sizePx) {
-      var inner = String(text).replace(/\r/g, "").split("\n").map(escapeHtml).join("<br>");
-      return '<span style="' + FONT_PROP + '800 ' + sizePx + 'px/1.05 sans-serif">' + inner + '</span>';
-    }
     // Big Text as inline SVG — a fresh, non-CSS filter surface. The mod is actively
     // fighting the `font` CSS property; SVG sizes text with the font-size ATTRIBUTE
     // (no colon), so it slips the `*font*..:*` filter, and it's confirmed to render on
@@ -2708,13 +2682,6 @@
       }
       return bodies;
     };
-    function buildRotatedParts(text) {
-      return rotateBodies(text).map(function (b, k) {
-        var payload = packageCheer(LEAD_GUARD + b.html, cheerOptsFor(k));
-        return { payload: payload, chars: payloadLength(payload), copyable: true,
-                 bigText: true, previewHtml: b.html };
-      });
-    }
     // Crisp Big-type BODY (SVG). orient 0 = upright; 180 = upside-down (CSS rotate,
     // proven on the real engine). Default transform-origin (centre) so it flips in place.
     function bigTypeBodies(text, factor, orient, fmt) {
@@ -2727,8 +2694,6 @@
     // ready, else the original. Rotation always processes FROM block.url so it never
     // compounds; block.outUrl holds the rotated result.
     function embedUrl(block) { return ((block.rotate || block.adjBright || block.adjContrast) && block.outUrl) ? block.outUrl : block.url; }
-    // Probe an image block's aspect (height/width) and cache it on the block. The legacy
-    // probeAspect() is tied to the now-hidden URL box, so composer blocks need their own.
     // The same one-shot aspect probe an Image block gets, for a TAKEOVER PICTURE ITEM.
     // Without it a picture item's slot was always reserved square, so a portrait or a
     // landscape source overran the box the layout gave it — and because pictures are
@@ -2766,6 +2731,7 @@
       im.onerror = function () { delete aspectProbing[u]; };
       im.src = u;
     }
+    // Probe an image block's aspect (height/width) once and cache it on the block.
     function probeBlockAspect(block) {
       var u = embedUrl(block);
       if (!u || block.aspect || block._probing === u) return;
@@ -3704,7 +3670,7 @@
       return out.join("\n");
     };
     // Hanzi-tiled text BODIES (markup-free glyph grid) — the durable, filter-proof mode.
-    // Bands like buildTextParts; cols is the resolution lever (size is floored so tiny
+    // Banded into messages; cols is the resolution lever (size is floored so tiny
     // letters can't turn illegible). CJK ramp + defaults, no per-block glyph knobs beyond
     // Detail (columns).
     // `budget` = characters per body after the lead (packStack's MAX_CHARS - leadLength);
@@ -3861,34 +3827,6 @@
       return packStackBodies(bodies, opts);
     }
     function bigStyleVal() { return els.bigStyle ? els.bigStyle.value : "big"; }
-    // Big Text has three styles. "big"/"rotate" emit real HTML type (injected via
-    // printer-bot's innerHTML). "hanzi" falls back to the markup-free glyph engine
-    // (buildTextParts) — the same giant sideways letters, but tiled from Han glyphs
-    // carrying zero CSS symbols, so they ride past the symbol-% filters that block
-    // the rotate payload's ~360 chars of positioning CSS. One receipt per HTML
-    // message; the glyph fallback bands across receipts when it's tall.
-    function bigTextParts() {
-      var style = bigStyleVal();
-      if (style === "hanzi") return buildTextParts();
-      if (style === "rotate") return buildRotatedParts(els.textInput.value || "");
-      // "big" now renders as SVG (fresh, non-CSS surface). buildBigTextHtml is kept as
-      // a one-line-swap fallback if the SVG surface ever gets filtered.
-      var html = buildBigTextSvg(els.textInput.value || "", getSizeFactor());
-      var payload = packageCheer(LEAD_GUARD + html, cheerOptsFor(0));
-      return [{ payload: payload, chars: payloadLength(payload), copyable: true,
-                bigText: true, previewHtml: html }];
-    }
-
-    function baseOpts() {
-      var threshold = parseInt(els.contrast.value, 10);
-      return {
-        cols: getCols(),
-        dither: els.quantDither.checked,
-        threshold: isFinite(threshold) ? threshold : 128,
-        invert: els.invert.checked,
-        sizeFactor: getSizeFactor(),
-      };
-    }
     // Bits per cheer: any whole number from 1 up (cheerBits). The "100" in "Cheer100" is
     // just the bit count, so a different amount is a different token.
     function getBits() {
@@ -3953,43 +3891,6 @@
         + "spent), and the digits make each copy different. They also print on the receipt, "
         + "which is why this is off. Leave it off and wait 30 seconds before sending the same thing again.";
     }
-    function cheerOptsFor(i) {
-      return { cheer: els.cheer.checked, cheerToken: "Cheer" + getBits(), nonce: getNonce() ? nonceForPart(i) : "" };
-    }
-    // Big Text: split the rendered CellGrid into ordered top-to-bottom bands
-    // whenever it's taller than one <=MAX_CHARS message can hold. rowsPerMsg
-    // reserves 14 chars (" Cheer100 " + a 2-glyph nonce) out of MAX_CHARS
-    // regardless of whether Cheer-ready or the repeat number is actually on, so
-    // toggling either never changes how the grid is banded. N===1 when the grid already fits.
-    function buildTextParts() {
-      var o = baseOpts();
-      // Glyph tiling's resolution IS the column count, so shrinking the letters
-      // wastes most of the paper on margins and leaves too few columns to read
-      // (small Size => illegible hanzi — the #1 cause of "mine looks worse than
-      // receiptify"). Floor the size high so tiled text always fills the width and
-      // stays legible; the slider still trims a little. (Big type/rotate are vector
-      // and keep the full 25–100% range.)
-      o.sizeFactor = Math.max(0.85, o.sizeFactor);
-      o.text = els.textInput.value || "";
-      var tier = getTier(els.tier.value);
-      var grid = computeGrid("text", tier, o);
-      // Run-cap tone tiers (cjk has no space, so even blank rows of the lightest
-      // glyph get broken) so a giant sideways letter doesn't send a wall of one
-      // repeated glyph into the repetition filter. Adds a faint texture; it sends.
-      if (tier.ramp) grid = breakRuns(grid, tier.ramp, 3);
-      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - 14) / o.cols));
-      var parts = [];
-      for (var r = 0; r < grid.length; r += rowsPerMsg) {
-        var body = render(grid.slice(r, r + rowsPerMsg));
-        var payload = packageCheer(body, cheerOptsFor(parts.length));
-        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true });
-      }
-      if (!parts.length) {
-        var empty = packageCheer("", cheerOptsFor(0));
-        parts.push({ payload: empty, chars: payloadLength(empty), copyable: true });
-      }
-      return parts;
-    }
     // Cap any run of identical chars at maxRun by nudging the offender to the
     // next ramp level — deterministically defeats Nightbot's repetition filter
     // even in flat regions that dither leaves solid (pure black/white).
@@ -4010,65 +3911,10 @@
         return out;
       });
     }
-    // Real image, sized reliably. The picture lives at the URL (payload is ~150 chars
-    // regardless of image size — inlining base64 blows past Twitch's ~500 cap). The tag
-    // that carries it comes from EMBEDS; the picture's real aspect ratio (from the canvas
-    // on upload, or by probing the URL once) gives the box its height, so it fills the
-    // width with no distortion and no letterbox. Legacy tabbed-UI path — the composer
-    // (imageBodies) is the live one; both build their markup through buildImageEmbed.
-    var imgAspect = 0, imgAspectUrl = "", probingUrl = "";   // aspect = naturalHeight/naturalWidth, tied to one URL
+    // The aspect (naturalHeight/naturalWidth) of the last uploaded picture, tied to its URL.
+    // Write-only since the legacy tabbed UI's URL builder went; the uploaders still record it.
+    var imgAspect = 0, imgAspectUrl = "";
     function setImgAspect(url, aspect) { if (aspect > 0) { imgAspect = aspect; imgAspectUrl = url; } }
-    function probeAspect(url) {
-      if (!url || url === imgAspectUrl || url === probingUrl) return;   // already known / in flight
-      probingUrl = url;
-      var probe = new Image();
-      probe.onload = function () { probingUrl = ""; if (probe.naturalWidth && (els.imgUrl.value || "").trim() === url) { setImgAspect(url, probe.naturalHeight / probe.naturalWidth); update(); } };
-      probe.onerror = function () { probingUrl = ""; };
-      probe.src = url;
-    }
-    function buildUrlImageParts() {
-      var url = (els.imgUrl.value || "").trim();
-      if (!url) return [{ payload: "(paste an image URL above)", chars: 0, copyable: false, showHead: false }];
-      var known = imgAspect > 0 && imgAspectUrl === url;
-      if (!known) probeAspect(url);   // learn the aspect, then this re-renders at the true height
-      var W = Math.min(PAPER_PX, Math.round(getImgWidth() * PX_PER_MM));   // mm -> px, capped to the paper
-      var body = buildImageEmbed(EMBED_DEFAULT, { url: url, w: W, h: Math.max(1, Math.round(W * (known ? imgAspect : 1))), mm: getImgWidth() });
-      var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(0));
-      return [{ payload: payload, chars: payloadLength(payload), copyable: true, previewImgUrl: url }];
-    }
-    // Image mode: sample -> (dither) -> ramp -> run-cap -> monospace HTML, BANDED
-    // across receipts. Each strip is a horizontal band of rows sized to fit MAX_CHARS
-    // (the span wrapper + cheer footer reserved); tape the strips top-to-bottom to
-    // rebuild the picture. Banding is what lets the grid be bigger than one ~490-char
-    // message can hold — i.e. real resolution instead of a thumbnail.
-    function buildImageParts() {
-      if (!currentImage) return [{ payload: "(choose an image file above)", chars: 0, copyable: false, showHead: false }];
-      var o = baseOpts();
-      o.img = currentImage;
-      o.rows = rowsForImage(o.cols, currentImage.naturalWidth || currentImage.width, currentImage.naturalHeight || currentImage.height);
-      var tier = getTier(els.tier.value);
-      var raw = computeGrid("image", tier, o);
-      // Run-capping nudges an over-repeated cell to the next ramp level; the braille
-      // tier has no ramp (it packs dots, not tone levels), so skip it — calling
-      // breakRuns with an undefined ramp would throw.
-      var grid = tier.ramp ? breakRuns(raw, tier.ramp, 3) : raw;
-      var F = Math.max(6, Math.round(PAPER_PX / (o.cols * 0.6)));   // size to fill the width
-      var open = '<span style="white-space:pre;' + FONT_PROP + F + 'px/' + F + 'px monospace">';
-      // Rows per strip = budget minus (guard + open tag + </span> + cheer footer),
-      // divided by a row's cost (cols glyphs + "<br>"). At least one row per strip.
-      var overhead = LEAD_GUARD.length + open.length + 7 + 14;
-      var rowsPerMsg = Math.max(1, Math.floor((MAX_CHARS - overhead) / (o.cols + 4)));
-      var parts = [];
-      for (var r = 0; r < grid.length; r += rowsPerMsg) {
-        var strip = grid.slice(r, r + rowsPerMsg);
-        var body = open + strip.map(function (row) { return escapeHtml(row.join("")); }).join("<br>") + '</span>';
-        var payload = packageCheer(LEAD_GUARD + body, cheerOptsFor(parts.length));
-        parts.push({ payload: payload, chars: payloadLength(payload), copyable: true, imageAscii: true,
-                     previewGrid: strip.map(function (row) { return row.join(""); }).join("\n") });
-      }
-      return parts;
-    }
-
     // --- clipboard -----------------------------------------------------------
     function fallbackCopy(text) {
       var ta = document.createElement("textarea");
@@ -4523,30 +4369,24 @@
           var frame2 = receiptFrame(stackBody);
           frame2.setAttribute("data-thermalable", "1");
           card.appendChild(frame2);
-        } else if (item.bigText || item.previewImgUrl) {
-          // Faithful receipt frame around the visual content (real type / rotate SVG,
-          // or the actual image).
+        } else if (item.previewImgUrl) {
+          // A carrier-probe part: a receipt frame around the actual picture.
           var body = document.createElement("div");
-          if (item.bigText) {
-            body.innerHTML = item.previewHtml;   // our own escaped HTML/SVG — safe
-          } else {
-            var img = new Image(); img.alt = ""; var tries = 0;
-            // A freshly uploaded KV link can 404 for a few seconds until it propagates
-            // — retry a few times so the preview fills in rather than staying broken.
-            img.onerror = function () { if (tries++ < 4) setTimeout(function () { img.src = item.previewImgUrl + (item.previewImgUrl.indexOf("?") < 0 ? "?" : "&") + "r=" + tries; }, 1200); };
-            img.src = item.previewImgUrl;
-            body.appendChild(img);
-          }
+          var img = new Image(); img.alt = ""; var tries = 0;
+          // A freshly uploaded KV link can 404 for a few seconds until it propagates
+          // — retry a few times so the preview fills in rather than staying broken.
+          img.onerror = function () { if (tries++ < 4) setTimeout(function () { img.src = item.previewImgUrl + (item.previewImgUrl.indexOf("?") < 0 ? "?" : "&") + "r=" + tries; }, 1200); };
+          img.src = item.previewImgUrl;
+          body.appendChild(img);
           var frame = receiptFrame(body);
-          // Both surfaces thermalize now: Big Text (SVG / rotate span) is already
-          // self-contained, and a real image gets inlined as a data: URI first —
-          // see inlineImages(), which is what makes a photo survive the raster.
+          // A real image gets inlined as a data: URI before it is rasterized — see
+          // inlineImages(), which is what makes a photo survive the thermal raster.
           frame.setAttribute("data-thermalable", "1");
           card.appendChild(frame);
         } else {
           var pre = document.createElement("pre");
           pre.className = "receipt";
-          pre.textContent = item.previewGrid != null ? item.previewGrid : previewText(item.payload);
+          pre.textContent = previewText(item.payload);
           card.appendChild(pre);
         }
         // A part's own one-line explanation (the size ruler says what to look for).
@@ -6477,7 +6317,7 @@
       ditherFloydSteinberg: ditherFloydSteinberg,
       lumaToDots: lumaToDots, packBraille: packBraille,
       render: render, payloadLength: payloadLength, withinBudget: withinBudget, MAX_CHARS: MAX_CHARS,
-      makeNonce: makeNonce, cheerBits: cheerBits, packageCheer: packageCheer, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
+      makeNonce: makeNonce, cheerBits: cheerBits, buildCensus: buildCensus, CHEER_TOKEN: CHEER_TOKEN,
       packStackBodies: packStackBodies,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,

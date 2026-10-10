@@ -83,11 +83,13 @@ const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxI
 // functions) to the test through module.exports, which is how an expected payload that
 // needs a canvas is computed.
 // `init`: one more init script, run after the clipboard stub (a test that needs the clipboard
-// to refuse, say).
-async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core, init } = {}) {
+// to refuse, say). `eager: true` sets the app's test hook that draws every part's preview, near
+// the viewport or not (the app draws them lazily, one at a time, as they come near).
+async function freshPage({ blocks, presets, controls = SETTINGS, viewport, core, init, eager } = {}) {
   const ctx = await browser.newContext(viewport ? { viewport } : {});
   await ctx.addInitScript(installClipboardStub);
   if (init) await ctx.addInitScript(init);
+  if (eager) await ctx.addInitScript(() => { if (window.parent === window) window.__rwPreviewAll = true; });
   if (core) await ctx.addInitScript(() => { window.module = { exports: {} }; });
   for (const [key, value] of [["rw_blocks_v1", blocks], ["rw_presets_v1", presets], ["rw_controls_v1", controls]]) {
     if (!value) continue;
@@ -193,6 +195,8 @@ const expectPage = async (...a) => (await expectParts(...a)).map((p) => p.payloa
 // and return what the frame last drew plus the verdict under the preview.
 async function drawnPart(page, i, payload) {
   const card = page.locator("#parts .part").nth(i);
+  await card.scrollIntoViewIfNeeded();   // a part's frame is drawn once it is near the viewport
+  await card.locator("iframe.rcpt-frame").waitFor({ timeout: 10000 });
   const frame = await (await card.locator("iframe.rcpt-frame").elementHandle()).contentFrame();
   await frame.waitForFunction((p) => !!(window.__rwPreview && window.__rwPreview.event.message === p), payload, { timeout: 10000 });
   await page.waitForFunction((i) => document.querySelectorAll("#parts .part")[i].getAttribute("data-render") === "done", i, { timeout: 10000 });
@@ -718,7 +722,7 @@ test("the preview is SassyTP's renderer in a sandboxed frame, one page of the pa
     for (const viewport of [undefined, { width: 390, height: 844 }]) {
       const blocks = withPic([BIG({ id: 1 }), { id: 2, type: "text", render: "sideways", sideDir: "up", text: "UP" },
         { id: 3, type: "image", imgKind: "glyph", url: "PIC", tier: "cjk", cols: 14, dither: true, contrast: 128 }]);
-      const { page, ctx, errors, requests } = await freshPage({ blocks, viewport, controls: { ...SETTINGS, paperMm } });
+      const { page, ctx, errors, requests } = await freshPage({ blocks, viewport, controls: { ...SETTINGS, paperMm }, eager: true });
       await settled(page);
       const label = paperMm + " mm at " + (viewport ? viewport.width + "px" : "the default viewport");
       const n = await page.locator("#parts .part").count();
@@ -829,7 +833,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     // Under the length limits, one letter set at 400px is taller than the bot's box (288px for
     // 300 bits at 100 bits per inch): the app warns about it, and the bot must cut that part.
     const blocks = withPic(s.bitsPerInch ? [...EVERY_MODE(), BIG({ id: 20, text: "I", bigLayout: "lines", bigSize: 400 })] : EVERY_MODE());
-    const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true });
+    const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true });
     await settled(page);
     const got = await copyAll(page);
     const digits = s.nonce ? got.map((p) => p.match(/Cheer\d+ (\d\d)/)[1]) : null;
@@ -1656,3 +1660,41 @@ test("polish: labels and notes say what really prints: Each's sizes, the message
     await ctx.close();
   }
 });
+
+test("polish: a stack of 80 parts stays responsive: frames draw lazily, one at a time, as parts come near", async () => {
+  // 100 bits at 25 bits per inch buy 384px of receipt: one 400px letter a cheer, 80 cheers. Every
+  // part's frame loads the bot's 140 KB page and runs its renderer; all 80 at once, and again on
+  // every keystroke, froze the page.
+  const blocks = [BIG({ id: 1, text: "X".repeat(80), bigLayout: "stack", bigSize: 400 })];
+  const s = { ...SETTINGS, bitsPerInch: 25 };
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 80, null, { timeout: 20000 });
+  // Copy works at once, before any frame has drawn, and sends what the core builds.
+  const t1 = Date.now();
+  assert.equal(await copyPayload(page, 0), expectNode(blocks, s)[0]);
+  assert.ok(Date.now() - t1 < 2000, "a click took " + (Date.now() - t1) + "ms");
+  await page.waitForFunction(() => document.querySelector("#parts .part").getAttribute("data-render") === "done", null, { timeout: 15000 });
+  await page.waitForTimeout(1000);
+  const frames = await page.locator("#parts iframe").count();
+  assert.ok(frames >= 1 && frames <= 20, frames + " frames for 80 parts: they are not drawn lazily");
+  // Every part has its header and Copy now; one that has not drawn keeps a box of its height.
+  assert.equal(await page.locator("#parts .part .copy-btn").count(), 80);
+  const far = page.locator("#parts .part").nth(70);
+  assert.equal(await far.getAttribute("data-render"), "pending");
+  assert.ok((await far.locator(".rcpt-wait").boundingBox()).height > 300, "the waiting box is not the receipt's height");
+  // A keystroke re-plans 80 parts and redraws only the near ones: it is handled quickly.
+  const ms = await page.evaluate(() => {
+    const ta = document.querySelector("#blockList textarea"), a = performance.now();
+    ta.value += "X"; ta.dispatchEvent(new Event("input", { bubbles: true }));
+    return performance.now() - a;
+  });
+  assert.ok(ms < 1000, "a keystroke took " + Math.round(ms) + "ms");
+  await page.waitForFunction(() => document.querySelectorAll("#parts .part").length === 81);
+  // Scrolled to, the last part draws.
+  await page.locator("#parts .part").last().scrollIntoViewIfNeeded();
+  await page.waitForFunction(() => { const ps = document.querySelectorAll("#parts .part"); return ps[ps.length - 1].getAttribute("data-render") === "done"; }, null, { timeout: 15000 });
+  assert.ok(await page.locator("#parts iframe").count() < 60, "scrolling to the end drew every part on the way");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+

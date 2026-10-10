@@ -39,6 +39,9 @@
      invisible, because it still draws every change. */
   .rcpt-stage { position: relative; margin: 0 0 .35rem; max-width: 100%; overflow: hidden; }
   .rcpt-frame { display: block; box-sizing: content-box; border: 1px solid #bbb; background: #fff; color-scheme: light; }
+  /* Where a part's frame will go, the receipt's predicted height, until it draws (lazily). */
+  .rcpt-wait { box-sizing: border-box; max-width: 100%; border: 1px dashed #bbb; background: rgba(128,128,128,.06);
+    font-size: .8rem; opacity: .75; display: flex; align-items: flex-start; justify-content: center; padding-top: .6rem; }
   .rcpt-stage.thermal-on .rcpt-frame { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; }
   .rcpt-thermal { display: block; max-width: 100%; height: auto; image-rendering: pixelated; background: #fff;
     border: 1px solid #bbb; box-sizing: border-box; }
@@ -2596,10 +2599,15 @@
     // Invisible and control characters go first (bigClean): they print nothing, and a
     // control code would draw a box on the canvas. Nothing left builds one empty body, which
     // the packer lets ride along without a part of its own.
+    // The text's raster is kept on the block (_han, runtime-only) and reused while the text, the
+    // paper and the weight are the same: drawing 50 lines on a canvas took most of a second, and
+    // every refresh (each keystroke anywhere, twice per Copy) drew it again.
     function hanziBodies(text, block, ctx) {
       var hl = hanTextLines(bigClean(text).text);
       if (!hl.lines.length) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "grid", grid: "" } }];
-      var bodies = buildDesignT(designTTextGrid(hl.lines.join("\n"), ctx.paperMm, hanziWeightOf(block.hanziWeight)),
+      var w = hanziWeightOf(block.hanziWeight), hk = JSON.stringify([hl.lines, ctx.paperMm, w]);
+      if (!block._han || block._han.key !== hk) block._han = { key: hk, grid: designTTextGrid(hl.lines.join("\n"), ctx.paperMm, w) };
+      var bodies = buildDesignT(block._han.grid,
         { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
       bodies.forEach(function (b) { if (b.hanzi) b.hanzi.droppedLines = hl.dropped; });
       return bodies;
@@ -2916,29 +2924,72 @@
     }
     // One part's card, kept across renders (the frame in its stage must not be re-created by
     // every keystroke). renderParts refills everything else in it each time.
-    var partCards = [];
+    //
+    // FRAMES ARE DRAWN LAZILY, ONE AT A TIME. A long stack is 70 parts or more (a long Big text
+    // at a fixed size, a short bits-per-inch box), and every part's frame loads 140 KB of the
+    // bot's page and runs its renderer: all at once, and again on every keystroke, that froze
+    // the page. So a part asks for its drawing only when its card is near the viewport (an
+    // IntersectionObserver, 800px either side), and the requests go through one queue that
+    // keeps one frame busy at a time (previewBusy; a frame that never answers is let go after
+    // a few seconds). Copy, the part's text and its notes are there at once; until its frame
+    // draws, the card keeps a box of the predicted height, so the page doesn't jump. A part far
+    // from the viewport keeps its last drawing and redraws when it comes near.
+    // Test hook: window.__rwPreviewAll = true treats every part as near (the contract test
+    // draws every part).
+    var partCards = [], previewQueue = [], previewBusy = null, previewBusyTimer = null, previewObserver = null;
+    var chromePx = {};   // the receipt's height less its message box, per paper, once a frame has said
     function makePartCard() {
       var pc = { el: mkEl("div", { "class": "part" }), stage: mkEl("div", { "class": "rcpt-stage" }),
                  verdict: mkEl("div", { "class": "rcpt-verdict" }), frame: null, ready: false, seq: 0, key: "",
-                 want: null, got: null, canvas: null, thermalKey: "", thermalTimer: null, resent: 0 };
+                 want: null, got: null, canvas: null, thermalKey: "", thermalTimer: null, resent: 0,
+                 near: false, wait: null, retried: 0 };
       pc.el.appendChild(pc.stage);
       pc.el.appendChild(pc.verdict);
+      if (previewObserver === null) {
+        previewObserver = typeof IntersectionObserver === "function"
+          ? new IntersectionObserver(onPartsSeen, { rootMargin: "800px 0px" }) : false;
+      }
+      if (previewObserver) previewObserver.observe(pc.el);
       return pc;
     }
-    function dropFrame(pc) {
-      if (pc.thermalTimer) { clearTimeout(pc.thermalTimer); pc.thermalTimer = null; }
-      if (pc.frame && pc.frame.parentNode) pc.frame.parentNode.removeChild(pc.frame);
-      if (pc.canvas && pc.canvas.parentNode) pc.canvas.parentNode.removeChild(pc.canvas);
-      pc.frame = null; pc.canvas = null; pc.ready = false; pc.key = ""; pc.want = null; pc.got = null; pc.thermalKey = "";
-      pc.verdict.textContent = "";
-      pc.stage.className = "rcpt-stage";
-      pc.el.removeAttribute("data-thermal");
+    function onPartsSeen(entries) {
+      entries.forEach(function (en) {
+        for (var i = 0; i < partCards.length; i++) {
+          if (partCards[i].el !== en.target) continue;
+          partCards[i].near = en.isIntersecting;
+          if (en.isIntersecting) thermalPart(partCards[i]);
+        }
+      });
+      pumpPreviews();
     }
-    // Ask the frame to draw this part (when the request changed since the last one).
-    function previewPart(pc, item) {
-      var s = getSettings(), p = paperSpec(item.paperMm);
-      var pe = previewEvent({ payload: item.payload, bits: item.bits, cheer: item.cheer, hrThreshold: s.hrThreshold,
-                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+    function previewNear(pc) {
+      return (typeof window !== "undefined" && window.__rwPreviewAll === true) || !previewObserver || pc.near;
+    }
+    function queuePreview(pc) {
+      if (previewBusy === pc) { if (pc.ready) postPreview(pc); return; }   // the frame at work takes the newer request
+      if (previewQueue.indexOf(pc) < 0) previewQueue.push(pc);
+      pumpPreviews();
+    }
+    function pumpPreviews() {
+      if (previewBusy) return;
+      for (var i = 0; i < previewQueue.length; i++) {
+        var pc = previewQueue[i];
+        if (!pc.want || partCards.indexOf(pc) < 0) { previewQueue.splice(i--, 1); continue; }
+        if (!previewNear(pc)) continue;
+        previewQueue.splice(i, 1);
+        startPreview(pc);
+        return;
+      }
+    }
+    function startPreview(pc) {
+      previewBusy = pc;
+      if (previewBusyTimer) clearTimeout(previewBusyTimer);
+      previewBusyTimer = setTimeout(function () {
+        if (previewBusy !== pc) return;
+        previewBusy = null;
+        if (pc.want && pc.retried++ < 1) previewQueue.push(pc);   // try once more, after the others
+        pumpPreviews();
+      }, 4000);
       if (!pc.frame) {
         var f = document.createElement("iframe");
         f.className = "rcpt-frame";
@@ -2946,19 +2997,54 @@
         f.setAttribute("title", "Receipt preview, drawn by SassyTP's printer-bot renderer");
         f.setAttribute("scrolling", "no");
         f.setAttribute("tabindex", "-1");
-        f.style.height = "160px";
+        f.style.width = pc.want.pageW + "px";
+        f.style.height = (pc.wait ? pc.wait.style.height : "160px");
         f.srcdoc = previewSrc();
         pc.frame = f; pc.ready = false;
-        pc.stage.insertBefore(f, pc.stage.firstChild);
-      }
-      pc.frame.style.width = p.cssWidth + "px";
+        if (pc.wait && pc.wait.parentNode) pc.wait.parentNode.removeChild(pc.wait);
+        pc.wait = null;
+        pc.stage.insertBefore(f, pc.stage.firstChild);   // its "ready" message posts the request
+      } else if (pc.ready) postPreview(pc);
+    }
+    function previewDone(pc) {
+      if (previewBusy !== pc) return;
+      previewBusy = null; pc.retried = 0;
+      if (previewBusyTimer) { clearTimeout(previewBusyTimer); previewBusyTimer = null; }
+      pumpPreviews();
+    }
+    function dropFrame(pc) {
+      if (pc.thermalTimer) { clearTimeout(pc.thermalTimer); pc.thermalTimer = null; }
+      if (pc.frame && pc.frame.parentNode) pc.frame.parentNode.removeChild(pc.frame);
+      if (pc.canvas && pc.canvas.parentNode) pc.canvas.parentNode.removeChild(pc.canvas);
+      if (pc.wait && pc.wait.parentNode) pc.wait.parentNode.removeChild(pc.wait);
+      var q = previewQueue.indexOf(pc);
+      if (q >= 0) previewQueue.splice(q, 1);
+      pc.frame = null; pc.canvas = null; pc.wait = null; pc.ready = false; pc.key = ""; pc.want = null; pc.got = null; pc.thermalKey = "";
+      pc.verdict.textContent = "";
+      pc.stage.className = "rcpt-stage";
+      pc.el.removeAttribute("data-thermal");
+      if (previewBusy === pc) { previewBusy = null; pumpPreviews(); }
+    }
+    // Ask for this part's drawing (when the request changed since the last one). Until the part
+    // has a frame, a box of the predicted receipt height holds its place.
+    function previewPart(pc, item) {
+      var s = getSettings(), p = paperSpec(item.paperMm);
+      var pe = previewEvent({ payload: item.payload, bits: item.bits, cheer: item.cheer, hrThreshold: s.hrThreshold,
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+      if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
       var key = JSON.stringify([pe, p.mm]);
       if (key !== pc.key) {
-        pc.key = key; pc.seq++; pc.resent = 0;
+        pc.key = key; pc.seq++; pc.resent = 0; pc.retried = 0;
         pc.want = { seq: pc.seq, pe: pe, pageW: p.cssWidth, paperMm: p.mm, cheer: item.cheer, bits: item.bits, warned: !!item.warned,
                     up: /writing-mode:\s*sideways-lr/.test(item.payload) };
         pc.el.setAttribute("data-render", "pending");
-        if (pc.ready) postPreview(pc);
+        if (!pc.frame) {
+          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[p.mm] || 230)));
+          if (!pc.wait) { pc.wait = mkEl("div", { "class": "rcpt-wait" }, "Drawing the preview…"); pc.stage.insertBefore(pc.wait, pc.stage.firstChild); }
+          pc.wait.style.width = p.cssWidth + "px";
+          pc.wait.style.height = est + "px";
+        }
+        queuePreview(pc);
       } else {
         thermalPart(pc);   // the same drawing: only the Thermal view or its dither may have changed
       }
@@ -2974,7 +3060,7 @@
       for (var i = 0; i < partCards.length; i++) {
         var pc = partCards[i];
         if (!pc.frame || ev.source !== pc.frame.contentWindow) continue;
-        if (d.rw === "ready") { pc.ready = true; if (pc.want) postPreview(pc); }
+        if (d.rw === "ready") { pc.ready = true; if (pc.want && previewBusy === pc) postPreview(pc); }
         else if (d.seq === pc.seq) showPreview(pc, d);
         return;
       }
@@ -2989,6 +3075,8 @@
       }
       pc.got = d;
       if (r.ok) pc.frame.style.height = Math.max(1, Math.ceil(Number(r.height) || 0)) + "px";
+      if (r.ok && d.measure) chromePx[w.paperMm] = Math.max(0, Math.round(Number(r.height) - Number(d.measure.contentPx)));
+      previewDone(pc);
       pc.verdict.textContent = "";
       previewVerdict(d, { free: !w.cheer, bits: w.bits, warned: w.warned, paperMm: w.paperMm, upUnsupported: w.up && !sidewaysLrSupported() }).forEach(function (l) {
         pc.verdict.appendChild(mkEl("div", { "class": l.warn ? "rv-warn" : "rv-info" }, l.text));
@@ -3068,6 +3156,7 @@
       if (!want || seq !== pc.seq || want.seq !== seq) return;   // a newer drawing is on its way
       var key = seq + " " + dither;
       if (key === pc.thermalKey) return;
+      if (!previewNear(pc)) return;   // far from the viewport: rasterised when it comes near (onPartsSeen)
       pc.thermalKey = key;
       pc.el.setAttribute("data-thermal", "pending");
       if (pc.thermalTimer) clearTimeout(pc.thermalTimer);
@@ -3124,6 +3213,7 @@
       while (partCards.length > items.length) {
         var gone = partCards.pop();
         dropFrame(gone);
+        if (previewObserver) previewObserver.unobserve(gone.el);
         if (gone.el.parentNode) gone.el.parentNode.removeChild(gone.el);
       }
       var n = items.length;
@@ -4498,7 +4588,7 @@
       return parts.map(function (p, i) {
         var item = { payload: p.payload, chars: p.chars, copyable: true, bodies: p.bodies, lead: p.lead,
                      alone: !!p.alone, mode: ctx.mode, cheer: ctx.cheer, bits: ctx.bits, paperMm: ctx.paperMm,
-                     warned: partWarned(p, ctx), noRoom: noRoom,
+                     warned: partWarned(p, ctx), noRoom: noRoom, contentPx: p.contentPx,
                      kindLabel: !ctx.cheer ? "free test" : p.alone || ctx.mode === "plain" ? "plain text" : "High Roller" };
         // A part with nothing printable in it (a picture still decoding) would be a cheer that
         // prints only the lead: it is shown, but it can't be copied until there is ink.
@@ -4540,7 +4630,7 @@
       var works = kind === "hrprobe" ? pr.works : pr.mode === "plain";
       return packStackBodies(pr.bodies, po).map(function (p) {
         return { payload: p.payload, chars: p.chars, copyable: works, bodies: p.bodies, lead: p.lead, alone: !!p.alone,
-                 mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note, warned: partWarned(p, ctx),
+                 mode: pr.mode, cheer: true, bits: pr.bits, paperMm: s.paperMm, note: pr.note, warned: partWarned(p, ctx), contentPx: p.contentPx,
                  kindLabel: kind === "hrprobe" ? "High Roller test" : "Plain test" };
       });
     }

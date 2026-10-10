@@ -28,8 +28,8 @@
 - [ ] If merging to `main`: prod-vs-`main` divergence check run first (a push to `main` auto-deploys to production)
 - [ ] Every markup mode still has a markup-free fallback behind it (Hanzi tiling for text, including behind Giant type; glyph-art for pictures), and anything user-supplied that lands in markup goes through `escapeHtml`/`escapeAttr`
 - [ ] A real picture's carrier tag still comes from `EMBEDS` via `buildImageEmbed()`, with no tag hardcoded at a call site
-- [ ] Every printer-bot class we borrow (Giant type's `.title`, the shrink steps, the cheer-gem tuck) still comes from `PB_CLASSES` via `pbClass()`/`classAttr()`/`pbPreviewCss()`, with no class hardcoded at a call site; no tag/quote/case/italic variant was added to get past a block (see THE RULE in `CLAUDE.md`); and if a `PB_CLASSES` row changed, `npm run printerbot -- --check` passes and `tools/rig.py`'s hand-synced `PB_CSS` matches (or N/A)
-- [ ] Anything about what prints was measured, not argued: `tools/printerbot.mjs` + `tools/rig.py --document` (with `--fonts` for Segoe UI), and the evidence level (field / bench / never sent) is stated in the docs (or N/A)
+- [ ] Every printer-bot class we borrow (Giant type's `.title`, the shrink steps, the cheer-gem tuck) still comes from `PB_CLASSES` via `pbClass()`/`classAttr()`/`pbPreviewCss()`, with no class hardcoded at a call site; no tag/quote/case/italic variant was added to get past a block (see THE RULE in `CLAUDE.md`) (or N/A)
+- [ ] Anything about what prints was measured, not argued: the payload from `tools/payload.mjs` (or Copy) through `npm run bench` (`tools/forkbench.mjs`, SassyTP printer-bot's real receipt page, `--paper 80` and `--paper 58`), and the evidence level (field / bench / never sent) is stated in the docs (or N/A)
 - [ ] New pure-core behavior has a `test/*.test.mjs` case added/updated (or N/A)
 - [ ] Smoke-tested in a browser (open `public/index.html` or `npx wrangler dev`); describe how in the Summary
 

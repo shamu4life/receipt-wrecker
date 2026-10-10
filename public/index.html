@@ -4788,9 +4788,7 @@
         pendingBackup.name = freePresetName(presets, pendingBackup.name);
         presets = upsertPreset(presets, pendingBackup);
         persistPresets();
-        presetNote("Your saved stack had a Takeover, which this version can't print. Its lines are "
-          + "now Text blocks and its pictures Glyph-art. The stack as it was is saved as the preset \""
-          + pendingBackup.name + "\".");
+        presetNote(migrationNote(pendingBackup.blocks, pendingBackup.name));
       }
       pendingBackup = null;
       renderPresetList();

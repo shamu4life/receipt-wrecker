@@ -34,7 +34,9 @@ receipt code.
    SassyTP's defaults (80 mm paper, High Roller threshold 25).
 3. Type into the **Text** block. It starts as Big text with `HELLO`.
 4. Press **Copy** on each part and paste it into the **official Twitch web or mobile
-   chat** as a cheer. Only the first-party client actually cheers.
+   chat** as a cheer. Only the first-party client actually cheers. (If the browser won't let
+   the app copy, as in some in-app browsers, the button doesn't say Copied: the part shows its
+   text, selected, to copy by hand.)
 
 New to a streamer's printer? Send the two one-cheer tests first (see
 [Test cheaply first](#test-cheaply-first)).
@@ -81,8 +83,9 @@ separate cheer, so a run costs bits × parts; the total is shown under the previ
 ## Text
 
 A Text block has three renders. Every Layout and Size option in the card is labelled with
-what it would print for your text (capital letters' height in cm, how much tape it takes, how
-many cheers), so you can compare before you pick.
+what it would print for your text (capital letters' height in cm, how long the message is in
+cm, how many cheers), so you can compare before you pick. The message's length leaves out the
+bot's header and footer; the line under each part's preview gives the whole receipt.
 
 ### Big text (High Roller)
 
@@ -101,7 +104,10 @@ Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
   takes far more tape than the wrapped words: the labels show both, and *Words wrapped* is one
   pick away.
 - **Size**: *Auto* (the biggest that fits one cheer, the default), *Fill the paper's width*
-  (may cost more cheers) or a fixed size from 20 to 400 px.
+  (may cost more cheers) or a fixed size from 20 to 400 px. In *Each line its own size* a
+  fixed size is a cap ("up to 400 px"), and its label gives the capitals each line really
+  gets. When a stacked word is too tall for one receipt at the size picked, it breaks across
+  cheers with the bot's header in between, and the card names the word.
 - **Upside down** turns the letters round, so the tape reads the right way up when it is
   turned over.
 
@@ -140,6 +146,10 @@ The letters sit in the middle of the paper. Capitals are centred as they are; lo
 punctuation with tails take more line height and would sit toward the side their tails point
 to, so the app moves the block back by that much (`position:relative;left:…px`). Nothing is cut
 off.
+
+Each line you type is one column, and it never wraps: a sentence on one line prints as one
+thin column. When that makes the capitals small, the card says to press Enter between words:
+more columns with fewer words each print bigger.
 
 Bottom to top uses `writing-mode: sideways-lr`, which needs Edge 132 or newer on the
 streamer's PC. If UP lies flat on the [High Roller test](#test-cheaply-first), their Edge is
@@ -194,7 +204,9 @@ The Han and Courier New grids size their font in `vw` (a share of the receipt's 
 the same message fits 80 mm and 58 mm paper. Braille is sized in px for the paper width you
 picked, so a Braille message made for 80 mm is too wide for 58 mm. Detail (columns), Rotate,
 Contrast, Dither and Invert are on the card. Rows that don't fit one message carry on in the
-next cheer, spread evenly over the cheers they need.
+next cheer, spread evenly over the cheers they need. If the streamer's bits per inch leaves a
+cheer less room than one row, the card says the bot cuts every part, and to raise Detail
+(smaller rows) or Bits per cheer.
 
 ### Below the threshold
 
@@ -219,9 +231,13 @@ access. It is not an imitation of the receipt. Whether a cheer prints High Rolle
 where the bot's box cuts it off and any fade come from the bot's own code. The Twitch logo in
 the footer is a grey box here.
 
-Under each part, the preview says how long the receipt is, whether the bot cuts it (and
-why), and whether the bot's safety filter would take anything out (it shouldn't, for anything
-this app builds).
+Under each part, the preview says how long the receipt is (plus about 4.8 cm on 80 mm, 4.0 cm
+on 58 mm, when the bot finds the viewer's profile picture: the preview never asks for it),
+whether the bot cuts it (and why), and whether the bot's safety filter would take anything out
+(it shouldn't, for anything this app builds).
+
+A long stack can be 80 parts or more. Each part's preview is drawn when it scrolls near the
+screen, one at a time, so the page stays quick; Copy and each part's notes are there at once.
 
 **Thermal preview** shows the receipt the way the printer gets it: the bot's page at the
 printer's dot width (576 dots on 80 mm, 384 on 58 mm), turned to black and white with the
@@ -237,8 +253,8 @@ still print), so judge those with the thermal view off.
 
 ## Sending it
 
-- **Cheer-ready** (on by default) starts each message with `Cheer<bits> ` so it triggers the
-  print. A plain part puts the cheer word at the end instead. Turn Cheer-ready off for a
+- **Cheer-ready** (on by default) adds `Cheer<bits>` to each message so it triggers the
+  print: at the start of a High Roller message, at the end of a plain part. Turn Cheer-ready off for a
   [free test](#test-cheaply-first).
 - **Add a repeat number** (off by default) puts two rotating digits after the cheer word
   (`Cheer100 07`). Twitch won't send the same message twice in a row within 30 seconds (it
@@ -247,7 +263,11 @@ still print), so judge those with the thermal view off.
   so: wait 30 seconds, or turn the digits on.
 - **Too much for one cheer** tapes into more. Each part is a separate cheer (500 characters
   at most, Twitch's limit), and the bot prints its header between them. Paste them in order.
-- Every block's card says what it prints and which part it ends up in.
+- Every block's card says what it prints and which part it ends up in. Each part's header
+  counts its characters ("230 / 500 characters").
+- If the streamer's length settings leave a cheer no room after its Cheer line, every part
+  says it would print nothing else, its Copy is off, and the line under the parts says what to
+  change.
 
 ## Test cheaply first
 
@@ -262,6 +282,9 @@ still print), so judge those with the thermal view off.
 - **Plain test** (one cheer, one bit under the threshold). It should print small, inside quote
   marks: a light first line, HI in Han characters, a row of tones, then the cheer word. Every
   line should hold 15 characters on 80 mm (9 on 58 mm), with the edges of HI lined up.
+
+Pressing either test scrolls to it and puts the keyboard on its Copy button; **Back to my
+stack** does the same for your stack.
 
 ## Held or blocked by chat?
 
@@ -279,10 +302,13 @@ print only as glyph-art.
 
 **Presets** save the whole block stack under a name, in this browser. **Export JSON** copies
 every preset out, to move it to another browser or keep it safe; **Import JSON** brings it
-back. Saving under a name that is already taken asks before replacing it. An uploaded
-picture's link dies after 15 minutes, so a preset that used one loads with that block flagged
-for re-upload. A glyph-art picture picked from a file is read in the browser and never
-uploaded, so neither a preset nor a reload keeps it: the block asks for the file again.
+back, and never replaces anything: a setup whose name is already taken (or repeated in the
+file) is added with a number after its name, and the note says which. Saving under a name that
+is already taken asks before replacing it, and so does **Load** when the blocks on screen are
+not saved in any preset. An uploaded picture's link dies after 15 minutes, so a preset that
+used one loads with that block flagged: pick the file again or paste a fresh link. A glyph-art
+picture picked from a file is read in the browser and never uploaded, so neither a preset nor
+a reload keeps it: the block asks for the file again.
 
 Work saved by an older version is converted the first time you open 1.0.0:
 

@@ -41,8 +41,10 @@ in.
   own size; optionally upside down.
   Example: `Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>`.
 - Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
-  typed line becomes a column. Top to bottom (read by turning the receipt anticlockwise) or
-  bottom to top (turn it clockwise; needs Edge 132 or newer on the streamer's PC).
+  typed line becomes a column, centred across the paper by its ink (lowercase and mixed text
+  get a small `position:relative;left` shift). Top to bottom (read by turning the receipt
+  anticlockwise) or bottom to top (turn it clockwise; needs Edge 132 or newer on the
+  streamer's PC).
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
   grid, ASCII letters or block characters in Courier New rows, or Braille.
 - Han tiling (plain): words or a picture drawn out of Han characters as plain text, exactly
@@ -65,7 +67,18 @@ through first.
 
 The preview is drawn by SassyTP's printer-bot renderer (MIT), the bot's own receipt page,
 embedded in the tool and run in a sandboxed frame with no network access. A thermal view
-shows the receipt at the printer's dot width with the bot's own dither methods.
+shows the receipt at the printer's dot width with the bot's own dither methods. Each part's
+preview is drawn when it scrolls near the screen, one at a time, so a long stack stays quick.
+The receipt length shown leaves out the viewer's profile picture, which the bot adds when it
+finds one (about 4.8 cm on 80 mm paper, 4.0 cm on 58 mm).
+
+## Copying and presets
+
+- Copy says "Copied" only when the text reached the clipboard; when the browser refuses, the
+  part shows its text, selected, to copy by hand.
+- Presets save the block stack in the browser and move between browsers as JSON. Import never
+  replaces a saved setup: a taken name gets a number. Loading a preset asks first when the
+  blocks on screen are not saved in any preset.
 
 ## Privacy
 

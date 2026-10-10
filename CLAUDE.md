@@ -223,7 +223,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **136 keys**. Regenerate the list instead of trusting this one:
+test harness **139 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -246,10 +246,10 @@ test harness **136 keys**. Regenerate the list instead of trusting this one:
 `buildHighRollerProbe`,
 `buildPlainProbe`, `escapeHtml`, `escapeAttr`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`, `upsertPreset`,
-`freePresetName`, `migrateBlocks`, `migrationRewrites`, `migrationNote`,
+`freePresetName`, `importPresets`, `migrateBlocks`, `migrationRewrites`, `migrationNote`,
 `MIGRATION_BACKUP_NAME`, `TEXT_RENDERS`, `blockRender`, `giantLevelPx`, `THERMAL_DITHERS`,
-`normalizeControls`, `hanziWeightOf`, `GLYPH_TIERS`, `glyphOpts`, `modeNotice`, `forkDither`,
-`previewEvent`, `previewVerdict`, `designTTextGrid`, `glyphGrid`.
+`normalizeControls`, `hanziWeightOf`, `GLYPH_TIERS`, `glyphOpts`, `modeNotice`, `noRoomAdvice`, `forkDither`,
+`previewEvent`, `previewVerdict`, `avatarExtraPx`, `designTTextGrid`, `glyphGrid`.
 
 ### The pure core, section by section
 
@@ -376,6 +376,12 @@ nothing that prints).
   limit), invisible characters dropped, emoji print grey. `cheerWords` flags standalone words
   shaped like a cheermote (`Kappa50`); the note is flat for Twitch's global prefixes
   (`CHEER_GLOBALS`) and hedged for anything else, since a channel's own are unknowable.
+  `bigSplitWords` (the `big` record's `splitWords`, `[{word, pieces}]`) names a STACKED word
+  that a body starts in the middle of, i.e. one too tall for one receipt at the size picked
+  ("Fill the paper's width" makes it as big as the paper allows, however tall): the report says
+  it breaks across that many cheers with the bot's header in between and to pick a smaller
+  size (not when the box is too short for even one letter, which `tall` already says). The fit
+  rule is unchanged. In Each, a range of capitals that rounds to one value reads as one.
 
 **Sideways (High Roller).** One literal shape:
 `<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;position:relative;left:<X>px]">line 1<br>line 2</div>`.
@@ -434,6 +440,13 @@ nothing that prints).
   centre it, so it sits against the left edge and the right edge cuts it. Top to bottom loses
   the FIRST lines (line 1 is the rightmost column), bottom to top the LAST; `sideReport` and
   the size labels say which.
+- `sideReport` adds "Press Enter between words to make more columns" when Auto (`fit1`) had to
+  shrink a block with a spaced line below the width rule's size and its capitals are under
+  1.5 cm: a typed line is ONE column and never wraps, so a sentence on one line printed as a
+  thin column (the textarea soft-wraps it, so it looked like two lines there).
+- The bench reports a shifted sideways block as `clippedByContentBox` on the side it moved
+  toward: that is the empty part of the line box past the content box, not ink. Read the ink
+  gaps instead.
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
@@ -457,6 +470,9 @@ The tier picks the form (`GLYPH_FORMS`):
   bands the greedy pass needs (7/7/6, never 9/9/2: a last cheer with a sliver of two rows). A
   room of 0 or less (a box the Cheer line fills) bands by characters alone: nothing after the
   Cheer line prints whatever a band's height, and banding by height made a cheer of every row.
+  A room above 0 but shorter than one row still gets a row a band, and those bands carry
+  `tall` (and `glyph.tall`): the card says every part is cut and to raise Detail (shorter rows)
+  or Bits per cheer, and `partWarned` counts it, so the verdict doesn't blame fonts.
 
 **Plain: Design T (Han tiling).** Below the threshold the bot prints text: 16px, a line every
 21.6px, centred, in quotes, wrapping anywhere. A Han glyph is exactly 1em, so a line holds
@@ -542,13 +558,21 @@ explicit `true`), `thermalView` (off), `thermalDither` (`floyd`); unknown fields
 the next save drops them), `blockRender` (`big` | `sideways` | `hanzi`, junk → `big`),
 `bigOpts`, `sideOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700). `modeNotice` is the notice
 above the parts (a free test, or why the stack prints plain and how to change it).
+`noRoomAdvice` is what replaces the bits total when the box leaves no room after the Cheer line
+(raise Bits per cheer, with the streamer's bits per inch; or, under a maximum length, that it
+would have to be longer).
 `forkDither(rgba, w, h, outWidth, mode)` is the C# Ditherer port (integer arithmetic and
 arithmetic shifts as in the C#, the ≥ 250 / ≤ 5 clamps, transparent pixels over white).
-`previewEvent` / `previewVerdict` are the app's half of the preview (below).
+`previewEvent` / `previewVerdict` / `avatarExtraPx` are the app's half of the preview (below).
 
 **Presets.** `makePreset` deep-copies (a preset outlives the stack it came from);
 `parsePresets` validates untrusted JSON and says what is wrong; `upsertPreset` replaces by
-name (the glue asks first: Save under a taken name turns into "Replace?" for a second press); `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
+name (the glue asks first: Save under a taken name turns into "Replace?" for a second press);
+`importPresets(presets, incoming)` is Import: it ADDS every preset and never replaces one, a
+name taken by a saved setup or by one added earlier in the same import getting
+`freePresetName`'s "Stream (2)" (upserting lost a setup when a file held two of one name, and
+replaced saved ones without asking); it returns `{presets, added, renamed}` and the note says
+which were renamed. `cleanBlocks` (shared with `saveBlocks`) strips `_`-prefixed runtime fields;
 `isMintedImageUrl` matches only this Worker's own upload links, by shape, across all three
 generations; `presetImageUrls` walks a stack's picture links.
 
@@ -586,7 +610,14 @@ generations; `presetImageUrls` walks a stack's picture links.
 - **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
   `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`) or Han tiling (`.sel-weight`). Every
   layout and size option is labelled with what it would print for the current text (capitals
-  in cm, cheers, cut-off flags), computed for a High Roller cheer and cached by key. The note
+  in cm, "N cm of message" (the bodies' height: the header, Cheer line and footer come on top,
+  and the part's verdict gives the whole receipt), cheers, cut-off flags), computed for a High
+  Roller cheer and cached by key; in Each a numeric size is "up to N px" with the capitals its
+  lines really get. The Layout hint (`.layout-hint`) is one sentence about the layout picked.
+  Longer fixed explanations (the render, the font, sideways, Han weight, the tier) fold behind
+  a native `<details class="hint more"><summary>What's this?</summary>` (`moreHint`; no state,
+  nothing saved), and so does the Thermal caption's detail. The head's ↑ is disabled on the
+  first block and ↓ on the last (`cardHead(block, i, n)`). The note
   (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
   callback. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
@@ -598,18 +629,30 @@ generations; `presetImageUrls` walks a stack's picture links.
   shows the columns the grid really uses, `glyphCols`, and committing a value writes the
   clamped one back); for a Real picture the red can't-print note, "Switch to Glyph-art", a
   thumbnail and brightness/contrast (baked and re-uploaded; they change the card's picture
-  only, and the card says so).
+  only, and the card says so). The file input is emptied once its file is taken and on a change
+  of kind, so picking the same file again always fires (it didn't after a switch to Real).
 - **Parts.** `composeParts` packs the stack. A stack with nothing printable, or only a Real
-  picture, gives one non-copyable notice; a part with nothing printable in it yet (a picture
-  still decoding) is shown but not copyable. Without the repeat number, a part identical to
+  picture, gives one non-copyable notice, drawn as wrapped prose (`.rcpt-placeholder`; it was
+  receipt text in a fixed-width box, cut off mid-word); a part with nothing printable in it yet
+  (a picture still decoding) is shown but not copyable. When the streamer's settings leave a
+  High Roller cheer no room after its Cheer line (`boxNoRoom`), every part is `noRoom`: a red
+  note says it prints nothing but that line (a plain grid: only its light first row), its Copy
+  is disabled, and `noRoomAdvice` replaces the bits total. Without the repeat number, a part identical to
   the one right before it gets a note (Twitch won't send the same message twice in a row
   within 30 seconds). `probeParts(kind)` builds a probe the same way; its view's notice
   carries a "Back to my stack" button (`#backToStack`). `renderParts` shows the mode notice, a
   persistent card per part and the total (bits, or a free test's message count; one part says
   "One N-bit cheer" unless it carries a note of its own, as a probe does). A part's
-  header (`.part-head`: char count, kind label and the full-size Copy button, `.copy-btn`) is
-  sticky, so Copy stays in view while a 40 cm preview scrolls past; the part's note, then its
-  preview and verdict, follow. `partWarned` (the app already expects a cut: too tall for the
+  header (`.part-head`: "N / 500 characters" and the kind label in `.part-info`, which wraps
+  beside the full-size Copy button, `.copy-btn`) is sticky, so Copy stays in view while a
+  40 cm preview scrolls past; the part's note, then its preview and verdict, follow.
+  `copyToClipboard` returns a promise of whether the text reached the clipboard (writeText,
+  else the execCommand fallback with its result checked); `copyPart` says "Copied" only then
+  (`lastCopiedIdx`), and otherwise shows the part's payload in a read-only box under its header,
+  selected once (`copyFailIdx`, `copyFailFocus`), with "Couldn't copy automatically: select
+  this text and copy it". After a probe (or Back to my stack) renders, `revealParts` scrolls
+  the notice or the parts into view (smooth unless the viewer asks for reduced motion) and
+  focuses the first live Copy, else the Back button. `partWarned` (the app already expects a cut: too tall for the
   box, or a block too wide for the paper) keeps the verdict from blaming fonts. `copyPart`
   advances that part's nonce only when the repeat number is on. Committing a number field
   (change) writes back the value the app uses (0 bits → 100, 50 inches → 40); the Dither
@@ -619,12 +662,18 @@ generations; `presetImageUrls` walks a stack's picture links.
   after the user's presets have loaded, merged in with `upsertPreset` under a free name, and
   never over an unreadable `rw_presets_v1`. `applyPreset` migrates a deep copy; **stored
   presets are never rewritten** (export gives back what was saved, and the backup keeps its
-  takeovers), and a JSON import is stored as is and migrated when loaded.
+  takeovers), and a JSON import is added as is (`importPresets`: never over a saved setup) and
+  migrated when loaded. Load asks first ("Replace stack?", `armedLoad`, like Save's
+  "Replace?" and Delete's "Really?") when the stack on screen matches no preset
+  (`stackIsSaved`: each preset migrated, ids and the Real picture's derived `outUrl` / `aspect`
+  aside, keys sorted; a stack with nothing printable has nothing to lose).
   `probeStackExpiry` checks this Worker's upload links (15-minute TTL) by loading each into a
   `new Image()` (no CORS grant, no `fetch`), flags a dead one on its card, and RETURNS a promise
   of how many it flagged (it once didn't, and Load's "Checking…" never resolved), which Load
-  reports (counted on the converted stack, so an old Takeover's picture counts) ("Its uploaded pictures still load" / "N pictures'
-  links have expired"); a preset with no uploaded link promises no check. The preset list is
+  reports for Glyph-art blocks only (counted on the converted stack, so an old Takeover's
+  picture counts; a Real picture prints nothing whatever its link does) ("Its uploaded pictures
+  still load" / "N pictures' links have expired: pick the file again or paste a fresh link");
+  a preset with no uploaded Glyph-art link promises no check. The preset list is
   keyed by INDEX, not name (`renderPresetList(pick)`, `selectedIndex`), so a list that holds
   two presets of one name (an older build could save one) still loads, renames and deletes the
   one picked; Rename refuses a name another preset has, and says when the name is unchanged.
@@ -666,15 +715,34 @@ re-renders instead of reloading 140 KB); every request carries a sequence number
 older answer is dropped. Cards carry `data-render` (pending/done) and `data-thermal`
 (pending/done/failed); the frame keeps `window.__rwPreview` for the tests.
 
+**Drawn lazily, one at a time.** A long stack is 80 parts or more, and all their frames at once
+(140 KB and a renderer run each, again on every edit) froze the page. A part asks for its
+drawing only when its card is within 800px of the viewport (`IntersectionObserver`,
+`onPartsSeen`, `previewNear`); requests go through one queue (`queuePreview`,
+`pumpPreviews`, `startPreview`) that keeps one frame busy at a time (`previewBusy`;
+`previewDone` frees it when the newest answer arrives, a frame that never answers is let go
+after 4 s and tried once more later, and a newer request for the busy part goes straight to
+its frame). Until a part's frame exists, a `.rcpt-wait` box of the predicted receipt height
+(the packer's `contentPx` plus the header and footer the last drawn frame measured,
+`chromePx`) holds its place; Copy, the header and the notes are there at once. A part far from
+the viewport keeps its last drawing and redraws when it comes near; the Thermal view
+rasterises only near parts. **Test hook:** `window.__rwPreviewAll = true` makes every part
+near (the browser tests' `freshPage({eager: true})`, used by the contract and preview tests).
+Han tiling keeps its text's raster on the block (`_han`) while text, paper and weight are
+unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
+
 **Driven like the bot.** `previewEvent(o)` builds the call the way the C# routine makes it (a
 `TwitchCheer` carrying the bits and the message untouched) and the way the bench does:
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
 `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks: false}`. No
-`userName`, so no avatar lookup starts (a real cheer has one, so its header is taller). The
+`userName`, so no avatar lookup starts (a real cheer has one, so its header is taller:
+`avatarExtraPx`, 182px on 80 mm, 151px on 58 mm, and the verdict says so). The
 renderer, not this app, decides High Roller or plain, the box and the fade. A free test (Cheer-ready off) is drawn as a High Roller cheer
 (threshold 1) and says it never reaches the printer.
 
-**The verdict** under each part (`previewVerdict`): the receipt's height in cm and px; a
+**The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, plus
+what a found profile picture adds (about 4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is
+min(11.5em, 100%) square with a 14px gap and replaces the 16px top padding); a
 `trimmed` cut (bits or cap) with its lengths; a hard cut by the 1600px box (measured in the
 frame with the box's limit lifted, because `render()` reports only the streamer's limits);
 "this app expected it to fit" when the app had not warned; any `security` notes (the bot's
@@ -865,6 +933,11 @@ lives in `test-browser/` and is not in the default matcher.
   below the threshold. Browser tests capture payloads by stubbing
   `navigator.clipboard.writeText` and clicking Copy; canvas-backed expectations are computed in
   the page through a `window.module` hook (`designTTextGrid`, `glyphGrid`).
+- **Lazy previews.** A part's frame is drawn only near the viewport, so a test that needs every
+  part drawn passes `eager: true` to `freshPage` (the app's `window.__rwPreviewAll` hook), and
+  `drawnPart` scrolls its card into view first. One test builds 80 parts and holds the lazy
+  path to its promises (Copy before any frame, at most 20 frames, a far part waiting at its
+  height, a fast keystroke, the last part drawn when scrolled to).
 - **Pin defaults.** A browser test that depends on a default (bits, threshold, paper, nonce)
   must set the value it needs, or a later default change makes it pass while testing nothing.
 - **Playwright init scripts also run inside the sandboxed preview frames**, which have no

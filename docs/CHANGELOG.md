@@ -76,14 +76,22 @@ page, built into the app and run in a sandboxed frame with no network access.
   paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
   1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
   print as grey dots; invisible characters are left out and the card says so. Every option is
-  labelled with what it prints (capitals in cm, tape in cm, cheers).
+  labelled with what it prints (capitals in cm, the message's length in cm, cheers); in *Each
+  line its own size* a fixed size is a cap, labelled "up to N px" with the capitals each line
+  really gets. A stacked word too tall for one receipt at the size picked is named, with the
+  cheers it breaks across.
 - **Sideways text** (High Roller): `writing-mode` turns the text so it runs down the tape, as
   big as the paper's width allows; each typed line is a column. *Top to bottom*
   (`vertical-rl` with `text-orientation:sideways`, so Han characters and emoji turn with the
   letters; read by turning the receipt anticlockwise) or *Bottom to top*
   (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC). Auto
   tries every size (the cheer count is not monotonic in the size), and a block with more lines
-  than fit across the paper says which lines are cut off.
+  than fit across the paper says which lines are cut off. The text is centred across the paper
+  by its INK: `margin:auto` centres the line box, and lowercase and mixed text sat toward the
+  descender side ('gg' 34.5px off centre on 80 mm), so the block gets a small
+  `position:relative;left` shift worked out from each letter's ink (capitals, already centred,
+  keep their exact payloads); benched within 1.7px at both widths and in both directions. A long
+  line Auto had to shrink gets a hint to press Enter for more, bigger columns.
 - **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
   plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
   a line to itself, and the cheer word at the end. Each plain part is its own cheer, and a run
@@ -92,7 +100,8 @@ page, built into the app and run in a sandboxed frame with no network access.
 - **Glyph-art forms for this bot**: Han characters as a centred square grid sized in `vw` so
   one message fits both papers (12 to 30 columns); ASCII and blocks as Courier New rows in a
   `<pre>` (8 to 48 columns); Braille, with its rows sized for its narrow cell so a picture keeps
-  its shape (marked as needing a test print).
+  its shape (marked as needing a test print). When the streamer's bits per inch leaves a cheer
+  less room than one row, the card says the bot cuts every part.
 - **Plain mode, automatically.** Below the threshold every block prints in its plain form
   (text as Han tiling, Glyph-art as a plain Han grid), and a notice above the parts says why
   and how to change it.
@@ -105,8 +114,11 @@ page, built into the app and run in a sandboxed frame with no network access.
   notice, and loaded into one sandboxed frame per part (`allow-scripts` only, no network:
   its page policy allows nothing to load). Three edits, each marked `RW-EDIT`: the Twitch,
   YouTube and Kick logos are one grey box, the page policy allows no network, and its closing
-  script tag is escaped. Under each part: the receipt's length, where and why the bot cuts it,
-  and anything the bot's sanitizer would remove.
+  script tag is escaped. Under each part: the receipt's length (and what a found profile
+  picture adds: about 4.8 cm on 80 mm, 4.0 cm on 58 mm; the preview never asks for one), where
+  and why the bot cuts it, and anything the bot's sanitizer would remove. Each part's frame is
+  drawn when it scrolls near the screen, one at a time, so a stack of 80 parts stays quick;
+  Copy and the part's notes are there at once.
 - **Thermal preview from the bot's page**: the receipt at the printer's dot width (576 / 384),
   dithered with a port of the bot's own C# Ditherer, with **Detailed / Soft / Crisp** (the
   dock's names for Floyd-Steinberg, Atkinson and threshold). Its caption says it is what the
@@ -146,13 +158,21 @@ page, built into the app and run in a sandboxed frame with no network access.
   save.
 - The test harness picks the app's script by its id (`<script id="rw-app">`), because the
   vendored page has a `<script>` of its own.
-- **Copy** is a full-size button in each part's header, which stays in view while a tall
-  preview scrolls past. A probe's view has a **Back to my stack** button.
+- **Copy** is a full-size button in each part's header ("N / 500 characters" beside it), which
+  stays in view while a tall preview scrolls past. It says **Copied** only when the clipboard
+  took the text; when the browser refuses (in-app browsers, say), the part shows its text,
+  selected, to copy by hand. A probe's view has a **Back to my stack** button, and pressing a
+  probe or Back scrolls to the result and focuses its Copy.
+- **No room after the Cheer line**: when the streamer's length settings leave a cheer nothing
+  after its Cheer line, every part says so, its Copy is disabled, and the line under the parts
+  says what to change instead of totalling bits.
 - **Presets**: saving under a taken name asks before replacing it; a rename onto a taken name
   is refused; Load, Rename and Delete act on the preset picked even when two share a name; Load
-  says whether its uploaded pictures still load (counted on the converted stack, so an old
-  Takeover's picture is checked too) and explains what converting an old preset changed;
-  Import says how many setups it really replaced.
+  says whether its Glyph-art blocks' uploaded pictures still load (counted on the converted
+  stack, so an old Takeover's picture is checked too) and explains what converting an old
+  preset changed; Load asks first when the blocks on screen are in no preset; Import never
+  replaces a saved setup: a name taken by one (or repeated in the file) is added with a number
+  after it, and the note says which.
 - **Glyph-art from a picked file**: the file is read in the browser and never uploaded, so the
   card says a reload or a preset won't keep it, and asks for it again when one didn't. A link
   that can't be read says so (and isn't fetched again on every edit). **Rotate** works for
@@ -161,7 +181,10 @@ page, built into the app and run in a sandboxed frame with no network access.
 - A free test counts messages, not bits, and below the threshold it says the real cheer
   prints as Han tiling instead; with High Roller off the cards say so; number fields show the
   value the app uses once committed; lengths in a part's verdict are in cm; one part says what
-  it costs too.
+  it costs too. The Layout hint describes the layout picked; longer card explanations and the
+  Thermal caption's detail fold behind "What's this?"; the ↑ and ↓ buttons are disabled at the
+  ends of the stack; the Image card's file input empties after each pick; the "nothing to
+  print" notice is wrapped text.
 - **On a phone** the preview and its Copy buttons come right after the blocks, before the
   presets and the settings (they were about 1,900px further down). Every card control has a
   label a screen reader can read, and the ↑ ↓ × and ↺ buttons say what they do.
@@ -222,8 +245,8 @@ blocks a form, the answer is the plain form, never a reworked message.
   sideways text differ only in a few edge dots, and header text sits a dot or two lower. In the
   Thermal view, small character grids on 58 mm and Braille can land up to 3 dots off, and the
   caption says their texture is approximate.
-- **Tests**: 167 unit tests and 24 browser tests, including the tag allow-list test and the
-  contract test against the vendored renderer.
+- **Tests**: 180 unit tests and 34 browser tests, including the tag allow-list test and the
+  contract test against the vendored renderer (which carries the *Words wrapped* layout too).
 - **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig
   yet. The bench cannot see the rig's fonts (Segoe UI, Arial, the CJK face, Courier New, the
   Braille and emoji faces), the streamer's Edge version, their settings or `theme.css`, or the

@@ -34,10 +34,10 @@ body:
       label: Scope notes
       description: >
         Optional: flag anything that affects scope. Note this project is deliberately
-        single-file, zero-dependency, no-network and client-only: the whole app is one
-        public/index.html (inline CSS + one vanilla-JS IIFE). Features that need a build
-        step, an npm package, a framework, a server, accounts, network calls, or HTML/markup
-        injection into the payload are likely out of scope (the last was deliberately
-        evaluated and rejected: see CLAUDE.md).
+        single-file, zero-dependency and client-side: the whole app is one public/index.html
+        (inline CSS + one vanilla-JS IIFE), with a small Worker only for picture links and
+        uploads. Features that need a build step, an npm package, a framework, accounts, new
+        network calls, picture tags in the message, or a way around a channel's chat filter
+        are out of scope (see CLAUDE.md).
     validations:
       required: false

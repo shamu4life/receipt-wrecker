@@ -26,12 +26,12 @@ is a hobby project, but credit is gladly given in the advisory if you'd like it.
 
 ## What is in scope
 
-- Escaping failures in generated markup. The app deliberately emits HTML/SVG
-  (big type, real pictures, Takeovers) because the destination renders a chat
-  message as HTML. Every user-supplied value that lands in that markup, whether it
-  is line text, a name or a picture URL, must go through `escapeHtml` /
-  `escapeAttr` in the pure core. A way to break out of an attribute or inject a tag
-  is a bug.
+- Escaping failures in generated markup. The app deliberately emits a little HTML
+  (`div`, `pre` and `br` with a `style` attribute: big text, sideways text,
+  glyph-art grids) because SassyTP's printer-bot renders a High Roller cheer's
+  message as HTML. Every user-supplied character that lands in that markup must go
+  through `escapeHtml` / `escapeAttr` in the pure core. A way to break out of an
+  attribute or inject a tag is a bug.
 - SSRF against the `/px` image proxy. This is the highest-value target in the
   project. `/px?u=<url>` fetches a remote image on the server's behalf and is
   guarded by `isPublicHttpUrl()` in `src/worker.js`: public http(s) only, no other
@@ -46,8 +46,13 @@ is a hobby project, but credit is gladly given in the advisory if you'd like it.
 - The image-serving routes. Keys are matched by shape (`imageKeyFor`), which
   shares a namespace with the static site. A path that makes an image route shadow
   or replace a real asset, or that escapes the key pattern, is in scope.
-- XSS in the app's own page, via how a payload or control value is rendered into
-  the preview.
+- XSS in the app's own page, via how a payload, a control value or an imported
+  preset is rendered.
+- Escaping the preview frame. Each part is drawn by SassyTP's receipt page (vendored
+  in `public/index.html`) inside an `<iframe sandbox="allow-scripts">` with an opaque
+  origin and a no-network page policy, talking to the app only by `postMessage`
+  (both ends check `event.source`). A message that reaches the app's page, its
+  storage or the network from inside that frame is in scope.
 - Canvas/image-handling issues that could hang or crash the tab on a maliciously
   crafted image file (e.g. pathological dimensions causing excessive memory use
   before downscaling).
@@ -64,18 +69,18 @@ don't report them.
   unguessable 48-bit key, alive for 15 minutes, so a payload can point a printer at
   it. Guessing one is impractical; being able to read one you were *given* is not a
   bug.
-- The only storage is three `localStorage` keys: `rw_controls_v1` (your
-  control-panel settings), `rw_blocks_v1` (your block stack) and `rw_nonce_seq` (a
-  send counter used only to advance the visible cheer nonce), each wrapped in
-  `try/catch`. Nothing you type or upload is ever persisted or sent anywhere.
-- No HTML/markup injection. This was deliberately evaluated and cut for the glyph
-  payload (see `CLAUDE.md` and the design spec): the tool only emits plain Unicode
-  glyphs, on purpose. This is a design decision, not something to "restore."
-- Glyph-rendering inaccuracies on a given receiving font/renderer are not
-  security issues. If a tier renders as tofu on some destination, or the column
-  count is off on a particular rig, that is exactly what the Census ("Print test
-  strip") feature exists to diagnose. File it as a normal issue with the
-  renderer/environment details, not as a vulnerability.
+- The only storage is four `localStorage` keys: `rw_controls_v1` (your settings),
+  `rw_nonce_seq` (the repeat-number counter), `rw_blocks_v1` (your block stack) and
+  `rw_presets_v1` (your presets), each wrapped in `try/catch`. What you type stays in
+  your browser; pasting a picture link or uploading a picture sends it to this
+  project's Worker, as `README.md` describes.
+- The app emitting markup at all. SassyTP's bot prints a High Roller cheer's message
+  as HTML through its own allow-list sanitizer; sending styled `div`, `pre` and `br`
+  is the point of the tool.
+- Glyph-rendering inaccuracies on a given rig are not security issues. If something
+  prints wrong on a particular printer (fonts, column count, a tier that comes out
+  blank), the app's High Roller test and Plain test exist to diagnose it. File it as
+  a normal issue with the printer/environment details.
 - AutoMod / blocked-terms holding or dropping a message is a per-channel Twitch
   moderation setting, entirely outside this tool's control.
 - No uptime guarantee. The hosted demo is best-effort; availability of

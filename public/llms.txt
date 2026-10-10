@@ -1,137 +1,81 @@
 # Receipt Wrecker
 
-> A single-file web tool that turns text or a picture into a paste-ready payload for
-> a character-limited chat box. Its headline use is making oversized text or a
-> recognisable picture print on a Twitch streamer's thermal receipt printer, by pasting
-> the output into chat as a `Cheer100`.
+> A single-file web tool that turns words or a picture into a Twitch chat message that
+> prints big on a streamer's thermal receipt printer, when that printer is driven by
+> SassyTP's printer-bot (a Streamer.bot action). The user pastes the message into chat as a
+> cheer.
 
-AI crawlers and LLM agents are welcome to read, index, and cite this site. The tool
-is open source under the MIT license and everything below is public.
+AI crawlers and LLM agents are welcome to read, index, and cite this site. The tool is open
+source under the MIT license and everything below is public.
 
 Key facts:
 
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
+- Current version: 1.0.0 (2026-10-10). Before 1.0.0 the tool targeted a different printer
+  bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
-- Payloads are capped at 500 code points to fit Twitch's per-message limit. Longer
-  work is split across several messages rather than truncated.
+- Each message is at most 500 characters, Twitch's limit. Longer work is split across
+  several cheers rather than truncated.
+
+## How the printer bot treats a cheer
+
+SassyTP's printer-bot draws each cheer on a receipt page in Edge, screenshots it at the
+printer's dot width (576 dots on 80 mm paper, 384 on 58 mm), dithers it to black and white
+and prints it.
+
+- A cheer of at least the streamer's High Roller threshold (default 25 bits; 0 turns it off)
+  is a High Roller cheer: the message is read as HTML and passed through an allow-list
+  sanitizer, so inline styles print.
+- A smaller cheer prints as plain 16px text inside quote marks, markup included.
+
+The streamer's settings (paper width, threshold, bits per inch, maximum length) are not
+visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
+in.
 
 ## What it outputs
 
-As of 2026-09-15 the receipt printer's bot runs the chat message through an HTML
-sanitizer (an allow-list keeping only a few tags and the src/class attributes)
-before rendering it. What prints now, as of version 0.12.0 (2026-10-09):
+- Big text (High Roller): the words in bold Arial, as large as the paper's width allows, as
+  typed, stacked one letter per line, or each line at its own size; optionally upside down.
+  Example: `Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>`.
+- Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
+  typed line becomes a column. Top to bottom (read by turning the receipt anticlockwise) or
+  bottom to top (turn it clockwise; needs Edge 132 or newer on the streamer's PC).
+- Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
+  grid, ASCII letters or block characters in Courier New rows, or Braille.
+- Han tiling (plain): words or a picture drawn out of Han characters as plain text, exactly
+  15 characters per line on 80 mm paper (9 on 58 mm), with the cheer word at the end. Below
+  the High Roller threshold every block prints in this form automatically.
+- Two one-cheer tests: a High Roller test (one cheer at the threshold) and a Plain test (one
+  bit under it).
 
-- Giant type, for text. The sanitizer removes the style attribute but keeps the
-  class attribute, and the printed page includes the bot author's shared stylesheet,
-  in which the class "title" means bold, uppercase and 1.2 times the parent's size.
-  Nesting it multiplies, so N nested <b class=title> tags print at 16px x 1.2^N:
-  capitals about 2 cm tall for a five-letter stacked word in one cheer on a default A4
-  (297 mm) receipt, and bigger on a longer one (raise Receipt length). Every tag is
-  one the sanitizer allows, sent as written; nothing in the markup is disguised. (A
-  stacked word goes out one letter per line, so a word filter never sees it whole;
-  that is how it fits the paper, not a way around a channel's rules.) One real cheer
-  confirmed it prints (2026-10-01); sizes are measured on the bot's own print engine.
-  It depends on a stylesheet the bot's author can change at any time, so the app
-  offers a one-cheer "Print size ruler" to check it, and keeps Hanzi tiling as the
-  backup.
-- Plain Unicode glyphs, the markup-free path. Glyph-art tiles a picture into
-  characters, and Hanzi tiling does the same for words. Hanzi tiling is plain text;
-  glyph-art rows are plain glyphs separated by <br> (their styling wrapper is
-  stripped, which is why the uniform-width CJK forms are used: they line up without
-  any styling). For pictures this is the only path.
-- Other HTML markup is stripped, and an arbitrary picture cannot be sent at all. The
-  sanitizer removes SVG (so the old "Type" render, sideways type and the
-  Takeover/fake-cheer overlays no longer render) and every picture carrier except an
-  <img> whose class is "emote" or "bits", and the channel's separate blocked-terms
-  filter blocks "<img", which was confirmed by a test message the same day. The two
-  filters leave no tag that can carry a picture of ours, so the app warns instead of
-  sending one. (A Twitch emote the sender can use is the exception: the bot itself
-  draws it, and Giant type's emote layout makes it giant.) ASCII glyph-art also breaks,
-  because it depended on styling the sanitizer strips.
+The tool uses only the tags div, pre and br, with a style attribute, and never a picture
+tag: the bot prints pictures only from emote servers, and the chat filter of the channel it
+was built for blocks the picture tag. An uploaded picture prints only as glyph-art. If a
+channel's moderation blocks a message, the tool's guidance is to accept that and fall back to
+plain Han tiling, not to rework the message.
 
-Glyph output stays inside the Basic Multilingual Plane, with no colour emoji and no
-astral-plane codepoints, because the target renderer is a 2011-era browser engine
-with no colour-font support. Giant type prints the user's own text, so it leaves emoji
-out and says which, and drops invisible characters (zero-width spaces, control codes)
-too, saying so.
+## The preview
 
-## Modes
-
-You compose a stack of blocks, and the app packs them into as few messages as
-possible.
-
-- A Text block prints a word or phrase in Giant type (as typed, stacked one letter
-  per line, or as Twitch emote names), or tiles it out of Hanzi. The older straight or
-  rotated "Type" render no longer prints and is only shown on blocks that already use
-  it.
-- An Image block makes glyph-art from a link or an upload. Its real-picture mode is
-  kept but cannot currently be sent (see above), and the block says so.
-- A Takeover block paints over the printer bot's own header. It is built from SVG,
-  which the sanitizer strips, so it no longer prints; it stays in the app, flagged, in
-  case that changes. It holds an ordered list of items, text or picture, any number of
-  them in any order, each with its own font, size, formatting, alignment and nudge,
-  under one block-level anchor (top / centre / bottom) and a calibration "reach up".
-  The **Seed fake donation** button fills an empty one with the four-item arrangement
-  of a real header: picture, amount, name, italic note. After that they are ordinary items you can edit,
-  reorder or delete. The amount is free text, because the same printer bot runs on
-  YouTube and Kick, and their headers say neither "BITS" nor anything like it. It is
-  a visual gag printed on till roll. It creates no record of anything, and the chat
-  message that triggers a print carries the real sender's name.
-
-When a stack splits across several cheers, every part after the first repaints the
-header with a plain continuation cover, so the run reads as one piece rather than
-artwork followed by ordinary receipts. It costs 106 characters per extra part, and
-there is a stack-level toggle for it.
-
-A **Receipt length (mm)** setting (default 297, A4) sets how long one receipt prints
-before the printer cuts it. printer-bot lays every page out at 500mm, but the real
-printer stops at its Windows driver's paper length — often A4 — and clips the rest, so
-a tall Giant stack used to print only its first few lines and stop (fixed in 0.11.0).
-The app now packs each cheer to fit this length, splitting a tall stack across receipts
-that each fit (each its own cheer, with the bot's header between them) so nothing is
-lost; the card says how many it needs, and warns if a single line is taller than one
-receipt. In a stacked phrase a space is a small gap, not a full giant blank line. The
-**Print size ruler** doubles as a length gauge: its note says which of its numbers the app
-expects to print at the current setting; to calibrate, measure the printed tape from its top
-edge to the cut and enter that length in mm (set the printer to Roll Paper / continuous for
-longer receipts).
-
-**Presets** save the whole block stack under a name and export it as JSON. An
-uploaded picture's link expires after 15 minutes, so a preset that used one loads
-with that block flagged for re-upload rather than printing blank.
-
-A **Cheer-ready** toggle prefixes the payload with a `Cheer<N>` token, so the message
-registers as a cheer. An optional **Add a repeat number** setting (off by default since
-0.12.0, because the digits print on the receipt) puts two rotating digits after the
-token, so the same art can be sent again straight away (Twitch won't send the same
-message twice in a row within 30 seconds); with it off, a stack with two identical
-parts in a row says so on the repeated part.
-With Cheer-ready off, a message is a free test: it never reaches
-the printer but still passes the channel's chat filters. An optional **Hide the cheer
-gem** setting wraps the token in a box the bot's own stylesheet pins to the receipt's
-corner, saving the line the cheer gem would print on (except in the emote layout,
-which keeps that line so its first row stays centred); the token stays a normal,
-charged cheer.
+The preview is drawn by SassyTP's printer-bot renderer (MIT), the bot's own receipt page,
+embedded in the tool and run in a sandboxed frame with no network access. A thermal view
+shows the receipt at the printer's dot width with the bot's own dither methods.
 
 ## Privacy
 
-The glyph and markup engines run entirely in the browser. Some picture operations
-call this project's own Cloudflare Worker and nothing else:
+Text in every mode, and a picture picked from disk, never leave the device. Some picture
+operations call this project's own Cloudflare Worker and nothing else:
 
-- Clicking **Upload** stores an image in Cloudflare KV behind an unguessable link
-  that auto-deletes after 15 minutes.
-- Pasting an image URL for glyph-art, adjusting brightness/contrast, or using
-  **Thermal preview** fetches that picture through an image proxy, because a browser
-  canvas cannot read cross-origin pixels directly.
+- Pasting a picture link fetches the picture through an image proxy, because a browser canvas
+  cannot read another site's pixels directly.
+- On a "Real picture" card, picking a file uploads it to Cloudflare KV behind an unguessable
+  link that is deleted after 15 minutes, and rotating or adjusting it re-uploads it.
 
-Big Text (Giant type included; its emote preview never downloads an emote), and any
-picture you pick from your own disk for glyph-art, never leave the device. Settings,
-your block stack and saved presets are kept in `localStorage`.
+Settings, the block stack and saved presets are kept in the browser's localStorage.
 
 ## Docs
 
-- [README](https://github.com/shamu4life/receipt-wrecker/blob/main/README.md): human-facing overview, feature spec, and deploy notes.
+- [README](https://github.com/shamu4life/receipt-wrecker/blob/main/README.md): overview, modes with examples, settings, privacy, self-hosting.
 - [Changelog](https://github.com/shamu4life/receipt-wrecker/blob/main/docs/CHANGELOG.md): release notes and change history.
 - [Contributing](https://github.com/shamu4life/receipt-wrecker/blob/main/.github/CONTRIBUTING.md): how to contribute.

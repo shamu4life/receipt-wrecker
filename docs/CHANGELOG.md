@@ -5,8 +5,180 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 **Entries describe the state at that release, not today.** The 0.1.0 notes below say
 the app makes no network calls and emits only plain Unicode glyphs. Both were true
-then and neither is true now. For current behaviour see the
-[README](../README.md) and [`public/llms.txt`](../public/llms.txt).
+then and neither is true now. Everything before 1.0.0 targeted nutty.gg's printer-bot,
+not SassyTP's. The design specs and plans older entries mention lived in
+`docs/superpowers/`, removed in 1.0.0; git history keeps them. For current behaviour see
+the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
+
+---
+
+## [1.0.0] - 2026-10-10
+
+### The short version
+
+**Rebuilt for SassyTP's printer-bot (2.5.4).** Receipt Wrecker now targets
+[SassyTP's printer-bot](https://github.com/SassyTP/printer-bot), which draws every cheer on
+a receipt page in headless Edge and prints a screenshot of it. That bot prints a cheer one
+of two ways: a cheer of at least the streamer's **High Roller** threshold (default 25 bits)
+is read as HTML and its inline styles print; a smaller cheer prints as **plain** text in
+quote marks, tags and all. So the app now asks for the streamer's settings, builds big text,
+sideways text and glyph-art for High Roller cheers, and automatically builds every block in
+its plain form (Han tiling) when the cheer is below the threshold.
+
+Everything built for the previous target, nutty.gg's printer-bot (printed through
+wkhtmltopdf), is gone: Giant type, the cheer-gem tuck, Receipt length, the Takeover and
+Fake cheer, continuation covers, real-picture carriers, SVG Big Text and the old bench.
+Saved work is converted on first load, and the stack as it was is kept once as a preset.
+
+The preview is now drawn by **SassyTP's printer-bot renderer** (MIT), the bot's own receipt
+page, built into the app and run in a sandboxed frame with no network access.
+
+### Removed
+
+- **Giant type** (nested borrowed `.title` classes) and everything that served it: the
+  borrowed-class table (`PB_CLASSES`, `pbClass`, `classAttr`, `pbPreviewCss`), the Emote
+  names layout, the **Print size ruler**, and the **Receipt length** control with its A4
+  height model (`heightBudget`, `HEIGHT_RESERVE_PX` and friends).
+- **Hide the cheer gem** (the `tuck` setting). It worked by borrowing two of the old bot's
+  classes; on this bot it would need a message that starts with a tag, which the app never
+  sends.
+- **Takeover** and **Fake cheer** (SVG lifted over the old bot's header) and the
+  **continuation covers** for multi-part runs. SassyTP's bot prints neither SVG nor anything
+  outside its message box.
+- **Real-picture carriers**: the carrier table (`EMBEDS`, `buildImageEmbed`) and the **Find
+  what still sends** probe. See "Changed" for what a Real picture block does now.
+- **SVG Big Text** ("Type", straight and sideways), the rotated span and its CSS-escape trick,
+  the binary text tier, and the **Census** (Print test strip).
+- `breakRuns`, which reworked art to get past a repetition filter. Removed on principle.
+- The hidden single-mode UI left from before the block composer, its builders and its
+  duplicate uploader.
+- The **100-bit floor** on Bits per cheer.
+- Tools for the old bot: `tools/rig.py`, `tools/printerbot.mjs`, `tools/calibrate.py`, and the
+  `npm run render` / `npm run printerbot` scripts. The design specs and plans in
+  `docs/superpowers/` (git history keeps them).
+
+### Added
+
+- **The streamer's printer-bot settings**: Paper width (80 or 58 mm), High Roller threshold
+  (default 25; 0 = off), Bits per inch and Maximum length (both off by default). They decide
+  how wide the paper is, whether a cheer prints styled or plain, and how long a High Roller
+  message may be. Saved as fields of `rw_controls_v1`; no new storage key.
+- **Big text** (High Roller): `<div style="font:700 <px>px/<lh> Arial">` in bold Arial, sized
+  from Arial Bold's real advance widths. Layouts *Auto*, *Lines as you typed them*, *Stack the
+  letters* and *Each line its own size*; sizes *Auto* (biggest in one cheer), *Fill the
+  paper's width* or 20 to 400 px; **Upside down**. Line height .8 for capitals-only lines,
+  1.15 when anything has a tail (lowercase, Q, comma, semicolon, emoji). Emoji are allowed and
+  print as grey dots; invisible characters are left out and the card says so. Every option is
+  labelled with what it prints (capitals in cm, cheers).
+- **Sideways text** (High Roller): `writing-mode` turns the text so it runs down the tape, as
+  big as the paper's width allows; each typed line is a column. *Top to bottom*
+  (`vertical-rl`, read by turning the receipt anticlockwise) or *Bottom to top*
+  (`sideways-lr`, turn it clockwise; needs Edge 132 or newer on the streamer's PC).
+- **Han tiling for plain cheers** ("Design T"): every row exactly as many Han characters as a
+  plain line holds (15 on 80 mm, 9 on 58 mm), a light header row so the opening quote mark has
+  a line to itself, and the cheer word at the end. Each plain part is its own cheer.
+- **Glyph-art forms for this bot**: Han characters as a square grid sized in `vw` so one
+  message fits both papers (12 to 30 columns); ASCII and blocks as Courier New rows in a
+  `<pre>` (8 to 48 columns); Braille (marked as needing a test print).
+- **Plain mode, automatically.** Below the threshold every block prints in its plain form
+  (text as Han tiling, Glyph-art as a plain Han grid), and a notice above the parts says why
+  and how to change it.
+- **High Roller test** and **Plain test** buttons, replacing the Census and the ruler: one
+  cheer at exactly the threshold (BIG, MMMMM at the width limit, "jog", an upside-down BIG
+  and an upward UP) and one cheer one bit under it (HI in a plain Han grid and a row of
+  tones), each with a note on how to read the print.
+- **The preview is SassyTP's own renderer.** `v/2.5.0/renderer.html` at commit `b9f12b0`
+  (version 202610090056) is kept in `public/index.html` as inert text, with SassyTP's MIT
+  notice, and loaded into one sandboxed frame per part (`allow-scripts` only, no network:
+  its page policy allows nothing to load). Three edits, each marked `RW-EDIT`: the Twitch,
+  YouTube and Kick logos are one grey box, the page policy allows no network, and its closing
+  script tag is escaped. Under each part: the receipt's length, where and why the bot cuts it,
+  and anything the bot's sanitizer would remove.
+- **Thermal preview from the bot's page**: the receipt at the printer's dot width (576 / 384),
+  dithered with a port of the bot's own C# Ditherer, with **Detailed / Soft / Crisp** (the
+  dock's names for Floyd-Steinberg, Atkinson and threshold).
+- **Tools**: `tools/forkbench.mjs` (`npm run bench`) renders a message through SassyTP's real
+  receipt page at a pinned commit and dithers it the bot's way; `tools/vendor-renderer.mjs`
+  writes or `--check`s the vendored renderer block (the "SassyTP shipped a new version"
+  routine). `tools/payload.mjs` has new kinds: `big`, `side`, `glyph`, `plain`, `hrprobe`,
+  `plainprobe` (and `raw`), and takes `"paper": 58`.
+- **Tests**: a tag allow-list test (every builder, both probes, 80 and 58 mm, hostile input:
+  only `div`, `pre`, `br` and `style`, never a picture tag in any case); the MANDATORY
+  browser contract test, which runs every mode's Copy payload through the vendored renderer
+  and checks that nothing is taken out, nothing is cut that the app didn't warn about, and the
+  height matches the prediction.
+
+### Changed
+
+- **Bits per cheer** is any whole number from 1. A floor of 100 would have made the control
+  say 25 while the message said `Cheer100`.
+- **A plain part carries its cheer word last** (`… Cheer24`). The old "token leads" rule
+  still holds for High Roller messages, which never start with `<`.
+- **Real picture** blocks send nothing. SassyTP's bot only prints pictures from emote
+  servers, and this channel's chat filter blocks the picture tag, so the card says the upload
+  can't print as a picture and offers **Switch to Glyph-art**. Upload, rotate and
+  brightness/contrast stay on the card. New Image blocks start as Glyph-art (Han characters,
+  20 columns). A stack whose only content is a Real picture gives no copyable cheer.
+- **The repeat number** (two digits after the cheer word) is still off by default and still
+  saved in `rw_controls_v1`.
+- **Network**: the app now has four `fetch` call sites (two `/px`, two `/upload`), down from
+  six. The Thermal preview no longer fetches anything. The Worker (`src/worker.js`) and
+  `wrangler.jsonc` are byte-identical.
+- **Settings blob**: `rw_controls_v1` now holds `cheer`, `bits`, `hrThreshold`,
+  `bitsPerInch`, `maxInches`, `paperMm`, `nonce`, `thermalView` and `thermalDither`. Old fields
+  (`tuck`, `covers`, `receiptLen`, the single-mode fields) are ignored and dropped on the next
+  save.
+- The test harness picks the app's script by its id (`<script id="rw-app">`), because the
+  vendored page has a `<script>` of its own.
+
+### Migration of saved work
+
+The first time a saved stack loads in 1.0.0 (and whenever a preset is loaded):
+
+- A **Takeover** or **Fake cheer** becomes ordinary blocks, in order: each text line a Big
+  text block (lines as typed, the biggest size that fits one cheer), each picture a Glyph-art
+  Image block with the same link. Each new block gets a fresh id. An empty one is dropped.
+- A **Giant type** block becomes Big text with its layout (the Emote names layout becomes
+  Lines) and its level as a size: level n is round(16 × 1.2ⁿ) px.
+- A **Type** block becomes Big text (straight), Big text upside down (180°), or Sideways text
+  top to bottom (90°) or bottom to top (270°).
+- An Image block loses its carrier pick; everything else, the upload link included, stays.
+- When anything was rewritten, the stack as it was is saved **once** as the preset
+  **Before 1.0.0** (or "Before 1.0.0 (2)" if that name is taken), merged into your presets
+  after they load, never over one of yours and never over a presets list that can't be read.
+  Stored presets themselves are not rewritten; a preset is converted when it is loaded.
+
+### Field note: this channel's chat filter (2026-10-10)
+
+The channel owner reported on 2026-10-10 that the channel's blocked-terms list from the
+nutty.gg days is unchanged, and that a paste test whose message carried an `<img` tag (an emote
+picture after a styled div) was held by AutoMod. That matches the older record, in which the
+list ate `<object`, then `<image`, then `<img` (confirmed 2026-09-15). So no builder emits a
+picture tag, there is no emote or inline-picture feature, and uploads print only as
+glyph-art. Whether the list blocks anything 1.0.0 does use (`<div`, `<pre`, `<br`, `style=`)
+is not known: a free test (Cheer-ready off) answers it before any bits are spent. If a channel
+blocks a form, the answer is the plain form, never a reworked message.
+
+### How sure
+
+- **Bench**: every mode was rendered through SassyTP's real receipt page at the pinned commit
+  in Chromium (`tools/forkbench.mjs`), at 80 and 58 mm: 38 cases built by the app's own code,
+  all rendered with no sanitizer notes, no page-policy violations, no ink touching either edge
+  and nothing trimmed. Horizontal text and grids came within 0.21 px of the predicted height;
+  sideways text came in 1 to 18 px under the prediction, which is deliberately an upper bound.
+  Real Copy payloads from the page (mixed big, sideways and Han-grid parts at 80 mm; ASCII
+  grids and an upside-down each-line block at 58 mm; plain and Han tiling) were benched too,
+  and the 1-bit prints checked by eye.
+- **Preview vs bench**: the in-app preview and the bench agree on height, cut and sanitizer
+  notes in every case compared; plain and glyph grids match dot for dot; big and sideways text
+  differ only in a few edge dots, and header text sits a dot or two lower.
+- **Tests**: 160 unit tests and 17 browser tests, including the tag allow-list test and the
+  contract test against the vendored renderer.
+- **Still needs a real print.** No 1.0.0 message has been reported printed on the real rig
+  yet. The bench cannot see the rig's fonts (Segoe UI, Arial, the CJK face, Courier New, the
+  Braille and emoji faces), the streamer's Edge version, their settings or `theme.css`, or the
+  channel's chat filter. The High Roller test and the Plain test are one cheer each; send them
+  first. Braille and the blocks tier (thin seams between rows on the bench) most need checking.
 
 ---
 

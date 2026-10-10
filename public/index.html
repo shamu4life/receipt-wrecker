@@ -1511,6 +1511,197 @@
     return out.concat(cheerWordNotes(words, "remove it, put it on a line of its own, or set Layout to Stack the letters.")).join("\n");
   }
 
+  // ── SIDEWAYS (High Roller): the words run down the tape ──
+  // <div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto">
+  //   <line 1><br><line 2>...</div>
+  // writing-mode turns the layout box itself, so the run's length is real height inside the
+  // bot's message box: the receipt grows to fit it, and the bot's own length check sees it (a
+  // transform-only rotation reserves no space and is cut off at both ends). Each line becomes
+  // a column across the paper; line 1 reads on top once the tape is turned.
+  //   down: vertical-rl, the letters' tops toward the right edge; turn the receipt
+  //         anticlockwise to read it. Works on every Edge.
+  //   up:   sideways-lr, the tops toward the left edge; turn it clockwise. Needs Edge 132 or
+  //         newer on the streamer's PC (the bot targets a current Edge).
+  // white-space:nowrap does nothing on today's bot (an orthogonal block's line length is the
+  // 5000px window); it stays as a guard. Lengths and centring are Arial Bold's, pinned like big
+  // text (the sideways design and its three reviews, benched through the bot's real page).
+  var SIDE_DIRS = { down: "vertical-rl", up: "sideways-lr" };
+  var SIDE_MIN_PX = 20, SIDE_MAX_PX = 300;
+  var SIDE_EDGE_PX = 6;
+  function sideOpen(S, lh, dir) {
+    return '<div style="writing-mode:' + (SIDE_DIRS[dir] || SIDE_DIRS.down) + ";font:700 " + S + "px/" + lh
+      + ' Arial;white-space:nowrap;margin:auto">';
+  }
+  // How big N columns can be across a contentW-wide message, from Arial Bold's metrics
+  // (ascent .905, descent .212, cap height .716): whatever the line-height, the baseline sits
+  // 0.3465em off a column's centre, so capitals reach 0.3695em on the glyph-top side and
+  // anything else (descenders, accents) up to about 0.6em. The outer columns may reach
+  // E = contentW/2 - 6 from the centre (116px on 80 mm, 70.5 on 58 mm); columns are S x LH apart.
+  //   capitals-safe, LH .8:   floor(E / (0.4N - 0.0305)), at most 280 (scaled to the paper)
+  //   anything else, LH 1.15: floor(E / (0.575(N - 1) + 0.6)), at most 193 (scaled)
+  // On 80 mm that is 280/150/99/73/58 for 1-5 lines of capitals and 193/98/66/49 otherwise.
+  // The comma, the semicolon and Q are NOT capitals here: their tails drop about 0.15em, and
+  // at the capitals' sizes they printed clipped at the paper edge or ran into the next column
+  // (all three reviews). BIG_CAPS_SAFE leaves them out, so they take the 1.15 rule.
+  function sideWidthPx(n, caps, contentW) {
+    var E = contentW / 2 - SIDE_EDGE_PX, k = contentW / 244;
+    n = Math.max(1, n);
+    var s = caps ? Math.min(Math.floor(280 * k), Math.floor(E / (0.4 * n - 0.0305)))
+                 : Math.min(Math.floor(193 * k), Math.floor(E / (0.575 * (n - 1) + 0.6)));
+    return Math.max(1, s);
+  }
+  // Text -> columns, after bigClean: one per line as typed, inner whitespace collapsed, blank
+  // lines at either end dropped (a blank line in between is an empty column).
+  function sideLines(text) {
+    var ls = bigClean(text).text.split("\n").map(function (l) { return l.replace(/\s+/g, " ").trim(); });
+    while (ls.length && ls[0] === "") ls.shift();
+    while (ls.length && ls[ls.length - 1] === "") ls.pop();
+    return ls;
+  }
+  // The block's fields, untrusted like big text's: dir "down" (the default) or "up"; size
+  // "fit1" (the biggest that fits one cheer, the default), "width" (as big as the width rule
+  // allows, however many cheers) or a whole number of px, 20..300.
+  function sideSizeOf(size) {
+    if (size === "fit1" || size === "width") return size;
+    var n = typeof size === "number" ? Math.round(size) : (typeof size === "string" ? parseInt(size, 10) : NaN);
+    return isFinite(n) ? Math.max(SIDE_MIN_PX, Math.min(SIDE_MAX_PX, n)) : "fit1";
+  }
+  function sideOpts(block) {
+    var b = block || {};
+    return { dir: b.sideDir === "up" ? "up" : "down", size: sideSizeOf(b.sideSize) };
+  }
+  // How far a run of text goes down the tape at S: the advance sum (no kerning, so an upper
+  // bound: 'HAPPY BIRTHDAY' measured 8.78em against 8.889) plus half a px a glyph, as for big
+  // text's width.
+  function sideSegLen(seg, S) { return seg ? S * bigLineEm(seg) + 0.5 * bigGraphemes(seg).length : 0; }
+  // One line cut into segments that each run at most maxLen down the tape and cost at most
+  // maxChars, at word boundaries; a word too long on its own is cut between letters. Never
+  // truncates. Each segment says whether it starts after a space (`sp`), so a word gap that
+  // falls between two bodies is kept (see sideEval).
+  function sideSegments(line, S, maxLen, maxChars) {
+    if (!line) return [{ t: "", sp: false }];
+    var segs = [], cur = "", curSp = false;
+    function fits(s) { return sideSegLen(s, S) <= maxLen + PX_EPS && payloadLength(escapeHtml(s)) <= maxChars; }
+    line.split(" ").forEach(function (w, wi) {
+      var pieces = [w];
+      if (!fits(w)) {
+        pieces = []; var c = "";
+        bigGraphemes(w).forEach(function (g) { var t = c + g; if (c && !fits(t)) { pieces.push(c); c = g; } else c = t; });
+        if (c) pieces.push(c);
+      }
+      pieces.forEach(function (p, pi) {
+        if (pi > 0) { if (cur) segs.push({ t: cur, sp: curSp }); cur = p; curSp = false; return; }
+        var trial = cur ? cur + " " + p : p;
+        if (cur && !fits(trial)) { segs.push({ t: cur, sp: curSp }); cur = p; curSp = wi > 0; }
+        else { if (!cur) curSp = wi > 0; cur = trial; }
+      });
+    });
+    if (cur) segs.push({ t: cur, sp: curSp });
+    return segs.length ? segs : [{ t: "", sp: false }];
+  }
+  // One candidate size: cut every line by the room (one part's height after the lead) and by
+  // an equal share of the characters, and make body k from segment k of every line, so the
+  // columns stay where they are from body to body (an empty column holds an nbsp: a trailing
+  // empty line would otherwise vanish and shift the others). A body whose columns pick up
+  // after a word gap opens with "<br>" (joinPx 21.6), so the gap survives when the packer
+  // puts it after the previous body. Bottom to top ("up") reads the tape from the bottom,
+  // so the bodies go out LAST FIRST and the whole run reads in order.
+  function sideEval(lines, S, lh, dir, budget, room) {
+    var N = Math.max(1, lines.length), openL = payloadLength(sideOpen(S, lh, dir));
+    var maxChars = Math.max(1, Math.floor((budget - 4 - openL - BIG_CLOSE.length - 4 * (N - 1)) / N));
+    var segs = lines.map(function (l) { return sideSegments(l, S, room, maxChars); });
+    var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], k;
+    for (k = 0; k < K; k++) {
+      var c = segs.map(function (s) { return s[k] ? s[k].t : ""; });
+      var sp = segs.some(function (s) { return !!(s[k] && s[k].sp); });
+      var chars = openL + BIG_CLOSE.length + 4 * (N - 1)
+        + c.reduce(function (t, x) { return t + (x ? payloadLength(escapeHtml(x)) : 1); }, 0);
+      var h = c.reduce(function (m, x) { return Math.max(m, sideSegLen(x, S)); }, 0);
+      cols.push(c);
+      src.push({ start: k, end: k + 1, heightPx: Math.round(h * 1000) / 1000, chars: chars, gapBefore: k > 0 && sp });
+    }
+    var em = bigEmit(src, dir === "up", budget, room);
+    return { px: S, cols: cols, chunks: em, cheers: bigCheerCount(em, budget, room),
+             over: em.some(function (r) { return r.over; }), tall: em.some(function (r) { return r.tall; }) };
+  }
+  // The whole decision for one sideways block. opts = {dir, size, budget, heightPx (one part's
+  // room after the lead), contentW | paperMm, linear}. fit1 searches like big text: the
+  // biggest size with the least bad (over, tall, cheers), within the width rule.
+  function sidePlan(text, opts) {
+    opts = opts || {};
+    var o = sideOpts({ sideDir: opts.dir, sideSize: opts.size });
+    var budget = bigBudget(opts.budget), room = bigRoom(opts.heightPx), contentW = bigContentW(opts);
+    var cleaned = bigClean(text), lines = sideLines(cleaned.text);
+    var caps = lines.every(function (l) { return BIG_CAPS_SAFE.test(l); }), lh = caps ? BIG_LH_CAPS : BIG_LH_TEXT;
+    var maxPx = Math.min(SIDE_MAX_PX, sideWidthPx(lines.length, caps, contentW));
+    var emoji = lines.some(function (l) { return bigGraphemes(l).some(function (g) { return bigGlyphEm(g) === BIG_W_EMOJI; }); });
+    var ev = function (S) { var c = sideEval(lines, S, lh, o.dir, budget, room); c.fits = S <= maxPx; return c; };
+    var pick = null;
+    if (lines.some(function (l) { return l !== ""; })) {
+      if (typeof o.size === "number") pick = ev(o.size);
+      else if (maxPx < SIDE_MIN_PX) pick = ev(SIDE_MIN_PX);
+      else if (o.size === "width") pick = ev(maxPx);
+      else pick = bigSearch(ev, SIDE_MIN_PX, maxPx, opts.linear);
+    }
+    return { dir: o.dir, size: o.size, lines: lines, caps: caps, lh: lh, maxPx: maxPx, emoji: emoji, pick: pick,
+             dropped: cleaned.dropped, budget: budget, room: room, contentW: contentW };
+  }
+  function sideFit(text, opts) {
+    var p = sidePlan(text, opts), k = p.pick;
+    return { dir: p.dir, size: p.size, px: k ? k.px : 0, lh: p.lh, lines: p.lines.slice(), columns: p.lines.length,
+             maxPx: p.maxPx, chunks: k ? k.chunks.length : 0, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
+             over: k ? k.over : false, tall: k ? k.tall : false,
+             lengthPx: k ? k.chunks.reduce(function (t, r) { return t + r.heightPx; }, 0) : 0,
+             dropped: p.dropped.slice(), emoji: p.emoji };
+  }
+  // buildSideBodies(text, opts) -> Body[] (opts as sidePlan), each with `joinPx` and a `side`
+  // record for the card.
+  function buildSideBodies(text, opts) {
+    var p = sidePlan(text, opts), k = p.pick;
+    function info(ci, n, r, words) {
+      return { dir: p.dir, size: p.size, px: k ? k.px : 0, lh: p.lh, columns: p.lines.length, maxPx: p.maxPx,
+               capCm: k ? bigCapCm(k.px) : 0,
+               lengthCm: k ? k.chunks.reduce(function (t, x) { return t + x.heightPx; }, 0) * MM_PER_PX / 10 : 0,
+               chunkIndex: ci, chunkCount: n, cheers: k ? k.cheers : 0, fits: k ? k.fits : true,
+               over: r ? r.over : false, tall: r ? r.tall : false, dropped: p.dropped, emoji: p.emoji,
+               cheerWords: words || [] };
+    }
+    if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, side: info(0, 0, null, []) }];
+    var open = sideOpen(k.px, p.lh, p.dir);
+    return k.chunks.map(function (r, ci) {
+      var cols = k.cols[r.start];
+      var html = (r.br ? "<br>" : "") + open
+        + cols.map(function (c) { return c ? escapeHtml(c) : "\u00A0"; }).join("<br>") + BIG_CLOSE;
+      return { html: html, chars: payloadLength(html), heightPx: r.heightPx, joinPx: r.joinPx,
+               preview: { kind: "html", html: html }, side: info(ci, k.chunks.length, r, cheerWords(html)) };
+    });
+  }
+  // Plain-language report for a sideways block. opts = {cheers, bits, limit} as bigReport.
+  function sideReport(b, opts) {
+    opts = opts || {};
+    var gs = (Array.isArray(b) ? b : [b]).filter(function (x) { return x && x.side; }).map(function (x) { return x.side; });
+    if (!gs.length) return "";
+    var g = gs[0], out = [], drop = bigDropNotes(g.dropped);
+    if (!g.px) return drop.length ? drop.join("\n") + " Nothing else is left to print." : "Type something to print it running down the tape.";
+    var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : (g.cheers || 1);
+    var bits = cheerBits(opts.bits);
+    out.push("Capitals ≈ " + g.capCm.toFixed(1) + " cm across the paper, " + g.lengthCm.toFixed(1) + " cm down the tape · "
+      + (cheers === 1 ? "fits 1 cheer" : "needs " + cheers + " cheers (" + cheers * bits + " bits); the bot prints its header between the pieces"));
+    if (!g.fits) {
+      out.push(typeof g.size === "number"
+        ? "Too many lines to fit across the paper at this size: the outer ones will be cut off. Pick a smaller size or use fewer lines."
+        : "Too many lines to fit across the paper even at the smallest size: the outer ones will be cut off. Use fewer lines.");
+    }
+    if (gs.some(function (x) { return x.over; })) out.push("One piece is too long for a single Twitch message, so that cheer would be rejected. Use fewer lines.");
+    if (gs.some(function (x) { return x.tall; })) out.push("One letter is taller than " + boxWords(opts.limit) + ". Pick a smaller size.");
+    if (g.dir === "up" && cheers > 1) out.push("Read bottom to top, so the pieces go out last first: the tape reads in order once you turn it.");
+    if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
+    out = out.concat(drop);
+    var words = [];
+    gs.forEach(function (x) { (x.cheerWords || []).forEach(function (w) { if (words.indexOf(w) < 0) words.push(w); }); });
+    return out.concat(cheerWordNotes(words, "remove it, or put it on a line of its own.")).join("\n");
+  }
+
   // ── BROWSER GLUE (canvas + DOM; guarded so the null-DOM test sandbox tolerates it)
   // Everything in this block is either (a) a function *definition* (never executes its
   // body until called) or (b) the single `document.addEventListener("DOMContentLoaded", init)`
@@ -4629,6 +4820,10 @@
       bigLineHeight: bigLineHeight, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
       bigCheerCount: bigCheerCount, bigPlan: bigPlan, bigFit: bigFit, buildBigBodies: buildBigBodies,
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
+      // Sideways (High Roller).
+      SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen,
+      sideWidthPx: sideWidthPx, sideLines: sideLines, sideSizeOf: sideSizeOf, sideOpts: sideOpts,
+      sidePlan: sidePlan, sideFit: sideFit, buildSideBodies: buildSideBodies, sideReport: sideReport,
       heightBudget: heightBudget, clampReceiptMm: clampReceiptMm, giantHeight: giantHeight,
       DEFAULT_HEIGHT_BUDGET: DEFAULT_HEIGHT_BUDGET, HEIGHT_RESERVE_PX: HEIGHT_RESERVE_PX,
       LEN_PX_PER_MM: LEN_PX_PER_MM, RECEIPT_MM_DEFAULT: RECEIPT_MM_DEFAULT,

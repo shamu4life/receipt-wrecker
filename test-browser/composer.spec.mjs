@@ -1693,16 +1693,16 @@ test("polish: labels and notes say what really prints: Each's sizes, the message
       /“MESSAGE” is too tall for one receipt at this size, so it breaks across two cheers, with the bot's header in between\. Pick a smaller size to keep it whole\./);
     // One long sideways line: Enter makes more columns.
     assert.match(await cards(page).nth(2).locator(".text-note").innerText(), /Press Enter between words to make more columns/);
-    // The part line adds what a found profile picture would.
+    // The part line counts the stand-in profile picture, and says what a receipt without one saves.
     const { verdict } = await drawnPart(page, 0, await copyPayload(page, 0));
-    assert.match(verdict, /header and footer included, plus about 4\.8 cm if the bot finds the viewer's profile picture\./);
+    assert.match(verdict, /header and footer included\. The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about 4\.8 cm shorter\./);
     assert.deepEqual(errors, []);
     await ctx.close();
   }
   {
     const { page, ctx } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, paperMm: 58 } });
     const { verdict } = await drawnPart(page, 0, await copyPayload(page, 0));
-    assert.match(verdict, /plus about 4\.0 cm if the bot finds the viewer's profile picture\./);
+    assert.match(verdict, /when the bot finds none, the receipt is about 4\.0 cm shorter\./);
     await ctx.close();
   }
   {
@@ -2623,4 +2623,29 @@ test("1.1.0: Glyph-art's Characters counts too; a jump past 4x asks first; lower
   assert.match(await raiseNoteOf(card).textContent(), /^For the characters you picked a cheer needs 25 bits or more/);
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+test("1.1.0: the preview draws a stand-in in the bot's profile-picture circle and counts it in the receipt's length", async () => {
+  for (const [paperMm, side, extra] of [[80, 184, 182], [58, 153, 151]]) {
+    const { page, ctx, errors, requests } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, paperMm }, eager: true });
+    const payload = await copyPayload(page, 0);
+    const { frame, card, last, verdict } = await drawnPart(page, 0, payload);
+    const pic = await frame.evaluate(() => {
+      const av = document.getElementById("receipt-avatar"), r = av.getBoundingClientRect();
+      return { src: (av.getAttribute("src") || "").slice(0, 19), shown: getComputedStyle(av).display !== "none",
+               side: Math.round(r.height), noAvatar: document.getElementById("receipt-container").classList.contains("no-avatar") };
+    });
+    // min(11.5em, 100%) square: 184 px on 80 mm, the 153 px message width on 58 mm.
+    assert.deepEqual(pic, { src: "data:image/svg+xml,", shown: true, side, noAvatar: false }, paperMm + " mm");
+    // The bot's page measured without it, the preview with it: the picture, its 14 px gap, less the 16 px top padding.
+    assert.equal(last.result.standIn, true);
+    assert.equal(last.result.height - last.result.botHeight, extra, paperMm + " mm");
+    assert.equal(await card.locator("iframe.rcpt-frame").evaluate((f) => f.style.height), last.result.height + "px");
+    assert.match(verdict, /The circle is a stand-in for the viewer's profile picture/);
+    // Nothing is fetched for it, and what is copied is what the core builds.
+    assert.ok(!requests.some((u) => !u.startsWith(server.url) && !u.startsWith("data:")), "the stand-in made a request");
+    assert.equal(payload, expectNode([BIG({ id: 1 })], { ...SETTINGS, paperMm })[0]);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
 });

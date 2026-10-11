@@ -2992,8 +2992,9 @@
   // never for its built-in 1600px box, which cuts hard and silently. o: free (a free test), bits, warned (the app
   // itself expected this part to be cut), upUnsupported (an upward sideways part, in a browser
   // without writing-mode: sideways-lr), paperMm (for the profile picture's height). Returns [{text, warn}].
-  // The viewer's profile picture: the preview sends no userName, so its receipts have none, but
-  // a real cheer's has one whenever the bot's lookup answers in time. #receipt-avatar is
+  // The viewer's profile picture: the preview sends no userName, so the bot draws none and the
+  // preview's glue puts a stand-in in its circle (result.standIn); a real cheer has the viewer's
+  // own whenever the bot's lookup answers in time. #receipt-avatar is
   // min(11.5em, 100%) square with a 14px gap under it, and replaces the 16px top padding a
   // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm.
   function avatarExtraPx(paperMm) {
@@ -3009,8 +3010,11 @@
       return out;
     }
     var h = Math.round(Number(r.height) || 0);
-    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included, plus about "
-      + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture.", warn: false });
+    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included"
+      + (r.standIn === true
+        ? ". The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about "
+          + cm(avatarExtraPx(o.paperMm)) + " cm shorter."
+        : ", plus about " + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture."), warn: false });
     var cut = "";
     if (r.trimmed) {
       // In cm like every other length here; the inches only where they echo a streamer setting
@@ -3571,12 +3575,31 @@
         }
         return { css: css, html: X.serializeToString(copy) };
       }
+      // A real cheer's receipt carries the viewer's profile picture in the bot's avatar circle when
+      // the bot finds one. This frame has no network, so a stand-in goes there (an inline SVG, which
+      // its policy allows) and the page is measured again the way render() measures it: cut at
+      // 5000 px, the bot's MAX_RECEIPT_HEIGHT. botHeight keeps render()'s own answer.
+      var STAND_IN = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E"
+        + "%3Crect width='100' height='100' fill='%23d9d9d9'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%238c8c8c'/%3E"
+        + "%3Cpath d='M14 100c0-22 16-36 36-36s36 14 36 36z' fill='%238c8c8c'/%3E%3C/svg%3E";
+      function standIn(result) {
+        var av = document.getElementById("receipt-avatar"), box = document.getElementById("receipt-container");
+        if (!result || result.ok !== true || !av || !box) return Promise.resolve(result);
+        av.src = STAND_IN; av.style.display = ""; box.classList.remove("no-avatar");
+        var measured = function () {
+          result.botHeight = result.height;
+          result.height = Math.min(5000, Math.ceil(document.documentElement.getBoundingClientRect().height));
+          result.standIn = true;
+          return result;
+        };
+        return (av.decode ? av.decode() : Promise.resolve()).then(measured, measured);
+      }
       window.addEventListener("message", function (ev) {
         if (ev.source !== host) return;
         var m = ev.data;
         if (!m || m.rw !== "render") return;
         chain = chain.then(function () {
-          return window.PrinterBot.render(m.event, m.options).then(function (result) {
+          return window.PrinterBot.render(m.event, m.options).then(standIn).then(function (result) {
             var ok = !!(result && result.ok);
             var out = { rw: "result", seq: m.seq, result: result, measure: ok ? measure() : null,
                         violations: window.PrinterBot.violations(), doc: ok ? serialise() : null };
@@ -3721,7 +3744,7 @@
                     up: /writing-mode:\s*sideways-lr/.test(item.payload) };
         pc.el.setAttribute("data-render", "pending");
         if (!pc.frame) {
-          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[p.mm] || 230)));
+          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[p.mm] || 230 + avatarExtraPx(p.mm))));
           if (!pc.wait) { pc.wait = mkEl("div", { "class": "rcpt-wait" }, "Drawing the preview…"); pc.stage.insertBefore(pc.wait, pc.stage.firstChild); }
           pc.wait.style.width = p.cssWidth + "px";
           pc.wait.style.height = est + "px";

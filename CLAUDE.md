@@ -1022,14 +1022,20 @@ unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
 `TwitchCheer` carrying the bits and the message untouched) and the way the bench does:
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
 `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks: false}`. No
-`userName`, so no avatar lookup starts (a real cheer has one, so its header is taller:
-`avatarExtraPx`, 182px on 80 mm, 151px on 58 mm, and the verdict says so). The
+`userName`, so no avatar lookup starts and the bot draws none. A real cheer's receipt has the
+viewer's picture whenever the lookup answers, so `previewGlue` puts a stand-in in the bot's
+circle (`standIn`: a grey silhouette as an inline SVG, which the frame's `img-src data:` allows;
+`#receipt-avatar` shown and `.no-avatar` removed) and measures the page again the way `render()`
+does (`min(5000, ceil(documentElement height))`), keeping render()'s own answer as
+`result.botHeight` and setting `result.standIn`. The difference is `avatarExtraPx`: 182px on
+80 mm, 151px on 58 mm. The Thermal view copies the circle with the rest. The
 renderer, not this app, decides High Roller or plain, the box and the fade. A free test (Cheer-ready off) is drawn as a High Roller cheer
 (threshold 1) and says it never reaches the printer.
 
-**The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, plus
-what a found profile picture adds (about 4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is
-min(11.5em, 100%) square with a 14px gap and replaces the 16px top padding); a
+**The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, the
+stand-in profile picture included, and how much shorter a receipt with no picture is (about
+4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is min(11.5em, 100%) square with a 14px gap
+and replaces the 16px top padding; without `standIn` the line says what a found picture adds); a
 `trimmed` cut (bits or cap) with its lengths; a hard cut by the 1600px box (measured in the
 frame with the box's limit lifted, because `render()` reports only the streamer's limits);
 "this app expected it to fit" when the app had not warned; any `security` notes (the bot's

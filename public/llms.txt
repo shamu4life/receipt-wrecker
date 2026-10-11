@@ -81,8 +81,9 @@ The preview is drawn by SassyTP's printer-bot renderer (MIT), the bot's own rece
 embedded in the tool and run in a sandboxed frame with no network access. A thermal view
 shows the receipt at the printer's dot width with the bot's own dither methods. Each part's
 preview is drawn when it scrolls near the screen, one at a time, so a long stack stays quick.
-The receipt length shown leaves out the viewer's profile picture, which the bot adds when it
-finds one (about 4.8 cm on 80 mm paper, 4.0 cm on 58 mm).
+The circle where the bot puts the viewer's profile picture shows a grey stand-in (the preview
+never asks Twitch for the real one), and the receipt length shown counts it; a receipt whose
+viewer has no picture is about 4.8 cm shorter on 80 mm paper, 4.0 cm on 58 mm.
 
 ## Copying and presets
 

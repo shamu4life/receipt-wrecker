@@ -35,12 +35,25 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   - Adding a block, loading a preset, Undo, typing and settings edits never raise it. The Undo is
     kept in memory only: no new storage key.
 
+### Changed
+
+- **Preview: the bot's profile-picture circle is drawn, with a grey stand-in.** A real cheer's
+  receipt starts with a big circle holding the viewer's profile picture whenever the bot finds
+  one. The preview never asks Twitch for it, so it left the circle out and only said how much
+  taller the receipt would be. Now it draws a stand-in silhouette there (no network call: it is
+  an inline picture), the Thermal view dithers it like a real one, and the receipt's length
+  counts it: about 4.8 cm on 80 mm, 4.0 cm on 58 mm. The line under each part says the circle is
+  a stand-in and how much shorter a receipt with no picture is. SassyTP's page is unchanged; the
+  preview's own glue fills the circle after the page is drawn and measures it again. The grey box
+  where the Twitch logo goes stays.
+
 ### How sure
 
 - **Tests**: 199 unit tests (12 new: the decision, its guards and boundaries, the cost
-  tally and the note's words) and 51 browser tests (3 new: the raise, its Undo and the
+  tally and the note's words) and 52 browser tests (4 new: the raise, its Undo and the
   offer after it; Cheer-ready off, High Roller off and no room; Glyph-art's Characters, a big jump
-  and a hand-lowered amount).
+  and a hand-lowered amount; the stand-in circle at both paper widths, which adds exactly the
+  picture's 182 or 151 px, fetches nothing and leaves Copy as the core builds it).
 - **Prints as 1.0.0 did.** Only the amount sent changes; what prints at that amount is 1.0.0's.
 
 ---

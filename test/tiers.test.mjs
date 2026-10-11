@@ -1,22 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadCore } from "./_harness.mjs";
+import { loadCore, eq } from "./_harness.mjs";
 const C = loadCore();
 
 const isBMPSingle = (g) => [...g].length === 1 && g.codePointAt(0) <= 0xFFFF;
 
-test("TIERS: expected ids present with valid shape", () => {
+test("TIERS: exactly the glyph-art tiers the Image card offers, with valid shape", () => {
   const byId = Object.fromEntries(C.TIERS.map(t => [t.id, t]));
-  for (const id of ["safe", "cjk", "braille", "text"]) assert.ok(byId[id], "missing tier " + id);
+  eq(C.TIERS.map(t => t.id).sort(), [...C.GLYPH_TIERS].sort());
   assert.equal(byId.safe.kind, "tone");
-  assert.equal(byId.text.kind, "binary");
+  assert.equal(byId.cjk.kind, "tone");
   assert.equal(byId.braille.kind, "braille");
 });
 
 test("TIERS: tone ramps are light→dark single BMP glyphs, HTML-safe, space only as the lightest level", () => {
-  // ASCII ramps (Image mode) use white-space:pre, so a leading space IS the
-  // lightest level; glyph ramps still carry ink at every level. No <>& — the
-  // ramp chars go into an HTML payload unescaped.
+  // The ASCII ramps print inside a <pre> (R4), so a leading space IS the lightest level and
+  // survives; the other ramps carry ink at every level. No <>&: buildMonoGrid escapes each
+  // row anyway, but the R1 grid and the plain Han rows put the ramp's glyphs in as they are.
   for (const t of C.TIERS.filter(x => x.kind === "tone")) {
     assert.ok(Array.isArray(t.ramp) && t.ramp.length >= 2);
     t.ramp.forEach((g, i) => {
@@ -27,19 +27,12 @@ test("TIERS: tone ramps are light→dark single BMP glyphs, HTML-safe, space onl
   }
 });
 
-test("TIERS: ascii ramps present for Image mode, both starting from space", () => {
+test("TIERS: both ASCII ramps start from a space (the lightest level)", () => {
   const byId = Object.fromEntries(C.TIERS.map(t => [t.id, t]));
   for (const id of ["ascii", "asciifull"]) {
     assert.ok(byId[id], "missing tier " + id);
     assert.equal(byId[id].ramp[0], " ", id + " should start at space (lightest)");
   }
-});
-
-test("TIERS: binary tier uses non-space single glyphs and a distinct off", () => {
-  const t = C.getTier("text");
-  assert.ok(isBMPSingle(t.on) && isBMPSingle(t.off));
-  assert.notEqual(t.off, " ");
-  assert.notEqual(t.on, t.off);
 });
 
 test("getTier throws on unknown id", () => {

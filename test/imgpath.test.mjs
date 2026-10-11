@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { imageKeyFor } from "../src/worker.js";
 
-// Uploaded-image links are PAYLOAD: they get pasted into a Twitch message with a hard
-// 500-char cap, alongside markup that is already most of the budget. The link went from
-// 67 chars (/i/<32 hex>.png) to 45 (/<12 hex>.png), which is the difference between a
-// fake cheer sending as one cheer or two. This file guards the routing that allows it.
+// The Worker's image routes. Since 1.0.0 no payload carries an uploaded link (a Real picture
+// sends nothing on SassyTP's bot, and glyph-art is characters): the links matter for the Real
+// picture card's thumbnail and for saved presets. Every link shape ever minted, the short root
+// form (/<12 hex>.png) and the older /i/<hex> forms, must keep resolving, because a preset saved
+// by an older build may still hold one. This file guards that routing.
 
 const HEX12 = "a1b2c3d4e5f6";
 const HEX32 = "0123456789abcdef0123456789abcdef";
@@ -23,10 +24,10 @@ test("links minted before the change keep resolving", () => {
   assert.equal(imageKeyFor("/" + HEX32 + ".png"), HEX32);     // long key on the new path
 });
 
-test("every extension the printer's engine tolerates is stripped", () => {
-  // wkhtmltopdf escalates a failed subresource to a FATAL page error unless the
-  // extension is in its hardcoded media list — so links carry one, and serving must
-  // ignore it rather than 404 on it.
+test("every image extension a minted link may carry is stripped", () => {
+  // Minted links carry an image extension (the printer engine before 1.0.0 failed the whole
+  // print on a subresource with an unknown one), and links minted then may still be in saved
+  // presets, so serving must ignore the extension rather than 404 on it.
   for (const ext of ["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "PNG", "JpEg"]) {
     assert.equal(imageKeyFor("/" + HEX12 + "." + ext), HEX12, "failed on ." + ext);
   }

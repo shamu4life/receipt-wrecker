@@ -1,21 +1,22 @@
 // ESCAPING — the single chokepoint every user string passes through on its way into
-// markup, and until now the only part of the pure core with no test at all.
+// markup.
 //
-// It matters more here than in an ordinary web app. The payload is inserted into
-// printer-bot's page with raw `innerHTML`, unsanitised, then re-serialised and parsed a
-// SECOND time by wkhtmltopdf. A string that escapes its context does not produce a
-// broken-looking preview and a shrug — it produces markup that a stranger's machine
-// parses and prints, and the tool's whole premise is that the payload is exactly what
-// the author intended.
+// It matters more here than in an ordinary web app. In a High Roller cheer the bot parses
+// the message as HTML on the streamer's machine and prints what survives its sanitizer. A
+// string that escapes its context does not produce a broken-looking preview and a shrug —
+// it produces markup that a stranger's machine parses and prints, and the tool's whole
+// premise is that the payload is exactly what the author intended.
 //
-// These tests assert against the REAL builders as well as the helpers, because the
-// helpers being correct is worth nothing if a call site forgets to use them.
+// These pin the helpers. That every builder actually USES them is pinned where the builders
+// are tested: the big and side tests strip our own tags from hostile input and find no "<"
+// left, the glyph tests check that R4 rows are escaped, and tags.test feeds typed tags to
+// every builder at both paper widths.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadCore } from "./_harness.mjs";
 
 const C = loadCore();
-const { escapeHtml, escapeAttr, buildTakeover, buildImageEmbed } = C;
+const { escapeHtml, escapeAttr } = C;
 
 test("escapeHtml neutralises the three characters that can open a tag or an entity", () => {
   assert.equal(escapeHtml("<b>"), "&lt;b&gt;");
@@ -46,40 +47,4 @@ test("escapeAttr also closes the double quote — the attribute escape hatch", (
   assert.equal(escapeAttr('a"b'), "a&quot;b");
   // It is escapeHtml plus the quote, so it must still do everything escapeHtml does.
   assert.equal(escapeAttr("<&>"), "&lt;&amp;&gt;");
-});
-
-test("a takeover line cannot break out of its <text> element", () => {
-  // The call site, not the helper. buildTakeover is where a user's typed line becomes
-  // markup, and this is the string that would end the element early.
-  const html = buildTakeover({
-    items: [{ kind: "text", text: '</text><rect width="999" height="999"/>', size: 24 }],
-    pullPt: 240, w: 263,
-  });
-  assert.ok(!html.includes("</text><rect"),
-    "the line closed its own element and injected a sibling: " + html);
-  assert.ok(html.includes("&lt;/text&gt;"), "the line should appear escaped: " + html);
-  // Exactly one real <text> element — the injected one must not have materialised.
-  assert.equal((html.match(/<text /g) || []).length, 1);
-  assert.equal((html.match(/<rect /g) || []).length, 1, "only the cover's own rect may exist");
-});
-
-test("a crafted picture URL cannot break out of the carrier's src attribute", () => {
-  // Every live carrier states the URL inside a double-quoted attribute, so every live
-  // carrier has to hold. Looping the table means a carrier added later is covered too.
-  const nasty = 'https://x.test/a.png" onload="alert(1)';
-  for (const e of C.EMBEDS) {
-    const html = buildImageEmbed(e.id, { url: nasty, w: 120, h: 120 });
-    assert.ok(!html.includes('onload="alert(1)"'),
-      e.id + " let a crafted URL open a new attribute: " + html);
-    assert.ok(html.includes("&quot;"), e.id + " did not escape the quote: " + html);
-  }
-});
-
-test("a takeover picture URL is escaped through the item path too", () => {
-  const html = buildTakeover({
-    items: [{ kind: "pic", url: 'https://x.test/a.png"><script>x</script>', width: 120 }],
-    pullPt: 400, w: 263, carrier: "embed",
-  });
-  assert.ok(!html.includes("<script>"), "a script tag reached the payload: " + html);
-  assert.ok(html.includes("&quot;"), "the quote was not escaped: " + html);
 });

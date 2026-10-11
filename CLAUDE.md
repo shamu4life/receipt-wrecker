@@ -18,8 +18,9 @@ The bot prints a cheer in one of two ways, and the whole app follows from that:
   passed through the bot's allow-list sanitizer, so inline styles print: big text, sideways
   text, glyph-art grids.
 - **Plain**: any smaller cheer. The message prints as 16px text inside quote marks, markup
-  and all. The app then builds every block in its plain form, Han tiling: the words or the
-  picture drawn out of Han characters, in a grid that is nothing but plain text.
+  and all. The app then builds every block in its plain form, a grid that is nothing but plain
+  text: Big text and Sideways text as Han tiling (the words drawn out of Han characters), a
+  picture as a grid of Han characters, and Han text as typed as itself (1.2.0).
 
 The user copies each part and pastes it into chat as a cheer. The literal `Cheer<N>` word in
 the message is what Twitch charges.
@@ -373,13 +374,15 @@ security notes (the resets it drops change nothing that prints).
   greedy wrap at px against `bigFitPx` (`bigWrapLines`) of the line's words, measured once
   (`bigWrapPrep`: graphemes, advances, ink edges and where each word may break). A line breaks at
   its spaces, and a word also breaks between two of its characters wherever one side of the
-  boundary is Han-width (`bigIsWide`), never before a `BIG_WRAP_NO_BEFORE` mark or after a
+  boundary is Han, kana or Hangul (`bigWrapsBetween`; not `bigIsWide`, whose full-width forms
+  include Latin letters and digits), never before a `BIG_WRAP_NO_BEFORE` mark or after a
   `BIG_WRAP_NO_AFTER` one (1.2.0): those are `BIG_NO_BREAK_BEFORE` / `AFTER` plus the curly quotes
-  (never ” first, never “ or ‘ last on a line), which stay out of `bigWrapCount`'s sets because
-  since Unicode 15.1 the page may break beside a curly quote between two Han characters. Such a
-  word fills the line it starts on, piece by piece (`bigWrapPieces`), as the page fills a line of
-  Chinese, so a Korean word may break across two lines. Latin words never break, so text without
-  Han, kana or Hangul wraps exactly as before. A Han run with no spaces used to be one
+  (never ” first, never “ or ‘ last on a line) and the straight " on both sides, which stay out of
+  `bigWrapCount`'s sets because since Unicode 15.1 the page may break beside a curly quote between
+  two Han characters. Such a word fills the line it starts on, piece by piece (`bigWrapPieces`),
+  as the page fills a line of Chinese, so a Korean word may break across two lines. Latin words
+  never break, full-width ones (ＧＧ) included, so text without Han, kana or Hangul wraps exactly
+  as before 1.2.0 (review of the fixes: "ＨＥＬＬＯ ＷＯＲＬＤ" wrapped as ＨＥＬＬ / Ｏ ＷＯ / ＲＬＤ). A Han run with no spaces used to be one
   unbreakable word: `bigWrapPlan` returned null (Wrap = Lines) and Auto stacked it, one character
   a line, 35 a cheer since the no-`<br>` change; "你好" x 40 now prints wrapped in one cheer at
   57px, and one cheer holds up to about 200 Han characters on 80 mm. `bigWrapPlan` returns null
@@ -419,8 +422,9 @@ security notes (the resets it drops change nothing that prints).
   three candidates in order, `lines`, then `wrap`, then `stack`, and `bigBetter` decides: a
   layout whose letters are cut off never wins, then a clean one, then the bigger type when both
   fit one cheer (or the size is `width`), else the fewer cheers; a tie keeps the earlier; it
-  never picks `each`, and never a `wrap` with one character on every line (that is `stack`
-  without its word gaps: "아버지가 방에" and "아버지 가방에" sent the same message, 1.2.0 review).
+  never picks `each`, and never a `wrap` that splits a word into one character a line (that is
+  `stack` without its word gaps: "아버지가 방에" and "아버지 가방에" sent the same message, 1.2.0
+  review; a wrap of one-character words, "一 二 三", splits none and stays a candidate).
   `wrap` (`bigWrapPlan`) is the typed lines with each too-wide line broken by `bigWrapLines` at
   the size being tried, then fitted like `lines`. Each size is also balanced (the same number of
   lines, each as short as it can be: "WE ARE / SO BACK", not "WE ARE SO / BACK"). A break at a
@@ -430,8 +434,8 @@ security notes (the resets it drops change nothing that prints).
   them greedy and send them balanced, so "fits one cheer" came back as two (1.2.0 review).
   It is what a long sentence typed on one line gets (as one line it was tiny). A short one whose
   stacked letters come out even 1 to 5 px bigger still stacks under Auto (it keeps the biggest),
-  often over most of the 1600px box: "You are the best streamer" stacks at 61px over 1581px,
-  where `wrap` gives 56px in 215px. So `wrap` is also offered on its own, one pick away; a
+  often over most of the 1600px box: "Hello from chat" stacks at 102px over 1568px on 80 mm,
+  where `wrap` gives 97px in 335px. So `wrap` is also offered on its own, one pick away; a
   line with nothing to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
   `lines` then. Under Auto, `bigFit(...).layout` can read `wrap`. Sizes (`bigSizeOf`): `fit1`
   (the biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
@@ -700,7 +704,10 @@ cheer (500 − trail) / C: 32 on 80 mm, up to 480 characters); a plain cheer kee
 header. `buildDesignT` sizes a cheer by its LONGEST row's characters (`payloadLength`), since a
 cell may be several code points (a variation sequence). Every body carries `typed: {dropped,
 invisible, rows}`; the card says how many rows and cheers (messages in a free test), names what
-was left out ("that could knock the rows out of line") and points at Big text for it. It prints
+was left out ("that could knock the rows out of line") and points at Big text for it. A text with
+no Han characters to print is no content (`blockHasContent` asks `hanTypedGrid`), so a stack of
+only such text says so in the parts instead of "a picture is still loading" (review of the 1.2.0
+fixes), and beside a block that prints it takes no part of its own. It prints
 the same way at any cheer (its plain form is itself), and it is not a High Roller pick
 (`dropRaiseOffer`). The browser suite draws a text of Han, punctuation, iteration marks, kana and
 Hangul through the vendored renderer on both papers, above and below the threshold, and reads
@@ -719,7 +726,8 @@ one-part stack.
   false with High Roller off, or when not even BIG fits (the note says the test can't show
   anything at these settings: "the Cheer line fills it" when it does, else how many mm are left
   after the Cheer line, too short for BIG's 13 mm), and the glue then offers no Copy.
-- `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off): a Design T
+- `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off, or the
+  printer has Allow High Roller prints off): a Design T
   grid with HI in block letters and a row of the ramp's tones. When the threshold is 1, every
   cheer is High Roller and it says there is no plain test.
 
@@ -856,7 +864,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   cards' plain lines name the switch, and `settingFix` points at it; the High Roller test offers no
   Copy (its note names the switch) and the Plain test is one bit; the size labels describe this
   cheer with the switch on (a threshold cheer's only below the threshold, and the card's note
-  then says "at N bits or more"); `previewEvent` sends
+  then says "at N bits or more", or, when a bits-per-inch setting makes the box grow with the
+  bits, that more bits buy more receipt); `previewEvent` sends
   `allowHighRoller: false` and `highRollerBits: 0`, so the vendored 2.5.4 page draws exactly what a
   3.0 printer with the switch off prints (plainText, quote marks, the 1600px box). A free test still
   builds and draws the High Roller form (it tests what chat lets through). With the switch on, the
@@ -924,7 +933,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   lines, 2 to 8. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
   box under a bits-per-inch setting; with Allow High Roller prints off at or above the threshold,
   this cheer's own box); with High Roller off the note says so instead of "below
-  the threshold (0 bits)". In a free test the note counts messages, not bits. `imageCard`: Kind
+  the threshold (0 bits)". In a free test the note counts messages, not bits (the Glyph-art, Han
+  tiling and Han text summaries too, 1.2.0). `imageCard`: Kind
   (`.sel-kind`: Glyph-art or Real picture), URL, file (with a hint of what happens to it for
   that kind), Rotate (`.sel-rotate`, both kinds); for Glyph-art the Characters select
   (`.sel-tier`) with per-form hints and a column range that follows the form (the Detail field
@@ -954,10 +964,12 @@ generations; `presetImageUrls` walks a stack's picture links.
   it." While any picture is still loading, no part is copyable (the parts change when it
   lands). When the streamer's settings leave a
   High Roller cheer no room after its Cheer line (`boxNoRoom`), every part is `noRoom`: a red
-  note says it prints nothing but that line (a plain grid: only its light first row), its Copy
+  note says it prints nothing but that line (a Han tiling grid: only its light first row; a High
+  Roller part of Han text as typed: only part of its first row, fading out), its Copy
   is disabled, and `noRoomAdvice` replaces the bits total. Every card agrees: Big and Sideways
   say only "Prints nothing" (`NO_ROOM_SUMMARY`: no price and no size, since none prints), the
-  Han tiling summary says only its light first row prints, the Glyph-art summary drops its
+  Han tiling summary says only its light first row prints, the Han text summary part of its first
+  row, fading out, the Glyph-art summary drops its
   cheer count, and `partLines(where, parts, noRoom)` leaves out "Your whole stack needs N
   cheers". The mode notice and the no-room line carry a button to the field that fixes them
   (`settingFix`, `fixButton`, `goToSetting`: "Change Bits per cheer", or "Go to Maximum length" /
@@ -1421,8 +1433,10 @@ lives in `test-browser/` and is not in the default matcher.
   the glyph-art cell aspects and Design T assume the fonts above; Braille and the blocks tier
   need a real print to judge.
 - **Agent-environment note:** the Edit and Write tools decode a literal backslash-u followed by
-  four hex digits into the character. To put such an escape in a file, write a doubled
-  backslash and normalise it afterwards, or edit with a script.
+  four hex digits into the character, and so does the text of a Bash command (a quoted heredoc
+  included). To put such an escape in a file, write a doubled backslash and normalise it
+  afterwards, or edit with a script that builds the backslash itself (Python's `chr(92)`); then
+  scan the diff for invisible characters that landed literally.
 - Licensed under **MIT** (`LICENSE`). The vendored renderer keeps SassyTP's MIT notice.
 
 ## Working in this repo

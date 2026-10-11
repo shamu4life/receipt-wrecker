@@ -30,6 +30,28 @@ test("bigWrapWords: an opening mark never ends a line and a closing one never st
   eq(C.bigWrapWords("他说“你好世界”我们", 60, 244), ["他说", "“你好", "世界”", "我们"]);
   eq(C.bigWrapWords("今日は〝最高〟です", 60, 244), ["今日は", "〝最", "高〟で", "す"]);
   eq(C.bigWrapWords("他说‘你好’", 60, 244), ["他说", "‘你", "好’"]);
+  // The straight double quote too: the page never breaks beside it, and one opening a quotation rode
+  // at the end of the line before (review of the fixes).
+  eq(C.bigWrapWords('他说你"好世界"', 60, 244), ["他说", '你"好世', '界"']);
+  const q = C.bigFit('老师说"明天考试"大家都很紧张', { layout: "auto", paperMm: 80 }).lines;
+  assert.ok(q.some((l) => l.includes('说"明')) && q.some((l) => l.includes('试"大')), JSON.stringify(q));
+  // Every bracket pair Wrap knows, the newer ones included.
+  for (const [o, c] of [["〖", "〗"], ["〘", "〙"], ["〚", "〛"], ["｟", "｠"], ["〝", "〞"], ["〝", "〟"], ["「", "」"], ["『", "』"],
+                        ["【", "】"], ["〔", "〕"], ["（", "）"], ["［", "］"], ["｛", "｝"], ["《", "》"], ["〈", "〉"]]) {
+    eq(C.bigWrapWords("你好" + o + "世界" + c, 60, 244), ["你好", o + "世", "界" + c], o + c);
+  }
+});
+
+test("bigWrapWords: full-width Latin letters and digits never break either; only Han, kana and Hangul do", () => {
+  // Full-width forms are as wide as Han, but a word of them is a Latin word (review of the fixes:
+  // "ＨＥＬＬＯ ＷＯＲＬＤ" wrapped as ＨＥＬＬ / Ｏ ＷＯ / ＲＬＤ).
+  eq(C.bigWrapWords("ＨＥＬＬＯ ＷＯＲＬＤ", 48, 244), ["ＨＥＬＬＯ", "ＷＯＲＬＤ"]);
+  eq(C.bigWrapWords("ＧＧＧＧＧＧ", 60, 244), ["ＧＧＧＧＧＧ"]);
+  // Beside Han, a break is still allowed.
+  eq(C.bigWrapWords("ＧＧ你好你好", 60, 244), ["ＧＧ你", "好你好"]);
+  // CJK brackets around Latin words don't make them breakable: text with no Han, kana or Hangul
+  // wraps as it did before 1.2.0.
+  eq(C.bigWrapWords("HELLO「WORLD」", 30, 244), ["HELLO「WORLD」"]);
 });
 
 test("bigWrapWords: a Han run after a space, a Han run next to Latin, and kana and Hangul runs", () => {
@@ -60,38 +82,18 @@ test("Auto never picks a wrap with one character on every line: that is Stack wi
   assert.notEqual(b.layout, "wrap");
 });
 
-test("Wrap: the balanced lines never cost more than the greedy ones they replace", () => {
-  // Balancing can move a break from a space (which goes) to between two characters (where a space in
-  // the middle of a line stays), so it can add characters, and "fits one cheer" came back as two
-  // (review: 35px at 2 cheers where 33px fit 1). Over random CJK texts with spaces, whenever the
-  // smallest size fits one cheer, fit1 must too, and the parts must be what fit1 says.
-  const pool = "가나다라마바사아자차카타파하你好世界朋友今日は天気ありがとう";
-  let seed = 7;
-  const rnd = (n) => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
-  const ctx = (mm) => C.stackContext({ cheer: true, bits: 100, noNonce: true, paperMm: mm, hrThreshold: 25 });
-  let checked = 0;
-  for (let t = 0; t < 60; t++) {
-    let s = "";
-    const len = 100 + rnd(160);
-    for (let i = 0; i < len; i++) s += rnd(5) === 0 ? " " : pool[rnd(pool.length)];
-    s = s.replace(/ +/g, " ").trim();
-    for (const mm of [80, 58]) {
-      if (C.bigFit(s, { layout: "wrap", size: 20, paperMm: mm }).cheers !== 1) continue;
-      checked++;
-      for (const layout of ["wrap", "auto"]) {
-        const f = C.bigFit(s, { layout, size: "fit1", paperMm: mm });
-        const parts = C.packStackBodies(C.buildBigBodies(s, { layout, size: "fit1", paperMm: mm }), ctx(mm));
-        assert.equal(f.cheers, 1, layout + " " + mm + " " + f.px + "px: " + s);
-        assert.equal(parts.length, 1, layout + " " + mm + ": " + s);
-      }
-    }
-  }
-  assert.ok(checked > 20, "only " + checked + " texts fit one cheer at 20px");
+test("Auto: a wrap of one-character words splits no word, so Auto may pick it", () => {
+  // Every word is one character, so each line is a whole word, as it would be in Latin text.
+  assert.equal(C.bigFit("一 二 三 四 五 六", { layout: "auto", paperMm: 80 }).layout, "wrap");
+  assert.ok(C.bigFit("一 二 三 四 五 六", { layout: "auto", paperMm: 80 }).px > C.bigFit("一 二 三 四 五 六", { layout: "stack", paperMm: 80 }).px);
 });
 
 test("Wrap fit1: the review's texts fit one cheer, where they came back as two", () => {
   // From the 1.2.0 review: fit1 settled on 35px (58 mm) and 34px (80 mm) by the greedy wrapping,
   // then balanced it into a second cheer; and the third fits one cheer only balanced, at 20 or 21px.
+  // (Balancing can move a break from a space, which goes, to between two characters, where a space
+  // in the middle of a line stays. Random texts hit it about once in a hundred, too rarely for a
+  // quick random test to catch, so these three hold it.)
   const cases = [
     [58, "반가워요 우리\n축하해요 여러분\n사랑해요 반가워요 항상 여러분 방송 날씨가\n오늘 축하해요 우리 스트리머 최고 축하해요 스트리머\n여러분 함께 시청자 해요 함께 오늘 재밌어요 여러분 함께\n반가워요 여러분 항상\n스트리머 축하해요"],
     [80, "ね ありがとう 配信 今日 明日 明日\nまた 大好き みんな 配信 最高 ありがとう お疲れ様\n楽しい 配信 また また すごい です また お疲れ様\nです ありがとう 楽しい 楽しい また すごい みんな 楽しい また\n明日 楽しい 今日 ありがとう 最高 今日 最高 ありがとう\n楽しい みんな 今日 すごい\n最高 よろしく ありがとう 明日"],
@@ -105,6 +107,9 @@ test("Wrap fit1: the review's texts fit one cheer, where they came back as two",
       assert.equal(C.packStackBodies(C.buildBigBodies(t, { layout, size: "fit1", paperMm: mm }), ctx).length, 1, layout + " " + mm);
     }
   }
+  // And at the biggest size whose greedy lines fit one cheer: sending the balanced lines anyway put
+  // the first two at 33 and 31px.
+  eq([C.bigFit(cases[0][1], { layout: "wrap", paperMm: 58 }).px, C.bigFit(cases[1][1], { layout: "wrap", paperMm: 80 }).px], [35, 34]);
 });
 
 test("Auto prints a long Han run wrapped in one cheer, where it used to stack it over three", () => {
@@ -130,7 +135,7 @@ test("hanTypedGrid: only Han characters go in; the rest are left out and reporte
   eq(g.rows.map((r) => r.join("")), ["你好" + "丶".repeat(13)]);
   eq(g.dropped, [" ", "A", "B", "C", "！", "<", "b", ">", "&"]);
   // The ideographic space is a space: it can break or vanish at a line's end, so it is left out too.
-  eq(C.hanTypedGrid("你　好", 80).dropped, ["　"]);
+  eq(C.hanTypedGrid("你\u3000好", 80).dropped, ["\u3000"]);
   eq(C.hanTypedGrid("ABC", 80).rows, []);
 });
 
@@ -158,8 +163,11 @@ test("hanTypedGrid: kana, Hangul and full-width letters are left out too: only H
   const mixed = "ありがとうっャー감사합니다ＡＢ１２〒〆㈱漢字〇⼀";
   eq(ROWS(mixed, 80), ["漢字〇⼀" + "丶".repeat(11)]);
   eq(C.hanTypedGrid(mixed, 80).dropped.join(""), "ありがとうっャー감사합니다ＡＢ１２〒〆㈱");
-  // Compatibility ideographs and the Hangzhou numerals are Han too, and stay as typed.
-  eq(ROWS("豈〡", 58), ["豈〡丶丶丶丶丶丶丶"]);
+  // Compatibility ideographs (as typed: nothing normalises them), Extension A and the Hangzhou
+  // numerals are Han too. (Code points, so no editor can swap U+F900 for its unified twin.)
+  const han = String.fromCharCode(0xF900, 0xFA11, 0x3400, 0x3021, 0x3038, 0x303A, 0x303B);
+  eq(ROWS(han, 58), [han + "丶".repeat(2)]);
+  eq(C.hanTypedGrid(han, 58).dropped, []);
 });
 
 test("hanTypedGrid: an iteration mark never starts a row: the character before it moves down with it", () => {
@@ -171,6 +179,8 @@ test("hanTypedGrid: an iteration mark never starts a row: the character before i
   eq(ROWS("你\n々", 58), ["你丶丶丶丶丶丶丶丶", "丶々丶丶丶丶丶丶丶"]);
   // Away from a row's start it stays where it is.
   eq(ROWS("人々", 58), ["人々丶丶丶丶丶丶丶"]);
+  // 〻 is one too.
+  eq(ROWS("一二三四五六七八九十一二三四人〻", 80), ["一二三四五六七八九十一二三四丶", "人〻" + "丶".repeat(13)]);
 });
 
 test("hanTypedGrid: blank and Latin-only lines, CRLF and U+2028 line breaks", () => {

@@ -85,8 +85,9 @@ picking one of their settings while Bits per cheer is below the threshold raises
 threshold. The block's card says what changed and what the stack costs now and before, with
 an **Undo**. It asks first instead when that would more than quadruple the amount or go past
 500 bits, and it doesn't raise when it can't help: with Cheer-ready off, with High Roller off,
-or when the streamer's bits per inch or maximum length would leave nothing to print after the
-Cheer line at that amount (the card says why). After an Undo, or if you lower the amount again
+when the streamer's printer has Allow High Roller prints off, or when the streamer's bits per
+inch or maximum length would leave nothing to print after the Cheer line at that amount (the
+card says why). After an Undo, or if you lower the amount again
 yourself, it only offers.
 
 ---
@@ -107,14 +108,15 @@ Cheer100 <div style="\66ont:700 70px/.8 Arial">HELLO</div>
 ```
 
 - **Layout**: *Auto* (whichever prints biggest at the Size you pick of: your lines as typed,
-  the same lines with the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Words
+  the same lines with the words wrapped to the paper, and one letter per line; never a wrap that
+  splits a word into one letter a line, which loses the gaps between words), *Lines as you typed them*, *Words
   wrapped to the paper*, *Stack the letters, one per line* (much bigger letters for short
   words), or *Each line its own size* (every line as wide as the paper). A long sentence typed
   on one line comes out wrapped, every Latin word whole (a run of Han, kana or Hangul breaks
   between its characters, [as below](#han-text-as-typed-plain-text-any-cheer)). A short one still stacks when its stacked
-  letters come out even slightly bigger, and that can take most of the 42 cm box: "You are the
-  best streamer" stacks at 61 px over about 42 cm, where *Words wrapped* prints it at 56 px in
-  about 6 cm. The labels show both, so pick *Words wrapped* for it. To choose the line breaks
+  letters come out even slightly bigger, and that can take most of the 42 cm box: "Hello from
+  chat" stacks at 102 px over about 42 cm, where *Words wrapped* prints it at 97 px in about
+  9 cm. The labels show both, so pick *Words wrapped* for it. To choose the line breaks
   yourself, press Enter between words and pick Lines.
 - **Size**: *Auto* (the biggest that fits one cheer, the default), *Fill the paper's width*
   (may cost more cheers) or a fixed size from 20 to 400 px. In *Each line its own size* a
@@ -210,12 +212,14 @@ narrower than a Han character (Windows draws kana with a condensed font too). Th
 々 stays: it never starts a row, so the character before it moves down with it.
 
 A receiptify mosaic prints as the mosaic once you delete its ending (`Cheer100` and the five
-characters after it). Its 32 rows fit one High Roller cheer and take two plain ones.
+characters after it). On 80 mm paper its 32 rows fit one High Roller cheer and take two plain
+ones.
 
 Big text wraps Han too: under *Words wrapped to the paper* (and so under *Auto*), a run of Han,
 kana or Hangul breaks between its characters, never before a closing mark like 。 or ” or after
-an opening one like 「 or “. A Korean or Japanese word fills the line it starts on, so it may
-break across two lines; Latin words never break. A long Han line prints as rows of big
+an opening one like 「 or “ (nor on either side of a straight "). A Korean or Japanese word fills
+the line it starts on, so it may break across two lines. Latin words never break, full-width
+ones like ＧＧ included. A long Han line prints as rows of big
 characters in one cheer (up to about 200 characters on 80 mm paper) where it used to stack one
 character a line.
 

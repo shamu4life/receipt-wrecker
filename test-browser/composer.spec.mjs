@@ -1277,7 +1277,8 @@ test("the cards' notes: High Roller off, labels at the threshold's bits, a free 
                                      controls: { ...SETTINGS, bits: 1, hrThreshold: 1000, bitsPerInch: 100 } }));
   const fit1 = await cards(page).first().locator(".sel-size option[value=fit1]").textContent();
   assert.ok(!/cut off by the box/.test(fit1), fit1);
-  assert.match(await cards(page).first().locator(".text-note").innerText(), /The sizes above are what it prints at 1000 bits or more/);
+  // (More bits buy more receipt under bits per inch, so not "1000 bits or more": review of the 1.2.0 fixes.)
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /The sizes above are what it prints at 1000 bits \(more bits buy more receipt, so a bigger cheer can print bigger\)\./);
   await ctx.close();
 
   // A free test costs nothing: messages, not bits.
@@ -2981,6 +2982,8 @@ const ROWS_TEXT = [
   "今天天气很好，我们去公园吧。你觉得怎么样？",   // punctuation, left out
   "一二三四五六七八九十一二三四人々都来了",       // 々 would start the second row on 80 mm
   "一二三四五六七八人々",                         // ... and on 58 mm
+  "一二三四五六七八九十一二三四人〻都",           // so would 〻, the other iteration mark
+  "一二三四五六七八人〻",
   "「我们一起去吃饭吧。」好的！OK",               // brackets, marks and Latin, left out
   "今日は良い天気ですね",                         // kana and Hangul are left out (Han characters only)
   "감사합니다 漢字",
@@ -3100,9 +3103,70 @@ test("1.2.0 review: with Allow High Roller prints off the size labels describe y
   const label = await card.locator(".sel-size option[value=fit1]").textContent();
   assert.ok(label.includes("capitals " + C.bigCapCm(want.px).toFixed(1) + " cm"), label + " vs " + C.bigCapCm(want.px).toFixed(1));
   assert.match(await card.locator(".text-note").innerText(), /The sizes above are what it prints with that setting on\./);
-  // Below the threshold the sizes are a threshold cheer's, and the note says so.
+  // Below the threshold the sizes are a threshold cheer's, and the note says so. Under a bits-per-inch
+  // setting more bits buy more receipt, so "or more" would be false there (review of the fixes).
   await commit(page, "#bitsAmount", "10");
+  const more = /\(more bits buy more receipt, so a bigger cheer can print bigger\)\./;
+  let n = await card.locator(".text-note").innerText();
+  assert.match(n, /The sizes above are what it prints with that setting on, at 25 bits /);
+  assert.match(n, more);
+  await commit(page, "#bitsPerInch", "0");
   assert.match(await card.locator(".text-note").innerText(), /The sizes above are what it prints with that setting on, at 25 bits or more\./);
+  // The same with the switch on.
+  await page.check("#allowHighRoller");
+  assert.match(await card.locator(".text-note").innerText(), /The sizes above are what it prints at 25 bits or more\./);
+  await commit(page, "#bitsPerInch", "25");
+  n = await card.locator(".text-note").innerText();
+  assert.match(n, /The sizes above are what it prints at 25 bits /);
+  assert.match(n, more);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// The second review, of the fixes.
+test("1.2.0 review 2: a Han text block with no Han characters says so on its card and in the parts, never 'a picture is still loading'", async () => {
+  const typed = { id: 1, type: "text", render: "typed", text: "ありがとう" };
+  const { page, ctx, errors } = await freshPage({ blocks: [typed] });
+  const note = await cards(page).first().locator(".text-note").innerText();
+  assert.match(note, /^Nothing to print: this render prints Han characters only\. Big text prints other writing\./);
+  assert.match(note, /Left out: 5 characters that could knock the rows out of line \(“あ”, “り”, “が”, “と”, “う”\)\. Big text prints those\./);
+  let parts = await page.textContent("#parts");
+  assert.doesNotMatch(parts, /picture is still loading/);
+  assert.match(parts, /Nothing to print: Han text as typed prints only Han characters, and its text has none/);
+  assert.equal(await page.locator("#parts .copy-btn").count(), 0);
+  // Beside a block that prints, it adds nothing and takes no part of its own.
+  await page.click("#addTextBtn");
+  await cards(page).nth(1).locator("textarea").fill("HI");
+  await settled(page);
+  parts = await page.textContent("#parts");
+  assert.doesNotMatch(parts, /picture is still loading/);
+  assert.equal(await page.locator("#parts .part").count(), 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review 2: in a free test the Han tiling and Glyph-art cards count messages, as the total does", async () => {
+  const blocks = [{ id: 1, type: "text", render: "hanzi", text: "HI" }, GLYPH({ id: 2, tier: "cjk" })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: { ...SETTINGS, cheer: false } });
+  await settled(page);
+  assert.match(await cards(page).nth(0).locator(".text-note").innerText(), /^Han tiling: \d+ rows of 15 Han characters · 1 message/);
+  assert.match(await cards(page).nth(1).locator(".text-note").innerText(), /^16 columns × \d+ rows · 1 message/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review 2: the hints say what each render prints, and Auto names the wrap it skips", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "你好" })] });
+  await settled(page);
+  const card = cards(page).first(), render = card.locator(".sel-render");
+  assert.match(await page.textContent(".controls-settings"), /so every block prints in its plain form \(big and sideways text as Han tiling\)\. 0 = High Roller off/);
+  assert.match(await card.locator(".layout-hint").innerText(), /never a wrap that splits a word into one letter a line, which loses the gaps between words/);
+  assert.match(await card.textContent(), /unless the streamer's printer has Allow High Roller prints off/);
+  await render.focus();
+  await render.selectOption("typed");
+  assert.match(await cards(page).first().textContent(), /Only Han characters go in: kana, Hangul, punctuation, Latin letters and the rest are left out/);
+  await cards(page).first().locator(".sel-render").selectOption("hanzi");
+  assert.match(await cards(page).first().textContent(), /it is also what Big text and Sideways text print as below the streamer's High Roller threshold/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

@@ -62,7 +62,8 @@ streamer's printer has Allow High Roller prints off, since no amount helps.
   wide in every CJK font: kana, Hangul, CJK punctuation, Latin letters and the rest are left out
   and named, since they would push the rows out of line.
 - Big text's wrap layout breaks a run of Han, kana or Hangul between its characters, never
-  before a closing mark or after an opening one; Latin words never break.
+  before a closing mark or after an opening one; Latin words never break, full-width ones
+  included.
 - Han tiling (plain): words or a picture drawn out of Han characters as plain text, exactly
   15 characters per line on 80 mm paper (9 on 58 mm), with the cheer word at the end. Below
   the High Roller threshold, Big text and Sideways text print in this form automatically, and a

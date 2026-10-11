@@ -1301,11 +1301,23 @@
   }
   // THE WRAP LAYOUT'S BREAKS (1.2.0). A line breaks at its spaces, and a word also breaks between
   // two of its characters where the page breaks a run of Han, kana or Hangul (between two of them,
-  // or between one and a neighbour), never before a closing mark or after an opening one, quotation
-  // marks included (BIG_WRAP_NO_BEFORE / AFTER). Such a word fills the line it starts on, the way
+  // or between one and a neighbour: bigWrapsBetween), never before a closing mark or after an
+  // opening one, quotation marks included (BIG_WRAP_NO_BEFORE / AFTER). Such a word fills the line it starts on, the way
   // the page fills a line of Chinese, so a Korean word may break across two lines. Latin words
   // never break. A Han run with no spaces used to be one unbreakable word, so Auto stacked it one
   // character a line: 35 a cheer (owner, 1.1.0).
+  // Han, kana or Hangul: what Wrap breaks between. Not the full-width Latin letters and digits,
+  // which are as wide but make a Latin word (ＧＧ, ８８８), nor the CJK punctuation and symbols,
+  // which break only beside one of these (review of the fixes: "ＨＥＬＬＯ ＷＯＲＬＤ" wrapped
+  // as ＨＥＬＬ / Ｏ ＷＯ / ＲＬＤ, and text with none of these wrapped differently from 1.1.0).
+  function bigWrapsBetween(cp) {
+    return (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0xF900 && cp <= 0xFAFF)
+      || (cp >= 0x20000 && cp <= 0x3FFFD) || (cp >= 0x2E80 && cp <= 0x2FDF) || cp === 0x3005 || cp === 0x3007
+      || (cp >= 0x3021 && cp <= 0x3029) || (cp >= 0x3038 && cp <= 0x303B)
+      || (cp >= 0x3041 && cp <= 0x30FF) || (cp >= 0x31F0 && cp <= 0x31FF)
+      || (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x3130 && cp <= 0x318F) || (cp >= 0xA960 && cp <= 0xA97F)
+      || (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xD7B0 && cp <= 0xD7FF);
+  }
   // A typed line's words, measured once: {t, gs, ems, em, cut (cut[i]: the page may break before
   // gs[i]), breakable, l, r (the first and last glyphs' ink past their advances, bigEdge)}.
   function bigWrapPrep(line) {
@@ -1316,7 +1328,7 @@
         ems.push(e); em += e;
         if (i) {
           var p = gs[i - 1], g = gs[i];
-          var c = (bigIsWide(p.codePointAt(0)) || bigIsWide(g.codePointAt(0))) && !BIG_WRAP_NO_BEFORE.test(g) && !BIG_WRAP_NO_AFTER.test(p);
+          var c = (bigWrapsBetween(p.codePointAt(0)) || bigWrapsBetween(g.codePointAt(0))) && !BIG_WRAP_NO_BEFORE.test(g) && !BIG_WRAP_NO_AFTER.test(p);
           cut.push(c);
           if (c) any = true;
         }
@@ -1407,13 +1419,14 @@
   var BIG_ATOM_RE = /^[A-Za-z0-9'"\u2019\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u0391-\u03A9\u03B1-\u03C9\u0400-\u045F]/;
   var BIG_NO_BREAK_BEFORE = /^[)\]},.:;!?'"\u2019\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\u3017\u3019\u301B\u301E\u301F\uFF5D\uFF60\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
   var BIG_NO_BREAK_AFTER = /^[(\[{'\uFF08\u300C\u300E\u3010\u3014\u3016\u3018\u301A\u301D\uFF5B\uFF5F\uFF3B\u3008\u300A]/;
-  // Where the Wrap layout itself won't break: those, and never after an opening curly quote (\u201C \u2018)
-  // or before a closing one (\u201D), so a wrapped line never ends with \u201C or starts with \u201D (1.2.0
-  // review). Only for the breaks Wrap picks: since Unicode 15.1 the page may break beside a curly
-  // quote between two Han characters, so bigWrapCount's upper bound must not count those as
-  // unbreakable.
+  // Where the Wrap layout itself won't break: those, and never after an opening curly quote (“ ‘)
+  // or before a closing one (”), so a wrapped line never ends with “ or starts with ” (1.2.0
+  // review), nor on either side of a straight " (it opens and closes, and the page never breaks
+  // beside one either). Only for the breaks Wrap picks: since Unicode 15.1 the page may break
+  // beside a curly quote between two Han characters, so bigWrapCount's upper bound must not
+  // count those as unbreakable.
   var BIG_WRAP_NO_BEFORE = /^[)\]},.:;!?'"\u2019\u201D\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\u3017\u3019\u301B\u301E\u301F\uFF5D\uFF60\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
-  var BIG_WRAP_NO_AFTER = /^[(\[{'\u2018\u201C\uFF08\u300C\u300E\u3010\u3014\u3016\u3018\u301A\u301D\uFF5B\uFF5F\uFF3B\u3008\u300A]/;
+  var BIG_WRAP_NO_AFTER = /^[(\[{'"\u2018\u201C\uFF08\u300C\u300E\u3010\u3014\u3016\u3018\u301A\u301D\uFF5B\uFF5F\uFF3B\u3008\u300A]/;
   // A line's words, measured once: {em, g (graphemes), pieces (see above)}.
   function bigWrapWordsOf(line) {
     return String(line).split(" ").filter(function (w) { return w !== ""; }).map(function (w) {
@@ -1733,9 +1746,12 @@
     else {
       var a = one("lines"), cands = [a];
       var w = a.pick ? bigWrapPlan(a.lines, contentW, o.size, budget, room, o.flip, opts.linear) : null;
-      // A wrap with one character on every line is Stack without its word gaps: spaced Korean,
-      // "아버지가 방에" and "아버지 가방에", sent the same message (1.2.0 review). Never Auto's pick.
-      if (w && w.m.lines.some(function (l) { return bigGraphemes(l).length > 1; })) cands.push({ layout: "wrap", lines: w.m.lines, m: w.m, pick: w });
+      // A wrap that splits a word into one character a line is Stack without its word gaps: spaced
+      // Korean, "아버지가 방에" and "아버지 가방에", sent the same message (1.2.0 review). Never
+      // Auto's pick. (When every word is one character, each line is a whole word: that stays.)
+      var split = w && w.m.lines.every(function (l) { return bigGraphemes(l).length <= 1; })
+        && a.lines.some(function (l) { return l.split(" ").some(function (x) { return bigGraphemes(x).length > 1; }); });
+      if (w && !split) cands.push({ layout: "wrap", lines: w.m.lines, m: w.m, pick: w });
       cands.push(one("stack"));
       p = cands[0];
       for (var ci = 1; ci < cands.length; ci++) if (bigBetter(cands[ci], p, o.size)) p = cands[ci];
@@ -2777,9 +2793,9 @@
                         preview: { kind: "html", html: html }, probe: "highroller" }],
              note: note, works: works, left: left };
   }
-  // Plain test: one bit under the threshold (1 bit when High Roller is off), a small Design T
-  // grid: a light header, "HI" in block letters inside the light frame, a gap, and a row of
-  // the ramp's tones. It shows that plain mode is what this amount gets, that every line holds
+  // Plain test: one bit under the threshold (1 bit when High Roller is off or the printer doesn't
+  // allow High Roller prints), a small Design T grid: a light header, "HI" in block letters
+  // inside the light frame, a gap, and a row of the ramp's tones. It shows that plain mode is what this amount gets, that every line holds
   // C glyphs and the rows line up (the rig's quote width and Han face), and how the tones print.
   var PROBE_LETTERS = {
     15: ["X...X.XXX", "X...X..X.", "X...X..X.", "XXXXX..X.", "X...X..X.", "X...X..X.", "X...X.XXX"],
@@ -4383,6 +4399,9 @@
       }
       // bigClean drops what prints nothing (zero-width characters, control codes), so a text
       // can be non-blank and still print NOTHING. Ask the same cleaner every text render uses.
+      // Han text as typed prints only Han characters: a text of kana, say, prints nothing, and
+      // its empty part used to say a picture was still loading (review of the 1.2.0 fixes).
+      if (blockRender(b) === "typed") return hanTypedGrid(b.text, 80).rows.length > 0;
       return /\S/.test(bigClean(b.text).text);
     }
     function saveBlocks() {
@@ -4801,7 +4820,8 @@
       // every layout, migrated "Lines" blocks included).
       var LAYOUT_HINTS = {
         auto: "Auto tries your lines as typed, the words wrapped to the paper and one letter a line, and keeps "
-          + "whichever prints biggest at the Size picked (to choose the line breaks yourself, press Enter between words and pick Lines).",
+          + "whichever prints biggest at the Size picked, but never a wrap that splits a word into one letter a line, which loses "
+          + "the gaps between words (to choose the line breaks yourself, press Enter between words and pick Lines).",
         lines: "Each line you typed prints as one line, all at one size, so press Enter between words to choose where the lines break.",
         wrap: "Your lines with the words wrapped to the paper's width, all at one size. Latin words stay whole; "
           + "Han, kana and Hangul break between their characters, as the page breaks them.",
@@ -5008,7 +5028,7 @@
                 + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
             }
           } else if (/\S/.test(bigClean(text).text)) {
-            lines.push("Nothing here is a Han character, so nothing prints: this render prints Han characters only. Big text prints other writing.");
+            lines.push("Nothing to print: this render prints Han characters only. Big text prints other writing.");
           } else {
             lines.push("Type something to print it.");
           }
@@ -5043,12 +5063,16 @@
             lines.push("Type something to print it.");
           }
           if (plainNow && r !== "hanzi") {
+            // Under a bits-per-inch setting a bigger cheer buys a taller box, so the sizes worked
+            // out for a threshold cheer are not the sizes of every bigger one (review of the fixes).
+            var orMore = contentLimitPx({ bits: t0, bitsPerInch: so0.bitsPerInch, maxInches: so0.maxInches }).by === "bits"
+              ? " (more bits buy more receipt, so a bigger cheer can print bigger)." : " or more.";
             fine.push(t0 > 0 && getSettings().allowHighRoller === false
               ? "The streamer's printer has Allow High Roller prints off, so this block prints as Han tiling (plain text). "
-                + "The sizes above are what it prints with that setting on" + (below0 ? ", at " + bitsWord(t0) + " or more." : ".")
+                + "The sizes above are what it prints with that setting on" + (below0 ? ", at " + bitsWord(t0) + orMore : ".")
               : t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
-                + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + " or more."
+                + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + orMore
                 + (raiseOffered() ? (r === "sideways" ? " Changing Direction or Size" : " Changing Layout, Size or Upside down")
                    + " raises Bits per cheer to " + bitsWord(t0) + ", or offers to." : "")
               : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
@@ -5395,8 +5419,9 @@
         if (gs.length) {
           var rows = gs.reduce(function (n, b) { return n + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
           var cols = gs[0].glyph ? gs[0].glyph.cols : designTPictureCols(ctx.paperMm);
+          var parts0 = where.inParts.length || gs.length;
           lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · "
-            + (noRoom ? "prints nothing (see below)" : cheersOf(where.inParts.length || gs.length)));
+            + (noRoom ? "prints nothing (see below)" : ctx.cheer ? cheersOf(parts0) : parts0 === 1 ? "1 message" : parts0 + " messages"));
         } else if (block._decoding) {
           lines.push("Reading the picture…");
         } else if (block._decodeFailed && !block._expired) {
@@ -5985,10 +6010,13 @@
         // yet; or nothing typed at all.
         var repick = blocks.some(function (b) { return b.type === "image" && b.imgKind === "glyph" && b.fileName && !b.url && !b._img; });
         var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph"; });
+        var typedNone = blocks.some(function (b) { return b.type === "text" && blockRender(b) === "typed" && /\S/.test(bigClean(b.text).text); });
         return [{ payload: repick
           ? "Nothing to print yet: pick the picture's file again on its Image card. A picked file isn't kept after a reload or in a preset."
           : realOnly
           ? "Nothing to print: a Real picture can't print on SassyTP's bot. Switch it to Glyph-art, or add some text."
+          : typedNone
+          ? "Nothing to print: Han text as typed prints only Han characters, and its text has none (its card says what was left out). Big text prints other writing."
           : "Nothing to print yet: add a block, or type into one.", chars: 0, copyable: false, showHead: false }];
       }
       var so = stackOpts({ nonceFn: nonceForPart }), ctx = stackContext(so);

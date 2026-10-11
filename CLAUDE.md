@@ -791,20 +791,29 @@ generations; `presetImageUrls` walks a stack's picture links.
 - **The bits raise (1.1.0).** Every High Roller-only control calls `pickedHighRoller(block,
   what, ctl)` just before its own `update()`, so the raised amount and the High Roller forms go
   out in one redraw: Render set to Big or Sideways; Big's Layout, Size and Upside down;
-  Sideways' Direction and Size; Glyph-art's Characters, Detail (on commit only, so typing and ↺
-  don't count) and Smooth shading (`.chk-dither`). It writes `#bitsAmount` itself
-  (`setBitsField`, which fires no event) and fills `raiseSlot` (one slot, memory only, like
-  `removedBlock`: `{blockId, r, what, ctl, was, ver}`). `syncRaise()`, at the end of `refresh()`
-  and `renderComposer()`, draws `.raise-note` (role=status) in that card's `.raise-slot`
-  (`raiseHosts`, rebuilt with the cards). The note is rebuilt only when `ver` changes, so a
-  refresh never takes the focus off its button, and a raise's cost follows the stack. Undo
-  (`undoRaise`) puts the old amount back, keeps the pick, refocuses the control by its class and
-  sets `raiseNoAuto`, as does lowering Bits below the threshold by hand after a raise
-  (`settingsTouched`, registered before `update` on every settings field, which also clears the
-  slot). With `raiseNoAuto` a pick only offers ("Raise to N bits", `confirmRaise`). A preset
-  Load, the block's removal, or a pick that needs no High Roller (Han tiling, a Kind change:
-  `dropRaiseOffer`) ends the slot. Nothing raises on add, load, Undo, migration, typing or a
-  settings edit.
+  Sideways' Direction and Size; Glyph-art's Characters, Detail and Smooth shading
+  (`.chk-dither`). Detail counts only when its commit keeps the focus in the field (Enter, its
+  arrows, the spinner): leaving it for a click would raise the bits and move the parts under the
+  pointer mid-click, and the click (a Copy) was lost (review of 1.1.0). Typing and ↺ never count.
+  It writes `#bitsAmount` itself (`setBitsField`, which fires no event) and fills `raiseSlot` (one
+  slot, memory only, like `removedBlock`: `{blockId, r, what, ctl, was, sig, ver}`).
+  `syncRaise()`, at the end of `refresh()` and `renderComposer()`, draws `.raise-note`
+  (role=status) in that card's `.raise-slot` (`raiseHosts`, rebuilt with the cards), BELOW the
+  card's controls (before a text card's `.text-note`, after Glyph-art's controls), so showing it
+  never moves the control just used. The note is rebuilt only when `ver` changes, so a refresh
+  never takes the focus off its button. A raise's cost now follows the stack; its "(was …)" is
+  said only while the stack is still the one it was taken from (`sig`, `stackSig()`). Undo
+  (`undoRaise`) puts the old amount back, keeps the pick, refocuses the control by its class (or
+  the card's Render or Kind when that control is hidden) and sets `raiseNoAuto`; it ignores the
+  second click of a double-click and clicks within 500 ms of `confirmRaise`, since Undo is drawn
+  where "Raise to N bits" was. Committing Bits below the threshold by hand after a raise also
+  sets `raiseNoAuto` (on `change`: key by key, a new amount passes through lower ones).
+  `settingsTouched`, registered before `update` on every settings field, clears the slot. With
+  `raiseNoAuto` a pick only offers ("Raise to N bits", `confirmRaise`). A preset Load or the
+  block's removal ends the slot; a pick that needs no High Roller (Han tiling, a Kind change:
+  `dropRaiseOffer`) ends an offer or a refusal, while a raise and its Undo stay. Nothing raises
+  on add, load, Undo, migration, typing or a settings edit. The hints that promise a raise (the
+  Bits hint, the cards' below-threshold lines) say so only when `raiseOffered()`.
 - **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
   `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`) or Han tiling (`.sel-weight`). Every
   layout and size option is labelled with what it would print for the current text (capitals

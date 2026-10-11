@@ -54,6 +54,10 @@ test("bitsRaiseFor: no raise when the streamer's length settings leave no room a
   // No room wins over asking: raising can't help, so there is nothing to offer.
   eq(C.bitsRaiseFor({ ...BELOW, bits: 1, bitsPerInch: 200 }), { action: "noRoom", from: 1, to: 25, by: "bits" });
   eq(C.bitsRaiseFor({ ...BELOW, noAuto: true, bitsPerInch: 200 }), { action: "noRoom", from: 10, to: 25, by: "bits" });
+  // Nothing to say at all when no amount changes what is built, whatever the box.
+  assert.equal(C.bitsRaiseFor({ ...BELOW, cheer: false, bitsPerInch: 200 }), null);
+  assert.equal(C.bitsRaiseFor({ ...BELOW, bits: 25, bitsPerInch: 200 }), null);
+  assert.equal(C.bitsRaiseFor({ ...BELOW, bits: 100, maxInches: 0.2 }), null);
 });
 
 test("bitsRaiseFor: a length setting that leaves room at the threshold still raises", () => {

@@ -32,9 +32,9 @@ and prints it.
 
 The streamer's settings (paper width, threshold, bits per inch, maximum length) are not
 visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
-in. Picking big text, sideways text or a glyph-art setting while the bits are below the
-threshold raises the bits to the threshold (or offers to, for a big jump), and the block says
-so, with an Undo.
+in. Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth
+shading, while the bits are below the threshold raises the bits to the threshold (or offers to,
+for a big jump), and the block says so, with an Undo after a raise.
 
 ## What it outputs
 

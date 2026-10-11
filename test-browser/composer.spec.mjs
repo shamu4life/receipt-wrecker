@@ -2649,3 +2649,206 @@ test("1.1.0: the preview draws a stand-in in the bot's profile-picture circle an
     await ctx.close();
   }
 });
+
+// 1.1.0 review fixes: what the adversarial review of the bits raise confirmed.
+const SIDE = (o) => ({ type: "text", render: "sideways", text: "HI", ...o });
+const GLYPH = (o) => ({ type: "image", imgKind: "glyph", url: PIC, tier: "ascii", cols: 16, dither: false, ...o });
+async function typeInto(locator, text) {
+  await locator.click(); await locator.press("ControlOrMeta+a"); await locator.pressSequentially(text);
+}
+
+test("1.1.0 review: leaving Detail for a click never raises Bits (the click still copies); Enter in Detail does", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [GLYPH({ id: 1 })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  const cols = cards(page).first().locator("input.num-cols");
+  await typeInto(cols, "20");
+  const before = await page.evaluate(() => window.__copied.length);
+  await page.locator("#parts .copy-btn").first().click();
+  await page.waitForFunction((n) => window.__copied.length > n, before, { timeout: 3000 });
+  assert.equal(await bitsValue(page), "10", "leaving the field raised Bits under the pointer");
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 0);
+  // Enter commits and keeps the focus in the field: that is a pick.
+  await typeInto(cols, "18");
+  await cols.press("Enter");
+  assert.equal(await bitsValue(page), "25");
+  assert.match(await raiseNoteOf(cards(page).first()).textContent(), /^Bits per cheer raised from 10 to 25 for the characters you picked/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: a double-click on 'Raise to N bits' stays raised", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, bits: 5 } });
+  await cards(page).first().locator(".sel-size").selectOption("48");
+  assert.equal(await bitsValue(page), "5");
+  await raiseNoteOf(cards(page).first()).getByRole("button", { name: "Raise to 25 bits" }).dblclick();
+  assert.equal(await bitsValue(page), "25", "the second click undid the raise");
+  assert.equal(await raiseNoteOf(cards(page).first()).getByRole("button", { name: "Undo" }).count(), 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: the note sits below its card's controls, on the card that was changed, and moves nothing above it", async () => {
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, bits: 10 } });
+    const card = cards(page).first();
+    const top = () => card.locator(".sel-layout").evaluate((e) => e.getBoundingClientRect().top);
+    const y0 = await top();
+    await card.locator(".sel-layout").selectOption("lines");
+    assert.equal(await bitsValue(page), "25");
+    assert.equal(await top(), y0, "the note pushed the control used out from under the pointer");
+    const order = await card.evaluate((c) => {
+      const n = c.querySelector(".raise-note"), last = c.querySelector(".chk-flip"), tn = c.querySelector(".text-note");
+      return { afterControls: !!(last.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING),
+               beforeNote: !!(n.compareDocumentPosition(tn) & Node.DOCUMENT_POSITION_FOLLOWING) };
+    });
+    assert.deepEqual(order, { afterControls: true, beforeNote: true });
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1 }), BIG({ id: 2 })], controls: { ...SETTINGS, bits: 10 } });
+    await cards(page).nth(1).locator(".sel-layout").selectOption("lines");
+    assert.equal(await raiseNoteOf(cards(page).nth(0)).count(), 0);
+    assert.equal(await raiseNoteOf(cards(page).nth(1)).count(), 1);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.1.0 review: typing a higher amount after a raise keeps raising; lowering before any raise doesn't stop it", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1 })], controls: { ...SETTINGS, bits: 100 } });
+  await commit(page, "#bitsAmount", "10");
+  await cards(page).first().locator(".sel-render").selectOption("big");
+  assert.equal(await bitsValue(page), "25", "an amount lowered before any raise stopped the raising");
+  // Key by key, a new amount passes through lower ones: only the committed amount counts.
+  const bits = page.locator("#bitsAmount");
+  await typeInto(bits, "100");
+  await bits.blur();
+  assert.equal(await bitsValue(page), "100");
+  await commit(page, "#hrThreshold", "300");
+  await cards(page).first().locator(".sel-layout").selectOption("stack");
+  assert.equal(await bitsValue(page), "300", "a typed higher amount switched raising off");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: the note drops its 'was' once the stack changes, and a refresh keeps the focus on its Undo", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1 })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  await cards(page).first().locator(".sel-render").selectOption("big");
+  const note = raiseNoteOf(cards(page).first());
+  assert.match(await note.textContent(), /\(was 2 Han tiling cheers, 20 bits\)/);
+  await note.getByRole("button", { name: "Undo" }).focus();
+  // A refresh that changes nothing in the stack keeps the note, its 'was' and the focus.
+  await cards(page).first().locator("textarea").dispatchEvent("input");
+  assert.equal(await focusedClass(page), "raise-undo", "a refresh took the focus off Undo");
+  assert.match(await note.textContent(), /\(was 2 Han tiling cheers, 20 bits\)/, "an unchanged stack lost its 'was'");
+  // An edit: 'now' follows the stack, and 'was' (the stack before the raise) no longer applies.
+  await cards(page).first().locator("textarea").fill("HELLO THERE FRIEND");
+  assert.match(await note.textContent(), /^Bits per cheer raised from 10 to 25 for Big text: \d+ cheers?, \d+ bits\.Undo$/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: Undo puts the focus on Render when the control used is hidden", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, bits: 10 } });
+  await cards(page).first().locator(".sel-layout").selectOption("lines");
+  await cards(page).first().locator(".sel-render").selectOption("hanzi");
+  assert.equal(await bitsValue(page), "25", "a Han tiling pick undid the raise");
+  await raiseNoteOf(cards(page).first()).getByRole("button", { name: "Undo" }).click();
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await focusedClass(page), "sel-render");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: the hints promise a raise only when a pick would raise or offer one", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 }), SIDE({ id: 2 }), GLYPH({ id: 3 })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  const note = (i) => cards(page).nth(i).locator(".text-note").innerText();
+  assert.match(await page.textContent("#bitsHint"), /Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth shading, raises it to 25 bits, or offers to\./);
+  assert.match(await note(0), /Changing Layout, Size or Upside down raises Bits per cheer to 25 bits, or offers to\./);
+  assert.match(await note(1), /Changing Direction or Size raises Bits per cheer to 25 bits, or offers to\./);
+  assert.match(await note(2), /Changing Characters, Detail or Smooth shading raises Bits per cheer to 25 bits, or offers to\./);
+  // No room after the Cheer line at 25 bits: no promise anywhere.
+  await commit(page, "#bitsPerInch", "200");
+  assert.doesNotMatch(await page.textContent("#bitsHint"), /raises it to/);
+  for (const i of [0, 1, 2]) assert.doesNotMatch(await note(i), /raises Bits per cheer/, "card " + (i + 1));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: every High Roller-only control raises Bits per cheer", async () => {
+  const rows = [
+    ["Render: Sideways", HAN({ id: 1 }), (c) => c.locator(".sel-render").selectOption("sideways"), "Sideways text"],
+    ["Big text Size", BIG({ id: 1 }), (c) => c.locator(".sel-size").selectOption("48"), "Big text"],
+    ["Upside down", BIG({ id: 1 }), (c) => c.locator(".chk-flip").check(), "Big text"],
+    ["Direction", SIDE({ id: 1 }), (c) => c.locator(".sel-dir").selectOption("up"), "Sideways text"],
+    ["Sideways Size", SIDE({ id: 1 }), (c) => c.locator(".sel-side-size").selectOption("48"), "Sideways text"],
+    ["Detail with Enter", GLYPH({ id: 1 }), async (c) => { const f = c.locator("input.num-cols"); await typeInto(f, "20"); await f.press("Enter"); }, "the characters you picked"],
+    ["Smooth shading", GLYPH({ id: 1 }), (c) => c.locator(".chk-dither").check(), "the characters you picked"],
+  ];
+  for (const [name, block, act, what] of rows) {
+    const { page, ctx, errors } = await freshPage({ blocks: [block], controls: { ...SETTINGS, bits: 10 } });
+    await settled(page);
+    await act(cards(page).first());
+    assert.equal(await bitsValue(page), "25", name);
+    assert.match(await raiseNoteOf(cards(page).first()).textContent(), new RegExp("^Bits per cheer raised from 10 to 25 for " + what), name);
+    if (name === "Smooth shading") {
+      await raiseNoteOf(cards(page).first()).getByRole("button", { name: "Undo" }).click();
+      assert.equal(await focusedClass(page), "chk-dither", "Undo lost the focus");
+    }
+    assert.deepEqual(errors, [], name);
+    await ctx.close();
+  }
+});
+
+test("1.1.0 review: nothing but a High Roller-only control raises it", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1, render: "big" }), GLYPH({ id: 2 })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  const unchanged = async (step) => {
+    assert.equal(await bitsValue(page), "10", step);
+    assert.equal(await page.locator(".raise-note").count(), 0, step);
+  };
+  await page.click("#addTextBtn"); await unchanged("adding a block");
+  await cards(page).nth(0).locator(".sel-render").selectOption("hanzi"); await unchanged("Han tiling");
+  await cards(page).nth(0).locator(".sel-weight").selectOption("400"); await unchanged("stroke weight");
+  await cards(page).nth(1).locator('input[type="range"]').first().evaluate((e) => { e.value = "20"; e.dispatchEvent(new Event("input", { bubbles: true })); });
+  await unchanged("Darkness");
+  await cards(page).nth(1).getByLabel("Invert").check(); await unchanged("Invert");
+  await cards(page).nth(1).locator(".sel-kind").selectOption("real"); await unchanged("Kind: Real picture");
+  await cards(page).nth(1).locator(".sel-kind").selectOption("glyph"); await unchanged("Kind: Glyph-art");
+  await cards(page).nth(1).locator("input.num-cols").fill("22"); await unchanged("typing in Detail");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0 review: a pick that needs no High Roller ends an offer, never a raise", async () => {
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1 })], controls: { ...SETTINGS, bits: 5 } });
+    const card = cards(page).first();
+    await card.locator(".sel-render").selectOption("big");
+    assert.equal(await raiseNoteOf(card).getByRole("button", { name: "Raise to 25 bits" }).count(), 1);
+    await card.locator(".sel-render").selectOption("hanzi");
+    assert.equal(await raiseNoteOf(card).count(), 0, "an offer outlived the pick that made it");
+    await commit(page, "#bitsAmount", "10");
+    await card.locator(".sel-render").selectOption("big");
+    assert.equal(await bitsValue(page), "25");
+    await card.locator(".sel-render").selectOption("hanzi");
+    assert.equal(await raiseNoteOf(card).getByRole("button", { name: "Undo" }).count(), 1, "a Han tiling pick took the raise's Undo away");
+    assert.equal(await bitsValue(page), "25");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  {
+    const { page, ctx, errors } = await freshPage({ blocks: [GLYPH({ id: 1, tier: "cjk" })], controls: { ...SETTINGS, bits: 5 } });
+    await settled(page);
+    const card = cards(page).first();
+    await card.locator(".sel-tier").selectOption("ascii");
+    assert.equal(await raiseNoteOf(card).count(), 1);
+    await card.locator(".sel-kind").selectOption("real");
+    assert.equal(await raiseNoteOf(card).count(), 0);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});

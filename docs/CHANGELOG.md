@@ -32,8 +32,11 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
     maximum length would leave nothing after the Cheer line at the threshold. A plain part always
     gets the full 42 cm box and a High Roller one doesn't, so a raise there would print nothing;
     the card says why instead.
-  - Adding a block, loading a preset, Undo, typing and settings edits never raise it. The Undo is
-    kept in memory only: no new storage key.
+  - Adding a block, loading a preset, Undo, typing and settings edits never raise it, and neither
+    does leaving the Detail field for a click (press Enter or use its arrows): the bits changing
+    under the pointer would move the parts and lose the click. The note sits below the card's
+    controls, so it never moves the one just used. Its "was" cost is shown until the stack
+    changes. The Undo is kept in memory only: no new storage key.
 
 ### Changed
 
@@ -50,10 +53,15 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 ### How sure
 
 - **Tests**: 199 unit tests (12 new: the decision, its guards and boundaries, the cost
-  tally and the note's words) and 52 browser tests (4 new: the raise, its Undo and the
+  tally and the note's words) and 62 browser tests (14 new: the raise, its Undo and the
   offer after it; Cheer-ready off, High Roller off and no room; Glyph-art's Characters, a big jump
-  and a hand-lowered amount; the stand-in circle at both paper widths, which adds exactly the
-  picture's 182 or 151 px, fetches nothing and leaves Copy as the core builds it).
+  and a hand-lowered amount; every High Roller-only control, and the controls that must not raise;
+  Detail left for a click (the click still copies); a double-click on the offer; where the note
+  sits; a typed higher amount; "was" after an edit; Undo's focus; the hints at no room; the
+  stand-in circle at both paper widths, which adds exactly the picture's 182 or 151 px, fetches
+  nothing and leaves Copy as the core builds it). An adversarial review of the raise found the
+  Detail click, the double-click, the note's place, the typed amount, "was", the focus and the
+  hints before release; each has a test.
 - **Prints as 1.0.0 did.** Only the amount sent changes; what prints at that amount is 1.0.0's.
 
 ---

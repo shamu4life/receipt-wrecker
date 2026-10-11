@@ -215,12 +215,13 @@ Everything else is tests, tools, documentation or deploy config.
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
 | `tools/payload.mjs` | Builds a message with the app's own core, for the bench. |
-| `tools/vendor-renderer.mjs` | Writes (or `--check`s) the vendored renderer block in `public/index.html`. |
+| `tools/vendor-renderer.mjs` | Writes (or `--check`s) the vendored renderer block in `public/index.html`; `--prerelease` takes the beta that `versions.json` names. |
+| `tools/upstream-watch.mjs` | Says whether SassyTP shipped a renderer other than the vendored one and compares the regions the app depends on (exit 0 / 10 / 20). Reads GitHub anonymously, writes only under `.render/`. Dev-only. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, `wrangler deploy --dry-run`, on push/PR to `main`. Offline: no tool that fetches runs there. |
 | `.github/` | CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue and PR templates, dependabot. |
 | `docs/CHANGELOG.md` | Release notes. Entries describe the state at their release. |
 | `README.md` | Human-facing overview. |
-| `.gitignore` | Wrangler/env files, `node_modules/`, `package-lock.json`, `.claude/`, `.playwright-mcp/`, and **`.render/`**, where the bench writes everything and caches SassyTP's files. |
+| `.gitignore` | Wrangler/env files, `node_modules/`, `package-lock.json`, `.claude/`, `.playwright-mcp/`, and **`.render/`**, where the bench and the watch write everything and cache SassyTP's files. |
 
 ## How to run / develop
 
@@ -1075,8 +1076,25 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 
 ### "SassyTP shipped a new version"
 
-1. Find the new commit in <https://github.com/SassyTP/printer-bot> (its `versions.json` names
-   the renderer path).
+1. `node tools/upstream-watch.mjs` says whether there is one and whether it touches what this app
+   depends on. It reads <https://github.com/SassyTP/printer-bot> anonymously (`api.github.com`
+   and `raw.githubusercontent.com`, nothing else): every branch's head, the tags and releases,
+   `versions.json` on master and beta, master's stable renderer (`v/<versions.json
+   latest>/renderer.html` with its `version.json`) and the newest `v/*/renderer.html` in beta's
+   tree. The vendored renderer is the one the block names (`data-commit`, `data-path`,
+   `data-version` and the upstream sha256 in its notice). Every renderer with another sha256 is
+   cached under `.render/sassytp/<sha>/` and compared with the vendored copy, region by region,
+   found by text markers: the safety section (`const MAX_PLAIN_CHARS` to `function
+   formatCurrency`), the CSS rules of `#receipt-container`, `#receipt-content` and `.part`,
+   `isHighRoller` through `highRollerMaxHeight`, `viewOf` when either copy has it, `show()` and
+   `MAX_RECEIPT_HEIGHT`. Each region is identical or changed (a changed one with a unified diff;
+   a reworded comment counts). Exit 0: nothing new; 10: a new renderer, every region identical;
+   20: a region changed (or appeared, or lost its markers). It keeps what it saw in
+   `.render/upstream/last.json` and says what changed since the previous run. A renderer built
+   before the vendored one (by its `VERSION` stamp, as master's 2.5.x is on a branch that
+   vendors a beta) is listed but never counts as new. `--no-diff` prints the verdicts alone;
+   `--renderer PATH` compares one local file. It makes 3 or 4 of GitHub's 60 anonymous API reads
+   an hour. Dev-only: never in CI, and no test imports it.
 2. `NODE_USE_ENV_PROXY=1 node tools/vendor-renderer.mjs --ref <40-hex sha>` (add `--path
    v/X.Y.Z/renderer.html` if needed; `NODE_USE_ENV_PROXY=1` only matters behind a proxy), then
    `node tools/vendor-renderer.mjs --check`. Without `--ref`, the tool (a plain write and
@@ -1085,7 +1103,17 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    update passes and a plain write can't put the old renderer back over the new one; it uses
    its own `PINNED_*` only on a first run, when the page has no block. (It used to use
    `PINNED_*` every time: the check failed right after a correct update, and a plain write
-   restored 2.5.4 without a word.) It says so on stderr while its pin is out of date.
+   restored 2.5.4 without a word.) It says so on stderr while its pin is out of date. It always
+   prints the renderer `VERSION` it found.
+
+   **A beta:** `node tools/vendor-renderer.mjs --prerelease` reads `versions.json` at the head
+   of the beta branch (or at `--ref`), takes `core.prerelease` (`3.0.0-beta.6`) and vendors
+   `v/<prerelease>/renderer.html`. Don't pass a beta commit as `--ref` alone: beta's
+   `versions.json` still names the stable frontend as `latest`, so that resolves
+   `v/2.5.0/renderer.html`, the 2.5.4 page under a beta's commit. The tool refuses it ("this
+   commit's v/2.5.0/renderer.html is the renderer you already have: pass --prerelease or --path
+   v/<version>/renderer.html") whenever `--ref` names another commit than the block's and the file
+   it resolves has the block's sha256.
 3. Point both tools at the same commit: `tools/vendor-renderer.mjs`'s `PINNED_SHA`,
    `PINNED_PATH` and `PINNED_SHA256`, and `tools/forkbench.mjs`'s `PINNED_SHA`,
    `RENDERER_PATH` and `RENDERER_SHA256`. Then re-bench the modes whose shape matters to you at
@@ -1093,6 +1121,10 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 4. Read the diff of the renderer for anything in "The target" above (allow-lists, the box,
    plain text, geometry) and update this file's line numbers and facts.
 5. Run both suites. The contract test re-runs every mode through the new page.
+
+New betas are tested on the canary branch, `canary/printer-bot-3`: a draft PR that is never
+merged before 3.0.0 is final and the streamer runs it. On that branch the watch compares against
+the beta it vendors, so it exits 0 until a newer beta (or a newer stable build) ships.
 
 ## Measuring: the bench
 

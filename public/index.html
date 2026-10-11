@@ -170,7 +170,7 @@
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
       <label class="thermal-toggle">Thermal dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select> <span id="thermalDitherOff" class="dither-off">(turn on the thermal preview first)</span></label>
-      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
+      <div class="hint" id="rendererCredit">The preview is drawn by SassyTP's printer-bot renderer (MIT)<span id="rendererVersion"></span>, the receipt page the bot itself prints from.<span id="rendererCompare"></span> The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
       <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
       <div id="parts"></div>
       <div class="meta">
@@ -5927,6 +5927,13 @@
 
       restoreControls();
       syncModeUi();
+      // The layout the preview draws with, read off the vendored block itself, so it can't drift from
+      // it. SassyTP's bot can download a newer layout to the streamer's dock by itself.
+      var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
+      if (rver && /^\d+$/.test(rver)) {
+        document.getElementById("rendererVersion").textContent = ", layout v" + rver;
+        document.getElementById("rendererCompare").textContent = " If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer.";
+      }
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);
 

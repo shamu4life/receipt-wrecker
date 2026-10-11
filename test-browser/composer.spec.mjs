@@ -2852,3 +2852,16 @@ test("1.1.0 review: a pick that needs no High Roller ends an offer, never a rais
     await ctx.close();
   }
 });
+
+// 1.2.0: the preview names the layout it draws with, so a viewer can compare it with the version the
+// streamer's dock shows under Updates, Renderer (SassyTP's bot can update that page by itself).
+test("1.2.0: the preview's credit names the vendored layout version, read from the block itself", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })] });
+  const v = await page.evaluate(() => document.getElementById("sassytp-renderer").getAttribute("data-version"));
+  assert.match(v, /^\d{12}$/);
+  const credit = await page.textContent("#rendererCredit");
+  assert.ok(credit.includes("layout v" + v), credit);
+  assert.match(credit, /If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

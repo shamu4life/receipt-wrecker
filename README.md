@@ -249,6 +249,11 @@ access. It is not an imitation of the receipt. Whether a cheer prints High Rolle
 where the bot's box cuts it off and any fade come from the bot's own code. The Twitch logo in
 the footer is a grey box here.
 
+The line above the parts names the layout the preview draws with (for example *layout
+v202610090056*). SassyTP's bot can download a newer layout to the streamer's dock by itself, so
+if their dock shows a different **Renderer** version under **Updates**, the preview may not match
+their printer.
+
 The big circle at the top is where the bot puts the viewer's profile picture. The preview never
 asks Twitch for it, so it draws a grey stand-in there, and the receipt's length counts it. Under
 each part, the preview says how long the receipt is (about 4.8 cm shorter on 80 mm, 4.0 cm on

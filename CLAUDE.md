@@ -1041,6 +1041,11 @@ does (`min(5000, ceil(documentElement height))`), keeping render()'s own answer 
 renderer, not this app, decides High Roller or plain, the box and the fade. A free test (Cheer-ready off) is drawn as a High Roller cheer
 (threshold 1) and says it never reaches the printer.
 
+**The layout version.** The credit line above the parts (`#rendererCredit`) names the vendored
+layout, read at init from the block's own `data-version` (`#rendererVersion`, `#rendererCompare`),
+and says to compare it with the Renderer version the streamer's dock shows under Updates: the bot
+can download a newer layout to the dock by itself (UPDATING.md, "Download updates" on by default).
+
 **The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, the
 stand-in profile picture included, and how much shorter a receipt with no picture is (about
 4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is min(11.5em, 100%) square with a 14px gap

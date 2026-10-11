@@ -29,6 +29,9 @@ and prints it.
   is a High Roller cheer: the message is read as HTML and passed through an allow-list
   sanitizer, so inline styles print.
 - A smaller cheer prints as plain 16px text inside quote marks, markup included.
+- Printer Bot 3.0 (in beta) adds a per-printer switch, "Allow High Roller prints", on by
+  default. A printer with it off prints every cheer as plain text, so the tool has the same
+  switch among the streamer's settings and builds every block in its plain form when it is off.
 
 The streamer's settings (paper width, threshold, bits per inch, maximum length) are not
 visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled

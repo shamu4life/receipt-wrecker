@@ -14,7 +14,7 @@ import { loadCore, eq } from "./_harness.mjs";
 
 const C = loadCore();
 const DEFAULTS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd" };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true };
 
 test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold 25, no limits, 80 mm)", () => {
   for (const s of [null, undefined, {}, "junk", 7, []]) eq(C.normalizeControls(s), DEFAULTS, JSON.stringify(s));
@@ -22,9 +22,9 @@ test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold
 
 test("normalizeControls: every field validated, strings from the form read as numbers", () => {
   eq(C.normalizeControls({ cheer: false, bits: "25", hrThreshold: "0", bitsPerInch: "12.5", maxInches: "10",
-                           paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson" }),
+                           paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false }),
      { cheer: false, bits: 25, hrThreshold: 0, bitsPerInch: 12.5, maxInches: 10, paperMm: 58,
-       nonce: true, thermalView: true, thermalDither: "atkinson" });
+       nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false });
   const n = (o) => C.normalizeControls(o);
   // Bits: any whole number from 1 (the old >= 100 floor is gone); junk is 100.
   assert.equal(n({ bits: 1 }).bits, 1);
@@ -158,18 +158,18 @@ test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's se
   const payload = 'Cheer25 <div style="font:700 60px/.8 Arial">BIG</div>';
   eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
     event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
-    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false } });
+    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true } });
   // No userName (the renderer would start an avatar lookup), and the message is never touched.
   const e = C.previewEvent({ payload: "  " + payload + "  ", bits: "7", cheer: true, hrThreshold: "0" });
   assert.ok(!("userName" in e.event));
   assert.equal(e.event.message, "  " + payload + "  ");
-  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false });
+  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true });
   assert.equal(e.event.bits, 7);
   // A free test never prints; it is drawn as the High Roller cheer whose markup it tests.
   assert.equal(C.previewEvent({ payload, bits: 100, cheer: false, hrThreshold: 500 }).options.highRollerBits, 1);
   // Junk settings read through the same sanitizers as the panel.
   eq(C.previewEvent({ payload: null, bits: "x", hrThreshold: -5, bitsPerInch: "y", maxInches: 99 }).options,
-     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false });
+     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false, allowHighRoller: true });
 });
 
 test("previewVerdict says what the bot's renderer said, in plain words", () => {

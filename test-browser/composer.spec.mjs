@@ -74,7 +74,7 @@ function installClipboardStub() {
 // fails the one test that checks the defaults rather than quietly changing what the others
 // test. (This is SassyTP's own defaults: threshold 25, no length limits, 80 mm.)
 const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd" };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true };
 // `blocks`, `presets` and `controls` seed rw_blocks_v1, rw_presets_v1 and rw_controls_v1
 // before the app's first load, the way a returning user's saved state is there before the
 // page runs; `controls` defaults to SETTINGS, and `controls: null` seeds nothing (a first
@@ -137,7 +137,8 @@ const len = (s) => Array.from(s).length;     // payloadLength's rule: code point
 
 // stackContext's options for a settings object (normalizeControls' fields).
 const stackOptsOf = (s) => ({ cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
-                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm });
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm,
+                              allowHighRoller: s.allowHighRoller });
 // What a stack of big and sideways blocks sends, per the core, computed here in Node.
 function nodeBodies(block, ctx) {
   if (C.blockRender(block) === "sideways") {
@@ -2862,6 +2863,48 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
   assert.match(credit, /If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// 1.2.0: Printer Bot 3.0's per-printer "Allow High Roller prints" switch, as one of the streamer's settings.
+test("1.2.0: with Allow High Roller prints off every block builds plain, the notices say why, and nothing raises", async () => {
+  const blocks = [BIG({ id: 1 })];
+  const { page, ctx, errors } = await freshPage({ blocks, core: true, controls: { ...SETTINGS, bits: 10 } });
+  assert.equal(await page.isChecked("#allowHighRoller"), true, "it starts on, as in the bot");
+  await page.uncheck("#allowHighRoller");
+  assert.equal((await stored(page, "rw_controls_v1")).allowHighRoller, false);
+  await settled(page);
+  assert.deepEqual(await copyAll(page), await expectPage(page, blocks, { ...SETTINGS, bits: 10, allowHighRoller: false }));
+  assert.match(await page.textContent("#modeNote"), /^The streamer's printer has Allow High Roller prints off \(a Printer Bot 3\.0 setting\)/);
+  assert.equal(await page.locator("#modeNote .fix-btn").getAttribute("data-goto"), "allowHighRoller");
+  assert.match(await page.textContent("#bitsHint"), /The streamer's printer has Allow High Roller prints off/);
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /The streamer's printer has Allow High Roller prints off, so this block prints as Han tiling/);
+  // No amount helps, so a High Roller-only pick raises nothing.
+  await cards(page).first().locator(".sel-layout").selectOption("stack");
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 0);
+  // At 100 bits too: still plain, and the High Roller test offers no Copy and names the switch.
+  await commit(page, "#bitsAmount", "100");
+  assert.match(await page.textContent("#modeNote"), /Allow High Roller prints off/);
+  await page.click("#hrProbeBtn");
+  assert.equal(await page.locator("#parts .copy-btn").count(), 0, "the High Roller test offered a Copy with the switch off");
+  assert.match(await page.locator("#parts .part").first().innerText(), /The streamer's printer has Allow High Roller prints off, so this prints as plain text/);
+  // It survives a reload.
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.equal(await page.isChecked("#allowHighRoller"), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0: with Allow High Roller prints off the preview draws the part the way that printer prints it", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, allowHighRoller: false }, eager: true });
+  const payload = await copyPayload(page, 0);
+  const { last } = await drawnPart(page, 0, payload);
+  assert.equal(last.options.highRollerBits, 0);
+  assert.equal(last.options.allowHighRoller, false);
+  assert.doesNotMatch(last.measure.partClass, /\braw\b/, "the preview drew a styled receipt the printer won't print");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

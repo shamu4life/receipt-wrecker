@@ -220,6 +220,8 @@
         <label>Maximum length: <input type="number" id="maxInches" min="0" max="40" step="any" value="0" style="width:7em"> inches</label>
         <div class="hint field-note" id="maxInchesNote" role="status" hidden></div>
         <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's longest message, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
+        <label><input type="checkbox" id="allowHighRoller" checked> The streamer's printer allows High Roller prints (Printer Bot 3.0)</label>
+        <div class="hint">Printer Bot 3.0 has this switch for each printer, on by default. When it is off, that printer prints every cheer as plain text, however many bits, so every block here prints as Han tiling. Printer Bot 2.5 has no such switch: leave it on.</div>
       </div>
     </section>
   </div>
@@ -424,11 +426,13 @@
   // What the bot does with a cheer: "raw" (High Roller: our markup is styled) or "plain"
   // (the message prints as quoted 16px text). The bot's own test is threshold > 0 and
   // bits >= threshold (renderer.html isHighRoller). A message with no cheer never prints.
-  // opts = {cheer, bits, hrThreshold}; an absent `cheer` is off, as everywhere else here.
+  // opts = {cheer, bits, hrThreshold, allowHighRoller}; an absent `cheer` is off, as everywhere else
+  // here. allowHighRoller is Printer Bot 3.0's per-printer switch ("Allow High Roller prints", on by
+  // default): off, that printer prints every cheer as plain text (renderer viewOf).
   function printMode(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold);
-    return o.cheer && t > 0 && cheerBits(o.bits) >= t ? "raw" : "plain";
+    return o.cheer && t > 0 && o.allowHighRoller !== false && cheerBits(o.bits) >= t ? "raw" : "plain";
   }
   // Which form the app BUILDS a stack in. A cheer builds what the bot will print
   // (printMode). Cheer-ready off is a free chat test (it never reaches the printer, but it
@@ -2580,7 +2584,7 @@
     shapes.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (s) {
       if (used + s.h <= room + PX_EPS && (s.id === "big" || keep.big)) { keep[s.id] = true; used += s.h; }
     });
-    var works = t > 0 && !!keep.big, kept = shapes.filter(function (s) { return keep[s.id]; });
+    var works = t > 0 && o.allowHighRoller !== false && !!keep.big, kept = shapes.filter(function (s) { return keep[s.id]; });
     if (!kept.length) kept = [shapes[0]];
     var left = shapes.filter(function (s) { return !keep[s.id] && s.name; }).map(function (s) { return s.name; });
     var html = kept.map(function (s) { return s.html; }).join("");
@@ -2590,6 +2594,8 @@
     var list = function (xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; };
     var note;
     if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
+    else if (o.allowHighRoller === false) note = "The streamer's printer has Allow High Roller prints off, so this prints as plain text, tags and all. "
+      + "It is a Printer Bot 3.0 setting, on by default, for each printer: ask the streamer to turn it on for the printer that prints cheers.";
     // Not working because the box is too short: either the Cheer line fills it (nothing after it
     // prints at all), or a little is left after it, too little for BIG, the smallest shape. That
     // case said "the Cheer line fills it" too, under a verdict that the receipt prints the Cheer
@@ -2601,7 +2607,7 @@
       + ", so this test can't show anything. Check the bits-per-inch and maximum length above.";
     else note = "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bitsWord(bits)
       + (checks.length ? ": check that " + list(checks) : "") + ". If it all prints small inside quote marks, the threshold is "
-      + "higher than " + bits + "."
+      + "higher than " + bits + ", or (on Printer Bot 3.0) the streamer's printer has Allow High Roller prints off."
       + (left.length ? " At the streamer's length settings this cheer gets only about " + cm + " of receipt, so the test leaves out "
         + list(left) + "." : "");
     return { bits: bits, mode: "raw",
@@ -2637,13 +2643,15 @@
   }
   function buildPlainProbe(o) {
     o = o || {};
-    var t = hrThresholdOf(o.hrThreshold), bits = t > 1 ? t - 1 : 1, p = paperSpec(o.paperMm);
-    var mode = printMode({ cheer: true, bits: bits, hrThreshold: t });
+    var off = o.allowHighRoller === false, t = hrThresholdOf(o.hrThreshold), bits = !off && t > 1 ? t - 1 : 1, p = paperSpec(o.paperMm);
+    var mode = printMode({ cheer: true, bits: bits, hrThreshold: t, allowHighRoller: o.allowHighRoller });
     var bodies = buildDesignT(probeHiGrid(hanziCols(p.contentW)),
       { mode: mode, paperMm: p.mm, cheer: true, bits: bits, noNonce: !!o.noNonce, limitPx: CONTENT_CEILING_PX });
     bodies.forEach(function (b) { b.probe = "plain"; });
     var note = mode === "plain"
-      ? (t === 0 ? "One " + bits + "-bit cheer. High Roller is off, so every cheer prints plain: it should print small, inside quote marks: a light first line, "
+      ? (off && t > 0 ? "One " + bits + "-bit cheer. The streamer's printer has Allow High Roller prints off, so every cheer prints plain: "
+                 + "it should print small, inside quote marks: a light first line, "
+         : t === 0 ? "One " + bits + "-bit cheer. High Roller is off, so every cheer prints plain: it should print small, inside quote marks: a light first line, "
                  : "One " + bits + "-bit cheer, one under the threshold. It should print small, inside quote marks: a light first line, ")
         + "HI in Han characters, a row of tones, then Cheer" + bits + ". Check that every line holds " + hanziCols(p.contentW)
         + " characters and the edges of HI line up."
@@ -2676,7 +2684,8 @@
     return { cheer: s.cheer !== false, bits: cheerBits(s.bits), hrThreshold: hrThresholdOf(s.hrThreshold),
              bitsPerInch: bitsPerInchOf(s.bitsPerInch), maxInches: maxInchesOf(s.maxInches),
              paperMm: paperSpec(s.paperMm).mm, nonce: s.nonce === true, thermalView: s.thermalView === true,
-             thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd" };
+             thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd",
+             allowHighRoller: s.allowHighRoller !== false };
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
@@ -2711,6 +2720,8 @@
         + "before you spend bits."
         + (ft <= 0 ? " The streamer's High Roller is off (threshold 0), so a real cheer prints as Han tiling instead: "
                      + "this tests the High Roller form, which needs the streamer to set a threshold."
+         : o.allowHighRoller === false ? " The streamer's printer has Allow High Roller prints off, so a real cheer prints as Han tiling "
+                     + "instead: this tests the High Roller form, which needs that setting on."
          : fb < ft ? " Your " + fb + "-bit cheer will print as Han tiling instead: this tests the High Roller form, "
                      + "which needs " + bitsWord(ft) + " or more."
          : "");
@@ -2738,6 +2749,11 @@
           + ": set Bits per cheer higher for room to print.";
     }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
+    if (t > 0 && o.allowHighRoller === false) {
+      return "The streamer's printer has Allow High Roller prints off (a Printer Bot 3.0 setting), so the bot prints every cheer as plain text."
+        + " Every block prints in its plain form: text as Han tiling, pictures as a grid of Han characters. "
+        + "Big text, sideways text and glyph-art in the characters you picked need that setting on.";
+    }
     return (t > 0
         ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + bitsWord(t) + "), so the bot prints plain text."
         : "The streamer's High Roller threshold is 0 (off), so the bot prints every cheer as plain text.")
@@ -2766,7 +2782,7 @@
   function bitsRaiseFor(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), from = cheerBits(o.bits);
-    if (!o.cheer || from >= t) return null;
+    if (!o.cheer || o.allowHighRoller === false || from >= t) return null;
     var lim = contentLimitPx({ bits: t, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches });
     if (boxNoRoom(lim)) return { action: "noRoom", from: from, to: t, by: lim.by };
     var ask = !!o.noAuto || t > RAISE_MAX_FACTOR * from || t > RAISE_MAX_BITS;
@@ -2979,8 +2995,9 @@
     o = o || {};
     return {
       event: { __source: "TwitchCheer", bits: cheerBits(o.bits), user: "viewer", message: String(o.payload == null ? "" : o.payload) },
-      options: { highRollerBits: o.cheer === false ? 1 : hrThresholdOf(o.hrThreshold), highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch),
-                 highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false }
+      options: { highRollerBits: o.cheer === false ? 1 : o.allowHighRoller === false ? 0 : hrThresholdOf(o.hrThreshold),
+                 highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false,
+                 allowHighRoller: o.cheer === false || o.allowHighRoller !== false }
     };
   }
   // previewVerdict: what the renderer said about one part, in plain words, for the line under
@@ -3379,7 +3396,7 @@
         cheer: !!els.cheer.checked, bits: okBits || lastBits == null ? rawBits : lastBits, hrThreshold: sv("hrThreshold"),
         bitsPerInch: sv("bitsPerInch"), maxInches: sv("maxInches"), paperMm: v(els.paperMm),
         nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
-        thermalDither: v(els.thermalDither)
+        thermalDither: v(els.thermalDither), allowHighRoller: !(els.allowHighRoller && !els.allowHighRoller.checked)
       });
       if (okBits) lastBits = s.bits;
       STREAMER_FIELDS.forEach(function (id) { if (els[id] && streamerEntryOk(els[id].value)) lastStreamer[id] = s[id]; });
@@ -3416,7 +3433,7 @@
     // `extra` (a probe's bits and mode).
     function stackOpts(extra) {
       var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !getNonce(), hrThreshold: s.hrThreshold,
-        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm }, k;
+        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm, allowHighRoller: s.allowHighRoller }, k;
       for (k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -3459,6 +3476,7 @@
         + "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
         + "so a run of parts costs bits × parts; the total is under the preview. "
         + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
+           : s.allowHighRoller === false ? "The streamer's printer has Allow High Roller prints off (a Printer Bot 3.0 setting), so every cheer prints as plain text."
            : s.bits >= t ? "At " + bitsWord(s.bits) + " the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
            : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints as Han tiling."
              + (raiseOffered() ? " Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth shading, raises it to "
@@ -3516,6 +3534,7 @@
       if (els.cheerNonce) els.cheerNonce.checked = s.nonce;
       els.thermalView.checked = s.thermalView;
       if (els.thermalDither) els.thermalDither.value = s.thermalDither;
+      if (els.allowHighRoller) els.allowHighRoller.checked = s.allowHighRoller;
     }
 
     // ── THE PREVIEW: SassyTP's own receipt page ─────────────────────────────
@@ -3736,7 +3755,7 @@
       // bits to the header and the bot's High Roller test, and makes a free test a real cheer.
       var pcheer = partCheer(item);
       var pe = previewEvent({ payload: item.payload, bits: pcheer.bits, cheer: pcheer.cheer, hrThreshold: s.hrThreshold,
-                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller });
       if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
       var key = JSON.stringify([pe, p.mm]);
       if (key !== pc.key) {
@@ -3912,6 +3931,7 @@
         if (!boxNoRoom(lim)) return null;
         return lim.by === "cap" ? { id: "maxInches", label: "Go to Maximum length" } : { id: "bitsAmount", label: "Change Bits per cheer" };
       }
+      if (hrThresholdOf(st.hrThreshold) > 0 && st.allowHighRoller === false) return { id: "allowHighRoller", label: "Go to Allow High Roller prints" };
       return hrThresholdOf(st.hrThreshold) > 0 ? { id: "bitsAmount", label: "Change Bits per cheer" }
         : { id: "hrThreshold", label: "Go to High Roller threshold" };
     }
@@ -4237,7 +4257,8 @@
     // hints only promise it then.
     function raiseOffered() {
       var st = getSettings();
-      var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch, maxInches: st.maxInches });
+      var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch, maxInches: st.maxInches,
+                             allowHighRoller: st.allowHighRoller });
       return !!r && r.action !== "noRoom";
     }
     function raiseHost(block) {
@@ -4253,7 +4274,7 @@
     function pickedHighRoller(block, what, ctl) {
       var st = getSettings();
       var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch,
-                             maxInches: st.maxInches, noAuto: raiseNoAuto });
+                             maxInches: st.maxInches, allowHighRoller: st.allowHighRoller, noAuto: raiseNoAuto });
       if (!r) { dropRaiseOffer(block); return; }
       raiseSlot = { blockId: block.id, r: r, what: what, ctl: ctl.className.split(" ")[0],
                     was: partsTally(copyableParts()), sig: stackSig(), ver: (raiseSlot ? raiseSlot.ver : 0) + 1 };
@@ -4795,7 +4816,10 @@
             lines.push("Type something to print it.");
           }
           if (plainNow && r !== "hanzi") {
-            fine.push(t0 > 0
+            fine.push(t0 > 0 && getSettings().allowHighRoller === false
+              ? "The streamer's printer has Allow High Roller prints off, so this block prints as Han tiling (plain text). "
+                + "The sizes above are what it prints with that setting on."
+              : t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
                 + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + " or more."
                 + (raiseOffered() ? (r === "sideways" ? " Changing Direction or Size" : " Changing Layout, Size or Upside down")
@@ -5164,7 +5188,9 @@
           // Worded as a condition while the block prints nothing (no picture yet, a link that can't
           // be read or has expired): it sat under the red "prints nothing" saying the picture
           // prints (final review 1). Information, so quiet.
-          fine.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
+          var hrOff = t > 0 && getSettings().allowHighRoller === false;
+          fine.push((hrOff ? "The streamer's printer has Allow High Roller prints off, so "
+                     : t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
             + (!gs.length ? "once this block has a picture it prints" : t > 0 ? "the picture prints" : "every picture prints")
             + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above."
             + (t > 0 && raiseOffered() ? " Changing Characters, Detail or Smooth shading raises Bits per cheer to " + bitsWord(t) + ", or offers to." : ""));
@@ -5795,8 +5821,8 @@
       var s = getSettings();
       var pr = kind === "hrprobe"
         ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm,
-                                 bitsPerInch: s.bitsPerInch, maxInches: s.maxInches })
-        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !getNonce() });
+                                 bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller })
+        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !getNonce(), allowHighRoller: s.allowHighRoller });
       var so = stackOpts({ cheer: true, bits: pr.bits, mode: pr.mode, nonceFn: nonceForPart }), ctx = stackContext(so), po = {}, k;
       for (k in ctx) po[k] = ctx[k];
       po.nonceFn = nonceForPart;
@@ -5903,6 +5929,7 @@
         cheerNonce: document.getElementById("cheerNonce"),
         cheerNonceHint: document.getElementById("cheerNonceHint"),
         bitsAmount: document.getElementById("bitsAmount"),
+        allowHighRoller: document.getElementById("allowHighRoller"),
         bitsHint: document.getElementById("bitsHint"),
         hrThreshold: document.getElementById("hrThreshold"),
         bitsPerInch: document.getElementById("bitsPerInch"),
@@ -5937,7 +5964,7 @@
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);
 
-      [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm].forEach(function (el) {
+      [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm, els.allowHighRoller].forEach(function (el) {
         if (!el) return;
         // Cheer-ready gates the repeat number, and the bits and the threshold decide whether
         // the stack prints its High Roller or its plain forms.

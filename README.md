@@ -70,6 +70,7 @@ A viewer can't see these from chat. Ask the streamer, or leave the defaults (Sas
 | **High Roller threshold** | 25 bits | Decides whether your cheer prints styled (High Roller) or as plain text. 0 = High Roller off. |
 | **Bits per inch** | 0 (off) | When set, a High Roller cheer gets one inch of tape per that many bits, and the bot fades out the rest. |
 | **Maximum length** | 0 (off) | When set (up to 40 inches), it caps how long a High Roller message prints. |
+| **Allows High Roller prints** | on | Printer Bot 3.0 has this switch for each printer. Off, that printer prints every cheer as plain text, however many bits, so every block prints as Han tiling. Printer Bot 2.5 has no such switch: leave it on. |
 
 With both length settings at 0, a message gets the bot's 1600 px box, about 42 cm, and
 anything taller is cut off with no warning. The app splits a tall stack into more cheers so
@@ -309,7 +310,8 @@ still print), so judge those with the thermal view off.
 - **High Roller test** (one cheer at exactly the threshold). If BIG prints big, High Roller
   is on at that amount. It also checks that MMMMM keeps its right edge, that "jog" keeps its
   tails, that the second BIG is upside down and that UP runs up the tape. If it all prints
-  small inside quote marks, the threshold is higher than you entered.
+  small inside quote marks, the threshold is higher than you entered, or (on Printer Bot 3.0)
+  the streamer's printer has **Allow High Roller prints** off.
 - **Plain test** (one cheer, one bit under the threshold). It should print small, inside quote
   marks: a light first line, HI in Han characters, a row of tones, then the cheer word. Every
   line should hold 15 characters on 80 mm (9 on 58 mm), with the edges of HI lined up.

@@ -299,8 +299,9 @@ while the payload said `Cheer100`. `makeNonce(i)` is two visible digits.
 **The target and the streamer's settings.** `paperSpec(mm)` → `{mm, cssWidth, contentW,
 dots}`: 80 → 272 / 244 / 576, 58 → 181 / 153 / 384. `hrThresholdOf` (0..1,000,000, junk → 25),
 `bitsPerInchOf` (> 0 else 0), `maxInchesOf` (> 0, clamped to 40, as the renderer's min(maxIn, 40); else 0). `printMode({cheer, bits,
-hrThreshold})` is `"raw"` when cheering and the threshold is above 0 and reached, else
-`"plain"`. `buildMode` is what the app builds: `printMode` when cheering, and `"raw"` with
+hrThreshold, allowHighRoller})` is `"raw"` when cheering, the threshold is above 0 and reached, and
+`allowHighRoller` is not `false` (Printer Bot 3.0's per-printer "Allow High Roller prints", on by
+default: off, the renderer's `viewOf` prints every cheer as plain text), else `"plain"`. `buildMode` is what the app builds: `printMode` when cheering, and `"raw"` with
 Cheer-ready off (a free chat test of the High Roller markup). `contentLimitPx` →
 `{px, by: "ceiling" | "bits" | "cap", fades}`.
 
@@ -723,7 +724,8 @@ sentence.
 imported JSON and form controls (as strings), so everything reads them through these:
 `normalizeControls` (the `rw_controls_v1` fields: `cheer` (default on), `bits` (100),
 `hrThreshold` (25), `bitsPerInch` (0), `maxInches` (0), `paperMm` (80), `nonce` (off; only an
-explicit `true`), `thermalView` (off), `thermalDither` (`floyd`); unknown fields are ignored, so
+explicit `true`), `thermalView` (off), `thermalDither` (`floyd`), `allowHighRoller` (on; only an
+explicit `false` turns it off, 1.2.0); unknown fields are ignored, so
 the next save drops them), `blockRender` (`big` | `sideways` | `hanzi`, junk → `big`),
 `bigOpts`, `sideOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700). `modeNotice` is the notice
 above the parts (a free test, or why the stack prints plain and how to change it).
@@ -788,6 +790,16 @@ generations; `presetImageUrls` walks a stack's picture links.
   probes and `copyPart` read it): the tests, real cheers either way, used to carry the digits
   while the page showed the option as off.
   `saveControls` writes exactly `normalizeControls`' fields; `restoreControls` reads them back.
+- **Allow High Roller prints (1.2.0).** The checkbox `#allowHighRoller` under the streamer's
+  settings mirrors Printer Bot 3.0's per-printer switch (on by default; 2.5 has none, so it says to
+  leave it on). Off: `printMode` builds plain, so every block prints its plain form, as with
+  threshold 0; `bitsRaiseFor` returns null (no amount helps); `modeNotice`, the Bits hint and the
+  cards' plain lines name the switch, and `settingFix` points at it; the High Roller test offers no
+  Copy (its note names the switch) and the Plain test is one bit; `previewEvent` sends
+  `allowHighRoller: false` and `highRollerBits: 0`, so the vendored 2.5.4 page draws exactly what a
+  3.0 printer with the switch off prints (plainText, quote marks, the 1600px box). A free test still
+  builds and draws the High Roller form (it tests what chat lets through). With the switch on, the
+  High Roller test's note names it as the second cause when BIG prints small inside quotes.
 - **The bits raise (1.1.0).** Every High Roller-only control calls `pickedHighRoller(block,
   what, ctl)` just before its own `update()`, so the raised amount and the High Roller forms go
   out in one redraw: Render set to Big or Sideways; Big's Layout, Size and Upside down;

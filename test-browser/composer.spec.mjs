@@ -141,6 +141,10 @@ const stackOptsOf = (s) => ({ cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, h
                               allowHighRoller: s.allowHighRoller });
 // What a stack of big and sideways blocks sends, per the core, computed here in Node.
 function nodeBodies(block, ctx) {
+  if (C.blockRender(block) === "typed") {
+    return Array.from(C.buildHanTyped(block.text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
+                                                    noNonce: ctx.noNonce, limitPx: ctx.limit.px }));
+  }
   if (C.blockRender(block) === "sideways") {
     const o = C.sideOpts(block);
     return Array.from(C.buildSideBodies(block.text, { dir: o.dir, size: o.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW }));
@@ -172,6 +176,8 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
         const grid = K.glyphGrid(b, img, ctx);
         bodies = ctx.mode === "plain" ? K.buildDesignTPicture(grid, plainOpts("plain"))
           : K.buildGlyphBodies(K.glyphOpts(b).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm });
+      } else if (K.blockRender(b) === "typed") {
+        bodies = K.buildHanTyped(b.text, plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "hanzi" || ctx.mode === "plain") {
         bodies = K.buildDesignT(K.designTTextGrid(K.bigClean(b.text).text, ctx.paperMm, K.hanziWeightOf(b.hanziWeight)), plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "sideways") {
@@ -529,6 +535,7 @@ test("a Real picture sends nothing, says so plainly, and switches to Glyph-art i
 });
 
 // Every mode in one stack, so the packer's sharing of parts between blocks is exercised too.
+const MOSAIC = Array.from({ length: 300 }, (_, i) => C.getTier("cjk").ramp[(i * 7 + (i >> 4)) % C.getTier("cjk").ramp.length]).join("");
 const EVERY_MODE = () => [
   BIG({ id: 1, text: "HELLO" }),
   BIG({ id: 2, text: "HAPPY\nBIRTHDAY", bigLayout: "lines", bigSize: "fit1" }),
@@ -550,6 +557,8 @@ const EVERY_MODE = () => [
   { id: 25, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "stuff" },
   { id: 26, type: "text", render: "sideways", sideDir: "up", sideSize: "fit1", text: "just" },
   { id: 8, type: "text", render: "hanzi", text: "HI", hanziWeight: 400 },
+  // 1.2.0: Han text as typed, a pasted mosaic of 300 Han characters (20 rows on 80 mm, 34 on 58 mm).
+  { id: 27, type: "text", render: "typed", text: MOSAIC },
   ...["cjk", "ascii", "safe", "braille"].map((tier, i) => ({ id: 9 + i, type: "image", imgKind: "glyph", url: "PIC",
     width: 70, rotate: 0, adjBright: 0, adjContrast: 0, tier, cols: tier === "cjk" ? 14 : 20, dither: true, contrast: 128, invert: false })),
 ];
@@ -2907,4 +2916,32 @@ test("1.2.0: with Allow High Roller prints off the preview draws the part the wa
   assert.doesNotMatch(last.measure.partClass, /\braw\b/, "the preview drew a styled receipt the printer won't print");
   assert.deepEqual(errors, []);
   await ctx.close();
+});
+
+// 1.2.0: Han text.
+test("1.2.0: Han text as typed: Copy sends the core's rows above and below the threshold, on both papers, and the card names what was left out", async () => {
+  const blocks = [{ id: 1, type: "text", render: "typed", text: "你好世界，我爱你。\nThe end 結束" }];
+  for (const s of [{ ...SETTINGS }, { ...SETTINGS, paperMm: 58 }, { ...SETTINGS, bits: 24 }, { ...SETTINGS, cheer: false }]) {
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+    await settled(page);
+    assert.deepEqual(await copyAll(page), expectNode(blocks, s), JSON.stringify(s));
+    const note = await cards(page).first().locator(".text-note").innerText();
+    assert.match(note, /^Han text as typed: 2 rows of (15|9) characters · 1 cheer/, JSON.stringify(s));
+    assert.match(note, /Left out: 8 characters narrower than a Han cell \(“T”, “h”, “e”, space, “n”, “d”\)\. Big text prints those\./);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.2.0: Big text wraps a long Han run between characters: Auto picks Words wrapped in one cheer, and Copy is the core's", async () => {
+  const blocks = [BIG({ id: 1, text: "你好".repeat(40) })];
+  for (const s of [{ ...SETTINGS }, { ...SETTINGS, paperMm: 58 }]) {
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+    const payloads = await copyAll(page);
+    assert.deepEqual(payloads, expectNode(blocks, s), s.paperMm + " mm");
+    assert.equal(payloads.length, C.bigFit(blocks[0].text, { layout: "auto", paperMm: s.paperMm }).cheers);
+    assert.equal(C.bigFit(blocks[0].text, { layout: "auto", paperMm: s.paperMm }).layout, "wrap", s.paperMm + " mm");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
 });

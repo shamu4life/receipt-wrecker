@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)](docs/CHANGELOG.md)
+[![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -192,6 +192,22 @@ puts the `Cheer24` word at the **end**. Each plain part is its own cheer. Stroke
 Bold or Regular. Han tiling needs a CJK font on the streamer's PC; Windows has one.
 
 ---
+
+### Han text as typed (plain text, any cheer)
+
+The Han characters you type or paste, printed as themselves at the receipt's own size: 15 a
+row on 80 mm paper (9 on 58 mm), about 480 a cheer, whatever the cheer size. A pasted
+receiptify mosaic prints as the mosaic. Each line you type starts a new row, and the rest of
+that row fills with light 丶 cells (a chat message can't carry a line break). Below the
+threshold a light first row takes the opening quote mark, as in Han tiling. Only Han-width
+characters go in (Han, kana, Hangul, full-width forms and CJK punctuation): anything narrower
+would pull the rows out of line, so it is left out, and the card says what. Big text prints
+those.
+
+Big text wraps Han too: under *Words wrapped to the paper* (and so under *Auto*), a run of Han,
+kana or Hangul breaks between its characters, never before a closing mark like 。 or after an
+opening one like 「. A long Han line prints as rows of big characters in one cheer where it used
+to stack one character a line.
 
 ## Pictures
 

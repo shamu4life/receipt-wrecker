@@ -44,6 +44,11 @@ function everyPayload(mm) {
     }
     const cols = C.hanziCols(k.contentW);
     add("plain Han tiling", C.buildDesignT(grid(cols, 40, cjk), { mode: k.mode, paperMm: mm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
+    // 1.2.0: Han text as typed carries the viewer's own characters, but only Han-width ones, so a
+    // typed tag or the word "font" never goes out, in either mode.
+    for (const t of TEXTS.concat(["你好，世界！\n「東京」", "font <b>字</b> <br> 한국어 カタカナ"])) {
+      for (const mode of ["raw", "plain"]) add("typed " + mode, C.buildHanTyped(t, { mode, paperMm: mm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
+    }
     add("plain picture", C.buildDesignTPicture(grid(cols - 2, 20, cjk), { mode: "plain", paperMm: mm, cheer: true, bits: 10, limitPx: 1600 }));
   }
   for (const t of [0, 1, 25]) {

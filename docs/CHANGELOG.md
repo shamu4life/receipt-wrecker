@@ -12,6 +12,51 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.2.0] - 2026-10-11
+
+### Added
+
+- **Han text as typed** (a Text render): the Han characters you type or paste, printed as
+  themselves at the receipt's own size, 15 a row on 80 mm paper (9 on 58 mm), about 480 a cheer,
+  at any cheer size. A pasted receiptify mosaic prints as the mosaic. Each line you type starts a
+  new row. Below the threshold a light first row takes the opening quote mark, as Han tiling does;
+  a High Roller cheer has no quote marks, so it gets a row more instead. Only Han-width characters
+  go in (Han, kana, Hangul, full-width forms, CJK punctuation): anything narrower would pull the
+  rows out of line, so it is left out and the card names it.
+- **Settings: Allow High Roller prints**, Printer Bot 3.0's per-printer switch (in beta). Off, that
+  printer prints every cheer as plain text, so every block builds in its plain form, the notices
+  say why and point at the switch, Bits per cheer is never raised for a High Roller pick, the
+  High Roller test offers no Copy, and the preview draws what that printer prints. On (the
+  default), the High Roller test's note names the switch as the second cause of a small, quoted
+  print. Printer Bot 2.5 has no such switch: leave it on. Saved in `rw_controls_v1`.
+- **Preview: the layout version.** The line above the parts names the receipt layout the
+  preview draws with (for example *layout v202610090056*): SassyTP's bot can download a newer one
+  to the streamer's dock by itself, so a different **Renderer** version under **Updates** in
+  their dock means the preview may not match their printer.
+
+### Changed
+
+- **Big text: a run of Han, kana or Hangul wraps between its characters** under *Words wrapped to
+  the paper*, and so under *Auto*, never before a closing mark like 。 or after an opening one
+  like 「. It used to count as one unbreakable word, so Auto stacked a long Han line one character
+  a line: about 35 a cheer since 1.0.0's switch to a `<div>` a line. Eighty Han characters now
+  print wrapped at about 55px in one cheer, where they took three stacked at 50px. Text without
+  Han wraps exactly as before.
+
+### How sure
+
+- **Tests**: 216 unit tests (17 new: the wrap units, the as-typed grid and packing, the switch in
+  the settings, the modes, the raise, the notices, the probes and the preview's call) and 67
+  browser tests (5 new: the as-typed render's Copy on both papers, above and below the threshold
+  and in a free test; a long Han run wrapped by Auto; the switch's plain build, notices, saving
+  and preview; the layout version). The MANDATORY contract test carries a pasted mosaic. A Han run
+  in Big text is held to Copy matching the core rather than to the contract test's pixel
+  tolerance, because Han widths depend on the computer's fonts.
+- **Not printed yet.** Han text as typed is Han tiling's packing with the viewer's own
+  characters; a real print should still confirm the rows on the rig's CJK font.
+
+---
+
 ## [1.1.0] - 2026-10-11
 
 ### Added

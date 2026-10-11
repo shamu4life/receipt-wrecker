@@ -56,12 +56,12 @@ test("normalizeControls: an old blob's fields are ignored, and only the 1.0.0 fi
   eq(out, { ...DEFAULTS, thermalView: true });
 });
 
-test("blockRender: big, sideways and hanzi by name; anything else is big", () => {
-  for (const r of ["big", "sideways", "hanzi"]) assert.equal(C.blockRender({ render: r }), r);
+test("blockRender: big, sideways, hanzi and typed by name; anything else is big", () => {
+  for (const r of ["big", "sideways", "hanzi", "typed"]) assert.equal(C.blockRender({ render: r }), r);
   for (const junk of [{}, { render: "giant" }, { render: "type" }, { render: "BIG" }, { render: null }, null, undefined]) {
     assert.equal(C.blockRender(junk), "big", JSON.stringify(junk));
   }
-  eq(C.TEXT_RENDERS, ["big", "sideways", "hanzi"]);
+  eq(C.TEXT_RENDERS, ["big", "sideways", "hanzi", "typed"]);
 });
 
 test("glyphOpts and hanziWeightOf clamp whatever a preset hands them", () => {

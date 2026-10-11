@@ -210,7 +210,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.1.0. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.2.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -254,7 +254,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **156 keys**. Regenerate the list instead of trusting this one:
+test harness **158 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -273,7 +273,7 @@ test harness **156 keys**. Regenerate the list instead of trusting this one:
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
 `cjkGridK`, `monoK`, `brailleFontPx`, `glyphAspect`, `buildCjkGrid`, `buildMonoGrid`,
 `buildBrailleGrid`, `buildGlyphBodies`, `HAN_CELL_PX`, `HAN_LIGHT`, `hanziCols`, `designTHeader`,
-`designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `HAN_MAX_LINES`, `hanTextLines`,
+`designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `hanTypedGrid`, `buildHanTyped`, `HAN_MAX_LINES`, `hanTextLines`,
 `buildHighRollerProbe`,
 `buildPlainProbe`, `escapeHtml`, `escapeAttr`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`, `upsertPreset`,
@@ -368,8 +368,14 @@ security notes (the resets it drops change nothing that prints).
   measured advances only: with Arial Bold on the bench "jeff" at 160px lost 5.5px of the j's
   hook past the box's left edge and 2.7px of the f's arm past its right, "if" at 394px 9.7px of
   the arm, while the card said "fits". Now 150 / 358px, ink at least 2px inside both edges.
-- `bigWrapWords(line, px, contentW)` is a greedy word wrap at px against `bigFitPx`, at the
-  spaces only: the lines the Wrap layout sends, every word whole.
+- `bigWrapWords(line, px, contentW)` is a greedy wrap at px against `bigFitPx` of the line's
+  `bigWrapUnits`: the lines the Wrap layout sends. A unit is a word (split at the spaces), and a
+  word is split again wherever one side of a boundary is Han-width (`bigIsWide`), never before a
+  `BIG_NO_BREAK_BEFORE` mark or after a `BIG_NO_BREAK_AFTER` one (1.2.0). Latin words stay whole,
+  so text without Han wraps exactly as before. A Han run with no spaces used to be one unbreakable
+  word: `bigWrapPlan` returned null (Wrap = Lines) and Auto stacked it, one character a line, 35 a
+  cheer since the no-`<br>` change; "你好" x 40 now prints wrapped in one cheer at about 55px.
+  `bigWrapPlan` returns null only when no line has two units.
 - `bigWrapCount(line, px, contentW)` is how many lines a line too wide at an explicit size
   PRINTS as, at most; the height model (`bigLineH`) counts such a line by it. A High Roller
   message keeps its own styling (the renderer's `overflow-wrap: anywhere` is for
@@ -654,6 +660,18 @@ opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R
   frames C − 2 cells with a 丶 column each side, which absorbs a one-cell slip if the quote is
   wider than expected.
 
+**Han text as typed (1.2.0).** A Text render, `"typed"`, that prints the typed characters
+themselves at the receipt's own 16px. `hanTypedGrid(text, paperMm)` keeps only Han-width
+characters (`bigIsWide`, U+3000 aside) and reports the rest as `dropped` (the owner's call: rows
+always line up, and a typed `<` or `<br` can never go out in a plain cheer, which the bot prints
+as typed); each typed line starts a new row of exactly C cells, its last row filled with 丶, and
+leading and trailing light rows are trimmed. `buildHanTyped(text, opts)` packs those rows with
+`buildDesignT` and its `headerless` option: a High Roller cheer has no quote marks, so no light
+first row (rows per cheer (500 − trail) / C: 32 on 80 mm); a plain cheer keeps Design T's header.
+Every body carries `typed: {dropped, rows}`; the card says how many rows and cheers, names what
+was left out and points at Big text for it. It prints the same way at any cheer (its plain form
+is itself), and it is not a High Roller pick (`dropRaiseOffer`).
+
 **Probes.** The app cannot see the streamer's threshold, so two one-cheer tests answer it on
 paper. Each returns `{bits, mode, bodies, note}` and goes through the normal packer as a
 one-part stack.
@@ -726,7 +744,7 @@ imported JSON and form controls (as strings), so everything reads them through t
 `hrThreshold` (25), `bitsPerInch` (0), `maxInches` (0), `paperMm` (80), `nonce` (off; only an
 explicit `true`), `thermalView` (off), `thermalDither` (`floyd`), `allowHighRoller` (on; only an
 explicit `false` turns it off, 1.2.0); unknown fields are ignored, so
-the next save drops them), `blockRender` (`big` | `sideways` | `hanzi`, junk → `big`),
+the next save drops them), `blockRender` (`big` | `sideways` | `hanzi` | `typed`, junk → `big`),
 `bigOpts`, `sideOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700). `modeNotice` is the notice
 above the parts (a free test, or why the stack prints plain and how to change it).
 `noRoomAdvice` is what replaces the bits total when the box leaves no room after the Cheer line
@@ -827,7 +845,7 @@ generations; `presetImageUrls` walks a stack's picture links.
   on add, load, Undo, migration, typing or a settings edit. The hints that promise a raise (the
   Bits hint, the cards' below-threshold lines) say so only when `raiseOffered()`.
 - **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
-  `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`) or Han tiling (`.sel-weight`). Every
+  `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`), Han tiling (`.sel-weight`) or Han text as typed (no controls of its own). Every
   layout and size option is labelled with what it would print for the current text (capitals
   in cm, "N cm of message" (the bodies' height: the header, Cheer line and footer come on top,
   and the part's verdict gives the whole receipt), cheers, cut-off flags), computed for a High

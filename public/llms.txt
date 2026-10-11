@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.1.0 (2026-10-11). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.2.0 (2026-10-11). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -55,6 +55,10 @@ for a big jump), and the block says so, with an Undo after a raise.
   streamer's PC).
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
   grid, ASCII letters or block characters in Courier New rows, or Braille.
+- Han text as typed: the Han characters the user types or pastes, printed as themselves in rows
+  of exactly 15 (9 on 58 mm), about 480 a cheer, at any cheer size; characters narrower than a Han
+  cell are left out. Big text's wrap layout breaks a run of Han, kana or Hangul between its
+  characters.
 - Han tiling (plain): words or a picture drawn out of Han characters as plain text, exactly
   15 characters per line on 80 mm paper (9 on 58 mm), with the cheer word at the end. Below
   the High Roller threshold every block prints in this form automatically.

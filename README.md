@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue)](docs/CHANGELOG.md)
+[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -77,6 +77,15 @@ nothing is cut, and says when a single piece can't fit.
 
 **Bits per cheer** (any whole number from 1) is yours to choose. Each part of a run is a
 separate cheer, so a run costs bits × parts; the total is shown under the preview.
+
+Big text, Sideways text and Glyph-art's characters only print in a High Roller cheer, so
+picking one of their settings while Bits per cheer is below the threshold raises it to the
+threshold. The block's card says what changed and what the stack costs now and before, with
+an **Undo**. It asks first instead when that would more than quadruple the amount or go past
+500 bits, and it doesn't raise when it can't help: with Cheer-ready off, with High Roller off,
+or when the streamer's bits per inch or maximum length would leave nothing to print after the
+Cheer line at that amount (the card says why). After an Undo, or if you lower the amount again
+yourself, it only offers.
 
 ---
 

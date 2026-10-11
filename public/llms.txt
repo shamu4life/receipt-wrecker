@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.0.0 (2026-10-10). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.1.0 (2026-10-11). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -32,7 +32,9 @@ and prints it.
 
 The streamer's settings (paper width, threshold, bits per inch, maximum length) are not
 visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
-in.
+in. Picking big text, sideways text or a glyph-art setting while the bits are below the
+threshold raises the bits to the threshold (or offers to, for a big jump), and the block says
+so, with an Undo.
 
 ## What it outputs
 

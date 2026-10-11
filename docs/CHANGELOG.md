@@ -12,6 +12,39 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.1.0] - 2026-10-11
+
+### Added
+
+- **Settings: picking a High Roller-only setting below the threshold raises Bits per cheer to
+  the threshold.** Big text and Sideways text (the Render pick, Layout, Size, Upside down,
+  Direction) and Glyph-art's Characters, Detail and Smooth shading only print in a High Roller
+  cheer. Below the streamer's threshold the stack used to fall back to Han tiling and leave the
+  amount alone, and the notice's button only scrolled to Bits per cheer. Now the pick sets Bits
+  per cheer to exactly the threshold, and that block's card says what changed and what the stack
+  costs now and before ("Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was
+  2 Han tiling cheers, 20 bits)."), with **Undo**. Bits per cheer is one amount for the whole
+  stack, so every block switches to its High Roller form together.
+  - It asks first ("Raise to 25 bits") when the threshold is more than 4 times the amount or over
+    500 bits. After an Undo, or once you lower the amount again yourself, it only ever asks.
+  - It doesn't raise when that can't help: with Cheer-ready off (a free test already builds the
+    High Roller form), with High Roller off (threshold 0), or when the streamer's bits per inch or
+    maximum length would leave nothing after the Cheer line at the threshold. A plain part always
+    gets the full 42 cm box and a High Roller one doesn't, so a raise there would print nothing;
+    the card says why instead.
+  - Adding a block, loading a preset, Undo, typing and settings edits never raise it. The Undo is
+    kept in memory only: no new storage key.
+
+### How sure
+
+- **Tests**: 199 unit tests (12 new: the decision, its guards and boundaries, the cost
+  tally and the note's words) and 51 browser tests (3 new: the raise, its Undo and the
+  offer after it; Cheer-ready off, High Roller off and no room; Glyph-art's Characters, a big jump
+  and a hand-lowered amount).
+- **Prints as 1.0.0 did.** Only the amount sent changes; what prints at that amount is 1.0.0's.
+
+---
+
 ## [1.0.0] - 2026-10-10
 
 ### The short version

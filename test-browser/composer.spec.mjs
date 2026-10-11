@@ -2522,3 +2522,105 @@ test("final 2: an upload that lands after a redraw, Han tiling with no room, Loa
   assert.deepEqual(e4, []);
   await c4.close();
 });
+
+
+// 1.1.0: picking a High Roller-only control below the streamer's threshold raises Bits per cheer
+// to it (bitsRaiseFor decides; the card says what changed, with an Undo), unless that can't help
+// or the jump is big enough to ask about first.
+const HAN = (o) => ({ type: "text", render: "hanzi", text: "HELLO", ...o });
+const raiseNoteOf = (card) => card.locator(".raise-note");
+const bitsValue = (page) => page.locator("#bitsAmount").inputValue();
+const focusedClass = (page) => page.evaluate(() => document.activeElement && document.activeElement.className);
+async function commit(page, sel, value) {
+  await page.fill(sel, value);
+  await page.locator(sel).dispatchEvent("change");
+}
+
+test("1.1.0: picking Big text below the threshold raises Bits per cheer to it, says what changed on the card, and Undo puts it back", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1 })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  assert.match(await page.locator("#modeNote").textContent(), /below the streamer's High Roller threshold/);
+  // selectOption doesn't focus the select; a person picking from it has it focused.
+  await cards(page).first().locator(".sel-render").focus();
+  await cards(page).first().locator(".sel-render").selectOption("big");
+  assert.equal(await bitsValue(page), "25");
+  assert.equal((await stored(page, "rw_controls_v1")).bits, 25, "the raised amount was not saved");
+  assert.equal(await page.locator("#modeNote").count(), 0, "the below-threshold notice stayed");
+  const note = raiseNoteOf(cards(page).first());
+  assert.equal(await note.getAttribute("role"), "status");
+  assert.equal(await note.textContent(), "Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was 2 Han tiling cheers, 20 bits).Undo");
+  assert.equal(await focusedClass(page), "sel-render", "the pick lost its focus");
+  assert.match(await copyPayload(page), /^Cheer25 <div style=/);
+  // Typing and a rebuilt block list keep the note on its own card.
+  await cards(page).first().locator("textarea").fill("HELLO!");
+  await page.click("#addTextBtn");
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 1, "a redraw dropped the note");
+  assert.equal(await raiseNoteOf(cards(page).nth(1)).count(), 0, "the note went to another card");
+  // Undo: the old amount, saved; the pick stays; the focus goes back to the control used.
+  await raiseNoteOf(cards(page).first()).getByRole("button", { name: "Undo" }).click();
+  assert.equal(await bitsValue(page), "10");
+  assert.equal((await stored(page, "rw_controls_v1")).bits, 10);
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 0);
+  assert.equal(await cards(page).first().locator(".sel-render").inputValue(), "big");
+  assert.match(await page.locator("#modeNote").textContent(), /below the streamer's High Roller threshold/);
+  assert.equal(await focusedClass(page), "sel-render");
+  // After an Undo it only offers: the next High Roller-only pick asks first.
+  await cards(page).first().locator(".sel-layout").selectOption("stack");
+  assert.equal(await bitsValue(page), "10", "it raised again after an Undo");
+  const ask = raiseNoteOf(cards(page).first());
+  assert.equal(await ask.textContent(), "For Big text a cheer needs 25 bits or more (the streamer's High Roller threshold). At 10 bits the stack prints in its plain form.Raise to 25 bits");
+  await ask.getByRole("button", { name: "Raise to 25 bits" }).click();
+  assert.equal(await bitsValue(page), "25");
+  assert.match(await raiseNoteOf(cards(page).first()).textContent(), /^Bits per cheer raised from 10 to 25 for Big text: /);
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.textContent), "Undo");
+  // A setting changed by hand takes over: the note goes.
+  await page.selectOption("#paperMm", "58");
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0: no raise with Cheer-ready off or High Roller off; when bits per inch leaves no room at the threshold the card says so", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1 })], controls: { ...SETTINGS, cheer: false, bits: 10 } });
+  const card = cards(page).first();
+  // A free test already builds the High Roller form, at any bits.
+  await card.locator(".sel-render").selectOption("big");
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await raiseNoteOf(card).count(), 0);
+  // High Roller off: no amount helps.
+  await page.check("#cheer");
+  await commit(page, "#hrThreshold", "0");
+  await card.locator(".sel-render").selectOption("sideways");
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await raiseNoteOf(card).count(), 0);
+  // 25 bits at 200 bits per inch is 12 px: nothing after the Cheer line would print.
+  await commit(page, "#hrThreshold", "25");
+  await commit(page, "#bitsPerInch", "200");
+  await card.locator(".sel-render").selectOption("big");
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await raiseNoteOf(card).textContent(), "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the Cheer line, so the stack prints in its plain form.");
+  assert.equal(await raiseNoteOf(card).locator("button").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.1.0: Glyph-art's Characters counts too; a jump past 4x asks first; lowering Bits by hand after a raise stops the raising", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [{ id: 1, type: "image", imgKind: "glyph", url: PIC, tier: "cjk", cols: 16 }],
+                                                  controls: { ...SETTINGS, bits: 5 } });
+  await settled(page);
+  const card = cards(page).first();
+  await card.locator(".sel-tier").selectOption("ascii");
+  assert.equal(await bitsValue(page), "5", "a 5x jump was made without asking");
+  assert.equal(await raiseNoteOf(card).textContent(), "For the characters you picked a cheer needs 25 bits or more (the streamer's High Roller threshold). At 5 bits the stack prints in its plain form.Raise to 25 bits");
+  await raiseNoteOf(card).getByRole("button", { name: "Raise to 25 bits" }).click();
+  assert.equal(await bitsValue(page), "25");
+  assert.match(await raiseNoteOf(card).textContent(), /^Bits per cheer raised from 5 to 25 for the characters you picked: \d+ cheers?, \d+ bits \(was 1 Han tiling cheer, 5 bits\)\.Undo$/);
+  // Back down by hand: the app takes the hint and only offers from now on.
+  await commit(page, "#bitsAmount", "10");
+  assert.equal(await raiseNoteOf(card).count(), 0);
+  await card.locator(".sel-tier").selectOption("cjk");
+  assert.equal(await bitsValue(page), "10", "it raised again after the amount was lowered by hand");
+  assert.match(await raiseNoteOf(card).textContent(), /^For the characters you picked a cheer needs 25 bits or more/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});

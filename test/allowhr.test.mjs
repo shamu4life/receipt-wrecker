@@ -27,9 +27,9 @@ test("bitsRaiseFor: no raise when the printer doesn't allow High Roller prints",
 
 test("modeNotice names the switch, and the free test says what a real cheer would print", () => {
   assert.match(C.modeNotice({ ...ON, allowHighRoller: false }),
-    /^The streamer's printer has Allow High Roller prints off \(a Printer Bot 3\.0 setting\), so the bot prints every cheer as plain text\. Every block prints in its plain form: text as Han tiling, pictures as a grid of Han characters\. Big text, sideways text and glyph-art in the characters you picked need that setting on\.$/);
+    /^The streamer's printer has Allow High Roller prints off \(a Printer Bot 3\.0 setting\), so the bot prints every cheer as plain text\. Every block prints in its plain form: big and sideways text as Han tiling, pictures as a grid of Han characters\. Han text as typed prints at any cheer\. Big text, sideways text and glyph-art in the characters you picked need that setting on\.$/);
   assert.match(C.modeNotice({ ...ON, cheer: false, allowHighRoller: false }),
-    /The streamer's printer has Allow High Roller prints off, so a real cheer prints as Han tiling instead: this tests the High Roller form, which needs that setting on\.$/);
+    /The streamer's printer has Allow High Roller prints off, so a real cheer prints in its plain form instead \(big and sideways text as Han tiling\): this tests the High Roller form, which needs that setting on\.$/);
 });
 
 test("the High Roller test: no test with the switch off; otherwise its note names the switch as a cause", () => {

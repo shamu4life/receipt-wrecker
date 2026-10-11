@@ -55,8 +55,9 @@ prints it. What it does with your message depends on the cheer's size:
   tags and all.
 
 Receipt Wrecker builds for whichever one your cheer will get. Below the threshold every
-block prints in its **plain form**, Han tiling (your words or picture drawn out of Han
-characters, as plain text), and a notice above the preview says why and how to change it.
+block prints in its **plain form**, as plain text: Big text and Sideways text as Han tiling
+(your words drawn out of Han characters), a picture as a grid of Han characters, and Han text
+as typed as itself. A notice above the preview says why and how to change it.
 A streamer can also set the threshold to 0, which turns High Roller off: then every cheer
 prints plain.
 
@@ -70,7 +71,7 @@ A viewer can't see these from chat. Ask the streamer, or leave the defaults (Sas
 | **High Roller threshold** | 25 bits | Decides whether your cheer prints styled (High Roller) or as plain text. 0 = High Roller off. |
 | **Bits per inch** | 0 (off) | When set, a High Roller cheer gets one inch of tape per that many bits, and the bot fades out the rest. |
 | **Maximum length** | 0 (off) | When set (up to 40 inches), it caps how long a High Roller message prints. |
-| **Allows High Roller prints** | on | Printer Bot 3.0 has this switch for each printer. Off, that printer prints every cheer as plain text, however many bits, so every block prints as Han tiling. Printer Bot 2.5 has no such switch: leave it on. |
+| **Allow High Roller prints** (Printer Bot 3.0) | on | Printer Bot 3.0 has this switch for each printer. Off, that printer prints every cheer as plain text, however many bits, so every block prints in its plain form. Printer Bot 2.5 has no such switch: leave it on. |
 
 With both length settings at 0, a message gets the bot's 1600 px box, about 42 cm, and
 anything taller is cut off with no warning. The app splits a tall stack into more cheers so
@@ -92,7 +93,7 @@ yourself, it only offers.
 
 ## Text
 
-A Text block has three renders. Every Layout and Size option in the card is labelled with
+A Text block has four renders. Every Layout and Size option in the card is labelled with
 what it would print for your text (capital letters' height in cm, how long the message is in
 cm, how many cheers), so you can compare before you pick. The message's length leaves out the
 bot's header and footer; the line under each part's preview gives the whole receipt.
@@ -109,7 +110,8 @@ Cheer100 <div style="\66ont:700 70px/.8 Arial">HELLO</div>
   the same lines with the words wrapped to the paper, and one letter per line), *Lines as you typed them*, *Words
   wrapped to the paper*, *Stack the letters, one per line* (much bigger letters for short
   words), or *Each line its own size* (every line as wide as the paper). A long sentence typed
-  on one line comes out wrapped, every word whole. A short one still stacks when its stacked
+  on one line comes out wrapped, every Latin word whole (a run of Han, kana or Hangul breaks
+  between its characters, [as below](#han-text-as-typed-plain-text-any-cheer)). A short one still stacks when its stacked
   letters come out even slightly bigger, and that can take most of the 42 cm box: "You are the
   best streamer" stacks at 61 px over about 42 cm, where *Words wrapped* prints it at 56 px in
   about 6 cm. The labels show both, so pick *Words wrapped* for it. To choose the line breaks
@@ -178,7 +180,7 @@ would look the same; the app doesn't build that, because the bot runs on a curre
 ### Han tiling (plain text, any cheer)
 
 Your words drawn sideways out of Han characters, with no markup at all, so it prints the
-same whatever the cheer size. It is also what every Text block prints as below the
+same whatever the cheer size. It is also what Big text and Sideways text print as below the
 threshold. Read it like sideways text: turn the receipt anticlockwise.
 
 ```text
@@ -191,23 +193,33 @@ long, starts with a light header row (so the opening quote mark gets a line of i
 puts the `Cheer24` word at the **end**. Each plain part is its own cheer. Stroke weight is
 Bold or Regular. Han tiling needs a CJK font on the streamer's PC; Windows has one.
 
----
-
 ### Han text as typed (plain text, any cheer)
 
 The Han characters you type or paste, printed as themselves at the receipt's own size: 15 a
-row on 80 mm paper (9 on 58 mm), about 480 a cheer, whatever the cheer size. A pasted
-receiptify mosaic prints as the mosaic. Each line you type starts a new row, and the rest of
-that row fills with light 丶 cells (a chat message can't carry a line break). Below the
-threshold a light first row takes the opening quote mark, as in Han tiling. Only Han-width
-characters go in (Han, kana, Hangul, full-width forms and CJK punctuation): anything narrower
-would pull the rows out of line, so it is left out, and the card says what. Big text prints
-those.
+row on 80 mm paper (9 on 58 mm), whatever the cheer size, and up to about 480 a cheer with the
+streamer's length settings at 0. Each line you type starts a new row, and the rest of that row
+fills with light 丶 cells (a chat message can't carry a line break). Below the threshold a light
+first row takes the opening quote mark, as in Han tiling.
+
+Only Han characters go in, because they are the only ones a full Han cell wide in every CJK
+font, and the rows are made by the paper's own wrapping. Kana, Hangul, CJK punctuation, Latin
+letters, digits and spaces are left out, and the card names them; Big text prints them. Through
+the bot's own page, a closing mark like 。 at the start of a row, or an opening one like 「 at
+its end, pushed every row after it out of line, and so did Hangul on a Mac, whose Korean font is
+narrower than a Han character (Windows draws kana with a condensed font too). The iteration mark
+々 stays: it never starts a row, so the character before it moves down with it.
+
+A receiptify mosaic prints as the mosaic once you delete its ending (`Cheer100` and the five
+characters after it). Its 32 rows fit one High Roller cheer and take two plain ones.
 
 Big text wraps Han too: under *Words wrapped to the paper* (and so under *Auto*), a run of Han,
-kana or Hangul breaks between its characters, never before a closing mark like 。 or after an
-opening one like 「. A long Han line prints as rows of big characters in one cheer where it used
-to stack one character a line.
+kana or Hangul breaks between its characters, never before a closing mark like 。 or ” or after
+an opening one like 「 or “. A Korean or Japanese word fills the line it starts on, so it may
+break across two lines; Latin words never break. A long Han line prints as rows of big
+characters in one cheer (up to about 200 characters on 80 mm paper) where it used to stack one
+character a line.
+
+---
 
 ## Pictures
 
@@ -328,7 +340,8 @@ still print), so judge those with the thermal view off.
   tails, that the second BIG is upside down and that UP runs up the tape. If it all prints
   small inside quote marks, the threshold is higher than you entered, or (on Printer Bot 3.0)
   the streamer's printer has **Allow High Roller prints** off.
-- **Plain test** (one cheer, one bit under the threshold). It should print small, inside quote
+- **Plain test** (one cheer, one bit under the threshold, or 1 bit when High Roller is off or the
+  streamer's printer doesn't allow High Roller prints). It should print small, inside quote
   marks: a light first line, HI in Han characters, a row of tones, then the cheer word. Every
   line should hold 15 characters on 80 mm (9 on 58 mm), with the edges of HI lined up.
 

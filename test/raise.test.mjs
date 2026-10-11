@@ -79,9 +79,9 @@ test("partsTally: cheers and bits for the copyable parts, cheer words in the tex
 
 test("raiseNote: the raise says from, to, for what, and the stack's cost now and before", () => {
   assert.equal(C.raiseNote({ action: "raise", from: 10, to: 25 }, "Big text", { cheers: 3, bits: 30 }, { cheers: 1, bits: 25 }),
-    "Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was 3 Han tiling cheers, 30 bits).");
+    "Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was 3 plain cheers, 30 bits).");
   assert.equal(C.raiseNote({ action: "raise", from: 1, to: 4 }, "the characters you picked", { cheers: 1, bits: 1 }, { cheers: 2, bits: 8 }),
-    "Bits per cheer raised from 1 to 4 for the characters you picked: 2 cheers, 8 bits (was 1 Han tiling cheer, 1 bit).");
+    "Bits per cheer raised from 1 to 4 for the characters you picked: 2 cheers, 8 bits (was 1 plain cheer, 1 bit).");
   // Nothing printable yet (an empty block): no cost to report.
   assert.equal(C.raiseNote({ action: "raise", from: 10, to: 25 }, "Sideways text", { cheers: 0, bits: 0 }, { cheers: 0, bits: 0 }),
     "Bits per cheer raised from 10 to 25 for Sideways text.");

@@ -292,14 +292,44 @@ test("a part too wide for the paper says so, and the total stops saying 'send it
   assert.match(C.partsCostWords([{ cheer: true, bits: 100, extra: none, wide: [] }, { cheer: true, bits: 100, extra: none, wide: [2] }]).text,
     /^Part 2 is too wide for the paper, so it wraps or is cut off/);
   // A Han tiling part has no Cheer line at its top: with no room, it prints its light first row.
-  const ht = { html: "x" }, part = (alone) => ({ alone, bodies: [ht] });
+  const ht = { html: "x" }, part = (alone, b) => ({ alone, bodies: [b || ht] });
   assert.equal(C.partsShape([part(true), part(true)]), "plain");
-  assert.equal(C.partsShape([part(true), part(false)]), "mixed");
+  assert.equal(C.partsShape([part(true), part(false)]), "mixed plain");
   assert.equal(C.partsShape([part(false)]), "");
   const s = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 500 };
   assert.match(C.modeNotice(s, "plain"), /shorter than one line of text, so each Han tiling part prints only its light first row/);
   assert.doesNotMatch(C.modeNotice(s, "plain"), /Cheer line fills/);
-  assert.match(C.modeNotice(s, "mixed"), /the Cheer line fills it, so nothing after it prints\. A Han tiling part prints only its light first row\./);
+  assert.match(C.modeNotice(s, "mixed plain"), /the Cheer line fills it, so nothing after it prints\. A Han tiling part prints only its light first row\./);
   assert.match(C.noRoomAdvice(s, "plain"), /^Nothing worth sending: every part would print only its light first row\./);
   assert.match(C.noRoomAdvice(s), /^Nothing worth sending: every part would print only its Cheer line\./);
+});
+
+test("no-room notes: a High Roller part of Han text as typed has no light row; its first row is the viewer's text", () => {
+  // 1.2.0 review: such a part rides alone like Han tiling, but with no header, and every notice
+  // called its first row light.
+  const typed = { html: "你好", typed: { dropped: [] }, hanzi: { header: 0, rows: 1 } }, tiling = { html: "丶", hanzi: { header: 15, rows: 1 } };
+  const part = (alone, b) => ({ alone, bodies: [b] });
+  assert.equal(C.partsShape([part(true, typed)]), "typed");
+  assert.equal(C.partsShape([part(true, typed), part(true, tiling)]), "plain typed");
+  assert.equal(C.partsShape([part(true, typed), part(false, { html: "<div>" })]), "mixed typed");
+  assert.equal(C.partsShape([part(true, typed), part(true, tiling), part(false, { html: "<div>" })]), "mixed plain typed");
+  const s = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 500 };
+  assert.match(C.modeNotice(s, "typed"), /shorter than one line of text, so each Han text part prints only part of its first row, fading out\./);
+  assert.doesNotMatch(C.modeNotice(s, "typed"), /light|Han tiling/);
+  assert.match(C.modeNotice(s, "mixed typed"), /nothing after it prints\. A Han text part prints only part of its first row, fading out\./);
+  assert.match(C.modeNotice(s, "plain typed"), /so each Han tiling or Han text part prints only part of its first row \(a Han tiling part's is a light row\)/);
+  assert.match(C.noRoomAdvice(s, "typed"), /^Nothing worth sending: every part would print only part of its first row, fading out\./);
+  assert.match(C.noRoomAdvice(s, "mixed typed"), /only its first line \(the Cheer line, or part of a Han text part's first row\)/);
+  assert.match(C.noRoomAdvice(s, "mixed plain"), /only its first line \(the Cheer line, or a Han tiling part's light first row\)/);
+  const cap = { cheer: true, bits: 100, hrThreshold: 25, maxInches: 0.2 };
+  assert.match(C.modeNotice(cap, "typed"), /maximum length \(about 5 mm\) is shorter than one line of text, so each Han text part prints only part of its first row, fading out, whatever the bits\./);
+});
+
+test("the plain-form notices: Han text as typed prints at any cheer", () => {
+  // 1.2.0 review: "every block prints as Han tiling" was false for Han text as typed.
+  const below = C.modeNotice({ cheer: true, bits: 10, hrThreshold: 25 });
+  assert.match(below, /Every block prints in its plain form: big and sideways text as Han tiling, pictures as a grid of Han characters\. Han text as typed prints at any cheer\./);
+  assert.match(C.modeNotice({ cheer: true, bits: 100, hrThreshold: 25, allowHighRoller: false }), /Han text as typed prints at any cheer\./);
+  assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 25 }),
+    /Your 10-bit cheer will print in its plain form instead \(big and sideways text as Han tiling\): this tests the High Roller form, which needs 25 bits or more\.$/);
 });

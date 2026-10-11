@@ -33,11 +33,12 @@ and prints it.
   default. A printer with it off prints every cheer as plain text, so the tool has the same
   switch among the streamer's settings and builds every block in its plain form when it is off.
 
-The streamer's settings (paper width, threshold, bits per inch, maximum length) are not
-visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
+The streamer's settings (paper width, threshold, bits per inch, maximum length, and Printer
+Bot 3.0's Allow High Roller prints) are not visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
 in. Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth
 shading, while the bits are below the threshold raises the bits to the threshold (or offers to,
-for a big jump), and the block says so, with an Undo after a raise.
+for a big jump), and the block says so, with an Undo after a raise. It never raises when the
+streamer's printer has Allow High Roller prints off, since no amount helps.
 
 ## What it outputs
 
@@ -55,15 +56,20 @@ for a big jump), and the block says so, with an Undo after a raise.
   streamer's PC).
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
   grid, ASCII letters or block characters in Courier New rows, or Braille.
-- Han text as typed: the Han characters the user types or pastes, printed as themselves in rows
-  of exactly 15 (9 on 58 mm), about 480 a cheer, at any cheer size; characters narrower than a Han
-  cell are left out. Big text's wrap layout breaks a run of Han, kana or Hangul between its
-  characters.
+- Han text as typed (plain text, any cheer): the Han characters the user types or pastes,
+  printed as themselves in rows of exactly 15 (9 on 58 mm), at any cheer size, up to about 480 a
+  cheer with the streamer's length settings at 0. Only Han characters go in, the only ones a full cell
+  wide in every CJK font: kana, Hangul, CJK punctuation, Latin letters and the rest are left out
+  and named, since they would push the rows out of line.
+- Big text's wrap layout breaks a run of Han, kana or Hangul between its characters, never
+  before a closing mark or after an opening one; Latin words never break.
 - Han tiling (plain): words or a picture drawn out of Han characters as plain text, exactly
   15 characters per line on 80 mm paper (9 on 58 mm), with the cheer word at the end. Below
-  the High Roller threshold every block prints in this form automatically.
+  the High Roller threshold, Big text and Sideways text print in this form automatically, and a
+  glyph-art picture as a plain grid of Han characters.
 - Two one-cheer tests: a High Roller test (one cheer at the threshold) and a Plain test (one
-  bit under it).
+  bit under it, or 1 bit when High Roller is off or the printer doesn't allow High Roller
+  prints).
 
 The tool uses only the tags div and pre, with a style attribute: every line or grid row is
 its own div, because the same chat filter held a test message that carried a line-break tag

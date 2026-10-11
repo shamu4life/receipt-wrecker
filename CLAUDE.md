@@ -369,14 +369,23 @@ security notes (the resets it drops change nothing that prints).
   measured advances only: with Arial Bold on the bench "jeff" at 160px lost 5.5px of the j's
   hook past the box's left edge and 2.7px of the f's arm past its right, "if" at 394px 9.7px of
   the arm, while the card said "fits". Now 150 / 358px, ink at least 2px inside both edges.
-- `bigWrapWords(line, px, contentW)` is a greedy wrap at px against `bigFitPx` of the line's
-  `bigWrapUnits`: the lines the Wrap layout sends. A unit is a word (split at the spaces), and a
-  word is split again wherever one side of a boundary is Han-width (`bigIsWide`), never before a
-  `BIG_NO_BREAK_BEFORE` mark or after a `BIG_NO_BREAK_AFTER` one (1.2.0). Latin words stay whole,
-  so text without Han wraps exactly as before. A Han run with no spaces used to be one unbreakable
-  word: `bigWrapPlan` returned null (Wrap = Lines) and Auto stacked it, one character a line, 35 a
-  cheer since the no-`<br>` change; "你好" x 40 now prints wrapped in one cheer at about 55px.
-  `bigWrapPlan` returns null only when no line has two units.
+- `bigWrapWords(line, px, contentW)` is the lines the Wrap layout sends for one typed line: a
+  greedy wrap at px against `bigFitPx` (`bigWrapLines`) of the line's words, measured once
+  (`bigWrapPrep`: graphemes, advances, ink edges and where each word may break). A line breaks at
+  its spaces, and a word also breaks between two of its characters wherever one side of the
+  boundary is Han-width (`bigIsWide`), never before a `BIG_WRAP_NO_BEFORE` mark or after a
+  `BIG_WRAP_NO_AFTER` one (1.2.0): those are `BIG_NO_BREAK_BEFORE` / `AFTER` plus the curly quotes
+  (never ” first, never “ or ‘ last on a line), which stay out of `bigWrapCount`'s sets because
+  since Unicode 15.1 the page may break beside a curly quote between two Han characters. Such a
+  word fills the line it starts on, piece by piece (`bigWrapPieces`), as the page fills a line of
+  Chinese, so a Korean word may break across two lines. Latin words never break, so text without
+  Han, kana or Hangul wraps exactly as before. A Han run with no spaces used to be one
+  unbreakable word: `bigWrapPlan` returned null (Wrap = Lines) and Auto stacked it, one character
+  a line, 35 a cheer since the no-`<br>` change; "你好" x 40 now prints wrapped in one cheer at
+  57px, and one cheer holds up to about 200 Han characters on 80 mm. `bigWrapPlan` returns null
+  only when no line has anything to break at. Measuring each word once (1.2.0 review) took the
+  relabel of 300 Japanese characters from about 1 s to 0.2 s in Node; `bigPrepFrom` builds a
+  plan's measurements from lines already measured.
 - `bigWrapCount(line, px, contentW)` is how many lines a line too wide at an explicit size
   PRINTS as, at most; the height model (`bigLineH`) counts such a line by it. A High Roller
   message keeps its own styling (the renderer's `overflow-wrap: anywhere` is for
@@ -410,15 +419,20 @@ security notes (the resets it drops change nothing that prints).
   three candidates in order, `lines`, then `wrap`, then `stack`, and `bigBetter` decides: a
   layout whose letters are cut off never wins, then a clean one, then the bigger type when both
   fit one cheer (or the size is `width`), else the fewer cheers; a tie keeps the earlier; it
-  never picks `each`. `wrap` (`bigWrapPlan`) is the typed lines with each too-wide line broken
-  at its spaces by `bigWrapWords` at the size being tried, then fitted like `lines`; the size
-  it settles on is then balanced (the same number of lines, each as short as it can be: "WE
-  ARE / SO BACK", not "WE ARE SO / BACK"), which changes neither the height nor the characters.
+  never picks `each`, and never a `wrap` with one character on every line (that is `stack`
+  without its word gaps: "아버지가 방에" and "아버지 가방에" sent the same message, 1.2.0 review).
+  `wrap` (`bigWrapPlan`) is the typed lines with each too-wide line broken by `bigWrapLines` at
+  the size being tried, then fitted like `lines`. Each size is also balanced (the same number of
+  lines, each as short as it can be: "WE ARE / SO BACK", not "WE ARE SO / BACK"). A break at a
+  space drops the space and a break between two characters doesn't, so balancing can change the
+  characters and the cheers: each size keeps whichever of the greedy and balanced lines costs
+  less (`bigRank`), balanced on a tie, and the size search ranks sizes by that. It used to rank
+  them greedy and send them balanced, so "fits one cheer" came back as two (1.2.0 review).
   It is what a long sentence typed on one line gets (as one line it was tiny). A short one whose
   stacked letters come out even 1 to 5 px bigger still stacks under Auto (it keeps the biggest),
   often over most of the 1600px box: "You are the best streamer" stacks at 61px over 1581px,
   where `wrap` gives 56px in 215px. So `wrap` is also offered on its own, one pick away; a
-  line with no space to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
+  line with nothing to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
   `lines` then. Under Auto, `bigFit(...).layout` can read `wrap`. Sizes (`bigSizeOf`): `fit1`
   (the biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
   (fill the paper, any number of cheers) or a whole px 20..400.
@@ -662,16 +676,35 @@ opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R
   wider than expected.
 
 **Han text as typed (1.2.0).** A Text render, `"typed"`, that prints the typed characters
-themselves at the receipt's own 16px. `hanTypedGrid(text, paperMm)` keeps only Han-width
-characters (`bigIsWide`, U+3000 aside) and reports the rest as `dropped` (the owner's call: rows
-always line up, and a typed `<` or `<br` can never go out in a plain cheer, which the bot prints
-as typed); each typed line starts a new row of exactly C cells, its last row filled with 丶, and
-leading and trailing light rows are trimmed. `buildHanTyped(text, opts)` packs those rows with
-`buildDesignT` and its `headerless` option: a High Roller cheer has no quote marks, so no light
-first row (rows per cheer (500 − trail) / C: 32 on 80 mm); a plain cheer keeps Design T's header.
-Every body carries `typed: {dropped, rows}`; the card says how many rows and cheers, names what
-was left out and points at Big text for it. It prints the same way at any cheer (its plain form
-is itself), and it is not a High Roller pick (`dropRaiseOffer`).
+themselves at the receipt's own 16px, the paper's own wrapping making the rows.
+`hanTypedGrid(text, paperMm)` reads the text through `bigClean` (CR, CRLF, U+2028/2029 break the
+line; invisible characters go, listed in `invisible`) and keeps ONLY HAN CHARACTERS
+(`hanTypedKeeps`: Unicode's Han script in the BMP, the ideographs, compatibility ideographs,
+radicals, 々, 〇 and the Hangzhou numerals), the only ones a full Han cell wide in every CJK font
+(owner, 2026-10-11). Everything else is reported as `dropped`: Latin letters, digits and spaces
+are narrower, and a typed `<` or `<br` can never go out in a plain cheer, which the bot prints as
+typed (owner, 1.2.0); CJK punctuation breaks the rows, since the page never starts a line with a
+closing mark (、。」！？) or ends one with an opening mark (「（), and Chromium squeezes two of them
+side by side into less than two cells (text-spacing-trim), so one at a row's edge pushed every
+later row out of line through the vendored renderer while the heights still matched (1.2.0
+review; owner: leave punctuation out); and kana and Hangul are narrower in some fonts (a Mac's
+Hangul printed 16 a row through the vendored renderer, Noto's is 0.92 of a cell, and Windows
+draws kana with the condensed Yu Gothic UI; owner: Han characters only). Supplementary-plane Han
+stays out too: the streamer's PC may have no font for it. The iteration marks 々 and 〻 never start
+a row (`hanTypedNoStart`): the character before one moves down with it, a light cell taking its
+place, and a typed line that starts with one gets a light cell before it. Each typed line starts
+a new row of exactly C cells, its last row filled with 丶, and leading and trailing light rows
+are trimmed. `buildHanTyped(text, opts)` packs those rows with `buildDesignT` and its
+`headerless` option: a High Roller cheer has no quote marks, so no light first row (rows per
+cheer (500 − trail) / C: 32 on 80 mm, up to 480 characters); a plain cheer keeps Design T's
+header. `buildDesignT` sizes a cheer by its LONGEST row's characters (`payloadLength`), since a
+cell may be several code points (a variation sequence). Every body carries `typed: {dropped,
+invisible, rows}`; the card says how many rows and cheers (messages in a free test), names what
+was left out ("that could knock the rows out of line") and points at Big text for it. It prints
+the same way at any cheer (its plain form is itself), and it is not a High Roller pick
+(`dropRaiseOffer`). The browser suite draws a text of Han, punctuation, iteration marks, kana and
+Hangul through the vendored renderer on both papers, above and below the threshold, and reads
+every printed line back against the grid's rows.
 
 **Probes.** The app cannot see the streamer's threshold, so two one-cheer tests answer it on
 paper. Each returns `{bits, mode, bodies, note}` and goes through the normal packer as a
@@ -752,7 +785,13 @@ above the parts (a free test, or why the stack prints plain and how to change it
 (raise Bits per cheer, with the streamer's bits per inch; or, under a maximum length, that it
 would have to be longer). Both take a `shape` (`partsShape(parts)`): a Han tiling part has no
 Cheer line at its top (its token goes last), so when every part is one they say the box is
-shorter than one line and each part prints only its light first row, and a mix names both.
+shorter than one line and each part prints only its light first row, and a mix names both. A
+High Roller part of Han text as typed has no header either, and its first row is the viewer's
+text, faded out by the bot's cut, so `partsShape` names the kinds that ride alone ("plain",
+"typed" or both, "mixed " in front when other parts start with a Cheer line) and the notices
+and the part's own note say "part of its first row, fading out" for it (1.2.0 review). Below
+the threshold the notices name each render's plain form (`PLAIN_FORMS`): Big and Sideways text
+as Han tiling, pictures as a grid of Han characters, Han text as typed at any cheer.
 `forkDither(rgba, w, h, outWidth, mode)` is the C# Ditherer port (integer arithmetic and
 arithmetic shifts as in the C#, the ≥ 250 / ≤ 5 clamps, transparent pixels over white).
 `previewEvent` / `previewVerdict` / `avatarExtraPx` are the app's half of the preview (below).
@@ -798,8 +837,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   could not be read; it is not asked again until the link changes, where every refresh used
   to re-fetch it through /px). A picked file is read on the device and never uploaded, so it
   replaces the link (`url` ""), and its name is kept as `fileName` (a saved field): after a
-  reload or in a preset the card, the parts placeholder and Save all say to pick it again; text → `hanziBodies` when the render is `hanzi`
-  or the stack is plain, else `buildSideBodies` / `buildBigBodies`. `packStack(blocks, opts)`
+  reload or in a preset the card, the parts placeholder and Save all say to pick it again; text → `buildHanTyped`
+  when the render is `typed` (in every mode), else `hanziBodies` when the render is `hanzi` or the
+  stack is plain, else `buildSideBodies` / `buildBigBodies`. `packStack(blocks, opts)`
   builds every block against ONE `stackContext(opts)` and packs with that same object, and
   stamps `blockId` on every body so a card can find its own parts.
 - **Settings.** `getSettings` reads the panel through `normalizeControls`; `stackOpts(extra)`
@@ -814,7 +854,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   leave it on). Off: `printMode` builds plain, so every block prints its plain form, as with
   threshold 0; `bitsRaiseFor` returns null (no amount helps); `modeNotice`, the Bits hint and the
   cards' plain lines name the switch, and `settingFix` points at it; the High Roller test offers no
-  Copy (its note names the switch) and the Plain test is one bit; `previewEvent` sends
+  Copy (its note names the switch) and the Plain test is one bit; the size labels describe this
+  cheer with the switch on (a threshold cheer's only below the threshold, and the card's note
+  then says "at N bits or more"); `previewEvent` sends
   `allowHighRoller: false` and `highRollerBits: 0`, so the vendored 2.5.4 page draws exactly what a
   3.0 printer with the switch off prints (plainText, quote marks, the 1600px box). A free test still
   builds and draws the High Roller form (it tests what chat lets through). With the switch on, the
@@ -870,7 +912,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   or below 700px the head's buttons are 44px targets and × stands apart from ↓ (a mis-tap
   while reordering used to delete the block for good). The tests count cards as
   `#blockList > .block-card`, since the note sits among them. The note
-  (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
+  (`.text-note`) is `bigReport` / `sideReport` or a Han tiling or Han text summary (a free test
+  counts messages, as the parts' total does), plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
   callback, which always gets the STACK's last parts (`stackParts`), so a probe shown in the
   parts never rewrites the cards (they went blank); while a probe is shown, `refresh()`
@@ -879,7 +922,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   then information in grey (`note-fine`: where the block sits, why it prints plain, the CJK
   font it needs); `partLines` returns `{warn, fine}` for that. The Text box has as many rows as typed
   lines, 2 to 8. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
-  box under a bits-per-inch setting); with High Roller off the note says so instead of "below
+  box under a bits-per-inch setting; with Allow High Roller prints off at or above the threshold,
+  this cheer's own box); with High Roller off the note says so instead of "below
   the threshold (0 bits)". In a free test the note counts messages, not bits. `imageCard`: Kind
   (`.sel-kind`: Glyph-art or Real picture), URL, file (with a hint of what happens to it for
   that kind), Rotate (`.sel-rotate`, both kinds); for Glyph-art the Characters select
@@ -1311,8 +1355,8 @@ lives in `test-browser/` and is not in the default matcher.
   `<`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
-  Han tiling; plain CJK picture; both probes; a Han and an emoji run at a fixed size too wide
-  for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
+  Han tiling; plain CJK picture; a pasted mosaic in Han text as typed; both probes; a Han and an
+  emoji run at a fixed size too wide for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
   with the streamer's length limits, and as a free test, goes through the app's own vendored
   `PrinterBot.render` in the frame. It asserts: `ok`; no `security` notes; the renderer agrees
   on raw vs plain; cut only where the app warned; for raw parts the sanitised DOM keeps every

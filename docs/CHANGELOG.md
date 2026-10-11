@@ -343,7 +343,9 @@ and another puts it back on sight), so asking for it to be lifted isn't a path.
 back to `font` with no change to what prints. 2 extra characters per style attribute. This is
 the second owner-chosen exception to THE RULE's "no CSS escapes", and it covers the word
 `font` only. One constant (`FONT_PROP` in the pure core) carries it, so if the filter is widened
-to match `\6` later, swapping to another form (`fo\6e\74`, say) is a one-line edit.
+to match `\6` later, swapping to another form (`fo\6e\74`, say) is a one-line edit. Confirmed
+on 2026-10-10: a free Cheer-ready-off chat test of the escape passed this channel's AutoMod,
+and the plain-`font` control was held as expected.
 
 Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`) is not known: a
 free test (Cheer-ready off) answers it before any bits are spent. If a channel blocks a form,

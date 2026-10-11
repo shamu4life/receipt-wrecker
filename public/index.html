@@ -2975,12 +2975,16 @@
   // the length limit and the fade. o: payload, bits, cheer, hrThreshold, bitsPerInch, maxInches.
   // A free test (cheer false) never reaches the printer; it is drawn as the High Roller cheer
   // whose markup it tests (threshold 1), and previewVerdict says so.
+  // The two options printer-bot 3.0 added are sent the way a roll printer that allows High
+  // Roller prints has them, rather than left to the page's defaults: allowHighRoller true (false
+  // would print a High Roller cheer as plain text) and pxPerInch 96 (a roll; Letter paper is
+  // about 53.3 and also sends a pageHeightPx, which this never does). A 2.5.4 page ignores both.
   function previewEvent(o) {
     o = o || {};
     return {
       event: { __source: "TwitchCheer", bits: cheerBits(o.bits), user: "viewer", message: String(o.payload == null ? "" : o.payload) },
       options: { highRollerBits: o.cheer === false ? 1 : hrThresholdOf(o.hrThreshold), highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch),
-                 highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false }
+                 highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false, allowHighRoller: true, pxPerInch: PX_PER_INCH }
     };
   }
   // previewVerdict: what the renderer said about one part, in plain words, for the line under
@@ -2994,9 +2998,11 @@
   // without writing-mode: sideways-lr), paperMm (for the profile picture's height). Returns [{text, warn}].
   // The viewer's profile picture: the preview sends no userName, so the bot draws none and the
   // preview's glue puts a stand-in in its circle (result.standIn); a real cheer has the viewer's
-  // own whenever the bot's lookup answers in time. #receipt-avatar is
+  // own whenever the bot's lookup answers in time. In printer-bot 2.5.4 #receipt-avatar is
   // min(11.5em, 100%) square with a 14px gap under it, and replaces the 16px top padding a
-  // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm.
+  // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm. 3.0 draws
+  // it larger (222 / 173 px) and takes the difference back out of the gaps around the header and
+  // the footer (its tightenGaps, which the glue repeats for the stand-in), so the same.
   function avatarExtraPx(paperMm) {
     return Math.min(11.5 * BASE_PX, paperSpec(paperMm).contentW) + 14 - 16;
   }
@@ -3015,19 +3021,23 @@
         ? ". The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about "
           + cm(avatarExtraPx(o.paperMm)) + " cm shorter."
         : ", plus about " + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture."), warn: false });
-    var cut = "";
+    var cut = "", byPage = false;
     if (r.trimmed) {
       // In cm like every other length here; the inches only where they echo a streamer setting
-      // that is set in inches (the maximum length).
+      // that is set in inches (the maximum length). "page" (printer-bot 3.0): on Letter paper the
+      // bot keeps a High Roller message on its page. A roll has no pages and the preview sends no
+      // page height, so it can't happen here; if it ever does, the fonts are not why.
       var t = r.trimmed, inCm = function (x) { return (Math.round(Number(x) * 25.4) / 10).toFixed(1); };
+      byPage = t.by === "page";
       cut = (t.by === "cap"
         ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, the streamer's maximum length (" + t.limitIn + " in)"
+        : byPage ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, at the end of the Letter page it prints on"
         : "The bot cuts this message at " + inCm(t.limitIn) + " cm, all that " + bitsWord(cheerBits(o.bits)) + (cheerBits(o.bits) === 1 ? " buys" : " buy") + " at the streamer's bits-per-inch setting")
         + ". The whole message is " + inCm(t.fullIn) + " cm, so its end fades out.";
     } else if (d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
       cut = "The bot's message box cuts this message off at " + cm(d.measure.contentPx) + " cm, with no fade. The whole message is " + cm(d.measure.fullPx) + " cm.";
     }
-    if (cut) out.push({ text: cut + (o.warned ? "" : " This app expected it to fit: this computer's fonts may differ from the streamer's."), warn: true });
+    if (cut) out.push({ text: cut + (o.warned || byPage ? "" : " This app expected it to fit: this computer's fonts may differ from the streamer's."), warn: true });
     if (r.security && r.security.length) {
       out.push({ text: "The bot's sanitizer would take something out of this message (" + r.security.join(", ") + "). Nothing this app builds should do that: please report it.", warn: true });
     }
@@ -3561,7 +3571,10 @@
       }
       // The receipt as XHTML, for the Thermal preview's raster. That raster is an SVG image whose
       // viewport is not this page's, so every vw in an inline style (the glyph grids size their
-      // font in vw) is written out in px at this page's own width, in the copy only.
+      // font in vw) is written out in px at this page's own width, in the copy only. So is the
+      // profile picture's circle, as laid out here: printer-bot 3.0 sizes it on 58 mm paper with
+      // @media (max-width: 220px) (173 px, 10 px into each margin), which the raster's viewport,
+      // the printer's 384 dots, never matches. Its used width, height and margins go into the copy.
       function serialise() {
         var css = "", sheets = document.querySelectorAll("style"), i, j;
         for (i = 0; i < sheets.length; i++) css += X.serializeToString(sheets[i]);
@@ -3574,6 +3587,13 @@
             if (/vw/.test(v)) to[i].style.setProperty(st[j], v.replace(/(-?[\d.]+)vw/g, function (m, n) { return (parseFloat(n) * vw) + "px"; }), st.getPropertyPriority(st[j]));
           }
         }
+        var av = document.getElementById("receipt-avatar"), avCopy = copy.querySelector("#receipt-avatar");
+        if (av && avCopy && getComputedStyle(av).display !== "none") {
+          var used = getComputedStyle(av);
+          ["width", "height", "margin-top", "margin-right", "margin-bottom", "margin-left"].forEach(function (p) {
+            avCopy.style.setProperty(p, used.getPropertyValue(p));
+          });
+        }
         return { css: css, html: X.serializeToString(copy) };
       }
       // A real cheer's receipt carries the viewer's profile picture in the bot's avatar circle when
@@ -3583,10 +3603,47 @@
       var STAND_IN = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E"
         + "%3Crect width='100' height='100' fill='%23d9d9d9'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%238c8c8c'/%3E"
         + "%3Cpath d='M14 100c0-22 16-36 36-36s36 14 36 36z' fill='%238c8c8c'/%3E%3C/svg%3E";
+      // Printer-bot 3.0 draws the circle larger (13.875em, 222 px on 80 mm; 173 px on 58 mm) and
+      // takes what it gains over 2.5.4's 184 px back out of seven gaps around the header and the
+      // footer (its tightenGaps), so a receipt with a picture is as tall as it was. That runs only
+      // when the bot itself puts a picture in, never for this stand-in, so it is done here the same
+      // way, with the page's own exported pieces: internals.shareCuts (how the px are shared out)
+      // and gapRooms() (the most each gap gives). The old size is not exported: OLD_AVATAR_PX is
+      // the bot's own 184. A 2.5.4 page has neither, and nothing to give back: nothing is changed.
+      var OLD_AVATAR_PX = 184;
+      function tightenGaps(av, box) {
+        var I = window.PrinterBot && window.PrinterBot.internals;
+        var rule = document.getElementById("receipt-rule-top"), foot = document.getElementById("receipt-footer");
+        var icon = document.getElementById("receipt-icon");
+        if (!I || typeof I.shareCuts !== "function" || typeof I.gapRooms !== "function" || !rule || !foot) return;
+        // The bot's clearGaps, then its tightenGaps: the same variables, read the same way.
+        ["--pb-cut-a", "--pb-cut-h"].forEach(function (p) { box.style.removeProperty(p); });
+        [rule, foot].forEach(function (el) {
+          ["--pb-cut-above", "--pb-cut-below", "--pb-cut-g"].forEach(function (p) { el.style.removeProperty(p); });
+        });
+        var cs = getComputedStyle(box);
+        var inner = box.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        var grow = av.offsetWidth - Math.min(OLD_AVATAR_PX, inner);
+        if (!(grow > 0)) return;
+        // show() hides the rule under the header when the receipt has no message, and takes the
+        // logo's src away when it has no logo; such a gap takes no part.
+        var hasContent = rule.style.display !== "none", hasIcon = !!(icon && icon.getAttribute("src"));
+        var G = I.gapRooms(), rooms = { a: G.a, e: G.e, f: G.f, h: G.h };   // the bot's order: shareCuts breaks ties by it
+        if (hasContent) { rooms.c = G.c; rooms.d = G.d; }
+        if (hasIcon) rooms.g = G.g;
+        var cut = I.shareCuts(grow, rooms), px = function (n) { return (cut[n] || 0) + "px"; };
+        box.style.setProperty("--pb-cut-a", px("a"));
+        box.style.setProperty("--pb-cut-h", px("h"));
+        if (hasContent) { rule.style.setProperty("--pb-cut-above", px("c")); rule.style.setProperty("--pb-cut-below", px("d")); }
+        foot.style.setProperty("--pb-cut-above", px("e"));
+        foot.style.setProperty("--pb-cut-below", px("f"));
+        if (hasIcon) foot.style.setProperty("--pb-cut-g", px("g"));
+      }
       function standIn(result) {
         var av = document.getElementById("receipt-avatar"), box = document.getElementById("receipt-container");
         if (!result || result.ok !== true || !av || !box) return Promise.resolve(result);
         av.src = STAND_IN; av.style.display = ""; box.classList.remove("no-avatar");
+        tightenGaps(av, box);
         var measured = function () {
           result.botHeight = result.height;
           result.height = Math.min(5000, Math.ceil(document.documentElement.getBoundingClientRect().height));

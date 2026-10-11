@@ -12,6 +12,60 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.1.0] - 2026-10-11
+
+### Added
+
+- **Settings: picking a High Roller-only setting below the threshold raises Bits per cheer to
+  the threshold.** Big text and Sideways text (the Render pick, Layout, Size, Upside down,
+  Direction) and Glyph-art's Characters, Detail and Smooth shading only print in a High Roller
+  cheer. Below the streamer's threshold the stack used to fall back to Han tiling and leave the
+  amount alone, and the notice's button only scrolled to Bits per cheer. Now the pick sets Bits
+  per cheer to exactly the threshold, and that block's card says what changed and what the stack
+  costs now and before ("Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was
+  2 Han tiling cheers, 20 bits)."), with **Undo**. Bits per cheer is one amount for the whole
+  stack, so every block switches to its High Roller form together.
+  - It asks first ("Raise to 25 bits") when the threshold is more than 4 times the amount or over
+    500 bits. After an Undo, or once you lower the amount again yourself, it only ever asks.
+  - It doesn't raise when that can't help: with Cheer-ready off (a free test already builds the
+    High Roller form), with High Roller off (threshold 0), or when the streamer's bits per inch or
+    maximum length would leave nothing after the Cheer line at the threshold. A plain part always
+    gets the full 42 cm box and a High Roller one doesn't, so a raise there would print nothing;
+    the card says why instead.
+  - Adding a block, loading a preset, Undo, typing and settings edits never raise it, and neither
+    does leaving the Detail field for a click (press Enter or use its arrows): the bits changing
+    under the pointer would move the parts and lose the click. The note sits below the card's
+    controls, so it never moves the one just used. Its "was" cost is shown until the stack
+    changes. The Undo is kept in memory only: no new storage key.
+
+### Changed
+
+- **Preview: the bot's profile-picture circle is drawn, with a grey stand-in.** A real cheer's
+  receipt starts with a big circle holding the viewer's profile picture whenever the bot finds
+  one. The preview never asks Twitch for it, so it left the circle out and only said how much
+  taller the receipt would be. Now it draws a stand-in silhouette there (no network call: it is
+  an inline picture), the Thermal view dithers it like a real one, and the receipt's length
+  counts it: about 4.8 cm on 80 mm, 4.0 cm on 58 mm. The line under each part says the circle is
+  a stand-in and how much shorter a receipt with no picture is. SassyTP's page is unchanged; the
+  preview's own glue fills the circle after the page is drawn and measures it again. The grey box
+  where the Twitch logo goes stays.
+
+### How sure
+
+- **Tests**: 199 unit tests (12 new: the decision, its guards and boundaries, the cost
+  tally and the note's words) and 62 browser tests (14 new: the raise, its Undo and the
+  offer after it; Cheer-ready off, High Roller off and no room; Glyph-art's Characters, a big jump
+  and a hand-lowered amount; every High Roller-only control, and the controls that must not raise;
+  Detail left for a click (the click still copies); a double-click on the offer; where the note
+  sits; a typed higher amount; "was" after an edit; Undo's focus; the hints at no room; the
+  stand-in circle at both paper widths, which adds exactly the picture's 182 or 151 px, fetches
+  nothing and leaves Copy as the core builds it). An adversarial review of the raise found the
+  Detail click, the double-click, the note's place, the typed amount, "was", the focus and the
+  hints before release; each has a test.
+- **Prints as 1.0.0 did.** Only the amount sent changes; what prints at that amount is 1.0.0's.
+
+---
+
 ## [1.0.0] - 2026-10-10
 
 ### The short version

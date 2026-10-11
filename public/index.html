@@ -100,6 +100,10 @@
   .undo-note { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .6rem; font-size: .85rem; border: 1px dashed #999;
     border-radius: 6px; padding: .4rem .7rem; margin: 0 0 .6rem; overflow-wrap: anywhere; }
   .undo-note button { min-height: 2rem; padding: .2rem .9rem; font: inherit; font-weight: 700; }
+  /* What a High Roller-only pick did to Bits per cheer, at the top of its card. */
+  .raise-note { display: flex; align-items: center; flex-wrap: wrap; gap: .3rem .6rem; font-size: .85rem; border: 1px dashed #999;
+    border-radius: 6px; padding: .4rem .7rem; margin: 0 0 .6rem; overflow-wrap: anywhere; }
+  .raise-note button { min-height: 2rem; padding: .2rem .9rem; font: inherit; font-weight: 700; }
   .block-card label { display: block; margin: .35rem 0 .1rem; font-size: .85rem; }
   .block-card textarea, .block-card input[type=url], .block-card select, .block-card input[type=range] { width: 100%; box-sizing: border-box; }
   .add-row { display: flex; gap: .5rem; margin: .2rem 0 .3rem; }
@@ -2754,6 +2758,49 @@
       : "Nothing worth sending: every part would print only " + what + ". Set Bits per cheer higher: the streamer "
         + "gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch)) + ".";
   }
+  // What picking a High Roller-only control does to Bits per cheer below the threshold. null
+  // when no amount changes what is built; "noRoom" when the streamer's length settings would
+  // leave nothing after the Cheer line at the threshold (a plain part always gets the full box,
+  // a High Roller one doesn't); "ask" for a big jump, or after the viewer undid or lowered it.
+  var RAISE_MAX_FACTOR = 4, RAISE_MAX_BITS = 500;
+  function bitsRaiseFor(o) {
+    o = o || {};
+    var t = hrThresholdOf(o.hrThreshold), from = cheerBits(o.bits);
+    if (!o.cheer || from >= t) return null;
+    var lim = contentLimitPx({ bits: t, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches });
+    if (boxNoRoom(lim)) return { action: "noRoom", from: from, to: t, by: lim.by };
+    var ask = !!o.noAuto || t > RAISE_MAX_FACTOR * from || t > RAISE_MAX_BITS;
+    return { action: ask ? "ask" : "raise", from: from, to: t };
+  }
+  // {cheers, bits} for the copyable parts, with a cheer word in the text added the way
+  // partsCostWords adds it.
+  function partsTally(items) {
+    var bits = 0;
+    (items || []).forEach(function (it) {
+      var ex = it.extra || {};
+      bits += cheerBits(it.bits) + ((ex.sure || []).length ? ex.bits || 0 : 0);
+    });
+    return { cheers: (items || []).length, bits: bits };
+  }
+  function cheersWord(n) { return n + (n === 1 ? " cheer" : " cheers"); }
+  // The note a raise, an offer or a refusal leaves on the card. r = bitsRaiseFor's answer, what =
+  // what the pick was for ("Big text"), was / now = partsTally before and after a raise.
+  function raiseNote(r, what, was, now) {
+    var plain = "the stack prints in its plain form.";
+    if (r.action === "ask") {
+      return "For " + what + " a cheer needs " + bitsWord(r.to) + " or more (the streamer's High Roller threshold). At "
+        + bitsWord(r.from) + " " + plain;
+    }
+    if (r.action === "noRoom") {
+      return "Bits per cheer stays at " + r.from + ": " + (r.by === "cap"
+        ? "the streamer's maximum length leaves no room after the Cheer line at any amount, so "
+        : "at " + bitsWord(r.to) + " the streamer's bits per inch leaves no room after the Cheer line, so ") + plain;
+    }
+    var cost = now && now.cheers ? ": " + cheersWord(now.cheers) + ", " + bitsWord(now.bits)
+      + (was && was.cheers ? " (was " + was.cheers + " Han tiling " + (was.cheers === 1 ? "cheer" : "cheers") + ", " + bitsWord(was.bits) + ")" : "")
+      : "";
+    return "Bits per cheer raised from " + r.from + " to " + r.to + " for " + what + cost + ".";
+  }
   // modeNotice's `shape` for a list of parts: "plain" when every printable part is a Han tiling
   // part (alone), "mixed" when some are, else "".
   function partsShape(items) {
@@ -2945,8 +2992,9 @@
   // never for its built-in 1600px box, which cuts hard and silently. o: free (a free test), bits, warned (the app
   // itself expected this part to be cut), upUnsupported (an upward sideways part, in a browser
   // without writing-mode: sideways-lr), paperMm (for the profile picture's height). Returns [{text, warn}].
-  // The viewer's profile picture: the preview sends no userName, so its receipts have none, but
-  // a real cheer's has one whenever the bot's lookup answers in time. #receipt-avatar is
+  // The viewer's profile picture: the preview sends no userName, so the bot draws none and the
+  // preview's glue puts a stand-in in its circle (result.standIn); a real cheer has the viewer's
+  // own whenever the bot's lookup answers in time. #receipt-avatar is
   // min(11.5em, 100%) square with a 14px gap under it, and replaces the 16px top padding a
   // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm.
   function avatarExtraPx(paperMm) {
@@ -2962,8 +3010,11 @@
       return out;
     }
     var h = Math.round(Number(r.height) || 0);
-    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included, plus about "
-      + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture.", warn: false });
+    out.push({ text: "About " + cm(h) + " cm of receipt (" + h + " px), header and footer included"
+      + (r.standIn === true
+        ? ". The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about "
+          + cm(avatarExtraPx(o.paperMm)) + " cm shorter."
+        : ", plus about " + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture."), warn: false });
     var cut = "";
     if (r.trimmed) {
       // In cm like every other length here; the inches only where they echo a streamer setting
@@ -3409,7 +3460,9 @@
         + "so a run of parts costs bits × parts; the total is under the preview. "
         + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
            : s.bits >= t ? "At " + bitsWord(s.bits) + " the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
-           : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints as Han tiling.");
+           : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints as Han tiling."
+             + (raiseOffered() ? " Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth shading, raises it to "
+                + bitsWord(t) + ", or offers to." : ""));
     }
     // --- clipboard -----------------------------------------------------------
     // Both return whether the text really reached the clipboard. Clipboard writes are refused
@@ -3523,12 +3576,31 @@
         }
         return { css: css, html: X.serializeToString(copy) };
       }
+      // A real cheer's receipt carries the viewer's profile picture in the bot's avatar circle when
+      // the bot finds one. This frame has no network, so a stand-in goes there (an inline SVG, which
+      // its policy allows) and the page is measured again the way render() measures it: cut at
+      // 5000 px, the bot's MAX_RECEIPT_HEIGHT. botHeight keeps render()'s own answer.
+      var STAND_IN = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E"
+        + "%3Crect width='100' height='100' fill='%23d9d9d9'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%238c8c8c'/%3E"
+        + "%3Cpath d='M14 100c0-22 16-36 36-36s36 14 36 36z' fill='%238c8c8c'/%3E%3C/svg%3E";
+      function standIn(result) {
+        var av = document.getElementById("receipt-avatar"), box = document.getElementById("receipt-container");
+        if (!result || result.ok !== true || !av || !box) return Promise.resolve(result);
+        av.src = STAND_IN; av.style.display = ""; box.classList.remove("no-avatar");
+        var measured = function () {
+          result.botHeight = result.height;
+          result.height = Math.min(5000, Math.ceil(document.documentElement.getBoundingClientRect().height));
+          result.standIn = true;
+          return result;
+        };
+        return (av.decode ? av.decode() : Promise.resolve()).then(measured, measured);
+      }
       window.addEventListener("message", function (ev) {
         if (ev.source !== host) return;
         var m = ev.data;
         if (!m || m.rw !== "render") return;
         chain = chain.then(function () {
-          return window.PrinterBot.render(m.event, m.options).then(function (result) {
+          return window.PrinterBot.render(m.event, m.options).then(standIn).then(function (result) {
             var ok = !!(result && result.ok);
             var out = { rw: "result", seq: m.seq, result: result, measure: ok ? measure() : null,
                         violations: window.PrinterBot.violations(), doc: ok ? serialise() : null };
@@ -3673,7 +3745,7 @@
                     up: /writing-mode:\s*sideways-lr/.test(item.payload) };
         pc.el.setAttribute("data-render", "pending");
         if (!pc.frame) {
-          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[p.mm] || 230)));
+          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[p.mm] || 230 + avatarExtraPx(p.mm))));
           if (!pc.wait) { pc.wait = mkEl("div", { "class": "rcpt-wait" }, "Drawing the preview…"); pc.stage.insertBefore(pc.wait, pc.stage.firstChild); }
           pc.wait.style.width = p.cssWidth + "px";
           pc.wait.style.height = est + "px";
@@ -4155,10 +4227,102 @@
     // is stored): the next add, move, removal, Undo or preset load ends it. It has no timer on
     // purpose: a note that vanished by itself would shift the cards under a finger.
     var removedBlock = null;
+    // A High Roller-only pick below the threshold (bitsRaiseFor): the raise, offer or refusal its
+    // card shows. One slot in memory, like removedBlock. raiseNoAuto: the viewer undid a raise or
+    // lowered the amount by hand after one, so later picks only offer it.
+    var raiseSlot = null, raiseNoAuto = false, raisedThisVisit = false, raiseHosts = {}, raiseConfirmedAt = 0;
+    // 'was' is the stack before the raise: it is said only while the stack is still that one.
+    function stackSig() { return JSON.stringify(cleanBlocks(blocks)); }
+    // Whether a High Roller-only pick would raise Bits per cheer or offer to, at these settings: the
+    // hints only promise it then.
+    function raiseOffered() {
+      var st = getSettings();
+      var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch, maxInches: st.maxInches });
+      return !!r && r.action !== "noRoom";
+    }
+    function raiseHost(block) {
+      var host = mkEl("div", { "class": "raise-slot" });
+      raiseHosts[block.id] = host;
+      return host;
+    }
+    function copyableParts() { return (stackParts || []).filter(function (it) { return it.copyable; }); }
+    function setBitsField(n) { els.bitsAmount.value = String(n); bitsRefused = null; }
+    // Called by a High Roller-only control's handler just before its own update(), so the raised
+    // amount and the High Roller forms go out in one redraw. `ctl` is the control, by class, so the
+    // focus can find it again after the cards are rebuilt.
+    function pickedHighRoller(block, what, ctl) {
+      var st = getSettings();
+      var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch,
+                             maxInches: st.maxInches, noAuto: raiseNoAuto });
+      if (!r) { dropRaiseOffer(block); return; }
+      raiseSlot = { blockId: block.id, r: r, what: what, ctl: ctl.className.split(" ")[0],
+                    was: partsTally(copyableParts()), sig: stackSig(), ver: (raiseSlot ? raiseSlot.ver : 0) + 1 };
+      if (r.action === "raise") { setBitsField(r.to); raisedThisVisit = true; }
+    }
+    // An offer or a refusal is about the pick that made it: a pick that needs no High Roller ends it.
+    function dropRaiseOffer(block) {
+      if (raiseSlot && raiseSlot.blockId === block.id && raiseSlot.r.action !== "raise") raiseSlot = null;
+    }
+    function focusRaiseControl(s) {
+      var host = raiseHosts[s.blockId], card = host && host.closest(".block-card");
+      if (!card) return;
+      var el = card.querySelector("." + s.ctl);
+      if (!el || !el.getClientRects().length) el = card.querySelector(".sel-render") || card.querySelector(".sel-kind");
+      if (el) try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+    }
+    function undoRaise() {
+      var s = raiseSlot;
+      if (!s || s.r.action !== "raise") return;
+      raiseSlot = null; raiseNoAuto = true;
+      setBitsField(s.r.from);
+      update();
+      focusRaiseControl(s);
+    }
+    function confirmRaise() {
+      var s = raiseSlot;
+      if (!s || s.r.action !== "ask") return;
+      raiseSlot = { blockId: s.blockId, r: { action: "raise", from: s.r.from, to: s.r.to }, what: s.what, ctl: s.ctl,
+                    was: partsTally(copyableParts()), sig: stackSig(), ver: s.ver + 1 };
+      raisedThisVisit = true; raiseConfirmedAt = Date.now();
+      setBitsField(s.r.to);
+      update();
+      var host = raiseHosts[s.blockId], u = host && host.querySelector(".raise-undo");
+      if (u) try { u.focus({ preventScroll: true }); } catch (e) { u.focus(); }
+    }
+    // A setting changed by hand takes over from the note.
+    function settingsTouched() { raiseSlot = null; }
+    // The note is rebuilt only when the slot changes, so a refresh never takes the focus off its
+    // button; the raise's cost follows the stack (the parts total says the same).
+    function syncRaise() {
+      for (var id in raiseHosts) {
+        var host = raiseHosts[id], s = raiseSlot;
+        if (!s || String(s.blockId) !== id) { if (host.firstChild) host.textContent = ""; continue; }
+        var note = host.firstChild;
+        if (!note || note.getAttribute("data-ver") !== String(s.ver)) {
+          host.textContent = "";
+          note = mkEl("div", { "class": "raise-note", role: "status", "data-ver": String(s.ver) });
+          note.appendChild(mkEl("span"));
+          if (s.r.action === "raise") {
+            var u = mkEl("button", { type: "button", "class": "raise-undo" }, "Undo");
+            u.addEventListener("click", function (e) { if ((e && e.detail > 1) || Date.now() - raiseConfirmedAt < 500) return; undoRaise(); });
+            note.appendChild(u);
+          } else if (s.r.action === "ask") {
+            var g = mkEl("button", { type: "button", "class": "raise-go" }, "Raise to " + bitsWord(s.r.to));
+            g.addEventListener("click", confirmRaise);
+            note.appendChild(g);
+          }
+          host.appendChild(note);
+        }
+        var raised = s.r.action === "raise";
+        var words = raiseNote(s.r, s.what, raised && s.sig === stackSig() ? s.was : null, raised ? partsTally(copyableParts()) : null);
+        if (note.firstChild.textContent !== words) note.firstChild.textContent = words;
+      }
+    }
     function addBlock(type) { removedBlock = null; blocks.push(newBlock(type)); saveBlocks(); renderComposer(); update(); }
     function removeBlock(id) {
       var i = -1, k; for (k = 0; k < blocks.length; k++) if (blocks[k].id === id) i = k;
       if (i < 0) return;
+      if (raiseSlot && raiseSlot.blockId === id) raiseSlot = null;
       removedBlock = { block: blocks[i], index: i };
       blocks.splice(i, 1);
       saveBlocks(); renderComposer(); update();
@@ -4381,11 +4545,12 @@
       card.appendChild(render);
       var RENDER_HINTS = {
         big: "Your words in bold Arial, as big as the paper allows. Big text needs a High Roller cheer: "
-          + "at least the streamer's High Roller threshold. Below it the bot prints plain text, and this "
-          + "block prints as Han tiling instead.",
+          + "at least the streamer's High Roller threshold. Picking it below the threshold raises Bits per "
+          + "cheer to the threshold, or offers to (the card says which, with an Undo). Left below it, the bot "
+          + "prints plain text, and this block prints as Han tiling instead.",
         sideways: "Your words running down the tape, as big as the paper's width allows: each line of "
           + "your text becomes a column across the paper. Turn the receipt to read it. Needs a High "
-          + "Roller cheer, like Big text.",
+          + "Roller cheer, like Big text, and picking it below the threshold raises Bits per cheer the same way.",
         hanzi: "Your words drawn sideways out of Han characters, as plain text with no markup at all, so "
           + "it prints the same at any cheer size: it is also what every block prints as below the "
           + "streamer's High Roller threshold. Turn the receipt to read it. It needs a CJK font on the "
@@ -4430,19 +4595,19 @@
       var layoutHint = mkEl("div", { "class": "hint layout-hint" }, LAYOUT_HINTS[boNow.layout]);
       bLayout.addEventListener("change", function () {
         block.bigLayout = bLayout.value; layoutHint.textContent = LAYOUT_HINTS[bigOpts(block).layout];
-        saveBlocks(); update();
+        pickedHighRoller(block, "Big text", bLayout); saveBlocks(); update();
       });
       bigWrap.appendChild(bLayout);
       bigWrap.appendChild(layoutHint);
       bigWrap.appendChild(mkEl("label", null, "Size"));
       var bSize = mkEl("select", { "class": "sel-size" });
       fillSizes(bSize, BIG_SIZE_LABELS, BIG_SIZE_STEPS, boNow.size);
-      bSize.addEventListener("change", function () { block.bigSize = sizeVal(bSize.value); saveBlocks(); update(); });
+      bSize.addEventListener("change", function () { block.bigSize = sizeVal(bSize.value); pickedHighRoller(block, "Big text", bSize); saveBlocks(); update(); });
       bigWrap.appendChild(bSize);
       var flipLbl = mkEl("label"), flip = mkEl("input", { type: "checkbox", "class": "chk-flip" });
       flip.checked = boNow.flip;
       flipLbl.appendChild(flip); flipLbl.appendChild(document.createTextNode(" Upside down"));
-      flip.addEventListener("change", function () { block.bigFlip = flip.checked; saveBlocks(); update(); });
+      flip.addEventListener("change", function () { block.bigFlip = flip.checked; pickedHighRoller(block, "Big text", flip); saveBlocks(); update(); });
       // In a div of its own: `label + .hint` pulls a hint up under a label, into the checkbox.
       var flipRow = mkEl("div");
       flipRow.appendChild(flipLbl);
@@ -4464,12 +4629,12 @@
       var sDir = mkEl("select", { "class": "sel-dir" });
       sDir.appendChild(opt("down", "Top to bottom — turn the receipt anticlockwise to read", soNow.dir === "down"));
       sDir.appendChild(opt("up", "Bottom to top — turn the receipt clockwise to read", soNow.dir === "up"));
-      sDir.addEventListener("change", function () { block.sideDir = sDir.value; saveBlocks(); update(); });
+      sDir.addEventListener("change", function () { block.sideDir = sDir.value; pickedHighRoller(block, "Sideways text", sDir); saveBlocks(); update(); });
       sideWrap.appendChild(sDir);
       sideWrap.appendChild(mkEl("label", null, "Size"));
       var sSize = mkEl("select", { "class": "sel-side-size" });
       fillSizes(sSize, SIDE_SIZE_LABELS, SIDE_SIZE_STEPS, soNow.size);
-      sSize.addEventListener("change", function () { block.sideSize = sizeVal(sSize.value); saveBlocks(); update(); });
+      sSize.addEventListener("change", function () { block.sideSize = sizeVal(sSize.value); pickedHighRoller(block, "Sideways text", sSize); saveBlocks(); update(); });
       sideWrap.appendChild(sSize);
       sideWrap.appendChild(moreHint(
         "Each line of your text becomes a column across the paper, line 1 on top once the receipt is turned. "
@@ -4495,6 +4660,7 @@
         + "Each line is exactly as many Han characters as the paper holds (15 on 80 mm, 9 on 58 mm).").el);
       card.appendChild(hanziWrap);
 
+      card.appendChild(raiseHost(block));
       var note = mkEl("div", { "class": "text-note" });
       card.appendChild(note);
 
@@ -4632,6 +4798,8 @@
             fine.push(t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
                 + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + " or more."
+                + (raiseOffered() ? (r === "sideways" ? " Changing Direction or Size" : " Changing Layout, Size or Upside down")
+                   + " raises Bits per cheer to " + bitsWord(t0) + ", or offers to." : "")
               : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
                 + "prints as Han tiling. The sizes above apply only if the streamer turns High Roller on.");
           }
@@ -4663,7 +4831,12 @@
         hanziWrap.style.display = r === "hanzi" ? "" : "none";
         renderHint.body.textContent = RENDER_HINTS[r];
       };
-      render.addEventListener("change", function () { block.render = render.value; applyRender(); saveBlocks(); update(); });
+      render.addEventListener("change", function () {
+        block.render = render.value; applyRender();
+        var r = blockRender(block);
+        if (r === "hanzi") dropRaiseOffer(block); else pickedHighRoller(block, r === "sideways" ? "Sideways text" : "Big text", render);
+        saveBlocks(); update();
+      });
       applyRender();
       costSyncs.push(syncText);
       syncText(stackParts);
@@ -4932,7 +5105,7 @@
       var contrast = mkEl("input", { type: "range", min: "-128", max: "127" }); contrast.value = glyphOpts(block).contrast - 128;
       glyphWrap.appendChild(sliderRow("Darkness", contrast, 0, ""));
       // Not the thermal view's Dither: this spreads the picture's shading over the characters.
-      var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox" }); dither.checked = glyphOpts(block).dither;
+      var ditherLbl = mkEl("label"); var dither = mkEl("input", { type: "checkbox", "class": "chk-dither" }); dither.checked = glyphOpts(block).dither;
       ditherLbl.appendChild(dither); ditherLbl.appendChild(document.createTextNode(" Smooth shading (photos)"));
       glyphWrap.appendChild(ditherLbl);
       var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = glyphOpts(block).invert;
@@ -4941,6 +5114,7 @@
       var gnote = mkEl("div", { "class": "text-note" });
       glyphWrap.appendChild(gnote);
       card.appendChild(glyphWrap);
+      card.appendChild(raiseHost(block));
       // The column range follows the form, and so does the hint.
       var syncTier = function () {
         var form = glyphForm(glyphOpts(block).tier);
@@ -4992,7 +5166,8 @@
           // prints (final review 1). Information, so quiet.
           fine.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
             + (!gs.length ? "once this block has a picture it prints" : t > 0 ? "the picture prints" : "every picture prints")
-            + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above.");
+            + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above."
+            + (t > 0 && raiseOffered() ? " Changing Characters, Detail or Smooth shading raises Bits per cheer to " + bitsWord(t) + ", or offers to." : ""));
         } else if (noRoom) {
           lines.push(tallWords("", ctx.limit));
         } else if (gs.some(function (b) { return b.tall; })) {
@@ -5043,7 +5218,7 @@
       kind.addEventListener("change", function () {
         // The decoded picture is kept: it is the same source (a picked file could not be read
         // back, and a link needn't be read twice). The rotation carries over (one field).
-        block.imgKind = kind.value; block.outUrl = null; block.aspect = null; applyKind();
+        block.imgKind = kind.value; block.outUrl = null; block.aspect = null; applyKind(); dropRaiseOffer(block);
         file.value = "";
         setStatus("");
         if (block.imgKind === "glyph" && block.url && !block._img && !block._decoding) { delete block._decodeFailed; decodeGlyphImage(block); }
@@ -5059,7 +5234,7 @@
         kind.value = "glyph";
         kind.dispatchEvent(new Event("change"));
       });
-      tier.addEventListener("change", function () { block.tier = tier.value; syncTier(); saveBlocks(); update(); });
+      tier.addEventListener("change", function () { block.tier = tier.value; syncTier(); pickedHighRoller(block, "the characters you picked", tier); saveBlocks(); update(); });
       // An emptied field is being retyped: the columns stay as they are until a number arrives
       // (it jumped to 20 at once, two cheers for a square picture). Left empty, it takes the
       // default, as ↺ does.
@@ -5070,10 +5245,12 @@
       });
       gcols.addEventListener("change", function () {
         if (!isFinite(parseInt(gcols.value, 10))) block.cols = GLYPH_COLS_DEFAULT;
-        block.cols = effCols(); showCols(true); saveBlocks(); update();
+        block.cols = effCols(); showCols(true);
+        if (document.activeElement === gcols) pickedHighRoller(block, "the characters you picked", gcols);
+        saveBlocks(); update();
       });
       contrast.addEventListener("input", function () { block.contrast = parseInt(contrast.value, 10) + 128; saveBlocks(); update(); });
-      dither.addEventListener("change", function () { block.dither = dither.checked; saveBlocks(); update(); });
+      dither.addEventListener("change", function () { block.dither = dither.checked; pickedHighRoller(block, "the characters you picked", dither); saveBlocks(); update(); });
       invert.addEventListener("change", function () { block.invert = invert.checked; saveBlocks(); update(); });
       applyKind();
       syncTier();
@@ -5086,6 +5263,7 @@
       var list = document.getElementById("blockList");
       if (!list) return;
       costSyncs = [];   // the cards below are about to be replaced; their callbacks die with them
+      raiseHosts = {};
       list.textContent = "";
       blocks.forEach(function (b, i) {
         var card = b.type === "image" ? imageCard(b, i, blocks.length) : textCard(b, i, blocks.length);
@@ -5114,6 +5292,7 @@
         list.appendChild(card);
       });
       if (removedBlock && removedBlock.index >= blocks.length) list.appendChild(undoNote());
+      syncRaise();
     }
     // ── PRESETS (glue) ──────────────────────────────────────────────────────
     var PRESETS_KEY = "rw_presets_v1", presets = [], armedDelete = -1, armedSave = "", armedLoad = -1;
@@ -5314,6 +5493,7 @@
       fresh.forEach(function (b) { b.id = blockIdSeq++; });
       blocks = fresh;
       removedBlock = null;   // an Undo would put a block of the old stack into the loaded one
+      raiseSlot = null;
       saveBlocks();
       renderComposer();
       update();
@@ -5666,6 +5846,7 @@
         compose && blocks.some(blockHasContent) ? pictureAlert(missingPictures()) : []);
       stackParts = compose ? lastParts : composeParts();
       for (var ci = 0; ci < costSyncs.length; ci++) costSyncs[ci](stackParts);
+      syncRaise();
     }
     function update() {
       currentKind = "compose";
@@ -5753,6 +5934,7 @@
         if (!el) return;
         // Cheer-ready gates the repeat number, and the bits and the threshold decide whether
         // the stack prints its High Roller or its plain forms.
+        el.addEventListener(el.tagName === "SELECT" ? "change" : "input", settingsTouched);
         el.addEventListener(el.tagName === "SELECT" ? "change" : "input", update);
       });
       // A number field shows the value the app uses once it is committed (change: Enter, or
@@ -5767,6 +5949,9 @@
         el.addEventListener("change", function () {
           var st = getSettings(), v = String(st[f[1]]);
           if (f[0] === "bitsAmount" && !bitsEntryOk(el.value)) bitsRefused = el.value.trim();
+          // Lowered below the threshold by hand after a raise: stop raising it (key by key, a new
+          // amount passes through lower ones, so only the committed one counts).
+          if (f[0] === "bitsAmount" && raisedThisVisit && st.bits < hrThresholdOf(st.hrThreshold)) raiseNoAuto = true;
           if (f[0] !== "bitsAmount") { streamerNotes[f[0]] = streamerNoteFor(f[0], el.value, st); syncStreamerNotes(); }
           if (el.value !== v) { el.value = v; update(); }
           else if (bitsRefused != null) syncModeUi();
@@ -5827,6 +6012,7 @@
       CONTENT_CEILING_PX: CONTENT_CEILING_PX, PX_PER_INCH: PX_PER_INCH, MAX_CAP_INCHES: MAX_CAP_INCHES,
       HR_DEFAULT: HR_DEFAULT, HR_MAX: HR_MAX, hrThresholdOf: hrThresholdOf, bitsPerInchOf: bitsPerInchOf,
       maxInchesOf: maxInchesOf, printMode: printMode, buildMode: buildMode, contentLimitPx: contentLimitPx,
+      bitsRaiseFor: bitsRaiseFor, partsTally: partsTally, raiseNote: raiseNote,
       LEAD_GUARD: LEAD_GUARD, buildLead: buildLead, leadLength: leadLength,
       buildTrail: buildTrail, trailLength: trailLength, stackContext: stackContext,
       packStackBodies: packStackBodies,

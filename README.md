@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-blue)](docs/CHANGELOG.md)
+[![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -77,6 +77,15 @@ nothing is cut, and says when a single piece can't fit.
 
 **Bits per cheer** (any whole number from 1) is yours to choose. Each part of a run is a
 separate cheer, so a run costs bits × parts; the total is shown under the preview.
+
+Big text, Sideways text and Glyph-art's characters only print in a High Roller cheer, so
+picking one of their settings while Bits per cheer is below the threshold raises it to the
+threshold. The block's card says what changed and what the stack costs now and before, with
+an **Undo**. It asks first instead when that would more than quadruple the amount or go past
+500 bits, and it doesn't raise when it can't help: with Cheer-ready off, with High Roller off,
+or when the streamer's bits per inch or maximum length would leave nothing to print after the
+Cheer line at that amount (the card says why). After an Undo, or if you lower the amount again
+yourself, it only offers.
 
 ---
 
@@ -240,10 +249,11 @@ access. It is not an imitation of the receipt. Whether a cheer prints High Rolle
 where the bot's box cuts it off and any fade come from the bot's own code. The Twitch logo in
 the footer is a grey box here.
 
-Under each part, the preview says how long the receipt is (plus about 4.8 cm on 80 mm, 4.0 cm
-on 58 mm, when the bot finds the viewer's profile picture: the preview never asks for it),
-whether the bot cuts it (and why), and whether the bot's safety filter would take anything out
-(it shouldn't, for anything this app builds).
+The big circle at the top is where the bot puts the viewer's profile picture. The preview never
+asks Twitch for it, so it draws a grey stand-in there, and the receipt's length counts it. Under
+each part, the preview says how long the receipt is (about 4.8 cm shorter on 80 mm, 4.0 cm on
+58 mm, when the bot finds no profile picture), whether the bot cuts it (and why), and whether
+the bot's safety filter would take anything out (it shouldn't, for anything this app builds).
 
 A long stack can be 80 parts or more. Each part's preview is drawn when it scrolls near the
 screen, one at a time, so the page stays quick; Copy and each part's notes are there at once.

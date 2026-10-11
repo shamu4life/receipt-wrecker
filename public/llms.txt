@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.0.0 (2026-10-10). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.1.0 (2026-10-11). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -32,7 +32,9 @@ and prints it.
 
 The streamer's settings (paper width, threshold, bits per inch, maximum length) are not
 visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
-in.
+in. Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth
+shading, while the bits are below the threshold raises the bits to the threshold (or offers to,
+for a big jump), and the block says so, with an Undo after a raise.
 
 ## What it outputs
 
@@ -79,8 +81,9 @@ The preview is drawn by SassyTP's printer-bot renderer (MIT), the bot's own rece
 embedded in the tool and run in a sandboxed frame with no network access. A thermal view
 shows the receipt at the printer's dot width with the bot's own dither methods. Each part's
 preview is drawn when it scrolls near the screen, one at a time, so a long stack stays quick.
-The receipt length shown leaves out the viewer's profile picture, which the bot adds when it
-finds one (about 4.8 cm on 80 mm paper, 4.0 cm on 58 mm).
+The circle where the bot puts the viewer's profile picture shows a grey stand-in (the preview
+never asks Twitch for the real one), and the receipt length shown counts it; a receipt whose
+viewer has no picture is about 4.8 cm shorter on 80 mm paper, 4.0 cm on 58 mm.
 
 ## Copying and presets
 

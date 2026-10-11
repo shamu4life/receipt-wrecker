@@ -181,6 +181,11 @@ test("previewVerdict says what the bot's renderer said, in plain words", () => {
   assert.deepEqual(texts(ok(), {}), ["About 7.8 cm of receipt (295 px), header and footer included, plus about 4.8 cm if the bot finds the viewer's profile picture."]);
   assert.deepEqual(texts(ok(), { paperMm: 58 }), ["About 7.8 cm of receipt (295 px), header and footer included, plus about 4.0 cm if the bot finds the viewer's profile picture."]);
   assert.deepEqual([C.avatarExtraPx(80), C.avatarExtraPx(58)], [182, 151]);
+  // 1.1.0: the preview draws a stand-in in the bot's avatar circle and measures the page again
+  // (standIn), so the length counts the picture and the line says how much less a receipt without one is.
+  const withPic = { result: { ok: true, height: 477, botHeight: 295, standIn: true, trimmed: null, security: [] }, measure: { contentPx: 69.6, fullPx: 69.6 }, violations: 0 };
+  assert.deepEqual(texts(withPic, {}), ["About 12.6 cm of receipt (477 px), header and footer included. The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about 4.8 cm shorter."]);
+  assert.deepEqual(texts(withPic, { paperMm: 58 }), ["About 12.6 cm of receipt (477 px), header and footer included. The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about 4.0 cm shorter."]);
   // render()'s own cut: the streamer's bits-per-inch limit, or the maximum length.
   const bits = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 3, fullIn: 4.38, by: "bits" }, security: [] } }), { bits: 300, warned: true });
   // In cm, like every other length here (3 in = 7.6 cm, 4.38 in = 11.1 cm).

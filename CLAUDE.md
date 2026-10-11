@@ -210,7 +210,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.0.0. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.1.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -254,14 +254,14 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **152 keys**. Regenerate the list instead of trusting this one:
+test harness **156 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`,
 `cheerBits`, `bitsWord`, `PAPERS`, `paperSpec`, `BASE_PX`, `BASE_LH`, `LEAD_LINE_PX`,
 `CONTENT_CEILING_PX`, `PX_PER_INCH`, `MAX_CAP_INCHES`, `HR_DEFAULT`, `HR_MAX`,
-`hrThresholdOf`, `bitsPerInchOf`, `maxInchesOf`, `printMode`, `buildMode`, `contentLimitPx`,
+`hrThresholdOf`, `bitsPerInchOf`, `maxInchesOf`, `printMode`, `buildMode`, `contentLimitPx`, `bitsRaiseFor`, `partsTally`, `raiseNote`,
 `LEAD_GUARD`, `buildLead`, `leadLength`, `buildTrail`, `trailLength`, `stackContext`,
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
@@ -707,6 +707,18 @@ words.
   was renamed away from), and keeps its set of taken names without a prototype ("constructor"
   is taken only when a preset has it).
 
+**Raising Bits per cheer on a High Roller pick (1.1.0).** `bitsRaiseFor(settings)` (the
+settings plus `noAuto`) decides what a High Roller-only pick does below the threshold: `null`
+when no amount changes what is built (Cheer-ready off builds the High Roller form anyway; at or
+above the threshold; threshold 0, since `cheerBits` is at least 1); `{action: "noRoom", from,
+to, by}` when `contentLimitPx` at the threshold leaves no room after the Cheer line (a plain part
+always gets the full 1600px box and a High Roller one gets the streamer's bits-per-inch or
+maximum-length box, so a raise there would print nothing); `"ask"` past `RAISE_MAX_FACTOR` (4)
+times the amount, over `RAISE_MAX_BITS` (500), or with `noAuto`; else `"raise"`, to exactly the
+threshold. `partsTally(items)` is `{cheers, bits}` for the copyable parts (a cheer word in the
+text added the way `partsCostWords` adds it), and `raiseNote(r, what, was, now)` is the card's
+sentence.
+
 **App state, read through sanitizers.** Settings and block fields arrive from storage, presets,
 imported JSON and form controls (as strings), so everything reads them through these:
 `normalizeControls` (the `rw_controls_v1` fields: `cheer` (default on), `bits` (100),
@@ -776,6 +788,32 @@ generations; `presetImageUrls` walks a stack's picture links.
   probes and `copyPart` read it): the tests, real cheers either way, used to carry the digits
   while the page showed the option as off.
   `saveControls` writes exactly `normalizeControls`' fields; `restoreControls` reads them back.
+- **The bits raise (1.1.0).** Every High Roller-only control calls `pickedHighRoller(block,
+  what, ctl)` just before its own `update()`, so the raised amount and the High Roller forms go
+  out in one redraw: Render set to Big or Sideways; Big's Layout, Size and Upside down;
+  Sideways' Direction and Size; Glyph-art's Characters, Detail and Smooth shading
+  (`.chk-dither`). Detail counts only when its commit keeps the focus in the field (Enter, its
+  arrows, the spinner): leaving it for a click would raise the bits and move the parts under the
+  pointer mid-click, and the click (a Copy) was lost (review of 1.1.0). Typing and ↺ never count.
+  It writes `#bitsAmount` itself (`setBitsField`, which fires no event) and fills `raiseSlot` (one
+  slot, memory only, like `removedBlock`: `{blockId, r, what, ctl, was, sig, ver}`).
+  `syncRaise()`, at the end of `refresh()` and `renderComposer()`, draws `.raise-note`
+  (role=status) in that card's `.raise-slot` (`raiseHosts`, rebuilt with the cards), BELOW the
+  card's controls (before a text card's `.text-note`, after Glyph-art's controls), so showing it
+  never moves the control just used. The note is rebuilt only when `ver` changes, so a refresh
+  never takes the focus off its button. A raise's cost now follows the stack; its "(was …)" is
+  said only while the stack is still the one it was taken from (`sig`, `stackSig()`). Undo
+  (`undoRaise`) puts the old amount back, keeps the pick, refocuses the control by its class (or
+  the card's Render or Kind when that control is hidden) and sets `raiseNoAuto`; it ignores the
+  second click of a double-click and clicks within 500 ms of `confirmRaise`, since Undo is drawn
+  where "Raise to N bits" was. Committing Bits below the threshold by hand after a raise also
+  sets `raiseNoAuto` (on `change`: key by key, a new amount passes through lower ones).
+  `settingsTouched`, registered before `update` on every settings field, clears the slot. With
+  `raiseNoAuto` a pick only offers ("Raise to N bits", `confirmRaise`). A preset Load or the
+  block's removal ends the slot; a pick that needs no High Roller (Han tiling, a Kind change:
+  `dropRaiseOffer`) ends an offer or a refusal, while a raise and its Undo stay. Nothing raises
+  on add, load, Undo, migration, typing or a settings edit. The hints that promise a raise (the
+  Bits hint, the cards' below-threshold lines) say so only when `raiseOffered()`.
 - **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
   `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`) or Han tiling (`.sel-weight`). Every
   layout and size option is labelled with what it would print for the current text (capitals
@@ -868,7 +906,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   redrawn (add, move, ×, Undo, the expiry check) shows on the card on screen, not a detached
   one. Bits per cheer
   that isn't an amount (0, negative, emptied) reads as the last amount it held (`lastBits`) and
-  is put back when the field is left, with the hint naming what was refused. The streamer's
+  is put back when the field is left, with the hint naming what was refused. (The only other
+  time the app changes Bits per cheer is the bits raise above, said on the card with an Undo.) The streamer's
   three number fields do the same for anything that isn't a number of 0 or more
   (`lastStreamer`; a negative threshold used to become the default 25 and flip every block), and
   say so beside the field (`#hrThresholdNote`, `#bitsPerInchNote`, `#maxInchesNote`,
@@ -992,14 +1031,20 @@ unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
 `TwitchCheer` carrying the bits and the message untouched) and the way the bench does:
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
 `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks: false}`. No
-`userName`, so no avatar lookup starts (a real cheer has one, so its header is taller:
-`avatarExtraPx`, 182px on 80 mm, 151px on 58 mm, and the verdict says so). The
+`userName`, so no avatar lookup starts and the bot draws none. A real cheer's receipt has the
+viewer's picture whenever the lookup answers, so `previewGlue` puts a stand-in in the bot's
+circle (`standIn`: a grey silhouette as an inline SVG, which the frame's `img-src data:` allows;
+`#receipt-avatar` shown and `.no-avatar` removed) and measures the page again the way `render()`
+does (`min(5000, ceil(documentElement height))`), keeping render()'s own answer as
+`result.botHeight` and setting `result.standIn`. The difference is `avatarExtraPx`: 182px on
+80 mm, 151px on 58 mm. The Thermal view copies the circle with the rest. The
 renderer, not this app, decides High Roller or plain, the box and the fade. A free test (Cheer-ready off) is drawn as a High Roller cheer
 (threshold 1) and says it never reaches the printer.
 
-**The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, plus
-what a found profile picture adds (about 4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is
-min(11.5em, 100%) square with a 14px gap and replaces the 16px top padding); a
+**The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, the
+stand-in profile picture included, and how much shorter a receipt with no picture is (about
+4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is min(11.5em, 100%) square with a 14px gap
+and replaces the 16px top padding; without `standIn` the line says what a found picture adds); a
 `trimmed` cut (bits or cap) with its lengths; a hard cut by the 1600px box (measured in the
 frame with the box's limit lifted, because `render()` reports only the streamer's limits);
 "this app expected it to fit" when the app had not warned; any `security` notes (the bot's

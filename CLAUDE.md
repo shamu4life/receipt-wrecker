@@ -140,6 +140,9 @@ through. What is known about the channel this was built for:
   `font` only. The implementation is one constant: `FONT_PROP = "\\66ont"` in the pure core
   (the shorthand becomes `FONT_PROP + ":"`, the longhand `FONT_PROP + "-size:"`). If the
   filter is widened to match `\6`, swap the string there — one line.
+  Confirmed on 2026-10-10: a free Cheer-ready-off chat test of the escape passed this
+  channel's AutoMod, and the plain-`font` control was held as expected. The escape is proven
+  for this channel; don't re-flag the free chat test for this exception.
 - **Not known.** Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`).
   Nobody has said so. Don't change the design on a guess: the free chat test (Cheer-ready
   off) is how a user finds out.

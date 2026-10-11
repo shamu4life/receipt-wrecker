@@ -20,18 +20,25 @@ test("byte pins: top to bottom and bottom to top, one and two lines, a comma", (
   // Its ink is centred on Arial Bold's outlines: the capitals reach 0.716em (O, C, G and S
   // 0.728, and 0.013 below the baseline), so a line-height .8 column's ink sits 0.0115em toward
   // the letter tops, and the block moves 3px the other way at 300px (polish review 3).
-  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
-  eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:3px">HELLO</div>']);
-  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px"><div>HAPPY</div><div>BIRTHDAY</div></div>']);
+  // The shorthand's property name is written \66ont (FONT_PROP: a CSS unicode escape for 'f')
+  // so the chat filter's "font" wildcard doesn't catch it; the CSS parser resolves \66ont back
+  // to font. 2 extra characters per style attribute.
+  eq(html("HELLO", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;\\66ont:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
+  eq(html("HELLO", { dir: "up" }), ['<div style="writing-mode:sideways-lr;\\66ont:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:3px">HELLO</div>']);
+  eq(html("HAPPY\nBIRTHDAY", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;\\66ont:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px"><div>HAPPY</div><div>BIRTHDAY</div></div>']);
   // The comma's tail would clip at the capitals' 280px; with it the column's ink sits 12px
   // toward the descenders' side, so the block moves 12px the other way (see the centring test).
-  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:12px">HI, BOB</div>']);
-  eq(html("HI, BOB", { dir: "up" }), ['<div style="writing-mode:sideways-lr;font:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:-12px">HI, BOB</div>']);
-  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 190px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px">HELLO</div>']);
+  eq(html("HI, BOB", {}), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;\\66ont:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:12px">HI, BOB</div>']);
+  eq(html("HI, BOB", { dir: "up" }), ['<div style="writing-mode:sideways-lr;\\66ont:700 193px/1.15 Arial;white-space:nowrap;margin:auto;position:relative;left:-12px">HI, BOB</div>']);
+  eq(html("HELLO", {}, ctx({ paperMm: 58 })), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;\\66ont:700 190px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px">HELLO</div>']);
   // Small enough that the ink is within half a px of the middle: no shift, the bare tag.
-  eq(html("HELLO", { size: 40 }), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 40px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
+  eq(html("HELLO", { size: 40 }), ['<div style="writing-mode:vertical-rl;text-orientation:sideways;\\66ont:700 40px/.8 Arial;white-space:nowrap;margin:auto">HELLO</div>']);
   const parts = C.packStackBodies(build("HELLO", {}), ctx());
-  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
+  eq(parts.map((p) => p.payload), ['Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;\\66ont:700 300px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-3px">HELLO</div>']);
+  // The payload carries no literal "font" (and the chat filter's wildcard won't match it).
+  for (const t of ["HELLO", "HI, BOB", "HAPPY\nBIRTHDAY"]) for (const dir of ["down", "up"]) {
+    for (const b of build(t, { dir })) assert.ok(!/font/i.test(b.html), t + " " + dir + ": " + b.html);
+  }
 });
 
 test("the width rule for 1-5 lines, capitals and mixed, 80 and 58 mm", () => {
@@ -178,10 +185,14 @@ test("literal tokens only, every user character escaped", () => {
   const hostile = '<img src=x> & </div><svg onload=1> "q"';
   for (const dir of ["down", "up"]) {
     for (const b of build(hostile, { dir })) {
-      assert.ok(scanTags(b.html).every((t) => t.tag === "div" || t.tag === "br"), b.html);
-      assert.ok(!/[<>]/.test(b.html.replace(/<\/?div[^>]*>|<br>/g, "")));
-      assert.ok(b.html.includes("writing-mode:") && b.html.includes("font:700 "));
-      assert.ok(!/\\|-webkit-|&#|[\u200B-\u200F\u2060\uFEFF]/.test(b.html), b.html);
+      assert.ok(scanTags(b.html).every((t) => t.tag === "div"), b.html);
+      assert.ok(!/[<>]/.test(b.html.replace(/<\/?div[^>]*>/g, "")));
+      assert.ok(b.html.includes("writing-mode:") && b.html.includes("\\66ont:700 "), b.html);
+      assert.ok(!/font/i.test(b.html), "no literal 'font' in the payload (chat filter wildcard)");
+      // The one backslash OURS is the FONT_PROP escape in the opening tag; strip it. User text
+      // itself has no backslash, -webkit-, &# or zero-width characters.
+      const stripped = b.html.replace(/<\/?div[^>]*>/g, "");
+      assert.ok(!/\\|-webkit-|&#|[\u200B-\u200F\u2060\uFEFF]/.test(stripped), stripped);
     }
   }
 });

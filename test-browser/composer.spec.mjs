@@ -1122,7 +1122,7 @@ test("a glyph-art picture from a picked file: read on this device, and after a r
   await settled(page);
   const pay = await copyPayload(page);
   assertTags(pay);
-  assert.match(pay, /^Cheer100 <div style=font-size:[\d.]+vw;line-height:1>/);
+  assert.match(pay, /^Cheer100 <div style=\\66ont-size:[\d.]+vw;line-height:1>/);
   assert.match(await cardNote(), /^16 columns × \d+ rows · 1 cheer/);
   assert.ok(!/Decoding/.test(await card.innerText()), "a finished read still says Decoding…");
   const saved = (await stored(page, "rw_blocks_v1"))[0];
@@ -1930,7 +1930,7 @@ test("polish 3: a Glyph-art picture the parts leave out is named in red above th
     buffer: Buffer.from(PIC.split(",")[1], "base64") });
   await page.waitForFunction(() => !document.getElementById("pictureNote"), null, { timeout: 8000 });
   await settled(page);
-  assert.match(await copyPayload(page, 0), /^Cheer100 <div style=font-size:[\d.]+vw;line-height:1>/);
+  assert.match(await copyPayload(page, 0), /^Cheer100 <div style=\\66ont-size:[\d.]+vw;line-height:1>/);
   await ctx.close();
 
   // A link that can't be read (the test server has no /px): named, with what to do.

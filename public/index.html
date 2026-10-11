@@ -1078,8 +1078,17 @@
   var LINE_OPEN = "<div>", LINE_CLOSE = "</div>", LINE_COST = 11;
   var LINE_BLANK = "<div>\u00A0</div>", LINE_BLANK_LEN = 12;
   function lineDiv(html) { return LINE_OPEN + (html === "" ? "\u00A0" : html) + LINE_CLOSE; }
+  // The chat filter on this channel blocks the literal word "font". By the owner's decision
+  // (2026-10-10), the shorthand's property name is written with a CSS unicode escape \u2014 "\66ont"
+  // (\66 = 'f') \u2014 which the browser's CSS parser resolves back to "font" with no change to what
+  // prints. 2 extra characters per style attribute. The sanitizer sees a canonical "font:\u2026"
+  // declaration (the CSSOM normalizes the escape before copyStyle walks it) and keeps it. This
+  // is the second named rule exception; see CLAUDE.md's field record. It is ONE knob: if "\6"
+  // matching gets added to the filter, swap the string here (e.g. "fon\\74" for 't', or
+  // "\\000066ont" for the explicit 6-hex form) and the whole app updates.
+  var FONT_PROP = "\\66ont";
   function bigOpen(px, lh, flip) {
-    return '<div style="font:700 ' + px + "px/" + lh + " Arial" + (flip ? ";rotate:180deg" : "") + '">';
+    return '<div style="' + FONT_PROP + ":700 " + px + "px/" + lh + " Arial" + (flip ? ";rotate:180deg" : "") + '">';
   }
   // Height comparisons tolerate float dust (5 x 310 x .8 is not always exactly 1240).
   var PX_EPS = 1e-6;
@@ -1928,7 +1937,7 @@
   // `pad` (px, optional): room below the run for ink that ends past it (sidePad), as
   // padding-bottom, also on the allow-list.
   function sideOpen(S, lh, dir, shift, pad) {
-    return '<div style="writing-mode:' + (SIDE_DIRS[dir] || SIDE_DIRS.down) + ";font:700 " + S + "px/" + lh
+    return '<div style="writing-mode:' + (SIDE_DIRS[dir] || SIDE_DIRS.down) + ";" + FONT_PROP + ":700 " + S + "px/" + lh
       + " Arial;white-space:nowrap;margin:auto" + (pad ? ";padding-bottom:" + pad + "px" : "")
       + (shift ? ";position:relative;left:" + shift + "px" : "") + '">';
   }
@@ -2423,7 +2432,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, K = cjkGridK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
-    return glyphBand(rows, "<div style=font-size:" + K + "vw;line-height:1>", BIG_CLOSE, "",
+    return glyphBand(rows, "<div style=" + FONT_PROP + "-size:" + K + "vw;line-height:1>", BIG_CLOSE, "",
       F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "cjk", cols: C, fontPx: F });
   }
   function buildMonoGrid(grid, opts) {
@@ -2431,7 +2440,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, K = monoK(C), F = K * paperSpec(opts.paperMm).cssWidth / 100;
-    return glyphBand(rows, "<pre style=\"font:" + K + "vw/1.2 'Courier New';margin:0\">", "</pre>", "",
+    return glyphBand(rows, "<pre style=\"" + FONT_PROP + ":" + K + "vw/1.2 'Courier New';margin:0\">", "</pre>", "",
       1.2 * F, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "mono", cols: C, fontPx: F });
   }
   function buildBrailleGrid(grid, opts) {
@@ -2439,7 +2448,7 @@
     var rows = glyphRowsOf(grid);
     if (!rows.length || !rows[0].length) return glyphEmpty();
     var C = rows[0].length, F = brailleFontPx(C, paperSpec(opts.paperMm).contentW);
-    return glyphBand(rows, "<div style=font-size:" + F + "px;line-height:" + (F + 2) + "px>", BIG_CLOSE, "",
+    return glyphBand(rows, "<div style=" + FONT_PROP + "-size:" + F + "px;line-height:" + (F + 2) + "px>", BIG_CLOSE, "",
       F + 2, bigBudget(opts.budget), bigRoom(opts.heightPx), { form: "braille", cols: C, fontPx: F });
   }
   function buildGlyphBodies(tier, grid, opts) {
@@ -5825,7 +5834,7 @@
       BIG_MIN_PX: BIG_MIN_PX, BIG_MAX_PX: BIG_MAX_PX, BIG_LH_CAPS: BIG_LH_CAPS, BIG_LH_TEXT: BIG_LH_TEXT,
       BIG_CAPS_SAFE: BIG_CAPS_SAFE, BIG_W: BIG_W, BIG_W_DEFAULT: BIG_W_DEFAULT, BIG_W_EMOJI: BIG_W_EMOJI, BIG_W_WIDE: BIG_W_WIDE,
       BIG_LAYOUTS: BIG_LAYOUTS, BIG_CAP_EM: BIG_CAP_EM, MM_PER_PX: MM_PER_PX, bigCapCm: bigCapCm,
-      bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, bigClean: bigClean, bigGraphemes: bigGraphemes,
+      bigOpen: bigOpen, BIG_CLOSE: BIG_CLOSE, FONT_PROP: FONT_PROP, bigClean: bigClean, bigGraphemes: bigGraphemes,
       bigGraphemesFallback: bigGraphemesFallback, bigLineEm: bigLineEm, bigFitPx: bigFitPx,
       BIG_EDGE: BIG_EDGE, bigEdge: bigEdge, bigEdgeEm: bigEdgeEm,
       bigLineHeight: bigLineHeight, bigWrapWords: bigWrapWords, bigWrapCount: bigWrapCount, bigWrapWordsOf: bigWrapWordsOf, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,

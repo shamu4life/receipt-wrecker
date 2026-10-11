@@ -127,16 +127,31 @@ through. What is known about the channel this was built for:
   constraints). That puts line breaks on the paper without the blocked token, and the owner
   chose it knowing so. It is the one exception to THE RULE's "never swap in another tag or
   structure", and it covers `<br` only.
-- **Not known.** Whether the list blocks anything the 1.0.0 forms use now (`<div`, `<pre`,
-  `style=`). Nobody has said so. Don't change the design on a guess: the free chat test
-  (Cheer-ready off) is how a user finds out.
+- **2026-10-10, later again: the literal word `font`.** Free chat tests confirmed the list
+  blocks `font` as a wildcard — both `font:` (the shorthand) and `font-size:` (the longhand)
+  are held. That takes out every styled text and glyph-art form (big, sideways, R1 Han grid,
+  R4 Courier `<pre>`, R6 Braille — each uses `font-*`). The channel is moderated by a committee
+  that can't be reasoned with as one (a mod removes a rule, another puts it back on sight), so
+  asking for `font` to be lifted isn't a path. **By the owner's decision, the CSS property
+  name for `font` is written with a unicode escape**: `\66ont` (where `\66` is the hex code
+  point for `f`), which the browser's CSS parser resolves back to `font` with no change to
+  what prints. 2 extra characters per style attribute. This is the second named exception to
+  THE RULE's "no CSS escapes" / "never swap in another tag or structure". It covers the word
+  `font` only. The implementation is one constant: `FONT_PROP = "\\66ont"` in the pure core
+  (the shorthand becomes `FONT_PROP + ":"`, the longhand `FONT_PROP + "-size:"`). If the
+  filter is widened to match `\6`, swap the string there — one line.
+- **Not known.** Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`).
+  Nobody has said so. Don't change the design on a guess: the free chat test (Cheer-ready
+  off) is how a user finds out.
 
 What follows from that, as rules:
 
 - No builder emits `<img`, `<object`, `<image`, `<embed`, `<iframe`, `<svg`, `<input` or
-  `<br`, in any letter case. `test/tags.test.mjs` checks every builder and both probes at 80
-  and 58 mm, with hostile input, and checks the positive side too: the only tags sent are
-  `div` and `pre`, and the only attribute is `style`.
+  `<br`, in any letter case, and no payload carries the literal word `font` anywhere.
+  `test/tags.test.mjs` checks every builder and both probes at 80 and 58 mm, with hostile
+  input, and checks the positive side too: the only tags sent are `div` and `pre`, the only
+  attribute is `style`, and the backstop counts the escape's appearances to catch a silent
+  regression where a builder drops the escape and starts shipping `font` literally.
 - There is no emote or data: picture feature. An uploaded picture prints only as glyph-art.
   The Real picture card says so plainly ("SassyTP's bot only prints pictures from emote
   servers, and this channel's chat filter blocks the picture tag…") and offers Glyph-art.
@@ -155,8 +170,11 @@ A channel blocking a form is the moderators saying no.
   zero-width characters or CSS escapes.
 - **If a form is blocked, fall back to the plain form** (Han tiling). Never cycle variants,
   and never swap in another tag or structure to get the same effect past a block. The UI
-  must never suggest either. (The one exception, the owner's decision of 2026-10-10: line
-  breaks are `<div>`s, not `<br>`; see the field record. Don't extend it to anything else.)
+  must never suggest either. (Two named exceptions, both owner-chosen, both of 2026-10-10,
+  both for THIS CHANNEL ONLY. First: line breaks are `<div>`s, not `<br>`. Second: the CSS
+  property name `font` is written `\66ont` so the chat filter's wildcard doesn't match it,
+  while the browser's CSS parser resolves it back. Don't extend either, don't add a third
+  without explicit owner direction, and keep every other token literal.)
 - **The words, too.** Stack (one letter a line) splits a word and Han tiling draws it as a
   picture, so a word filter never sees it as typed. (Sideways text sends each line's words
   whole: a long line is cut at a space, and only a word too long for one part is split.) That is a side effect of fitting the paper, not
@@ -244,7 +262,7 @@ test harness **152 keys**. Regenerate the list instead of trusting this one:
 `LEAD_GUARD`, `buildLead`, `leadLength`, `buildTrail`, `trailLength`, `stackContext`,
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
-`bigOpen`, `BIG_CLOSE`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
+`bigOpen`, `BIG_CLOSE`, `FONT_PROP`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
 `bigFitPx`, `BIG_EDGE`, `bigEdge`, `bigEdgeEm`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
 `bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sidePad`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
@@ -313,11 +331,12 @@ report `{payload, lead, trail, chars, heightPx, leadPx, contentPx, bodies, nonce
 `contentPx` is the height the bot's message box gets.
 
 **Big text (High Roller).** One literal shape:
-`<div style="font:700 <PX>px/<LH> Arial"><div>line 1</div><div>line 2</div></div>` (a block of ONE
-line is the bare `<div style="…">line</div>`); upside down appends
-`;rotate:180deg`. The browser expands the shorthand into longhands, and the bot's sanitizer
-keeps weight, size, line-height and family with no security notes (the resets it drops change
-nothing that prints).
+`<div style="\66ont:700 <PX>px/<LH> Arial"><div>line 1</div><div>line 2</div></div>` (a block of
+ONE line is the bare `<div style="…">line</div>`); upside down appends `;rotate:180deg`. The
+CSS unicode escape `\66ont:` (where `\66` is `f`) resolves to `font:` for the parser but hides
+the literal word from the chat filter; see the field record. The browser expands the shorthand
+into longhands, and the bot's sanitizer keeps weight, size, line-height and family with no
+security notes (the resets it drops change nothing that prints).
 - **Arial Bold is pinned.** The receipt's own face is Segoe UI, which the bench cannot
   measure; Arial Bold's advances are exact on the bench (Liberation Sans Bold shares them) and
   on the streamer's Windows. Never weight 900 or a nested `<b>`: that asks for a Black face,
@@ -453,8 +472,9 @@ nothing that prints).
   rule is unchanged. In Each, a range of capitals that rounds to one value reads as one.
 
 **Sideways (High Roller).** One literal shape:
-`<div style="writing-mode:<DIR>;font:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>`;
-one column is the bare `…">line</div>`, and an empty column is a `<div>` holding an nbsp.
+`<div style="writing-mode:<DIR>;\66ont:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>`;
+one column is the bare `…">line</div>`, and an empty column is a `<div>` holding an nbsp. The
+property name uses the `\66ont` escape, as big text does; see the field record.
 - `down` = `vertical-rl;text-orientation:sideways` (letter tops toward the right edge: turn
   the receipt anticlockwise to read; works on every Edge). The `text-orientation` is not
   optional: without it `vertical-rl` stands Han, kana, Hangul and emoji upright, so they lie on
@@ -565,7 +585,7 @@ one column is the bare `…">line</div>`, and an empty column is a `<div>` holdi
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
-- `cjk` → **R1** `<div style=font-size:<K>vw;line-height:1>` + one `<div>` per row of cells,
+- `cjk` → **R1** `<div style=\66ont-size:<K>vw;line-height:1>` + one `<div>` per row of cells,
   so a row can never reflow into the next. Rows used to break
   themselves at `width:<C>.2em` with no separator; Chromium 156 rounds each Han advance to the nearest
   whole px (10.69 → 11 at 58 mm), so 14 cells no longer fitted 14.2em and every row reflowed at 13
@@ -573,8 +593,9 @@ The tier picks the form (`GLYPH_FORMS`):
   floor(100 × (152 − C/2) / (1.81 × C)) / 100 keeps a row inside 58 mm's 153px even when every
   cell rounds up half a pixel, so no row wraps either. C is 12..30. vw is the page width, so the
   same message fits both papers. The rows centre on the receipt's own `text-align:center`. One
-  cheer holds 19 rows at 12 columns (a row's `<div></div>` is 11 characters; it held 27 with a
-  `<br>` between rows, and 34 when rows broke themselves at a width). Known limit: because newer
+  cheer holds 19 rows at 12 columns (a row's `<div></div>` is 11 characters; the open tag's
+  property name is `\66ont-size`, +2 characters; it held 27 with a `<br>` between rows, and
+  34 when rows broke themselves at a width). Known limit: because newer
   Chromium rounds each advance to a whole px and older Chromium does not, the picture's WIDTH
   depends on the browser's version (height does not): measured on the bench, 30 columns on
   58 mm print about 10% wider in Chromium 156 than in 141, and Braille (0.733em cells at a
@@ -582,11 +603,11 @@ The tier picks the form (`GLYPH_FORMS`):
   shears, wraps or is cut. The cjk and Braille tier hints say so. A whole-px R1 font size per
   paper would make the cell the same in every version; it was left for after 1.0.0 because it
   changes the R1 payload, its fit and every number pinned to it.
-- `ascii`, `asciifull`, `safe` → **R4** `<pre style="font:<K>vw/1.2 'Courier New';margin:0">`
+- `ascii`, `asciifull`, `safe` → **R4** `<pre style="\66ont:<K>vw/1.2 'Courier New';margin:0">`
   one `<div>` per row, each row escaped. Courier New is 0.6em on the rig and the bench; `<pre>`
   keeps the ASCII ramps' spaces. K = floor(100 × 152 / (C × 0.6 × 1.81)) / 100. C is 8..48. The
   blocks tier shows thin seams between rows at line-height 1.2 on the bench.
-- `braille` → **R6** `<div style=font-size:<F>px;line-height:<F+2>px>` one `<div>` per row,
+- `braille` → **R6** `<div style=\66ont-size:<F>px;line-height:<F+2>px>` one `<div>` per row,
   F 6..12. The rig's Braille face is unmeasured (Courier New has none), so the card says it
   needs a test print.
 - `glyphCols` clamps the columns per form and paper; `gridRows` at `glyphAspect(form, cols,
@@ -1088,6 +1109,12 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 - **Tags: `div`, `pre`. Attribute: `style`.** Nothing else: never a picture tag and never a
   `<br>` (see the field record). Every style declaration that matters is one the bot's
   sanitizer keeps; the contract test proves it for every mode.
+- **No literal `font` anywhere in a payload.** The `font` CSS property name is written
+  `\66ont` (`FONT_PROP`), a CSS unicode escape that the browser's parser resolves back to
+  `font`. The shorthand becomes `\66ont:…`, the longhand `\66ont-size:…` — 2 extra characters
+  per style attribute. See the field record and THE RULE's second named exception.
+  `test/tags.test.mjs` enforces both the "no literal font" rule and the "the escape IS used"
+  backstop so a builder can't quietly stop escaping.
 - **One `<div>` a line.** Every line of big and sideways text, every glyph-art row and every
   stacked letter is `<div>…</div>` (`LINE_OPEN` / `LINE_CLOSE`, 11 characters, `LINE_COST`)
   inside the styled div, and a blank line or word gap is `LINE_BLANK` (a div holding one nbsp:

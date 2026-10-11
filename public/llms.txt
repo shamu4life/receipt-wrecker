@@ -58,8 +58,13 @@ in.
 
 The tool uses only the tags div and pre, with a style attribute: every line or grid row is
 its own div, because the same chat filter held a test message that carried a line-break tag
-(br). It never sends a picture tag either: the bot prints pictures only from emote servers, and the chat filter of the channel it
-was built for blocks the picture tag. An uploaded picture prints only as glyph-art.
+(br). The CSS property name "font" is written with a unicode escape (\66ont) in the style
+attribute, since the filter blocks the literal word "font" too; the browser's CSS parser
+resolves it back to "font" with no change to what prints. These are two owner-chosen
+exceptions for THIS CHANNEL ONLY, documented in the project's CLAUDE.md. It never sends a
+picture tag either: the bot prints pictures only from emote servers, and the chat filter
+of the channel it was built for blocks the picture tag. An uploaded picture prints only
+as glyph-art.
 
 If a channel blocks the markup, the tool's fallback is plain Han tiling. If chat holds a
 message for its words, that is the moderators saying no to the words: the tool's guidance is

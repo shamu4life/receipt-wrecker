@@ -116,13 +116,13 @@ Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
 paper:
 
 ```text
-Cheer100 <div style="font:700 310px/.8 Arial"><div>H</div><div>E</div><div>L</div><div>L</div><div>O</div></div>
+Cheer100 <div style="\66ont:700 310px/.8 Arial"><div>H</div><div>E</div><div>L</div><div>L</div><div>O</div></div>
 ```
 
 Each line its own size:
 
 ```text
-Cheer100 <div style="font:700 69px/.8 Arial">HAPPY</div><div style="font:700 46px/.8 Arial">BIRTHDAY</div><div style="font:700 108px/.8 Arial">SAM</div>
+Cheer100 <div style="\66ont:700 69px/.8 Arial">HAPPY</div><div style="\66ont:700 46px/.8 Arial">BIRTHDAY</div><div style="\66ont:700 108px/.8 Arial">SAM</div>
 ```
 
 The font is fixed: the streamer's Windows has Arial, so the sizes in the app are the sizes on
@@ -138,7 +138,7 @@ Your words running down the tape, as big as the paper's width allows. Each line 
 becomes a column across the paper:
 
 ```text
-Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;font:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px"><div>HAPPY</div><div>BIRTHDAY</div></div>
+Cheer100 <div style="writing-mode:vertical-rl;text-orientation:sideways;\66ont:700 150px/.8 Arial;white-space:nowrap;margin:auto;position:relative;left:-2px"><div>HAPPY</div><div>BIRTHDAY</div></div>
 ```
 
 (Built by the app's own code: `node tools/payload.mjs '{"kind":"side","text":"HAPPY\nBIRTHDAY"}'`.)
@@ -195,14 +195,14 @@ The picture as a grid of characters. Pick the characters:
   cell is the same width in any CJK font, so rows line up on both paper widths.
 
   ```text
-  Cheer100 <div style=font-size:6.72vw;line-height:1><div>丶丶丶丶丶丶丶丶丶丶丶丶</div><div>丶丶丶丶丶丶丶丶丶丶丶丶</div><div>丶丶三青直二二直青三丶丶</div><div>丶二龍鬱鬱齒齒鬱鬱龍二丶</div><div>丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶</div><div>丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶</div><div>丶三麤鬱鬱鬱鬱鬱鬱麤三丶</div><div>丶丶鬼鬱鬱鬱鬱鬱鬱鬼丶丶</div><div>丶丶二鼎鬱鬱鬱鬱鼠丿丶丶</div><div>丶丶丶二麥鬱鬱麥二丶丶丶</div><div>丶丶丶丶丶革革丶丶丶丶丶</div><div>丶丶丶丶丶丶丶丶丶丶丶丶</div></div>
+  Cheer100 <div style=\66ont-size:6.72vw;line-height:1><div>丶丶丶丶丶丶丶丶丶丶丶丶</div><div>丶丶丶丶丶丶丶丶丶丶丶丶</div><div>丶丶三青直二二直青三丶丶</div><div>丶二龍鬱鬱齒齒鬱鬱龍二丶</div><div>丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶</div><div>丶車鬱鬱鬱鬱鬱鬱鬱鬱車丶</div><div>丶三麤鬱鬱鬱鬱鬱鬱麤三丶</div><div>丶丶鬼鬱鬱鬱鬱鬱鬱鬼丶丶</div><div>丶丶二鼎鬱鬱鬱鬱鼠丿丶丶</div><div>丶丶丶二麥鬱鬱麥二丶丶丶</div><div>丶丶丶丶丶革革丶丶丶丶丶</div><div>丶丶丶丶丶丶丶丶丶丶丶丶</div></div>
   ```
 
 - **ASCII letters**, **ASCII full detail** and **Blocks ░▒▓█**: rows in Courier New, 8 to 48
   columns. Light areas are spaces, and they keep their width.
 
   ```text
-  Cheer100 <pre style="font:8.74vw/1.2 'Courier New';margin:0"><div>    cnaweanc    </div><div>  x0BB88B8BB0x  </div><div> eB8eoq88qoe8Be </div><div>cBB80w88B8w08BBc</div><div>cW8mw8B8888wm8Wc</div><div> aB8xxemmexx8Be </div><div>  x0B0weew8B0x  </div><div>    cneeeenc    </div></pre>
+  Cheer100 <pre style="\66ont:8.74vw/1.2 'Courier New';margin:0"><div>    cnaweanc    </div><div>  x0BB88B8BB0x  </div><div> eB8eoq88qoe8Be </div><div>cBB80w88B8w08BBc</div><div>cW8mw8B8888wm8Wc</div><div> aB8xxemmexx8Be </div><div>  x0B0weew8B0x  </div><div>    cneeeenc    </div></pre>
   ```
 
 - **Braille**: 2 × 4 dots per character, the finest detail. Nobody has measured the font the

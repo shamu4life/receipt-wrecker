@@ -52,21 +52,31 @@ test("line height: .8 only for capitals-safe lines; Q , ; lowercase accents and 
 
 test("byte pins: the benched payload bodies, 80 and 58 mm", () => {
   const html = (t, o, c) => build(t, o, c).map((b) => b.html);
-  eq(html("HELLO", { layout: "lines" }), ['<div style="font:700 70px/.8 Arial">HELLO</div>']);
-  eq(html("HELLO", { layout: "stack" }), ['<div style="font:700 310px/.8 Arial"><div>H</div><div>E</div><div>L</div><div>L</div><div>O</div></div>']);
-  eq(html("MMMMM", { layout: "lines" }), ['<div style="font:700 57px/.8 Arial">MMMMM</div>']);
-  eq(html("HELLO WORLD", { layout: "lines" }), ['<div style="font:700 31px/.8 Arial">HELLO WORLD</div>']);
-  eq(html("Happy birthday", { layout: "lines" }), ['<div style="font:700 32px/1.15 Arial">Happy birthday</div>']);
-  eq(html("HELLO", { layout: "lines" }, ctx({ paperMm: 58 })), ['<div style="font:700 43px/.8 Arial">HELLO</div>']);
-  eq(html("HELLO", { layout: "lines", flip: true }), ['<div style="font:700 70px/.8 Arial;rotate:180deg">HELLO</div>']);
+  // The shorthand's property name is written \66ont (CSS unicode escape for 'f'), by the owner's
+  // decision, so the chat filter's "font" wildcard match doesn't catch it. The browser's CSS
+  // parser resolves it back to font: with no change to what prints. 2 extra characters per
+  // style attribute. See CLAUDE.md's field record and FONT_PROP in the core.
+  eq(html("HELLO", { layout: "lines" }), ['<div style="\\66ont:700 70px/.8 Arial">HELLO</div>']);
+  eq(html("HELLO", { layout: "stack" }), ['<div style="\\66ont:700 310px/.8 Arial"><div>H</div><div>E</div><div>L</div><div>L</div><div>O</div></div>']);
+  eq(html("MMMMM", { layout: "lines" }), ['<div style="\\66ont:700 57px/.8 Arial">MMMMM</div>']);
+  eq(html("HELLO WORLD", { layout: "lines" }), ['<div style="\\66ont:700 31px/.8 Arial">HELLO WORLD</div>']);
+  eq(html("Happy birthday", { layout: "lines" }), ['<div style="\\66ont:700 32px/1.15 Arial">Happy birthday</div>']);
+  eq(html("HELLO", { layout: "lines" }, ctx({ paperMm: 58 })), ['<div style="\\66ont:700 43px/.8 Arial">HELLO</div>']);
+  eq(html("HELLO", { layout: "lines", flip: true }), ['<div style="\\66ont:700 70px/.8 Arial;rotate:180deg">HELLO</div>']);
   // The brief's per-line example (bench v8: 270.36 = 21.59 + 248.8).
   eq(html("HAPPY\nBIRTHDAY\nTO THE\nBEST\nSTREAMER", { layout: "each" }), [
-    '<div style="font:700 69px/.8 Arial">HAPPY</div><div style="font:700 46px/.8 Arial">BIRTHDAY</div>'
-    + '<div style="font:700 65px/.8 Arial">TO THE</div><div style="font:700 89px/.8 Arial">BEST</div>'
-    + '<div style="font:700 42px/.8 Arial">STREAMER</div>']);
+    '<div style="\\66ont:700 69px/.8 Arial">HAPPY</div><div style="\\66ont:700 46px/.8 Arial">BIRTHDAY</div>'
+    + '<div style="\\66ont:700 65px/.8 Arial">TO THE</div><div style="\\66ont:700 89px/.8 Arial">BEST</div>'
+    + '<div style="\\66ont:700 42px/.8 Arial">STREAMER</div>']);
   // The full message, lead included.
   const parts = C.packStackBodies(build("HELLO", { layout: "lines" }), ctx());
-  eq(parts.map((p) => p.payload), ['Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>']);
+  eq(parts.map((p) => p.payload), ['Cheer100 <div style="\\66ont:700 70px/.8 Arial">HELLO</div>']);
+  // The payload carries no literal "font" (that's the whole point): check all of the above.
+  for (const t of ["HELLO", "MMMMM", "HELLO WORLD", "Happy birthday"]) {
+    for (const o of [{ layout: "lines" }, { layout: "stack" }, { layout: "lines", flip: true }]) {
+      for (const b of build(t, o)) assert.ok(!/font/i.test(b.html), t + " " + JSON.stringify(o) + ": " + b.html);
+    }
+  }
 });
 
 test("height is lines x px x LH, width stays inside the paper, and the part fits the box", () => {
@@ -140,7 +150,7 @@ test("auto wraps a sentence at its spaces: every word whole, every line inside t
   for (const l of f.lines) assert.ok((C.bigLineEm(l) + C.bigEdgeEm(l)) * f.px <= C.bigFitPx(244, C.bigGraphemes(l).length) + 1e-9, l);
   const b = build(s, {});
   assert.equal(b.length, 1);
-  assert.equal(b[0].html, '<div style="font:700 50px/1.15 Arial">' + f.lines.map((l) => "<div>" + C.escapeHtml(l) + "</div>").join("") + "</div>");
+  assert.equal(b[0].html, '<div style="\\66ont:700 50px/1.15 Arial">' + f.lines.map((l) => "<div>" + C.escapeHtml(l) + "</div>").join("") + "</div>");
   close(b[0].heightPx, f.lines.length * 50 * 1.15, "height: one line of type per wrapped line");
   // Balanced: as many lines as the greedy wrap needs, each as short as it can be.
   eq(C.bigWrapWords("WE ARE SO BACK", 30, 244), ["WE ARE SO", "BACK"]);
@@ -521,10 +531,14 @@ test("every user character is escaped; only our own tags remain", () => {
     for (const flip of [false, true]) {
       for (const b of build(hostile, { layout, flip })) {
         const tags = scanTags(b.html);
-        assert.ok(tags.every((t) => t.tag === "div" || t.tag === "br"), layout + ": " + b.html);
-        const stripped = b.html.replace(/<\/?div[^>]*>|<br>/g, "");
-        assert.ok(!/[<>]/.test(stripped), layout + ": " + stripped);
-        assert.ok(!/\\/.test(b.html), "no backslash");
+        assert.ok(tags.every((t) => t.tag === "div"), layout + ": " + b.html);
+        // Strip every opening and closing div (our own markup, including the styled wrapper
+        // whose style attribute carries the \66ont escape by design). What's left is the user's
+        // text as it reaches the page: no raw <, >, or backslash — and no literal "font" either,
+        // since that's the one we hide, and user text that typed "font" would reach chat too.
+        const stripped = b.html.replace(/<\/?div[^>]*>/g, "");
+        assert.ok(!/[<>\\]/.test(stripped), layout + ": " + stripped);
+        assert.ok(!/font/i.test(stripped), layout + ": " + stripped);
       }
     }
   }

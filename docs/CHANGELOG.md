@@ -333,6 +333,18 @@ is the only such exception. A line or row costs 11 characters where a `<br>` cos
 fit a cheer (a 12-column Han grid: 19 rows, not 27; a stacked letter costs 11 characters), and
 a new Glyph-art block starts at 16 columns, so a square picture still fits one cheer.
 
+The same day, later again: the owner's free chat tests confirmed the list blocks the literal
+word `font` as a wildcard — both `font:` (the shorthand) and `font-size:` (the longhand) were
+held. That takes out every styled text and glyph-art form, since each uses `font-*`. The
+channel is moderated by a committee that can't be reasoned with as one (a mod removes a rule
+and another puts it back on sight), so asking for it to be lifted isn't a path.
+**By the owner's decision, the CSS property name `font` is written with a unicode escape:**
+`\66ont` (where `\66` is the hex code point for `f`), which the browser's CSS parser resolves
+back to `font` with no change to what prints. 2 extra characters per style attribute. This is
+the second owner-chosen exception to THE RULE's "no CSS escapes", and it covers the word
+`font` only. One constant (`FONT_PROP` in the pure core) carries it, so if the filter is widened
+to match `\6` later, swapping to another form (`fo\6e\74`, say) is a one-line edit.
+
 Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`) is not known: a
 free test (Cheer-ready off) answers it before any bits are spent. If a channel blocks a form,
 the answer is the plain form, never a reworked message.

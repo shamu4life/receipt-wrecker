@@ -25,8 +25,11 @@ function disc(cols, rows, ramp) {
 const rowsOf = (html, open, close) => Array.from(html.slice(open.length, html.length - close.length).matchAll(/<div>([\s\S]*?)<\/div>/g), (m) => m[1]);
 
 test("R1: the vw-sized CJK grid, open tag pinned, a row inside 153px and 244px even with every cell rounded up", () => {
+  // The longhand's property name is written \66ont-size (FONT_PROP: a CSS unicode escape for
+  // 'f') so the chat filter's "font" wildcard doesn't catch it. The CSS parser resolves \66ont-
+  // size back to font-size with no change to what prints. 2 extra characters per style attribute.
   eq(C.buildCjkGrid(disc(12, 2, CJK), {}).map((b) => b.html.slice(0, b.html.indexOf(">") + 1)),
-     ["<div style=font-size:6.72vw;line-height:1>"]);
+     ["<div style=\\66ont-size:6.72vw;line-height:1>"]);
   // Chromium 156 rounds each Han advance to the nearest whole px (10.69 -> 11), so a row can be
   // up to half a pixel a cell wider than C x the font size. It must still fit both papers, or
   // it would wrap: rows are explicit <br>s, so the only thing that can push a cell onto the
@@ -63,13 +66,13 @@ test("R1: bands by characters and height, every row exactly C cells, height R x 
     }
   }
   // The largest single cheer fits, with the closing tag: 12 x 19 at Cheer100, each row paying
-  // 11 characters for its <div></div> (27 rows with a <br> between rows, which this channel's
-  // chat filter blocks; 34 when rows broke themselves at a width, which newer Chromium's
-  // whole-pixel advances defeated).
+  // 11 characters for its <div></div> (the open tag's property is \66ont-size, 2 extra chars;
+  // 27 rows with a <br> between rows, which this channel's chat filter blocks; 34 when rows
+  // broke themselves at a width, which newer Chromium's whole-pixel advances defeated).
   const k = ctx();
   const b = C.buildCjkGrid(disc(12, 19, CJK), opts(k));
   assert.equal(b.length, 1);
-  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 42 + 19 * (12 + 11) + 6);
+  assert.equal(C.packStackBodies(b, k)[0].chars, 9 + 44 + 19 * (12 + 11) + 6);
   assert.equal(C.buildCjkGrid(disc(12, 20, CJK), opts(k)).length, 2, "20 rows band into two");
   assert.ok(Math.abs(C.buildCjkGrid(disc(12, 36, CJK), opts(k)).reduce((t, x) => t + x.heightPx, 0) - 36 * 6.72 * 2.72) < 1e-3,
     "12x36 at 80 mm is about 658px");
@@ -80,8 +83,11 @@ test("R4: Courier New <pre>, rows escaped, one <div> each, spaces kept", () => {
   const grid = disc(24, 11, ascii);
   const b = C.buildMonoGrid(grid, opts(ctx()));
   assert.equal(b.length, 1);
-  const open = "<pre style=\"font:5.83vw/1.2 'Courier New';margin:0\">";
-  assert.equal(open.length, 52);
+  // The shorthand's property name is \66ont (FONT_PROP: a CSS unicode escape for 'f') so the
+  // chat filter's "font" wildcard doesn't catch it. 2 extra characters per style attribute.
+  const open = "<pre style=\"\\66ont:5.83vw/1.2 'Courier New';margin:0\">";
+  assert.equal(open.length, 54);
+  assert.ok(!/font/i.test(b[0].html), "no literal 'font' in the payload");
   assert.ok(b[0].html.startsWith(open) && b[0].html.endsWith("</pre>"));
   eq(rowsOf(b[0].html, open, "</pre>"), J(grid.map((r) => r.join(""))));
   assert.ok(b[0].html.includes(" "), "the lightest cell is a space, and <pre> keeps it");
@@ -89,9 +95,10 @@ test("R4: Courier New <pre>, rows escaped, one <div> each, spaces kept", () => {
   // Escaping: a cell that is < & > goes out as an entity, never as markup.
   const hostile = C.buildMonoGrid([["<", "&", ">", "i"], ["a", "b", "<", "s"]], {})[0].html;
   assert.ok(!/[<>]/.test(hostile.replace(/^<pre[^>]*>|<\/pre>$|<\/?div>/g, "")), hostile);
-  // Rows a cheer: at most 12 at 24 columns with the bare Cheer100 lead (a row is 24 cells and
-  // its <div></div>), so 40 rows take four cheers, spread evenly over them: 10/10/10/10.
-  assert.equal(Math.floor((491 - 52 - 6) / (24 + 11)), 12);
+  // Rows a cheer: at most 12 at 24 columns with the bare Cheer100 lead (a row is 24 cells
+  // and its <div></div>; the escape adds 2 chars to the open tag), so 40 rows take four
+  // cheers, spread evenly over them: 10/10/10/10.
+  assert.equal(Math.floor((491 - 54 - 6) / (24 + 11)), 12);
   const tall = C.buildMonoGrid(disc(24, 40, ascii), opts(ctx()));
   eq(tall.map((x) => x.glyph.rows), [10, 10, 10, 10]);
   for (const x of tall) assert.ok(x.chars <= 491);
@@ -101,7 +108,9 @@ test("R4: Courier New <pre>, rows escaped, one <div> each, spaces kept", () => {
 test("R6: Braille rows in a px-sized div, with a margin for the rig's unknown face", () => {
   const dots = C.packBraille(C.lumaToDots(disc(32, 32, ["#", " "]).map((r) => r.map((c) => (c === "#" ? 0 : 255))), {}));
   const b = C.buildBrailleGrid(dots, opts(ctx()));
-  assert.equal(b[0].html.slice(0, b[0].html.indexOf(">") + 1), "<div style=font-size:12px;line-height:14px>");
+  // The longhand's property name is \66ont-size (FONT_PROP), so the chat filter's "font"
+  // wildcard doesn't catch it; the CSS parser resolves it back to font-size.
+  assert.equal(b[0].html.slice(0, b[0].html.indexOf(">") + 1), "<div style=\\66ont-size:12px;line-height:14px>");
   assert.equal(b[0].glyph.form, "braille");
   assert.ok(Math.abs(b[0].heightPx - b[0].glyph.rows * 14) < 1e-9);
   assert.equal(C.brailleFontPx(24, 153), 7);
@@ -254,15 +263,18 @@ test("Design T picture: a light frame column each side of C - 2 picture cells", 
   assert.equal(Array.from(ragged[0].html).length, 9 + 2 * 9);
 });
 
-test("every glyph builder emits only div, pre and br, and nothing of the user's as markup", () => {
+test("every glyph builder emits only div and pre, and nothing of the user's as markup", () => {
   const grids = { cjk: disc(16, 8, CJK), ascii: disc(24, 6, C.getTier("asciifull").ramp), braille: [["⠁", "⣿"], ["⠿", "\u2800"]] };
   for (const mm of [80, 58]) {
     for (const tier of ["cjk", "ascii", "asciifull", "safe", "braille"]) {
       const g = tier === "cjk" ? grids.cjk : tier === "braille" ? grids.braille : grids.ascii;
       for (const b of C.buildGlyphBodies(tier, g, { paperMm: mm })) {
         const tags = J(scanTags(b.html).map((t) => t.tag));
-        assert.ok(tags.every((t) => ["div", "pre", "br"].includes(t)), tier + ": " + tags);
-        assert.ok(!/\\|&#/.test(b.html));
+        assert.ok(tags.every((t) => ["div", "pre"].includes(t)), tier + ": " + tags);
+        // The one backslash OURS by design is the FONT_PROP escape in the R4 (ascii, asciifull,
+        // safe) open tag; strip the whole opening tag and no backslash or HTML entity remains.
+        const stripped = b.html.replace(/^<(pre|div)[^>]*>|<\/(pre|div)>$|<\/?div>/g, "");
+        assert.ok(!/\\|&#/.test(stripped), tier + ": " + stripped);
       }
     }
   }

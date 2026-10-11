@@ -1,8 +1,13 @@
-// AMENDMENT B1 (field, 2026-10-10): this channel's chat filter still blocks the old picture
-// tags, and the app never routes around a filter. So no payload from any 1.0.0 builder, for
-// any mode, paper or input, may contain <img, <object, <image, <embed, <iframe, <svg or
-// <input in any letter case, and the tags it does send are exactly the ones the app uses:
-// div, pre and br. A user who TYPES one of those tags gets it escaped, as text.
+// AMENDMENT B1 (field, 2026-10-10): this channel's chat filter blocks the old picture tags,
+// `<br` and the literal word "font" (as a wildcard: `font:` and `font-size:` both held). The
+// app never routes around a filter EXCEPT at the two owner-chosen exceptions: lines are
+// `<div>`s, not `<br>`; and the font property name is written with a CSS unicode escape
+// (`\66ont`) so the chat filter's "font" wildcard doesn't match it, while the browser's CSS
+// parser resolves it back to `font` with no change to what prints. So no payload from any
+// 1.0.0 builder, for any mode, paper or input, may contain <img, <object, <image, <embed,
+// <iframe, <svg, <input or <br in any letter case, OR the LITERAL word "font" anywhere. The
+// tags it does send are exactly div and pre. A user who TYPES one of the forbidden tokens
+// (picture tag, <br>, "font") gets it escaped, as text, or not emitted at all.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadCore, scanTags } from "./_harness.mjs";
@@ -50,13 +55,17 @@ function everyPayload(mm) {
   return out;
 }
 
-test("B1: every builder and both probes, 80 and 58 mm: only div and pre; never a picture tag or a <br> in any case", () => {
+test("B1: every builder and both probes, 80 and 58 mm: only div and pre; never a picture tag, a <br>, or the literal word 'font'", () => {
   const seen = new Set();
-  let n = 0;
+  let n = 0, hasEscape = 0;
   for (const mm of [80, 58]) {
     for (const [what, html] of everyPayload(mm)) {
       n++;
       assert.ok(!FORBIDDEN.test(html), mm + " mm " + what + ": " + html.slice(0, 200));
+      // No literal "font" anywhere (chat filter wildcard). The one place "font" would appear is
+      // the CSS property name, which is written \66ont instead.
+      assert.ok(!/font/i.test(html), mm + " mm " + what + ": literal 'font' in: " + html.slice(0, 200));
+      if (/\\66ont/.test(html)) hasEscape++;
       for (const t of scanTags(html)) {
         assert.ok(USED.includes(t.tag), mm + " mm " + what + " sends <" + t.tag + ">: " + html.slice(0, 200));
         seen.add(t.tag);
@@ -69,6 +78,9 @@ test("B1: every builder and both probes, 80 and 58 mm: only div and pre; never a
   }
   assert.deepEqual([...seen].sort(), [...USED].sort(), "the list of tags the app uses is exactly what it sends");
   assert.ok(n > 1000, n + " payloads checked");
+  // The escape is actually being used by the builders that style text; otherwise this test
+  // could silently pass by all payloads being plain Han tiling.
+  assert.ok(hasEscape > 100, "styled payloads carry the \\66ont escape (saw " + hasEscape + ")");
 });
 
 test("B1: a typed picture tag arrives as text, escaped, in every text builder", () => {

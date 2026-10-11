@@ -22,13 +22,14 @@ test("High Roller test: one cheer at exactly the threshold, every shape on the b
       assert.match(p.note, new RegExp("exactly the threshold"));
       const tags = scanTags(parts[0].payload);
       assert.ok(tags.every((x) => x.tag === "div"), parts[0].payload);
-      for (const want of ['font:700 60px/.8 Arial">BIG', '>MMMMM<', 'font:700 60px/1.15 Arial">jog', ";rotate:180deg\">BIG", "writing-mode:sideways-lr"]) {
+      for (const want of ['\\66ont:700 60px/.8 Arial">BIG', '>MMMMM<', '\\66ont:700 60px/1.15 Arial">jog', ";rotate:180deg\">BIG", "writing-mode:sideways-lr"]) {
         assert.ok(parts[0].payload.includes(want), want);
       }
+      assert.ok(!/font/i.test(parts[0].payload), "no literal 'font' in the probe");
     }
     // MMMMM is sized by the width rule for this paper.
     const p = C.buildHighRollerProbe({ hrThreshold: 25, paperMm: mm });
-    const px = Number(/font:700 (\d+)px\/\.8 Arial">MMMMM/.exec(p.bodies[0].html)[1]);
+    const px = Number(/\\66ont:700 (\d+)px\/\.8 Arial">MMMMM/.exec(p.bodies[0].html)[1]);
     assert.equal(px, mm === 80 ? 57 : 35);
   }
   const off = C.buildHighRollerProbe({ hrThreshold: 0, bits: 100 });
@@ -50,7 +51,7 @@ test("High Roller test: only the shapes the threshold's receipt holds, and the n
   assert.equal(p.works, true);
   // Kept in order of what they prove: BIG, then UP (56.6px): 104.6px; the upside-down BIG (48)
   // would pass 122.4. They still print in their usual order.
-  assert.ok(p.bodies[0].html.startsWith('<div style="font:700 60px/.8 Arial">BIG</div>'));
+  assert.ok(p.bodies[0].html.startsWith('<div style="\\66ont:700 60px/.8 Arial">BIG</div>'));
   assert.ok(p.bodies[0].html.includes("writing-mode:sideways-lr"));
   for (const gone of [">MMMMM<", ">jog<", "rotate:180deg"]) assert.ok(!p.bodies[0].html.includes(gone), gone);
   eq([...p.left], ["MMMMM", "jog", "the upside-down BIG"]);

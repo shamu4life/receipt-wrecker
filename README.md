@@ -92,7 +92,7 @@ bot's header and footer; the line under each part's preview gives the whole rece
 Your words in bold Arial, as big as the paper allows. `HELLO` with Layout set to Lines:
 
 ```text
-Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>
+Cheer100 <div style="\66ont:700 70px/.8 Arial">HELLO</div>
 ```
 
 - **Layout**: *Auto* (whichever prints biggest at the Size you pick of: your lines as typed,

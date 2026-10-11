@@ -27,7 +27,7 @@ is a hobby project, but credit is gladly given in the advisory if you'd like it.
 ## What is in scope
 
 - Escaping failures in generated markup. The app deliberately emits a little HTML
-  (`div`, `pre` and `br` with a `style` attribute: big text, sideways text,
+  (`div` and `pre` with a `style` attribute: big text, sideways text,
   glyph-art grids) because SassyTP's printer-bot renders a High Roller cheer's
   message as HTML. Every user-supplied character that lands in that markup must go
   through `escapeHtml` / `escapeAttr` in the pure core. A way to break out of an
@@ -75,7 +75,7 @@ don't report them.
   your browser; pasting a picture link or uploading a picture sends it to this
   project's Worker, as `README.md` describes.
 - The app emitting markup at all. SassyTP's bot prints a High Roller cheer's message
-  as HTML through its own allow-list sanitizer; sending styled `div`, `pre` and `br`
+  as HTML through its own allow-list sanitizer; sending styled `div` and `pre`
   is the point of the tool.
 - Glyph-rendering inaccuracies on a given rig are not security issues. If something
   prints wrong on a particular printer (fonts, column count, a tier that comes out

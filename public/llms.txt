@@ -40,7 +40,7 @@ in.
   (leaving room for a j's hook or an f's arm at a line's ends), as
   typed, with the words wrapped to the paper, stacked one letter per line, or each line at its
   own size; optionally upside down.
-  Example: `Cheer100 <div style="font:700 70px/.8 Arial">HELLO</div>`.
+  Example: `Cheer100 <div style="\66ont:700 70px/.8 Arial">HELLO</div>` (the CSS property name "font" is written \66ont to pass this channel's chat filter; see below).
 - Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
   typed line becomes a column, centred across the paper by its ink, worked out from Arial
   Bold (most blocks get a small `position:relative;left` shift; a column whose bottom end is a

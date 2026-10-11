@@ -65,7 +65,7 @@ page, built into the app and run in a sandboxed frame with no network access.
   message may be. Saved as fields of `rw_controls_v1`; no new storage key. When Bits per inch
   leaves a cheer no room after the Cheer line, the notice above the parts says so, with how
   much receipt the streamer gives per bit.
-- **Big text** (High Roller): `<div style="font:700 <px>px/<lh> Arial">` in bold Arial, sized
+- **Big text** (High Roller): `<div style="\66ont:700 <px>px/<lh> Arial"><div>line</div></div>` in bold Arial (the CSS property name `font` is written with a unicode escape to pass this channel's chat filter; see the Field note below), sized
   from Arial Bold's real advance widths (every printable ASCII and Latin-1 character measured;
   Han, kana and Hangul count 1.05em, so a stack of them stays inside the paper). Layouts *Auto*,
   *Lines as you typed them*, *Words wrapped to the paper*, *Stack the letters* and *Each line
@@ -334,7 +334,7 @@ fit a cheer (a 12-column Han grid: 19 rows, not 27; a stacked letter costs 11 ch
 a new Glyph-art block starts at 16 columns, so a square picture still fits one cheer.
 
 The same day, later again: the owner's free chat tests confirmed the list blocks the literal
-word `font` as a wildcard — both `font:` (the shorthand) and `font-size:` (the longhand) were
+word `font` as a wildcard: both `font:` (the shorthand) and `font-size:` (the longhand) were
 held. That takes out every styled text and glyph-art form, since each uses `font-*`. The
 channel is moderated by a committee that can't be reasoned with as one (a mod removes a rule
 and another puts it back on sight), so asking for it to be lifted isn't a path.

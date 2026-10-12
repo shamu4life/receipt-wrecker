@@ -60,8 +60,10 @@ How a cheer prints:
 3. It calls `PrinterBot.render(event, options)` (API notes lines 355-380, `render` lines
    2092-2116, then `present()` 2129-2193). `options` (`OptionsFor` in the C#) = the dock's
    `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks}`, one setting for
-   every printer, plus the printer's own `allowHighRoller` (3.0's **Allow High Roller prints**,
-   on by default) and `pxPerInch` (96 on a roll; Letter also sends `pageHeightPx`).
+   every printer, plus the printer's `allowHighRoller` (3.0's **Allow High Roller prints**, on by
+   default; ProcessEvent sends the printer's own value for a cheer that could be High Roller and
+   `true` for one that can't, below the threshold or with threshold 0) and `pxPerInch` (96 on a
+   roll; Letter also sends `pageHeightPx`).
 4. It screenshots the height `render()` returns, turns it grey with `(77R + 151G + 28B) >> 8`
    (`ToGray`), dithers it to 1 bit with `class Ditherer` (Floyd-Steinberg by default, Atkinson,
    or a plain `< 128` threshold; the two diffusion modes force grey ≥ 250 to white and ≤ 5 to
@@ -100,7 +102,9 @@ What the page decides:
   characters plus `…` (`MAX_PLAIN_CHARS`, 459). The part gets “ and ” from
   `.part.message::before` / `::after` (226-227) and `overflow-wrap: anywhere` (235-238, new in
   2.5.4). Markup prints as text.
-- **Geometry.** `#receipt-container` (lines 27-41): padding `0 14px 14px`, `font-family:
+- **Geometry.** `#receipt-container` (lines 27-41): padding `0 14px` at the sides and a bottom of
+  `calc(14px - var(--pb-cut-h, 0px))` (14 px; 7 / 10 px on 80 / 58 mm with a profile picture, see
+  "The profile picture" below), `font-family:
   "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif`, 16px, line-height 1.35,
   centred. A message therefore has the page width less 28px: **244 px on 80 mm, 153 px on
   58 mm**. One line of plain text is **21.6 px**.
@@ -889,8 +893,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   cheer with the switch on (a threshold cheer's only below the threshold, and the card's note
   then says "at N bits or more", or, when a bits-per-inch setting makes the box grow with the
   bits, that more bits buy more receipt); `previewEvent` sends what a 3.0 printer with the switch
-  off gets, the streamer's real threshold and `allowHighRoller: false`, and the vendored 3.0 page
-  prints it plain (plainText, quote marks, the 1600px box). (1.2.0 drew it on the 2.5.4 page,
+  off gets, the streamer's real threshold and, for a cheer that could be High Roller,
+  `allowHighRoller: false` (`true` below the threshold, as the action sends it), and the vendored
+  3.0 page prints it plain (plainText, quote marks, the 1600px box). (1.2.0 drew it on the 2.5.4 page,
   which has no switch, as `highRollerBits: 0`: the same receipt, 19 of 19 measured.) A free test still
   builds and draws the High Roller form (it tests what chat lets through). With the switch on, the
   High Roller test's note names it as the second cause when BIG prints small inside quotes.
@@ -1143,8 +1148,9 @@ unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
 `TwitchCheer` carrying the bits and the message untouched) and the way the bench does:
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
 what 3.0's `OptionsFor` sends a roll printer: `{highRollerBits, highRollerBitsPerInch,
-highRollerMaxInches, hideLinks: false, allowHighRoller, pxPerInch: 96}`, never a `pageHeightPx`
-(a roll has no pages). No
+highRollerMaxInches, hideLinks: false, allowHighRoller, pxPerInch: 96}` (the switch as
+ProcessEvent sends it: the printer's own value for a cheer that could be High Roller, `true`
+otherwise), never a `pageHeightPx` (a roll has no pages). No
 `userName`, so no avatar lookup starts and the bot draws none. A real cheer's receipt has the
 viewer's picture whenever the lookup answers, so `previewGlue` puts a stand-in in the bot's
 circle (`standIn`: a grey silhouette as an inline SVG, which the frame's `img-src data:` allows;
@@ -1216,7 +1222,8 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    formatCurrency`), the CSS rules of `#receipt-container`, `#receipt-content`, `.part` and
    `#receipt-avatar`, `isHighRoller` through `highRollerMaxHeight`, `viewOf` when either copy has
    it, `show()`, `MAX_RECEIPT_HEIGHT`, the larger picture's gap trimming (`OLD_AVATAR_PX` to the end
-   of `tightenGaps`, which the preview's stand-in repeats), the `TwitchCheer` handler, `present()`
+   of `tightenGaps`, which the preview's stand-in repeats), the lines of `internals` that export
+   `shareCuts` and `gapRooms` (which the stand-in calls), the `TwitchCheer` handler, `present()`
    and render()'s API notes. Each region is identical or changed (a changed one with a unified diff;
    a reworded comment counts). Exit 0: nothing new; 10: a new renderer, every region identical;
    20: a region changed (or appeared, or lost its markers). It keeps what it saw in
@@ -1225,9 +1232,10 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    vendors a beta) is listed but never counts as new. `--no-diff` prints the verdicts alone;
    `--renderer PATH` compares one local file. It makes 3 or 4 of GitHub's 60 anonymous API reads
    an hour. Dev-only: never in CI, and no test imports it.
-2. `NODE_USE_ENV_PROXY=1 node tools/vendor-renderer.mjs --ref <40-hex sha>` (add `--path
-   v/X.Y.Z/renderer.html` if needed; `NODE_USE_ENV_PROXY=1` only matters behind a proxy), then
-   `node tools/vendor-renderer.mjs --check`. Without `--ref`, the tool (a plain write and
+2. For a beta (what the app follows since 1.3.0), `NODE_USE_ENV_PROXY=1 node
+   tools/vendor-renderer.mjs --prerelease` (see "A beta" below); for anything else, `--ref <40-hex
+   sha>` with `--path v/X.Y.Z/renderer.html` (`NODE_USE_ENV_PROXY=1` only matters behind a
+   proxy). Then `node tools/vendor-renderer.mjs --check`. Without `--ref`, the tool (a plain write and
    `--check` alike) follows the commit the committed block names (its `data-commit` and
    `data-path`, and the upstream sha256 in its notice), so the check right after a correct
    update passes and a plain write can't put the old renderer back over the new one; it uses
@@ -1240,10 +1248,13 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    of the beta branch (or at `--ref`), takes `core.prerelease` (`3.0.0-beta.6`) and vendors
    `v/<prerelease>/renderer.html`. Don't pass a beta commit as `--ref` alone: beta's
    `versions.json` still names the stable frontend as `latest`, so that resolves
-   `v/2.5.0/renderer.html`, the 2.5.4 page under a beta's commit. The tool refuses it ("this
-   commit's v/2.5.0/renderer.html is the renderer you already have: pass --prerelease or --path
-   v/<version>/renderer.html") whenever `--ref` names another commit than the block's and the file
-   it resolves has the block's sha256.
+   `v/2.5.0/renderer.html`, the 2.5.4 page under a beta's commit. The tool refuses a `--ref`
+   without `--path` or `--prerelease` that resolves a renderer OLDER than the vendored one (a lower
+   `VERSION`: "this commit's v/2.5.0/renderer.html (VERSION 202610090056) is older than the
+   vendored renderer ..."), and one that resolves the very file the block holds (the same
+   sha256). It used to refuse only the second, which stopped firing once the block held a beta
+   (review of 1.3.0: `--ref <beta.5's commit>` quietly vendored 2.5.4's page, and `--check`
+   passed). An older page on purpose takes an explicit `--path`.
 3. Point both tools at the same commit: `tools/vendor-renderer.mjs`'s `PINNED_SHA`,
    `PINNED_PATH` and `PINNED_SHA256`, and `tools/forkbench.mjs`'s `PINNED_SHA`,
    `RENDERER_PATH` and `RENDERER_SHA256`. Then re-bench the modes whose shape matters to you at
@@ -1282,16 +1293,19 @@ commit a font or the upstream renderer page.
   line on stdout: ok, height, trimmed, security, part class, fonts, the ink's box and a
   `summary` whose clipping verdict is read off the ink, not the boxes). Other flags:
   `--message`, `--message-file` or stdin, `--bits`, `--threshold`, `--bits-per-inch`,
-  `--max-inches`, `--user`, `--theme-file`, `--hide-links`, `--fonts DIR` (your own font folder,
-  through a fontconfig under `.render/fonts/`), `--pretty`. Exit 0 ok, 1 render failed, 2 usage
-  or environment.
+  `--max-inches`, `--no-high-roller-prints` (Printer Bot 3.0's Allow High Roller prints off; the
+  bench always sends `allowHighRoller` and `pxPerInch: 96`, and its report echoes both), `--user`,
+  `--theme-file`, `--hide-links`, `--fonts DIR` (your own font folder, through a fontconfig under
+  `.render/fonts/`), `--pretty`. Exit 0 ok, 1 render failed, 2 usage or environment.
 - **`tools/payload.mjs`** (`npm run payload -- '<json>'`) builds a message with the app's own
   builders AND packer, so the bench measures what the app sends. Kinds: `big`, `side`,
   `glyph` (built-in test pictures through the app's own sampling), `plain` (text needs
   Playwright's Chromium, because it runs the app's canvas code; a picture does not),
   `hrprobe`, `plainprobe`, and `raw`. Fields: `paper`, `bits`, `threshold`, `bpi`, `maxin`,
-  `cheer`, `nonce`, `part`. It prints the matching forkbench flags on stderr: pass the same
-  ones, or the bench's High Roller decision and box differ from the app's.
+  `hrprints` (false: the printer's Allow High Roller prints off), `cheer`, `nonce`, `part`. It
+  prints the matching forkbench flags on stderr (for a free test, threshold 1 and the switch on,
+  as the preview draws one): pass the same ones, or the bench's High Roller decision and box
+  differ from the app's.
 
 ```sh
 node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \

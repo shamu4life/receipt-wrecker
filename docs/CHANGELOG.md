@@ -25,7 +25,8 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   preview's stand-in picture and the Thermal view follow it.
 - **Preview: asked the 3.0 way.** Each part is drawn with the options a 3.0 receipt printer
   gets: the streamer's threshold, bits per inch and maximum length, the printer's Allow High
-  Roller prints, and its px per inch. With Allow High Roller prints off, the page itself prints
+  Roller prints (sent as the bot sends it: its own value for a cheer that could be High Roller),
+  and its px per inch. With Allow High Roller prints off, the page itself prints
   the cheer as plain text (1.2.0 drew that receipt on 2.5.4's page as threshold 0: the same
   receipt).
 - **Preview: the layout line** names the beta ("Printer Bot 3.0.0-beta.6's layout
@@ -39,7 +40,8 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 ### How sure
 
 - **Tests**: 232 unit tests and 77 browser tests (1 new: the Thermal view draws 3.0's circle
-  where the page has it, 58 mm's bleed included). The MANDATORY contract test runs every mode
+  where the page has it, 58 mm's bleed included; the stand-in's gap trimming is held to the bot's
+  own split, gap by gap). The MANDATORY contract test runs every mode
   through the beta's page, now also with Allow High Roller prints off at 100 bits, read by the
   page itself. `tools/vendor-renderer.mjs --check` passes against beta.6.
 - **Not printed yet** on a 3.0 rig. The measurements are the bot's own page in Playwright's
@@ -50,8 +52,10 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 - `tools/vendor-renderer.mjs` and `tools/forkbench.mjs` are pinned to 3.0.0-beta.6.
   `forkbench` sends what a 3.0 roll printer gets and takes `--no-high-roller-prints`;
   `payload.mjs` takes `"hrprints": false`. `tools/upstream-watch.mjs` also compares the
-  profile picture's CSS and gap trimming, the cheer handler, `present()` and render()'s API
-  notes, the parts the preview relies on.
+  profile picture's CSS and gap trimming, the `internals` lines the preview's stand-in calls,
+  the cheer handler, `present()` and render()'s API notes, the parts the preview relies on.
+  `tools/vendor-renderer.mjs` refuses a `--ref` that resolves a renderer older than the vendored
+  one unless `--path` or `--prerelease` names it (a beta's commit alone resolves 2.5.4's page).
 
 ---
 

@@ -2643,7 +2643,10 @@ test("1.1.0: the preview draws a stand-in in the bot's profile-picture circle an
   // message width plus a 10 px bleed into each margin, 173 px. It takes what that gains over
   // 2.5.4's 184 / 153 px (38 / 20 px) back out of the gaps around the header and the footer, so
   // the receipt is as tall as it was: the extra stays 182 / 151 px (avatarExtraPx).
-  for (const [paperMm, side, extra, gained] of [[80, 222, 182, 38], [58, 173, 151, 20]]) {
+  // shares: the bot's own tightenGaps for a receipt with a real picture, measured in the frame (gaps
+  // a, c, d, e, f, g, h: review of 1.3.0; a split with the same sum but other shares moves the
+  // message and the logo).
+  for (const [paperMm, side, extra, gained, shares] of [[80, 222, 182, 38, [6, 6, 5, 6, 6, 2, 7]], [58, 173, 151, 20, [3, 3, 3, 3, 3, 1, 4]]]) {
     const { page, ctx, errors, requests } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, paperMm }, eager: true });
     const payload = await copyPayload(page, 0);
     const { frame, card, last, verdict } = await drawnPart(page, 0, payload);
@@ -2661,7 +2664,7 @@ test("1.1.0: the preview draws a stand-in in the bot's profile-picture circle an
               v("receipt-footer", "--pb-cut-above"), v("receipt-footer", "--pb-cut-below"), v("receipt-footer", "--pb-cut-g"), v("receipt-container", "--pb-cut-h")];
     });
     assert.equal(cuts.reduce((a, b) => a + b, 0), gained, paperMm + " mm: " + cuts);
-    assert.ok(cuts.every((c) => c > 0), paperMm + " mm: a gap the bot trims was left out: " + cuts);
+    assert.deepEqual(cuts, shares, paperMm + " mm: not the bot's own split");
     // The bot's page measured without it, the preview with it: the picture and its gap, less the
     // 16 px top padding and what the gaps give back.
     assert.equal(last.result.standIn, true);

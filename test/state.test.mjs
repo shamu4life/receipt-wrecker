@@ -157,8 +157,9 @@ test("forkDither: the bot's grey, its clamps, and threshold at 128", () => {
 test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's settings, no userName", () => {
   const payload = 'Cheer25 <div style="font:700 60px/.8 Arial">BIG</div>';
   // The options a 3.0 printer's action sends (OptionsFor): the streamer's threshold, bits per inch
-  // and maximum length, the printer's own Allow High Roller prints, and its px per inch (96 on a
-  // roll; Letter paper is about 53.3 and also sends a pageHeightPx, which the preview never does).
+  // and maximum length, the printer's Allow High Roller prints (as the action sends it: its own
+  // value for a cheer that can be High Roller, true otherwise), and its px per inch (96 on a roll;
+  // Letter paper is about 53.3 and also sends a pageHeightPx, which the preview never does).
   eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
     event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
     options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true, pxPerInch: 96 } });

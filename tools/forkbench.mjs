@@ -576,7 +576,8 @@ async function main() {
         const report = {
             ok: true, summary,
             input: { message: o.message, messageChars: Array.from(o.message).length, bits: o.bits, threshold: o.threshold,
-                     highRoller: o.threshold > 0 && o.bits >= o.threshold, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches,
+                     highRoller: o.allowHighRoller && o.threshold > 0 && o.bits >= o.threshold, allowHighRoller: o.allowHighRoller, pxPerInch: 96,
+                     bitsPerInch: o.bitsPerInch, maxInches: o.maxInches,
                      paperMm: o.paper, pageCssW: pageW, dotsW, user: o.user, theme: !!o.themeCss, hideLinks: o.hideLinks,
                      dither: o.dither, fontsDir: o.fontsDir },
             renderer: { ...renderer, version: m.rendererVersion },

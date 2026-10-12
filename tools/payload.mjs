@@ -12,8 +12,10 @@
 //   node tools/payload.mjs spec.json | npm run bench -- --out .render/forkbench/case.png
 //
 // The forkbench flags that match the spec (bits, threshold, bits per inch, maximum length,
-// paper) are printed on stderr: give the bench the same ones, or its High Roller decision and
-// box will not be the ones the app sized the message for.
+// paper, the printer's Allow High Roller prints) are printed on stderr: give the bench the same
+// ones, or its High Roller decision and box will not be the ones the app sized the message for.
+// A free test ("cheer": false) gets what the app's preview sends one: threshold 1 and the switch
+// on, since it is drawn as the High Roller form it tests.
 //
 // Fields every kind takes (all optional):
 //   "paper": 80|58            roll width (default 80)
@@ -40,9 +42,11 @@
 //        so this one needs Chromium like forkbench does.
 //   {"kind":"plain","picture":"heart","cols":13}   a Design T picture (pure, no browser)
 //        Plain kinds build the form the app builds for these settings: plain below the
-//        threshold (the default bits for "plain" is threshold - 1), High Roller at or above it.
+//        threshold (the default bits for "plain" is threshold - 1) or with "hrprints": false,
+//        High Roller otherwise.
 //   {"kind":"hrprobe"}      the High Roller test (bits = the threshold)
-//   {"kind":"plainprobe"}   the Plain test (bits = threshold - 1)
+//   {"kind":"plainprobe"}   the Plain test (bits = threshold - 1, or 1 when High Roller is off or
+//                           "hrprints" is false)
 //   {"kind":"raw","html":"<b>anything</b>","lead":true}   escape hatch ("lead" adds the app's lead)
 import { readFileSync, existsSync } from "node:fs";
 import { loadCore, appScript } from "../test/_harness.mjs";
@@ -202,10 +206,11 @@ if (bodies) {
     + " — box " + k.limit.px + "px (" + k.limit.by + "), mode " + (parts[idx].alone ? "plain part" : k.mode));
   if (note) say("note: " + note);
 }
-say("forkbench flags: --paper " + paperMm + " --bits " + bits + " --threshold " + threshold
+const free = spec.cheer === false;
+say("forkbench flags: --paper " + paperMm + " --bits " + bits + " --threshold " + (free ? 1 : threshold)
   + (C.bitsPerInchOf(spec.bpi) ? " --bits-per-inch " + C.bitsPerInchOf(spec.bpi) : "")
   + (C.maxInchesOf(spec.maxin) ? " --max-inches " + C.maxInchesOf(spec.maxin) : "")
-  + (allowHighRoller ? "" : " --no-high-roller-prints"));
+  + (allowHighRoller || free ? "" : " --no-high-roller-prints"));
 process.stdout.write(html);
 if (process.stdout.isTTY) process.stdout.write("\n");
 say(Array.from(html).length + " chars of " + C.MAX_CHARS + (Array.from(html).length > C.MAX_CHARS ? "  — OVER, Twitch would reject this" : ""));

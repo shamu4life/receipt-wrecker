@@ -1,6 +1,7 @@
 // The vendored receipt page (AMENDMENT A1, A5).
 //
-// public/index.html carries SassyTP printer-bot's receipt page, v/2.5.0/renderer.html, as an
+// public/index.html carries SassyTP printer-bot's receipt page (the one its data-path names:
+// v/3.0.0-beta.6/renderer.html since 1.3.0, v/2.5.0/renderer.html before) as an
 // inert <script type="text/plain" id="sassytp-renderer"> block after the app's own script; the
 // preview loads it into one sandboxed frame per part. tools/vendor-renderer.mjs writes the block
 // (and `--check`s it against the pinned upstream file, which needs the network or its cache, so

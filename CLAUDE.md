@@ -1173,7 +1173,10 @@ layout, read at init from the block's own `data-version` and `data-path` ("Print
 it with the Renderer version the streamer's dock shows under Updates: the bot can download a newer
 layout to the dock by itself (UPDATING.md, "Download updates" on by default). Layouts measured to
 print the app's messages the same on a roll are named as such (`SAME_PRINTS`: 2.5.4's
-202610090056, "the same with a smaller profile picture").
+202610090056, "does, with a smaller profile picture"). The line also says the preview uses this
+computer's fonts; what the thermal view is sits under its "What's this?". On a phone the line sits
+between the blocks and the parts, so a browser test holds it to 360 characters (1.2.0's length; at
+493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).
 
 **The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, the
 stand-in profile picture included, and how much shorter a receipt with no picture is (about

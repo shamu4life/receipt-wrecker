@@ -31,7 +31,9 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   receipt).
 - **Preview: the layout line** names the beta ("Printer Bot 3.0.0-beta.6's layout
   v202610110524") and no longer tells a 2.5.4 streamer the preview may not match: their dock's
-  Renderer, 202610090056, prints these messages the same with a smaller profile picture.
+  Renderer, 202610090056, prints these messages the same with a smaller profile picture. The line
+  is shorter, so on a phone the preview still starts right under the blocks: what the thermal view
+  is moved under its "What's this?".
 - **The app follows the betas.** Each new Printer Bot beta is vendored on a branch, run through
   both test suites and merged like any other change. Printer Bot 3.0 can also print one cheer
   on several printers, each with its own paper and switch, and print Letter paper through an

@@ -1660,7 +1660,7 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   await card.locator("details.more summary", { hasText: "What's this?" }).nth(1).click();
   assert.match(await card.innerText(), /bold Arial and can't be changed/);
   assert.equal(await page.locator(".preview > details.more").evaluate((d) => d.open), false, "the thermal caption's detail is folded");
-  assert.match(await page.locator(".preview > .hint").first().textContent(), /give or take fonts: this computer's fonts may differ from the streamer's/);
+  assert.match(await page.locator(".preview > .hint").first().textContent(), /in this computer's fonts, which may differ from the streamer's\./);
   // The Cheer-ready hint says where the word goes.
   assert.match(await page.locator("#cheer").locator("xpath=../following-sibling::div[1]").textContent(),
     /^Adds "Cheer<bits>" to each message \(at the start, or at the end of a plain-text part\) so it triggers the print/);
@@ -2939,8 +2939,12 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   // 1.3.0: the page is Printer Bot 3.0's beta. A 2.5.4 dock's Renderer (202610090056) prints the
   // app's messages the same on a roll (measured: 19 of 19), so the line says so rather than "may not match".
   assert.equal(v, "202610110524");
-  assert.match(credit, /Printer Bot 3\.0\.0-beta\.6/);
-  assert.match(credit, /If the streamer's dock shows another Renderer version under Updates, this preview may not match their printer, except Printer Bot 2\.5\.4's 202610090056, which prints these messages the same with a smaller profile picture\./);
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0-beta\.6's layout v202610110524, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match; Printer Bot 2\.5\.4's 202610090056 does, with a smaller profile picture\.$/);
+  // Short enough that on a phone the preview still starts right under the blocks (the round 3
+  // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
+  // made the gap 414px in CI's fonts.
+  assert.ok(credit.length <= 360, credit.length + " characters");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

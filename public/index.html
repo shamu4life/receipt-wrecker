@@ -170,8 +170,8 @@
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
       <label class="thermal-toggle">Thermal dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select> <span id="thermalDitherOff" class="dither-off">(turn on the thermal preview first)</span></label>
-      <div class="hint" id="rendererCredit">The preview is drawn by SassyTP's printer-bot renderer (MIT)<span id="rendererVersion"></span>, the receipt page the bot itself prints from.<span id="rendererCompare"></span> The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
-      <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
+      <div class="hint" id="rendererCredit">The preview is drawn by SassyTP's printer-bot renderer (MIT)<span id="rendererVersion"></span>, in this computer's fonts, which may differ from the streamer's.<span id="rendererCompare"></span></div>
+      <details class="hint more"><summary>What's this?</summary><div>The preview is the receipt page the bot itself prints from, and the thermal view is what the printer gets, give or take fonts. The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
@@ -6277,15 +6277,17 @@
       // it. SassyTP's bot can download a newer layout to the streamer's dock by itself. Since 1.3.0 the
       // block is Printer Bot 3.0's beta; a 2.5.4 dock's layout prints the app's messages the same on a
       // roll (measured, 19 of 19, all but the profile picture's size), so that one is named as such.
+      // On a phone the line sits between the blocks and the parts, so it stays short (1.2.0's was 360
+      // characters; at 493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).
       var SAME_PRINTS = { "202610090056": "Printer Bot 2.5.4" };
       var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
       var rpath = /^v\/([0-9][0-9A-Za-z.-]*)\/renderer\.html$/.exec((rblock && rblock.getAttribute("data-path")) || "");
       if (rver && /^\d+$/.test(rver)) {
         document.getElementById("rendererVersion").textContent = (rpath ? ", Printer Bot " + rpath[1] + "'s" : ",") + " layout v" + rver;
         var same = Object.keys(SAME_PRINTS).filter(function (v) { return v !== rver; });
-        document.getElementById("rendererCompare").textContent = " If the streamer's dock shows another Renderer version under Updates, this preview may not match their printer"
-          + (same.length ? ", except " + same.map(function (v) { return SAME_PRINTS[v] + "'s " + v; }).join(" and ")
-             + ", which prints these messages the same with a smaller profile picture." : ".");
+        document.getElementById("rendererCompare").textContent = " If their dock shows another Renderer version under Updates, it may not match"
+          + (same.length ? "; " + same.map(function (v) { return SAME_PRINTS[v] + "'s " + v; }).join(" and ")
+             + (same.length > 1 ? " do" : " does") + ", with a smaller profile picture." : ".");
       }
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);

@@ -74,7 +74,7 @@ function installClipboardStub() {
 // fails the one test that checks the defaults rather than quietly changing what the others
 // test. (This is SassyTP's own defaults: threshold 25, no length limits, 80 mm.)
 const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd" };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true };
 // `blocks`, `presets` and `controls` seed rw_blocks_v1, rw_presets_v1 and rw_controls_v1
 // before the app's first load, the way a returning user's saved state is there before the
 // page runs; `controls` defaults to SETTINGS, and `controls: null` seeds nothing (a first
@@ -137,9 +137,14 @@ const len = (s) => Array.from(s).length;     // payloadLength's rule: code point
 
 // stackContext's options for a settings object (normalizeControls' fields).
 const stackOptsOf = (s) => ({ cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
-                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm });
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm,
+                              allowHighRoller: s.allowHighRoller });
 // What a stack of big and sideways blocks sends, per the core, computed here in Node.
 function nodeBodies(block, ctx) {
+  if (C.blockRender(block) === "typed") {
+    return Array.from(C.buildHanTyped(block.text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
+                                                    noNonce: ctx.noNonce, limitPx: ctx.limit.px }));
+  }
   if (C.blockRender(block) === "sideways") {
     const o = C.sideOpts(block);
     return Array.from(C.buildSideBodies(block.text, { dir: o.dir, size: o.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW }));
@@ -171,6 +176,8 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
         const grid = K.glyphGrid(b, img, ctx);
         bodies = ctx.mode === "plain" ? K.buildDesignTPicture(grid, plainOpts("plain"))
           : K.buildGlyphBodies(K.glyphOpts(b).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm });
+      } else if (K.blockRender(b) === "typed") {
+        bodies = K.buildHanTyped(b.text, plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "hanzi" || ctx.mode === "plain") {
         bodies = K.buildDesignT(K.designTTextGrid(K.bigClean(b.text).text, ctx.paperMm, K.hanziWeightOf(b.hanziWeight)), plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "sideways") {
@@ -528,6 +535,7 @@ test("a Real picture sends nothing, says so plainly, and switches to Glyph-art i
 });
 
 // Every mode in one stack, so the packer's sharing of parts between blocks is exercised too.
+const MOSAIC = Array.from({ length: 300 }, (_, i) => C.getTier("cjk").ramp[(i * 7 + (i >> 4)) % C.getTier("cjk").ramp.length]).join("");
 const EVERY_MODE = () => [
   BIG({ id: 1, text: "HELLO" }),
   BIG({ id: 2, text: "HAPPY\nBIRTHDAY", bigLayout: "lines", bigSize: "fit1" }),
@@ -549,6 +557,8 @@ const EVERY_MODE = () => [
   { id: 25, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "stuff" },
   { id: 26, type: "text", render: "sideways", sideDir: "up", sideSize: "fit1", text: "just" },
   { id: 8, type: "text", render: "hanzi", text: "HI", hanziWeight: 400 },
+  // 1.2.0: Han text as typed, a pasted mosaic of 300 Han characters (20 rows on 80 mm, 34 on 58 mm).
+  { id: 27, type: "text", render: "typed", text: MOSAIC },
   ...["cjk", "ascii", "safe", "braille"].map((tier, i) => ({ id: 9 + i, type: "image", imgKind: "glyph", url: "PIC",
     width: 70, rotate: 0, adjBright: 0, adjContrast: 0, tier, cols: tier === "cjk" ? 14 : 20, dither: true, contrast: 128, invert: false })),
 ];
@@ -1267,7 +1277,8 @@ test("the cards' notes: High Roller off, labels at the threshold's bits, a free 
                                      controls: { ...SETTINGS, bits: 1, hrThreshold: 1000, bitsPerInch: 100 } }));
   const fit1 = await cards(page).first().locator(".sel-size option[value=fit1]").textContent();
   assert.ok(!/cut off by the box/.test(fit1), fit1);
-  assert.match(await cards(page).first().locator(".text-note").innerText(), /The sizes above are what it prints at 1000 bits or more/);
+  // (More bits buy more receipt under bits per inch, so not "1000 bits or more": review of the 1.2.0 fixes.)
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /The sizes above are what it prints at 1000 bits \(more bits buy more receipt, so a bigger cheer can print bigger\)\./);
   await ctx.close();
 
   // A free test costs nothing: messages, not bits.
@@ -1345,11 +1356,11 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   await page.click("#hrProbeBtn");
   assert.match(await page.textContent("#modeNote"), /not your stack\. Your blocks are unchanged\./);
   await page.click("#backToStack");
-  // A free test below the threshold says the real cheer prints as Han tiling.
+  // A free test below the threshold says the real cheer prints in its plain form.
   await page.uncheck("#cheer");
   await page.fill("#bitsAmount", "10");
   await page.locator("#bitsAmount").press("Tab");
-  assert.match(await page.textContent("#modeNote"), /Your 10-bit cheer will print as Han tiling instead: this tests the High Roller form, which needs 25 bits or more\./);
+  assert.match(await page.textContent("#modeNote"), /Your 10-bit cheer will print in its plain form instead \(big and sideways text as Han tiling\): this tests the High Roller form, which needs 25 bits or more\./);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -2548,7 +2559,7 @@ test("1.1.0: picking Big text below the threshold raises Bits per cheer to it, s
   assert.equal(await page.locator("#modeNote").count(), 0, "the below-threshold notice stayed");
   const note = raiseNoteOf(cards(page).first());
   assert.equal(await note.getAttribute("role"), "status");
-  assert.equal(await note.textContent(), "Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was 2 Han tiling cheers, 20 bits).Undo");
+  assert.equal(await note.textContent(), "Bits per cheer raised from 10 to 25 for Big text: 1 cheer, 25 bits (was 2 plain cheers, 20 bits).Undo");
   assert.equal(await focusedClass(page), "sel-render", "the pick lost its focus");
   assert.match(await copyPayload(page), /^Cheer25 <div style=/);
   // Typing and a rebuilt block list keep the note on its own card.
@@ -2614,7 +2625,7 @@ test("1.1.0: Glyph-art's Characters counts too; a jump past 4x asks first; lower
   assert.equal(await raiseNoteOf(card).textContent(), "For the characters you picked a cheer needs 25 bits or more (the streamer's High Roller threshold). At 5 bits the stack prints in its plain form.Raise to 25 bits");
   await raiseNoteOf(card).getByRole("button", { name: "Raise to 25 bits" }).click();
   assert.equal(await bitsValue(page), "25");
-  assert.match(await raiseNoteOf(card).textContent(), /^Bits per cheer raised from 5 to 25 for the characters you picked: \d+ cheers?, \d+ bits \(was 1 Han tiling cheer, 5 bits\)\.Undo$/);
+  assert.match(await raiseNoteOf(card).textContent(), /^Bits per cheer raised from 5 to 25 for the characters you picked: \d+ cheers?, \d+ bits \(was 1 plain cheer, 5 bits\)\.Undo$/);
   // Back down by hand: the app takes the hint and only offers from now on.
   await commit(page, "#bitsAmount", "10");
   assert.equal(await raiseNoteOf(card).count(), 0);
@@ -2737,12 +2748,12 @@ test("1.1.0 review: the note drops its 'was' once the stack changes, and a refre
   await settled(page);
   await cards(page).first().locator(".sel-render").selectOption("big");
   const note = raiseNoteOf(cards(page).first());
-  assert.match(await note.textContent(), /\(was 2 Han tiling cheers, 20 bits\)/);
+  assert.match(await note.textContent(), /\(was 2 plain cheers, 20 bits\)/);
   await note.getByRole("button", { name: "Undo" }).focus();
   // A refresh that changes nothing in the stack keeps the note, its 'was' and the focus.
   await cards(page).first().locator("textarea").dispatchEvent("input");
   assert.equal(await focusedClass(page), "raise-undo", "a refresh took the focus off Undo");
-  assert.match(await note.textContent(), /\(was 2 Han tiling cheers, 20 bits\)/, "an unchanged stack lost its 'was'");
+  assert.match(await note.textContent(), /\(was 2 plain cheers, 20 bits\)/, "an unchanged stack lost its 'was'");
   // An edit: 'now' follows the stack, and 'was' (the stack before the raise) no longer applies.
   await cards(page).first().locator("textarea").fill("HELLO THERE FRIEND");
   assert.match(await note.textContent(), /^Bits per cheer raised from 10 to 25 for Big text: \d+ cheers?, \d+ bits\.Undo$/);
@@ -2851,4 +2862,311 @@ test("1.1.0 review: a pick that needs no High Roller ends an offer, never a rais
     assert.deepEqual(errors, []);
     await ctx.close();
   }
+});
+
+// 1.2.0: the preview names the layout it draws with, so a viewer can compare it with the version the
+// streamer's dock shows under Updates, Renderer (SassyTP's bot can update that page by itself).
+test("1.2.0: the preview's credit names the vendored layout version, read from the block itself", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })] });
+  const v = await page.evaluate(() => document.getElementById("sassytp-renderer").getAttribute("data-version"));
+  assert.match(v, /^\d{12}$/);
+  const credit = await page.textContent("#rendererCredit");
+  assert.ok(credit.includes("layout v" + v), credit);
+  assert.match(credit, /If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// 1.2.0: Printer Bot 3.0's per-printer "Allow High Roller prints" switch, as one of the streamer's settings.
+test("1.2.0: with Allow High Roller prints off every block builds plain, the notices say why, and nothing raises", async () => {
+  const blocks = [BIG({ id: 1 })];
+  const { page, ctx, errors } = await freshPage({ blocks, core: true, controls: { ...SETTINGS, bits: 10 } });
+  assert.equal(await page.isChecked("#allowHighRoller"), true, "it starts on, as in the bot");
+  await page.uncheck("#allowHighRoller");
+  assert.equal((await stored(page, "rw_controls_v1")).allowHighRoller, false);
+  await settled(page);
+  assert.deepEqual(await copyAll(page), await expectPage(page, blocks, { ...SETTINGS, bits: 10, allowHighRoller: false }));
+  assert.match(await page.textContent("#modeNote"), /^The streamer's printer has Allow High Roller prints off \(a Printer Bot 3\.0 setting\)/);
+  assert.equal(await page.locator("#modeNote .fix-btn").getAttribute("data-goto"), "allowHighRoller");
+  assert.match(await page.textContent("#bitsHint"), /The streamer's printer has Allow High Roller prints off/);
+  assert.match(await cards(page).first().locator(".text-note").innerText(), /The streamer's printer has Allow High Roller prints off, so this block prints as Han tiling/);
+  // No amount helps, so a High Roller-only pick raises nothing.
+  await cards(page).first().locator(".sel-layout").selectOption("stack");
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 0);
+  // At 100 bits too: still plain, and the High Roller test offers no Copy and names the switch.
+  await commit(page, "#bitsAmount", "100");
+  assert.match(await page.textContent("#modeNote"), /Allow High Roller prints off/);
+  // What Copy sends is the plain form at 100 bits (review: no test read it, so the switch could
+  // fall out of the stack's options with every test still passing).
+  await settled(page);
+  assert.deepEqual(await copyAll(page), await expectPage(page, blocks, { ...SETTINGS, bits: 100, allowHighRoller: false }));
+  assert.notDeepEqual(await expectPage(page, blocks, { ...SETTINGS, bits: 100 }), await expectPage(page, blocks, { ...SETTINGS, bits: 100, allowHighRoller: false }));
+  await page.click("#hrProbeBtn");
+  assert.equal(await page.locator("#parts .copy-btn").count(), 0, "the High Roller test offered a Copy with the switch off");
+  assert.match(await page.locator("#parts .part").first().innerText(), /The streamer's printer has Allow High Roller prints off, so this prints as plain text/);
+  // It survives a reload.
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.equal(await page.isChecked("#allowHighRoller"), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0: with Allow High Roller prints off the preview draws the part the way that printer prints it", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, allowHighRoller: false }, eager: true });
+  const payload = await copyPayload(page, 0);
+  const { last } = await drawnPart(page, 0, payload);
+  assert.equal(last.options.highRollerBits, 0);
+  assert.equal(last.options.allowHighRoller, false);
+  assert.doesNotMatch(last.measure.partClass, /\braw\b/, "the preview drew a styled receipt the printer won't print");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// 1.2.0: Han text.
+test("1.2.0: Han text as typed: Copy sends the core's rows above and below the threshold, on both papers, and the card names what was left out", async () => {
+  const blocks = [{ id: 1, type: "text", render: "typed", text: "你好世界，我爱你。\nThe end 結束" }];
+  for (const s of [{ ...SETTINGS }, { ...SETTINGS, paperMm: 58 }, { ...SETTINGS, bits: 24 }, { ...SETTINGS, cheer: false }]) {
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+    await settled(page);
+    assert.deepEqual(await copyAll(page), expectNode(blocks, s), JSON.stringify(s));
+    const note = await cards(page).first().locator(".text-note").innerText();
+    // A free test counts messages, as the parts' total does (review).
+    assert.match(note, new RegExp("^Han text as typed: 2 rows of (15|9) characters · 1 " + (s.cheer ? "cheer" : "message")), JSON.stringify(s));
+    // Its punctuation is left out with the Latin letters, and named (owner, 2026-10-11).
+    assert.match(note, /Left out: 10 characters that could knock the rows out of line \(“，”, “。”, “T”, “h”, “e”, space, …\)\. Big text prints those\./);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.2.0: Big text wraps a long Han run between characters: Auto picks Words wrapped in one cheer, and Copy is the core's", async () => {
+  const blocks = [BIG({ id: 1, text: "你好".repeat(40) })];
+  for (const s of [{ ...SETTINGS }, { ...SETTINGS, paperMm: 58 }]) {
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+    const payloads = await copyAll(page);
+    assert.deepEqual(payloads, expectNode(blocks, s), s.paperMm + " mm");
+    assert.equal(payloads.length, C.bigFit(blocks[0].text, { layout: "auto", paperMm: s.paperMm }).cheers);
+    assert.equal(C.bigFit(blocks[0].text, { layout: "auto", paperMm: s.paperMm }).layout, "wrap", s.paperMm + " mm");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+// 1.2.0 review fixes.
+// Han text as typed, drawn through the vendored renderer: every printed line is exactly one of the
+// grid's rows. A closing mark at a row's start or an opening one at its end made every row after it
+// slip by a cell, with the heights still matching, so only the lines themselves show it.
+async function printedLines(frame) {
+  return frame.evaluate(() => {
+    const part = document.querySelector("#receipt-content > .part"), out = [];
+    const walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      let i = 0;
+      for (const ch of Array.from(n.data)) {
+        const r = document.createRange();
+        r.setStart(n, i); r.setEnd(n, i + ch.length); i += ch.length;
+        const rects = r.getClientRects();
+        if (!rects.length) continue;
+        const top = Math.round(rects[0].top);
+        let line = out.find((l) => Math.abs(l.top - top) < 4);
+        if (!line) { line = { top, text: "" }; out.push(line); }
+        line.text += ch;
+      }
+    }
+    return out.sort((a, b) => a.top - b.top).map((l) => l.text.trim()).filter(Boolean);
+  });
+}
+const ROWS_TEXT = [
+  "今天天气很好，我们去公园吧。你觉得怎么样？",   // punctuation, left out
+  "一二三四五六七八九十一二三四人々都来了",       // 々 would start the second row on 80 mm
+  "一二三四五六七八人々",                         // ... and on 58 mm
+  "一二三四五六七八九十一二三四人〻都",           // so would 〻, the other iteration mark
+  "一二三四五六七八人〻",
+  "「我们一起去吃饭吧。」好的！OK",               // brackets, marks and Latin, left out
+  "今日は良い天気ですね",                         // kana and Hangul are left out (Han characters only)
+  "감사합니다 漢字",
+].join("\n");
+
+test("1.2.0 review: Han text as typed prints every row exactly as the grid has it, with punctuation, iteration marks, kana and Hangul in the text", async () => {
+  const blocks = [{ id: 1, type: "text", render: "typed", text: ROWS_TEXT }];
+  for (const paperMm of [80, 58]) {
+    for (const bits of [24, 100]) {
+      const s = { ...SETTINGS, paperMm, bits };
+      const { page, ctx, errors } = await freshPage({ blocks, controls: s, eager: true });
+      await settled(page);
+      const mode = bits >= s.hrThreshold ? "raw" : "plain";
+      const bodies = C.buildHanTyped(ROWS_TEXT, { mode, paperMm, cheer: true, bits, noNonce: true, limitPx: 1600 });
+      const n = await page.locator("#parts .part").count();
+      assert.equal(n, bodies.length);
+      for (let i = 0; i < n; i++) {
+        const payload = await copyPayload(page, i);
+        const { frame } = await drawnPart(page, i, payload);
+        const want = bodies[i].preview.grid.split("\n").filter(Boolean).concat(["Cheer" + bits]);
+        assert.deepEqual(await printedLines(frame), want, paperMm + " mm, " + bits + " bits, part " + (i + 1));
+      }
+      assert.deepEqual(errors, []);
+      await ctx.close();
+    }
+  }
+});
+
+test("1.2.0 review: with Allow High Roller prints off the Plain test cheers 1 bit, and a Glyph-art card promises no raise", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [GLYPH({ id: 1, tier: "cjk" })], controls: { ...SETTINGS, bits: 10, allowHighRoller: false } });
+  await settled(page);
+  const note = await cards(page).first().locator(".text-note").innerText();
+  assert.match(note, /The streamer's printer has Allow High Roller prints off, so the picture prints as a plain grid of Han characters/);
+  assert.doesNotMatch(note, /raises Bits per cheer/);
+  await page.click("#plainProbeBtn");
+  assert.match(await copyPayload(page, 0), / Cheer1$/);
+  assert.match(await page.textContent("#parts .parts-note"), /^One 1-bit cheer/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review: picking Han text as typed below the threshold leaves Bits per cheer alone", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "你好" })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  const render = cards(page).first().locator(".sel-render");
+  await render.focus();
+  await render.selectOption("typed");
+  assert.equal(await cards(page).first().locator(".sel-render").inputValue(), "typed");
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await raiseNoteOf(cards(page).first()).count(), 0);
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].render, "typed");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review: Han text as typed's card over many rows, a free test, the switch, a box that cuts every part and one with no room", async () => {
+  const blocks = [{ id: 1, type: "text", render: "typed", text: "鬱".repeat(600) + "ABCDEFG\u200B" }];
+  const { page, ctx, errors } = await freshPage({ blocks });
+  await settled(page);
+  const note = async () => cards(page).first().locator(".text-note").innerText();
+  let n = await note();
+  assert.match(n, /^Han text as typed: 40 rows of 15 characters · 2 cheers/);
+  assert.match(n, /Left out: 7 characters that could knock the rows out of line \(“A”, “B”, “C”, “D”, “E”, “F”, …\)\. Big text prints those\./);
+  assert.match(n, /Invisible characters \(zero-width spaces, control codes and the like, usually from copy-paste\) were left out: they print nothing\./);
+  assert.match(n, /Each row is 15 characters at the receipt's own size, at any cheer\./);
+  // A free test counts messages.
+  await page.uncheck("#cheer");
+  assert.match(await note(), /^Han text as typed: 40 rows of 15 characters · 2 messages/);
+  await page.check("#cheer");
+  // The switch makes the cheer plain at 100 bits: no "below the threshold" there.
+  await page.uncheck("#allowHighRoller");
+  n = await note();
+  assert.match(n, /at any cheer: in a plain cheer a light first row takes the opening quote mark\./);
+  assert.doesNotMatch(n, /below the threshold/);
+  await page.check("#allowHighRoller");
+  // A box shorter than one row and the Cheer line: every part is cut.
+  await cards(page).first().locator("textarea").fill("鬱".repeat(30));
+  await commit(page, "#bitsPerInch", "300");
+  assert.match(await note(), /Even one row a part \(with the Cheer line\) is taller than .*, so the bot cuts every part\./);
+  // No room at all: a part of Han text prints part of its first row, fading out; never "light".
+  await commit(page, "#bitsPerInch", "500");
+  n = await note();
+  assert.match(n, /^Han text as typed: 2 rows of 15 characters · prints only part of its first row, fading out/);
+  assert.match(await page.textContent("#modeNote"), /each Han text part prints only part of its first row, fading out/);
+  assert.match(await page.locator("#parts .over-note").first().textContent(), /^Prints only part of its first row, fading out: /);
+  assert.match(await page.locator("#partsTotal").evaluate((e) => e.firstChild.textContent), /^Nothing worth sending: every part would print only part of its first row, fading out\./);
+  for (const where of ["#modeNote", "#parts", "#blockList"]) assert.doesNotMatch(await page.textContent(where), /light first row/, where);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review: the Wrap hint and the plain-form notices say what Han text as typed and a Han run do", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "你好", bigLayout: "wrap" })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  assert.match(await cards(page).first().locator(".layout-hint").innerText(), /Han, kana and Hangul break between their characters/);
+  assert.doesNotMatch(await cards(page).first().locator(".layout-hint").innerText(), /no word split in two/);
+  assert.match(await page.textContent("#modeNote"), /Han text as typed prints at any cheer\./);
+  assert.match(await page.textContent("#bitsHint"), /Below the streamer's High Roller threshold \(25 bits\) the bot prints plain text, so every block prints in its plain form/);
+  assert.match(await page.textContent(".controls-settings"), /so every block here prints in its plain form/);
+  // The tests' hint names the Plain test's 1-bit case.
+  assert.match(await page.textContent(".meta:has(#plainProbeBtn) + .hint"), /1 bit when High Roller is off or the printer doesn't allow High Roller prints/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review: with Allow High Roller prints off the size labels describe your cheer, and below the threshold say at what amount", async () => {
+  // At 100 bits, threshold 25 and 25 bits per inch: the labels were worked out for a 25-bit cheer's
+  // 96px box (HI stacked at 0.9 cm capitals) where a 100-bit cheer with the setting on prints 4.3 cm.
+  const blocks = [BIG({ id: 1, text: "HI", bigLayout: "stack" })];
+  const s = { ...SETTINGS, bits: 100, bitsPerInch: 25, allowHighRoller: false };
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+  await settled(page);
+  const card = cards(page).first();
+  await card.locator(".sel-size").focus();
+  const k = C.stackContext({ ...stackOptsOf({ ...s, allowHighRoller: true }) });
+  const want = C.bigFit("HI", { layout: "stack", size: "fit1", heightPx: k.room, contentW: k.contentW });
+  const label = await card.locator(".sel-size option[value=fit1]").textContent();
+  assert.ok(label.includes("capitals " + C.bigCapCm(want.px).toFixed(1) + " cm"), label + " vs " + C.bigCapCm(want.px).toFixed(1));
+  assert.match(await card.locator(".text-note").innerText(), /The sizes above are what it prints with that setting on\./);
+  // Below the threshold the sizes are a threshold cheer's, and the note says so. Under a bits-per-inch
+  // setting more bits buy more receipt, so "or more" would be false there (review of the fixes).
+  await commit(page, "#bitsAmount", "10");
+  const more = /\(more bits buy more receipt, so a bigger cheer can print bigger\)\./;
+  let n = await card.locator(".text-note").innerText();
+  assert.match(n, /The sizes above are what it prints with that setting on, at 25 bits /);
+  assert.match(n, more);
+  await commit(page, "#bitsPerInch", "0");
+  assert.match(await card.locator(".text-note").innerText(), /The sizes above are what it prints with that setting on, at 25 bits or more\./);
+  // The same with the switch on.
+  await page.check("#allowHighRoller");
+  assert.match(await card.locator(".text-note").innerText(), /The sizes above are what it prints at 25 bits or more\./);
+  await commit(page, "#bitsPerInch", "25");
+  n = await card.locator(".text-note").innerText();
+  assert.match(n, /The sizes above are what it prints at 25 bits /);
+  assert.match(n, more);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// The second review, of the fixes.
+test("1.2.0 review 2: a Han text block with no Han characters says so on its card and in the parts, never 'a picture is still loading'", async () => {
+  const typed = { id: 1, type: "text", render: "typed", text: "ありがとう" };
+  const { page, ctx, errors } = await freshPage({ blocks: [typed] });
+  const note = await cards(page).first().locator(".text-note").innerText();
+  assert.match(note, /^Nothing to print: this render prints Han characters only\. Big text prints other writing\./);
+  assert.match(note, /Left out: 5 characters that could knock the rows out of line \(“あ”, “り”, “が”, “と”, “う”\)\. Big text prints those\./);
+  let parts = await page.textContent("#parts");
+  assert.doesNotMatch(parts, /picture is still loading/);
+  assert.match(parts, /Nothing to print: Han text as typed prints only Han characters, and its text has none/);
+  assert.equal(await page.locator("#parts .copy-btn").count(), 0);
+  // Beside a block that prints, it adds nothing and takes no part of its own.
+  await page.click("#addTextBtn");
+  await cards(page).nth(1).locator("textarea").fill("HI");
+  await settled(page);
+  parts = await page.textContent("#parts");
+  assert.doesNotMatch(parts, /picture is still loading/);
+  assert.equal(await page.locator("#parts .part").count(), 1);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review 2: in a free test the Han tiling and Glyph-art cards count messages, as the total does", async () => {
+  const blocks = [{ id: 1, type: "text", render: "hanzi", text: "HI" }, GLYPH({ id: 2, tier: "cjk" })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: { ...SETTINGS, cheer: false } });
+  await settled(page);
+  assert.match(await cards(page).nth(0).locator(".text-note").innerText(), /^Han tiling: \d+ rows of 15 Han characters · 1 message/);
+  assert.match(await cards(page).nth(1).locator(".text-note").innerText(), /^16 columns × \d+ rows · 1 message/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.2.0 review 2: the hints say what each render prints, and Auto names the wrap it skips", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "你好" })] });
+  await settled(page);
+  const card = cards(page).first(), render = card.locator(".sel-render");
+  assert.match(await page.textContent(".controls-settings"), /so every block prints in its plain form \(big and sideways text as Han tiling\)\. 0 = High Roller off/);
+  assert.match(await card.locator(".layout-hint").innerText(), /never a wrap that splits a word into one letter a line, which loses the gaps between words/);
+  assert.match(await card.textContent(), /unless the streamer's printer has Allow High Roller prints off/);
+  await render.focus();
+  await render.selectOption("typed");
+  assert.match(await cards(page).first().textContent(), /Only Han characters go in: kana, Hangul, punctuation, Latin letters and the rest are left out/);
+  await cards(page).first().locator(".sel-render").selectOption("hanzi");
+  assert.match(await cards(page).first().textContent(), /it is also what Big text and Sideways text print as below the streamer's High Roller threshold/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });

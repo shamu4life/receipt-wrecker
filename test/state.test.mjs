@@ -14,7 +14,7 @@ import { loadCore, eq } from "./_harness.mjs";
 
 const C = loadCore();
 const DEFAULTS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd" };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true };
 
 test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold 25, no limits, 80 mm)", () => {
   for (const s of [null, undefined, {}, "junk", 7, []]) eq(C.normalizeControls(s), DEFAULTS, JSON.stringify(s));
@@ -22,9 +22,9 @@ test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold
 
 test("normalizeControls: every field validated, strings from the form read as numbers", () => {
   eq(C.normalizeControls({ cheer: false, bits: "25", hrThreshold: "0", bitsPerInch: "12.5", maxInches: "10",
-                           paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson" }),
+                           paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false }),
      { cheer: false, bits: 25, hrThreshold: 0, bitsPerInch: 12.5, maxInches: 10, paperMm: 58,
-       nonce: true, thermalView: true, thermalDither: "atkinson" });
+       nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false });
   const n = (o) => C.normalizeControls(o);
   // Bits: any whole number from 1 (the old >= 100 floor is gone); junk is 100.
   assert.equal(n({ bits: 1 }).bits, 1);
@@ -56,12 +56,12 @@ test("normalizeControls: an old blob's fields are ignored, and only the 1.0.0 fi
   eq(out, { ...DEFAULTS, thermalView: true });
 });
 
-test("blockRender: big, sideways and hanzi by name; anything else is big", () => {
-  for (const r of ["big", "sideways", "hanzi"]) assert.equal(C.blockRender({ render: r }), r);
+test("blockRender: big, sideways, hanzi and typed by name; anything else is big", () => {
+  for (const r of ["big", "sideways", "hanzi", "typed"]) assert.equal(C.blockRender({ render: r }), r);
   for (const junk of [{}, { render: "giant" }, { render: "type" }, { render: "BIG" }, { render: null }, null, undefined]) {
     assert.equal(C.blockRender(junk), "big", JSON.stringify(junk));
   }
-  eq(C.TEXT_RENDERS, ["big", "sideways", "hanzi"]);
+  eq(C.TEXT_RENDERS, ["big", "sideways", "hanzi", "typed"]);
 });
 
 test("glyphOpts and hanziWeightOf clamp whatever a preset hands them", () => {
@@ -93,8 +93,8 @@ test("modeNotice: says why below the threshold, with High Roller off, and in a f
   // A free test is the High Roller form; when the real cheer is below the threshold it says
   // the real one prints as Han tiling instead (round 3).
   assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 25 }),
-    /Your 10-bit cheer will print as Han tiling instead: this tests the High Roller form, which needs 25 bits or more\.$/);
-  assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 0 }), /High Roller is off \(threshold 0\), so a real cheer prints as Han tiling/);
+    /Your 10-bit cheer will print in its plain form instead \(big and sideways text as Han tiling\): this tests the High Roller form, which needs 25 bits or more\.$/);
+  assert.match(C.modeNotice({ cheer: false, bits: 10, hrThreshold: 0 }), /High Roller is off \(threshold 0\), so a real cheer prints in its plain form instead \(big and sideways text as Han tiling\)/);
   assert.doesNotMatch(C.modeNotice({ cheer: false, bits: 100, hrThreshold: 25 }), /Han tiling/);
   // It agrees with printMode, which is the bot's own test.
   for (const [bits, t] of [[1, 1], [24, 25], [25, 25], [1000000, 1000000], [5, 0]]) {
@@ -158,18 +158,18 @@ test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's se
   const payload = 'Cheer25 <div style="font:700 60px/.8 Arial">BIG</div>';
   eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
     event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
-    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false } });
+    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true } });
   // No userName (the renderer would start an avatar lookup), and the message is never touched.
   const e = C.previewEvent({ payload: "  " + payload + "  ", bits: "7", cheer: true, hrThreshold: "0" });
   assert.ok(!("userName" in e.event));
   assert.equal(e.event.message, "  " + payload + "  ");
-  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false });
+  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true });
   assert.equal(e.event.bits, 7);
   // A free test never prints; it is drawn as the High Roller cheer whose markup it tests.
   assert.equal(C.previewEvent({ payload, bits: 100, cheer: false, hrThreshold: 500 }).options.highRollerBits, 1);
   // Junk settings read through the same sanitizers as the panel.
   eq(C.previewEvent({ payload: null, bits: "x", hrThreshold: -5, bitsPerInch: "y", maxInches: 99 }).options,
-     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false });
+     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false, allowHighRoller: true });
 });
 
 test("previewVerdict says what the bot's renderer said, in plain words", () => {

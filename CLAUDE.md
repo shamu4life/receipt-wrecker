@@ -18,8 +18,9 @@ The bot prints a cheer in one of two ways, and the whole app follows from that:
   passed through the bot's allow-list sanitizer, so inline styles print: big text, sideways
   text, glyph-art grids.
 - **Plain**: any smaller cheer. The message prints as 16px text inside quote marks, markup
-  and all. The app then builds every block in its plain form, Han tiling: the words or the
-  picture drawn out of Han characters, in a grid that is nothing but plain text.
+  and all. The app then builds every block in its plain form, a grid that is nothing but plain
+  text: Big text and Sideways text as Han tiling (the words drawn out of Han characters), a
+  picture as a grid of Han characters, and Han text as typed as itself (1.2.0).
 
 The user copies each part and pastes it into chat as a cheer. The literal `Cheer<N>` word in
 the message is what Twitch charges.
@@ -210,17 +211,18 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.1.0. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.2.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
 | `tools/payload.mjs` | Builds a message with the app's own core, for the bench. |
-| `tools/vendor-renderer.mjs` | Writes (or `--check`s) the vendored renderer block in `public/index.html`. |
+| `tools/vendor-renderer.mjs` | Writes (or `--check`s) the vendored renderer block in `public/index.html`; `--prerelease` takes the beta that `versions.json` names. |
+| `tools/upstream-watch.mjs` | Says whether SassyTP shipped a renderer other than the vendored one and compares the regions the app depends on (exit 0 / 10 / 20). Reads GitHub anonymously, writes only under `.render/`. Dev-only. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, `wrangler deploy --dry-run`, on push/PR to `main`. Offline: no tool that fetches runs there. |
 | `.github/` | CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue and PR templates, dependabot. |
 | `docs/CHANGELOG.md` | Release notes. Entries describe the state at their release. |
 | `README.md` | Human-facing overview. |
-| `.gitignore` | Wrangler/env files, `node_modules/`, `package-lock.json`, `.claude/`, `.playwright-mcp/`, and **`.render/`**, where the bench writes everything and caches SassyTP's files. |
+| `.gitignore` | Wrangler/env files, `node_modules/`, `package-lock.json`, `.claude/`, `.playwright-mcp/`, and **`.render/`**, where the bench and the watch write everything and cache SassyTP's files. |
 
 ## How to run / develop
 
@@ -254,7 +256,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **156 keys**. Regenerate the list instead of trusting this one:
+test harness **158 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -273,7 +275,7 @@ test harness **156 keys**. Regenerate the list instead of trusting this one:
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
 `cjkGridK`, `monoK`, `brailleFontPx`, `glyphAspect`, `buildCjkGrid`, `buildMonoGrid`,
 `buildBrailleGrid`, `buildGlyphBodies`, `HAN_CELL_PX`, `HAN_LIGHT`, `hanziCols`, `designTHeader`,
-`designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `HAN_MAX_LINES`, `hanTextLines`,
+`designTPictureCols`, `buildDesignT`, `buildDesignTPicture`, `hanTypedGrid`, `buildHanTyped`, `HAN_MAX_LINES`, `hanTextLines`,
 `buildHighRollerProbe`,
 `buildPlainProbe`, `escapeHtml`, `escapeAttr`, `PRESET_V`, `cleanBlocks`, `isMintedImageUrl`,
 `presetImageUrls`, `makePreset`, `serializePresets`, `parsePresets`, `upsertPreset`,
@@ -299,8 +301,9 @@ while the payload said `Cheer100`. `makeNonce(i)` is two visible digits.
 **The target and the streamer's settings.** `paperSpec(mm)` → `{mm, cssWidth, contentW,
 dots}`: 80 → 272 / 244 / 576, 58 → 181 / 153 / 384. `hrThresholdOf` (0..1,000,000, junk → 25),
 `bitsPerInchOf` (> 0 else 0), `maxInchesOf` (> 0, clamped to 40, as the renderer's min(maxIn, 40); else 0). `printMode({cheer, bits,
-hrThreshold})` is `"raw"` when cheering and the threshold is above 0 and reached, else
-`"plain"`. `buildMode` is what the app builds: `printMode` when cheering, and `"raw"` with
+hrThreshold, allowHighRoller})` is `"raw"` when cheering, the threshold is above 0 and reached, and
+`allowHighRoller` is not `false` (Printer Bot 3.0's per-printer "Allow High Roller prints", on by
+default: off, the renderer's `viewOf` prints every cheer as plain text), else `"plain"`. `buildMode` is what the app builds: `printMode` when cheering, and `"raw"` with
 Cheer-ready off (a free chat test of the High Roller markup). `contentLimitPx` →
 `{px, by: "ceiling" | "bits" | "cap", fades}`.
 
@@ -367,8 +370,25 @@ security notes (the resets it drops change nothing that prints).
   measured advances only: with Arial Bold on the bench "jeff" at 160px lost 5.5px of the j's
   hook past the box's left edge and 2.7px of the f's arm past its right, "if" at 394px 9.7px of
   the arm, while the card said "fits". Now 150 / 358px, ink at least 2px inside both edges.
-- `bigWrapWords(line, px, contentW)` is a greedy word wrap at px against `bigFitPx`, at the
-  spaces only: the lines the Wrap layout sends, every word whole.
+- `bigWrapWords(line, px, contentW)` is the lines the Wrap layout sends for one typed line: a
+  greedy wrap at px against `bigFitPx` (`bigWrapLines`) of the line's words, measured once
+  (`bigWrapPrep`: graphemes, advances, ink edges and where each word may break). A line breaks at
+  its spaces, and a word also breaks between two of its characters wherever one side of the
+  boundary is Han, kana or Hangul (`bigWrapsBetween`; not `bigIsWide`, whose full-width forms
+  include Latin letters and digits), never before a `BIG_WRAP_NO_BEFORE` mark or after a
+  `BIG_WRAP_NO_AFTER` one (1.2.0): those are `BIG_NO_BREAK_BEFORE` / `AFTER` plus the curly quotes
+  (never ” first, never “ or ‘ last on a line) and the straight " on both sides, which stay out of
+  `bigWrapCount`'s sets because since Unicode 15.1 the page may break beside a curly quote between
+  two Han characters. Such a word fills the line it starts on, piece by piece (`bigWrapPieces`),
+  as the page fills a line of Chinese, so a Korean word may break across two lines. Latin words
+  never break, full-width ones (ＧＧ) included, so text without Han, kana or Hangul wraps exactly
+  as before 1.2.0 (review of the fixes: "ＨＥＬＬＯ ＷＯＲＬＤ" wrapped as ＨＥＬＬ / Ｏ ＷＯ / ＲＬＤ). A Han run with no spaces used to be one
+  unbreakable word: `bigWrapPlan` returned null (Wrap = Lines) and Auto stacked it, one character
+  a line, 35 a cheer since the no-`<br>` change; "你好" x 40 now prints wrapped in one cheer at
+  57px, and one cheer holds up to about 200 Han characters on 80 mm. `bigWrapPlan` returns null
+  only when no line has anything to break at. Measuring each word once (1.2.0 review) took the
+  relabel of 300 Japanese characters from about 1 s to 0.2 s in Node; `bigPrepFrom` builds a
+  plan's measurements from lines already measured.
 - `bigWrapCount(line, px, contentW)` is how many lines a line too wide at an explicit size
   PRINTS as, at most; the height model (`bigLineH`) counts such a line by it. A High Roller
   message keeps its own styling (the renderer's `overflow-wrap: anywhere` is for
@@ -402,15 +422,21 @@ security notes (the resets it drops change nothing that prints).
   three candidates in order, `lines`, then `wrap`, then `stack`, and `bigBetter` decides: a
   layout whose letters are cut off never wins, then a clean one, then the bigger type when both
   fit one cheer (or the size is `width`), else the fewer cheers; a tie keeps the earlier; it
-  never picks `each`. `wrap` (`bigWrapPlan`) is the typed lines with each too-wide line broken
-  at its spaces by `bigWrapWords` at the size being tried, then fitted like `lines`; the size
-  it settles on is then balanced (the same number of lines, each as short as it can be: "WE
-  ARE / SO BACK", not "WE ARE SO / BACK"), which changes neither the height nor the characters.
+  never picks `each`, and never a `wrap` that splits a word into one character a line (that is
+  `stack` without its word gaps: "아버지가 방에" and "아버지 가방에" sent the same message, 1.2.0
+  review; a wrap of one-character words, "一 二 三", splits none and stays a candidate).
+  `wrap` (`bigWrapPlan`) is the typed lines with each too-wide line broken by `bigWrapLines` at
+  the size being tried, then fitted like `lines`. Each size is also balanced (the same number of
+  lines, each as short as it can be: "WE ARE / SO BACK", not "WE ARE SO / BACK"). A break at a
+  space drops the space and a break between two characters doesn't, so balancing can change the
+  characters and the cheers: each size keeps whichever of the greedy and balanced lines costs
+  less (`bigRank`), balanced on a tie, and the size search ranks sizes by that. It used to rank
+  them greedy and send them balanced, so "fits one cheer" came back as two (1.2.0 review).
   It is what a long sentence typed on one line gets (as one line it was tiny). A short one whose
   stacked letters come out even 1 to 5 px bigger still stacks under Auto (it keeps the biggest),
-  often over most of the 1600px box: "You are the best streamer" stacks at 61px over 1581px,
-  where `wrap` gives 56px in 215px. So `wrap` is also offered on its own, one pick away; a
-  line with no space to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
+  often over most of the 1600px box: "Hello from chat" stacks at 102px over 1568px on 80 mm,
+  where `wrap` gives 97px in 335px. So `wrap` is also offered on its own, one pick away; a
+  line with nothing to break at makes `wrap` exactly `lines`, and `bigFit(...).layout` says
   `lines` then. Under Auto, `bigFit(...).layout` can read `wrap`. Sizes (`bigSizeOf`): `fit1`
   (the biggest that fits ONE cheer; failing that, the fewest cheers, then the biggest), `width`
   (fill the paper, any number of cheers) or a whole px 20..400.
@@ -653,6 +679,40 @@ opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R
   frames C − 2 cells with a 丶 column each side, which absorbs a one-cell slip if the quote is
   wider than expected.
 
+**Han text as typed (1.2.0).** A Text render, `"typed"`, that prints the typed characters
+themselves at the receipt's own 16px, the paper's own wrapping making the rows.
+`hanTypedGrid(text, paperMm)` reads the text through `bigClean` (CR, CRLF, U+2028/2029 break the
+line; invisible characters go, listed in `invisible`) and keeps ONLY HAN CHARACTERS
+(`hanTypedKeeps`: Unicode's Han script in the BMP, the ideographs, compatibility ideographs,
+radicals, 々, 〇 and the Hangzhou numerals), the only ones a full Han cell wide in every CJK font
+(owner, 2026-10-11). Everything else is reported as `dropped`: Latin letters, digits and spaces
+are narrower, and a typed `<` or `<br` can never go out in a plain cheer, which the bot prints as
+typed (owner, 1.2.0); CJK punctuation breaks the rows, since the page never starts a line with a
+closing mark (、。」！？) or ends one with an opening mark (「（), and Chromium squeezes two of them
+side by side into less than two cells (text-spacing-trim), so one at a row's edge pushed every
+later row out of line through the vendored renderer while the heights still matched (1.2.0
+review; owner: leave punctuation out); and kana and Hangul are narrower in some fonts (a Mac's
+Hangul printed 16 a row through the vendored renderer, Noto's is 0.92 of a cell, and Windows
+draws kana with the condensed Yu Gothic UI; owner: Han characters only). Supplementary-plane Han
+stays out too: the streamer's PC may have no font for it. The iteration marks 々 and 〻 never start
+a row (`hanTypedNoStart`): the character before one moves down with it, a light cell taking its
+place, and a typed line that starts with one gets a light cell before it. Each typed line starts
+a new row of exactly C cells, its last row filled with 丶, and leading and trailing light rows
+are trimmed. `buildHanTyped(text, opts)` packs those rows with `buildDesignT` and its
+`headerless` option: a High Roller cheer has no quote marks, so no light first row (rows per
+cheer (500 − trail) / C: 32 on 80 mm, up to 480 characters); a plain cheer keeps Design T's
+header. `buildDesignT` sizes a cheer by its LONGEST row's characters (`payloadLength`), since a
+cell may be several code points (a variation sequence). Every body carries `typed: {dropped,
+invisible, rows}`; the card says how many rows and cheers (messages in a free test), names what
+was left out ("that could knock the rows out of line") and points at Big text for it. A text with
+no Han characters to print is no content (`blockHasContent` asks `hanTypedGrid`), so a stack of
+only such text says so in the parts instead of "a picture is still loading" (review of the 1.2.0
+fixes), and beside a block that prints it takes no part of its own. It prints
+the same way at any cheer (its plain form is itself), and it is not a High Roller pick
+(`dropRaiseOffer`). The browser suite draws a text of Han, punctuation, iteration marks, kana and
+Hangul through the vendored renderer on both papers, above and below the threshold, and reads
+every printed line back against the grid's rows.
+
 **Probes.** The app cannot see the streamer's threshold, so two one-cheer tests answer it on
 paper. Each returns `{bits, mode, bodies, note}` and goes through the normal packer as a
 one-part stack.
@@ -666,7 +726,8 @@ one-part stack.
   false with High Roller off, or when not even BIG fits (the note says the test can't show
   anything at these settings: "the Cheer line fills it" when it does, else how many mm are left
   after the Cheer line, too short for BIG's 13 mm), and the glue then offers no Copy.
-- `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off): a Design T
+- `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off, or the
+  printer has Allow High Roller prints off): a Design T
   grid with HI in block letters and a row of the ramp's tones. When the threshold is 1, every
   cheer is High Roller and it says there is no plain test.
 
@@ -723,15 +784,22 @@ sentence.
 imported JSON and form controls (as strings), so everything reads them through these:
 `normalizeControls` (the `rw_controls_v1` fields: `cheer` (default on), `bits` (100),
 `hrThreshold` (25), `bitsPerInch` (0), `maxInches` (0), `paperMm` (80), `nonce` (off; only an
-explicit `true`), `thermalView` (off), `thermalDither` (`floyd`); unknown fields are ignored, so
-the next save drops them), `blockRender` (`big` | `sideways` | `hanzi`, junk → `big`),
+explicit `true`), `thermalView` (off), `thermalDither` (`floyd`), `allowHighRoller` (on; only an
+explicit `false` turns it off, 1.2.0); unknown fields are ignored, so
+the next save drops them), `blockRender` (`big` | `sideways` | `hanzi` | `typed`, junk → `big`),
 `bigOpts`, `sideOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700). `modeNotice` is the notice
 above the parts (a free test, or why the stack prints plain and how to change it).
 `noRoomAdvice` is what replaces the bits total when the box leaves no room after the Cheer line
 (raise Bits per cheer, with the streamer's bits per inch; or, under a maximum length, that it
 would have to be longer). Both take a `shape` (`partsShape(parts)`): a Han tiling part has no
 Cheer line at its top (its token goes last), so when every part is one they say the box is
-shorter than one line and each part prints only its light first row, and a mix names both.
+shorter than one line and each part prints only its light first row, and a mix names both. A
+High Roller part of Han text as typed has no header either, and its first row is the viewer's
+text, faded out by the bot's cut, so `partsShape` names the kinds that ride alone ("plain",
+"typed" or both, "mixed " in front when other parts start with a Cheer line) and the notices
+and the part's own note say "part of its first row, fading out" for it (1.2.0 review). Below
+the threshold the notices name each render's plain form (`PLAIN_FORMS`): Big and Sideways text
+as Han tiling, pictures as a grid of Han characters, Han text as typed at any cheer.
 `forkDither(rgba, w, h, outWidth, mode)` is the C# Ditherer port (integer arithmetic and
 arithmetic shifts as in the C#, the ≥ 250 / ≤ 5 clamps, transparent pixels over white).
 `previewEvent` / `previewVerdict` / `avatarExtraPx` are the app's half of the preview (below).
@@ -777,8 +845,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   could not be read; it is not asked again until the link changes, where every refresh used
   to re-fetch it through /px). A picked file is read on the device and never uploaded, so it
   replaces the link (`url` ""), and its name is kept as `fileName` (a saved field): after a
-  reload or in a preset the card, the parts placeholder and Save all say to pick it again; text → `hanziBodies` when the render is `hanzi`
-  or the stack is plain, else `buildSideBodies` / `buildBigBodies`. `packStack(blocks, opts)`
+  reload or in a preset the card, the parts placeholder and Save all say to pick it again; text → `buildHanTyped`
+  when the render is `typed` (in every mode), else `hanziBodies` when the render is `hanzi` or the
+  stack is plain, else `buildSideBodies` / `buildBigBodies`. `packStack(blocks, opts)`
   builds every block against ONE `stackContext(opts)` and packs with that same object, and
   stamps `blockId` on every body so a card can find its own parts.
 - **Settings.** `getSettings` reads the panel through `normalizeControls`; `stackOpts(extra)`
@@ -788,6 +857,19 @@ generations; `presetImageUrls` walks a stack's picture links.
   probes and `copyPart` read it): the tests, real cheers either way, used to carry the digits
   while the page showed the option as off.
   `saveControls` writes exactly `normalizeControls`' fields; `restoreControls` reads them back.
+- **Allow High Roller prints (1.2.0).** The checkbox `#allowHighRoller` under the streamer's
+  settings mirrors Printer Bot 3.0's per-printer switch (on by default; 2.5 has none, so it says to
+  leave it on). Off: `printMode` builds plain, so every block prints its plain form, as with
+  threshold 0; `bitsRaiseFor` returns null (no amount helps); `modeNotice`, the Bits hint and the
+  cards' plain lines name the switch, and `settingFix` points at it; the High Roller test offers no
+  Copy (its note names the switch) and the Plain test is one bit; the size labels describe this
+  cheer with the switch on (a threshold cheer's only below the threshold, and the card's note
+  then says "at N bits or more", or, when a bits-per-inch setting makes the box grow with the
+  bits, that more bits buy more receipt); `previewEvent` sends
+  `allowHighRoller: false` and `highRollerBits: 0`, so the vendored 2.5.4 page draws exactly what a
+  3.0 printer with the switch off prints (plainText, quote marks, the 1600px box). A free test still
+  builds and draws the High Roller form (it tests what chat lets through). With the switch on, the
+  High Roller test's note names it as the second cause when BIG prints small inside quotes.
 - **The bits raise (1.1.0).** Every High Roller-only control calls `pickedHighRoller(block,
   what, ctl)` just before its own `update()`, so the raised amount and the High Roller forms go
   out in one redraw: Render set to Big or Sideways; Big's Layout, Size and Upside down;
@@ -815,7 +897,7 @@ generations; `presetImageUrls` walks a stack's picture links.
   on add, load, Undo, migration, typing or a settings edit. The hints that promise a raise (the
   Bits hint, the cards' below-threshold lines) say so only when `raiseOffered()`.
 - **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
-  `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`) or Han tiling (`.sel-weight`). Every
+  `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`), Han tiling (`.sel-weight`) or Han text as typed (no controls of its own). Every
   layout and size option is labelled with what it would print for the current text (capitals
   in cm, "N cm of message" (the bodies' height: the header, Cheer line and footer come on top,
   and the part's verdict gives the whole receipt), cheers, cut-off flags), computed for a High
@@ -839,7 +921,8 @@ generations; `presetImageUrls` walks a stack's picture links.
   or below 700px the head's buttons are 44px targets and × stands apart from ↓ (a mis-tap
   while reordering used to delete the block for good). The tests count cards as
   `#blockList > .block-card`, since the note sits among them. The note
-  (`.text-note`) is `bigReport` / `sideReport` or a Han tiling summary, plus where the block
+  (`.text-note`) is `bigReport` / `sideReport` or a Han tiling or Han text summary (a free test
+  counts messages, as the parts' total does), plus where the block
   sits in the run, read off the PACKED parts (`blockParts`, `partLines`) through a `costSyncs`
   callback, which always gets the STACK's last parts (`stackParts`), so a probe shown in the
   parts never rewrites the cards (they went blank); while a probe is shown, `refresh()`
@@ -848,8 +931,10 @@ generations; `presetImageUrls` walks a stack's picture links.
   then information in grey (`note-fine`: where the block sits, why it prints plain, the CJK
   font it needs); `partLines` returns `{warn, fine}` for that. The Text box has as many rows as typed
   lines, 2 to 8. Below the threshold the labels describe a cheer AT the threshold (its bits, so its
-  box under a bits-per-inch setting); with High Roller off the note says so instead of "below
-  the threshold (0 bits)". In a free test the note counts messages, not bits. `imageCard`: Kind
+  box under a bits-per-inch setting; with Allow High Roller prints off at or above the threshold,
+  this cheer's own box); with High Roller off the note says so instead of "below
+  the threshold (0 bits)". In a free test the note counts messages, not bits (the Glyph-art, Han
+  tiling and Han text summaries too, 1.2.0). `imageCard`: Kind
   (`.sel-kind`: Glyph-art or Real picture), URL, file (with a hint of what happens to it for
   that kind), Rotate (`.sel-rotate`, both kinds); for Glyph-art the Characters select
   (`.sel-tier`) with per-form hints and a column range that follows the form (the Detail field
@@ -879,10 +964,12 @@ generations; `presetImageUrls` walks a stack's picture links.
   it." While any picture is still loading, no part is copyable (the parts change when it
   lands). When the streamer's settings leave a
   High Roller cheer no room after its Cheer line (`boxNoRoom`), every part is `noRoom`: a red
-  note says it prints nothing but that line (a plain grid: only its light first row), its Copy
+  note says it prints nothing but that line (a Han tiling grid: only its light first row; a High
+  Roller part of Han text as typed: only part of its first row, fading out), its Copy
   is disabled, and `noRoomAdvice` replaces the bits total. Every card agrees: Big and Sideways
   say only "Prints nothing" (`NO_ROOM_SUMMARY`: no price and no size, since none prints), the
-  Han tiling summary says only its light first row prints, the Glyph-art summary drops its
+  Han tiling summary says only its light first row prints, the Han text summary part of its first
+  row, fading out, the Glyph-art summary drops its
   cheer count, and `partLines(where, parts, noRoom)` leaves out "Your whole stack needs N
   cheers". The mode notice and the no-room line carry a button to the field that fixes them
   (`settingFix`, `fixButton`, `goToSetting`: "Change Bits per cheer", or "Go to Maximum length" /
@@ -1041,6 +1128,11 @@ does (`min(5000, ceil(documentElement height))`), keeping render()'s own answer 
 renderer, not this app, decides High Roller or plain, the box and the fade. A free test (Cheer-ready off) is drawn as a High Roller cheer
 (threshold 1) and says it never reaches the printer.
 
+**The layout version.** The credit line above the parts (`#rendererCredit`) names the vendored
+layout, read at init from the block's own `data-version` (`#rendererVersion`, `#rendererCompare`),
+and says to compare it with the Renderer version the streamer's dock shows under Updates: the bot
+can download a newer layout to the dock by itself (UPDATING.md, "Download updates" on by default).
+
 **The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, the
 stand-in profile picture included, and how much shorter a receipt with no picture is (about
 4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is min(11.5em, 100%) square with a 14px gap
@@ -1075,8 +1167,25 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 
 ### "SassyTP shipped a new version"
 
-1. Find the new commit in <https://github.com/SassyTP/printer-bot> (its `versions.json` names
-   the renderer path).
+1. `node tools/upstream-watch.mjs` says whether there is one and whether it touches what this app
+   depends on. It reads <https://github.com/SassyTP/printer-bot> anonymously (`api.github.com`
+   and `raw.githubusercontent.com`, nothing else): every branch's head, the tags and releases,
+   `versions.json` on master and beta, master's stable renderer (`v/<versions.json
+   latest>/renderer.html` with its `version.json`) and the newest `v/*/renderer.html` in beta's
+   tree. The vendored renderer is the one the block names (`data-commit`, `data-path`,
+   `data-version` and the upstream sha256 in its notice). Every renderer with another sha256 is
+   cached under `.render/sassytp/<sha>/` and compared with the vendored copy, region by region,
+   found by text markers: the safety section (`const MAX_PLAIN_CHARS` to `function
+   formatCurrency`), the CSS rules of `#receipt-container`, `#receipt-content` and `.part`,
+   `isHighRoller` through `highRollerMaxHeight`, `viewOf` when either copy has it, `show()` and
+   `MAX_RECEIPT_HEIGHT`. Each region is identical or changed (a changed one with a unified diff;
+   a reworded comment counts). Exit 0: nothing new; 10: a new renderer, every region identical;
+   20: a region changed (or appeared, or lost its markers). It keeps what it saw in
+   `.render/upstream/last.json` and says what changed since the previous run. A renderer built
+   before the vendored one (by its `VERSION` stamp, as master's 2.5.x is on a branch that
+   vendors a beta) is listed but never counts as new. `--no-diff` prints the verdicts alone;
+   `--renderer PATH` compares one local file. It makes 3 or 4 of GitHub's 60 anonymous API reads
+   an hour. Dev-only: never in CI, and no test imports it.
 2. `NODE_USE_ENV_PROXY=1 node tools/vendor-renderer.mjs --ref <40-hex sha>` (add `--path
    v/X.Y.Z/renderer.html` if needed; `NODE_USE_ENV_PROXY=1` only matters behind a proxy), then
    `node tools/vendor-renderer.mjs --check`. Without `--ref`, the tool (a plain write and
@@ -1085,7 +1194,17 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    update passes and a plain write can't put the old renderer back over the new one; it uses
    its own `PINNED_*` only on a first run, when the page has no block. (It used to use
    `PINNED_*` every time: the check failed right after a correct update, and a plain write
-   restored 2.5.4 without a word.) It says so on stderr while its pin is out of date.
+   restored 2.5.4 without a word.) It says so on stderr while its pin is out of date. It always
+   prints the renderer `VERSION` it found.
+
+   **A beta:** `node tools/vendor-renderer.mjs --prerelease` reads `versions.json` at the head
+   of the beta branch (or at `--ref`), takes `core.prerelease` (`3.0.0-beta.6`) and vendors
+   `v/<prerelease>/renderer.html`. Don't pass a beta commit as `--ref` alone: beta's
+   `versions.json` still names the stable frontend as `latest`, so that resolves
+   `v/2.5.0/renderer.html`, the 2.5.4 page under a beta's commit. The tool refuses it ("this
+   commit's v/2.5.0/renderer.html is the renderer you already have: pass --prerelease or --path
+   v/<version>/renderer.html") whenever `--ref` names another commit than the block's and the file
+   it resolves has the block's sha256.
 3. Point both tools at the same commit: `tools/vendor-renderer.mjs`'s `PINNED_SHA`,
    `PINNED_PATH` and `PINNED_SHA256`, and `tools/forkbench.mjs`'s `PINNED_SHA`,
    `RENDERER_PATH` and `RENDERER_SHA256`. Then re-bench the modes whose shape matters to you at
@@ -1093,6 +1212,10 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
 4. Read the diff of the renderer for anything in "The target" above (allow-lists, the box,
    plain text, geometry) and update this file's line numbers and facts.
 5. Run both suites. The contract test re-runs every mode through the new page.
+
+New betas are tested on the canary branch, `canary/printer-bot-3`: a draft PR that is never
+merged before 3.0.0 is final and the streamer runs it. On that branch the watch compares against
+the beta it vendors, so it exits 0 until a newer beta (or a newer stable build) ships.
 
 ## Measuring: the bench
 
@@ -1244,8 +1367,8 @@ lives in `test-browser/` and is not in the default matcher.
   `<`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
-  Han tiling; plain CJK picture; both probes; a Han and an emoji run at a fixed size too wide
-  for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
+  Han tiling; plain CJK picture; a pasted mosaic in Han text as typed; both probes; a Han and an
+  emoji run at a fixed size too wide for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
   with the streamer's length limits, and as a free test, goes through the app's own vendored
   `PrinterBot.render` in the frame. It asserts: `ok`; no `security` notes; the renderer agrees
   on raw vs plain; cut only where the app warned; for raw parts the sanitised DOM keeps every
@@ -1310,8 +1433,10 @@ lives in `test-browser/` and is not in the default matcher.
   the glyph-art cell aspects and Design T assume the fonts above; Braille and the blocks tier
   need a real print to judge.
 - **Agent-environment note:** the Edit and Write tools decode a literal backslash-u followed by
-  four hex digits into the character. To put such an escape in a file, write a doubled
-  backslash and normalise it afterwards, or edit with a script.
+  four hex digits into the character, and so does the text of a Bash command (a quoted heredoc
+  included). To put such an escape in a file, write a doubled backslash and normalise it
+  afterwards, or edit with a script that builds the backslash itself (Python's `chr(92)`); then
+  scan the diff for invisible characters that landed literally.
 - Licensed under **MIT** (`LICENSE`). The vendored renderer keeps SassyTP's MIT notice.
 
 ## Working in this repo

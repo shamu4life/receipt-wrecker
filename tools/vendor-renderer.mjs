@@ -17,23 +17,33 @@
 // file at the same commit), the source repo, path and commit, and a note of the three edits.
 //
 // It is the "SassyTP shipped a new version" routine: --ref <sha> vendors another commit (its
-// renderer path comes from that commit's versions.json, or --path). Not in CI (CI is offline):
-// run it by hand, then run both test suites, whose contract test drives every mode through the
-// vendored page.
+// renderer path comes from that commit's versions.json, or --path), and --prerelease vendors the
+// prerelease that versions.json names (core.prerelease), at --ref or at the head of the beta
+// branch. Not in CI (CI is offline): run it by hand, then run both test suites, whose contract
+// test drives every mode through the vendored page. tools/upstream-watch.mjs says when there is
+// something new to vendor.
 //
 // Usage:
 //   node tools/vendor-renderer.mjs              rewrite the block from the commit it names
 //   node tools/vendor-renderer.mjs --check      exit 1 if the committed block differs from what its
 //                                               commit's upstream file gives (writes nothing)
 //   node tools/vendor-renderer.mjs --ref <40-hex sha> [--path v/X.Y.Z/renderer.html]
+//   node tools/vendor-renderer.mjs --prerelease [--ref <40-hex sha>]
 //   node tools/vendor-renderer.mjs --renderer PATH [--license PATH] [--ref <sha>]
 //
-// Which commit: --ref when given; otherwise the one the committed block names (its data-commit and
-// data-path, and the upstream sha256 in its notice), so after a --ref update a plain --check checks
-// the new block and a plain write can't put the old renderer back over it; the PINNED_* constants
-// below only on a first run, when the page has no block yet. (The tool used to fall back to
-// PINNED_* every time: right after a correct --ref update, --check failed, and a plain write
-// silently restored 2.5.4.) Update PINNED_* to the new commit too, with tools/forkbench.mjs.
+// Which commit: --ref when given; with --prerelease and no --ref, the head of printer-bot's beta
+// branch (one anonymous read of api.github.com); otherwise the one the committed block names (its
+// data-commit and data-path, and the upstream sha256 in its notice), so after a --ref update a plain
+// --check checks the new block and a plain write can't put the old renderer back over it; the
+// PINNED_* constants below only on a first run, when the page has no block yet. (The tool used to
+// fall back to PINNED_* every time: right after a correct --ref update, --check failed, and a plain
+// write silently restored 2.5.4.) Update PINNED_* to the new commit too, with tools/forkbench.mjs.
+//
+// It always prints the renderer VERSION it found (the page's <meta name="printer-bot-renderer">).
+// It stops when --ref names a commit other than the committed block's but the file it resolves is
+// the renderer the block already holds (the same sha256): on the beta branch versions.json's
+// "latest" is still the stable frontend, so --ref <beta commit> alone resolves v/2.5.0/renderer.html,
+// the 2.5.4 page, and would have relabelled it as the beta. Pass --prerelease or --path then.
 //
 // Flags:
 //   --check            compare only; exit 0 same, 1 different (the first differing line is printed)
@@ -42,14 +52,17 @@
 //                      exact commit
 //   --path P           the renderer's path in that commit (default: v/<latest>/renderer.html, from
 //                      that commit's versions.json; for the pinned commit, v/2.5.0/renderer.html)
+//   --prerelease       the renderer's path is v/<core.prerelease>/renderer.html, from the
+//                      versions.json at --ref (default: at the head of the beta branch). Not with --path
 //   --renderer PATH    use a local renderer.html instead of fetching it. If it is not the pinned
 //                      file (by sha256), --ref must say which commit it is
 //   --license PATH     the LICENSE to quote (default: next to --renderer in a checkout, else fetched)
-//   --offline          never touch the network: everything must already be in the cache
+//   --offline          never touch the network: everything must already be in the cache (so
+//                      --prerelease needs --ref)
 //   --file PATH        the page to write or check (default public/index.html)
 //
 // Cache: the same gitignored .render/sassytp/<sha>/ folder tools/forkbench.mjs uses
-// (<path> and LICENSE, each with a .json note of its url, sha256 and fetch time).
+// (<path>, versions.json and LICENSE, each with a .json note of its url, sha256 and fetch time).
 // Behind a proxy Node's fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY=1 is set.
 //
 // Exit status: 0 written / check passed; 1 check failed; 2 usage, network or a source this tool
@@ -71,6 +84,11 @@ const REPO = resolve(HERE, "..");
 // The same pin as tools/forkbench.mjs: printer-bot 2.5.4, receipt page version 202610090056.
 const REPO_URL = "https://github.com/SassyTP/printer-bot";
 const RAW = "https://raw.githubusercontent.com/SassyTP/printer-bot/";
+const API = "https://api.github.com/repos/SassyTP/printer-bot";
+const BETA_BRANCH = "beta";
+// A version as versions.json names one (core.prerelease "3.0.0-beta.6"), which becomes a folder name:
+// no slash, no "..".
+const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
 const PINNED_SHA = "b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef";
 const PINNED_PATH = "v/2.5.0/renderer.html";
 const PINNED_SHA256 = "51b1f93f901c6b0895b428b697bc02cf19280049c0346f4d5aac172cc0c6bdff";
@@ -97,17 +115,18 @@ class Exit extends Error {
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
 function usage(msg) {
-    throw new Exit(2, (msg ? msg + ". " : "") + "usage: node tools/vendor-renderer.mjs [--check] [--ref SHA] [--path P] " +
+    throw new Exit(2, (msg ? msg + ". " : "") + "usage: node tools/vendor-renderer.mjs [--check] [--ref SHA] [--path P | --prerelease] " +
         "[--renderer PATH] [--license PATH] [--offline] [--file PATH]");
 }
 
 function parseArgs(argv) {
-    const o = { check: false, ref: null, path: null, renderer: null, license: null, offline: false, file: DEFAULT_FILE };
+    const o = { check: false, ref: null, path: null, prerelease: false, renderer: null, license: null, offline: false, file: DEFAULT_FILE };
     for (let i = 2; i < argv.length; i++) {
         const a = argv[i], v = argv[i + 1];
         switch (a) {
             case "--check": o.check = true; break;
             case "--offline": o.offline = true; break;
+            case "--prerelease": o.prerelease = true; break;
             case "--ref":
                 if (!/^[0-9a-f]{40}$/.test(v || "")) usage("--ref needs a full 40-character commit sha");
                 o.ref = v; i++; break;
@@ -121,6 +140,7 @@ function parseArgs(argv) {
             default: usage("unknown argument " + a);
         }
     }
+    if (o.prerelease && o.path) usage("--prerelease and --path both say which renderer to take; pass one of them");
     return o;
 }
 
@@ -162,6 +182,52 @@ function findLicenseUpward(from) {
         dir = up;
     }
     return null;
+}
+
+// The commit at the head of one of printer-bot's branches: one anonymous read of GitHub's API.
+async function branchHead(name, offline) {
+    const url = API + "/branches/" + name;
+    if (offline) throw new Exit(2, "--offline, but finding the head of the " + name + " branch needs " + url + "; pass --ref");
+    let res;
+    try {
+        res = await fetch(url, { headers: { Accept: "application/vnd.github+json", "User-Agent": "receipt-wrecker-vendor-renderer" }, signal: AbortSignal.timeout(30000) });
+    } catch (e) {
+        const hint = process.env.HTTPS_PROXY && !process.env.NODE_USE_ENV_PROXY ? " (behind a proxy? set NODE_USE_ENV_PROXY=1)" : "";
+        throw new Exit(2, "could not fetch " + url + ": " + String(e && e.cause || e).slice(0, 200) + hint);
+    }
+    if (!res.ok) {
+        const limited = res.headers.get("x-ratelimit-remaining") === "0" ? " (GitHub's limit of 60 anonymous API reads an hour is used up; pass --ref)" : "";
+        throw new Exit(2, "could not fetch " + url + ": HTTP " + res.status + limited);
+    }
+    let sha;
+    try { sha = (await res.json()).commit.sha; } catch { sha = null; }
+    if (!/^[0-9a-f]{40}$/.test(sha || "")) throw new Exit(2, url + " names no head commit");
+    return sha;
+}
+
+// --prerelease: the commit (--ref, else the beta branch's head) and v/<core.prerelease>/renderer.html
+// from that commit's versions.json, as if they had been passed as --ref and --path.
+async function resolvePrerelease(o) {
+    if (!o.ref) {
+        o.ref = await branchHead(BETA_BRANCH, o.offline);
+        process.stderr.write("the " + BETA_BRANCH + " branch's head is " + o.ref + "\n");
+    }
+    let vj;
+    try { vj = JSON.parse((await fetchCached(o.ref, "versions.json", o.offline, null)).buf.toString("utf8")); } catch (e) {
+        if (e instanceof Exit) throw e;
+        throw new Exit(2, "versions.json @ " + o.ref.slice(0, 7) + " is not JSON");
+    }
+    const pre = vj && vj.core && vj.core.prerelease;
+    if (typeof pre !== "string" || !VERSION_RE.test(pre)) throw new Exit(2, "versions.json @ " + o.ref.slice(0, 7) + " names no prerelease (core.prerelease); pass --path");
+    o.path = "v/" + pre + "/renderer.html";
+    process.stderr.write("versions.json @ " + o.ref.slice(0, 7) + " names the prerelease " + pre + ": " + o.path + "\n");
+    return pre;
+}
+
+// The renderer's own version stamp: its <meta name="printer-bot-renderer">, else its VERSION constant.
+function rendererVersion(buf) {
+    const s = buf.toString("utf8");
+    return (/<meta name="printer-bot-renderer" content="(\d+)">/.exec(s) || /\bconst VERSION = '(\d+)'/.exec(s) || [])[1] || null;
 }
 
 // The commit the page's committed block names, from its data-commit and data-path attributes and
@@ -330,13 +396,22 @@ async function main() {
     checkPlaceholder();
     const html = readFileSync(o.file, "utf8");
     o.pin = committedPin(html);
-    if (!o.ref) {
+    if (!o.ref && !o.prerelease) {
         if (o.pin && (o.pin.sha !== PINNED_SHA || o.pin.path !== PINNED_PATH)) {
             process.stderr.write("following the committed block: " + o.pin.path + " @ " + o.pin.sha.slice(0, 7) + " (this tool's PINNED_* still say " +
                 PINNED_PATH + " @ " + PINNED_SHA.slice(0, 7) + ": update them, and tools/forkbench.mjs's pin)\n");
         }
     }
+    const pre = o.prerelease ? await resolvePrerelease(o) : null;
     const { sha, path, page, license } = await resolveSources(o);
+    process.stderr.write("renderer VERSION " + (rendererVersion(page) || "(none found)") + ": " + path + " @ " + sha.slice(0, 7) + "\n");
+    // A --ref that resolves the very file the block already holds would only relabel it (the
+    // beta branch's versions.json still names the stable frontend as "latest").
+    if (o.ref && o.pin && o.pin.sha256 && o.ref !== o.pin.sha && sha256(page) === o.pin.sha256) {
+        throw new Exit(2, pre
+            ? "this commit's " + path + " is the renderer you already have: versions.json's core.prerelease is still " + pre + ", so there is nothing new to vendor"
+            : "this commit's " + path + " is the renderer you already have: pass --prerelease or --path v/<version>/renderer.html");
+    }
     const region = buildRegion(page, sha, path, license);
     const at = locate(html);
     if (o.check) {

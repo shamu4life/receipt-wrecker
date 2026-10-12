@@ -170,14 +170,14 @@
         <input type="checkbox" id="thermalView"> Thermal preview: 1-bit dots, like the printer
       </label>
       <label class="thermal-toggle">Thermal dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select> <span id="thermalDitherOff" class="dither-off">(turn on the thermal preview first)</span></label>
-      <div class="hint">The preview is drawn by SassyTP's printer-bot renderer (MIT), the receipt page the bot itself prints from. The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
+      <div class="hint" id="rendererCredit">The preview is drawn by SassyTP's printer-bot renderer (MIT)<span id="rendererVersion"></span>, the receipt page the bot itself prints from.<span id="rendererCompare"></span> The thermal view is what the printer gets, give or take fonts: this computer's fonts may differ from the streamer's.</div>
       <details class="hint more"><summary>What's this?</summary><div>The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on).</div></details>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
         <button type="button" id="plainProbeBtn">Plain test</button>
       </div>
-      <div class="hint">Two one-cheer tests of the streamer's settings. <strong>High Roller test</strong> cheers exactly the threshold: if BIG prints big, High Roller is on at that amount. <strong>Plain test</strong> cheers one bit under it: it should print small, inside quote marks, with every line the same length.</div>
+      <div class="hint">Two one-cheer tests of the streamer's settings. <strong>High Roller test</strong> cheers exactly the threshold: if BIG prints big, High Roller is on at that amount. <strong>Plain test</strong> cheers one bit under it (1 bit when High Roller is off or the printer doesn't allow High Roller prints): it should print small, inside quote marks, with every line the same length.</div>
     </section>
     <section class="controls controls-settings">
         <div id="presets">
@@ -214,12 +214,14 @@
         <label>Paper width: <select id="paperMm" style="width:auto"><option value="80" selected>80 mm</option><option value="58">58 mm</option></select></label>
         <label>High Roller threshold: <input type="number" id="hrThreshold" min="0" max="1000000" step="1" value="25" style="width:7em"> bits</label>
         <div class="hint field-note" id="hrThresholdNote" role="status" hidden></div>
-        <div class="hint">A cheer of at least this many bits is a High Roller cheer, and the bot prints its big text, sideways text and glyph-art. Below it the bot prints plain text, so every block prints as Han tiling. 0 = High Roller off (every cheer prints as plain text).</div>
+        <div class="hint">A cheer of at least this many bits is a High Roller cheer, and the bot prints its big text, sideways text and glyph-art. Below it the bot prints plain text, so every block prints in its plain form (big and sideways text as Han tiling). 0 = High Roller off (every cheer prints as plain text).</div>
         <label>Bits per inch: <input type="number" id="bitsPerInch" min="0" step="any" value="0" style="width:7em"></label>
         <div class="hint field-note" id="bitsPerInchNote" role="status" hidden></div>
         <label>Maximum length: <input type="number" id="maxInches" min="0" max="40" step="any" value="0" style="width:7em"> inches</label>
         <div class="hint field-note" id="maxInchesNote" role="status" hidden></div>
         <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's longest message, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
+        <label><input type="checkbox" id="allowHighRoller" checked> The streamer's printer allows High Roller prints (Printer Bot 3.0)</label>
+        <div class="hint">Printer Bot 3.0 has this switch for each printer, on by default. When it is off, that printer prints every cheer as plain text, however many bits, so every block here prints in its plain form. Printer Bot 2.5 has no such switch: leave it on.</div>
       </div>
     </section>
   </div>
@@ -424,11 +426,13 @@
   // What the bot does with a cheer: "raw" (High Roller: our markup is styled) or "plain"
   // (the message prints as quoted 16px text). The bot's own test is threshold > 0 and
   // bits >= threshold (renderer.html isHighRoller). A message with no cheer never prints.
-  // opts = {cheer, bits, hrThreshold}; an absent `cheer` is off, as everywhere else here.
+  // opts = {cheer, bits, hrThreshold, allowHighRoller}; an absent `cheer` is off, as everywhere else
+  // here. allowHighRoller is Printer Bot 3.0's per-printer switch ("Allow High Roller prints", on by
+  // default): off, that printer prints every cheer as plain text (renderer viewOf).
   function printMode(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold);
-    return o.cheer && t > 0 && cheerBits(o.bits) >= t ? "raw" : "plain";
+    return o.cheer && t > 0 && o.allowHighRoller !== false && cheerBits(o.bits) >= t ? "raw" : "plain";
   }
   // Which form the app BUILDS a stack in. A cheer builds what the bot will print
   // (printMode). Cheer-ready off is a free chat test (it never reaches the printer, but it
@@ -786,9 +790,9 @@
   // ── MIGRATION (1.0.0): SAVED STACKS FROM THE BUILDS BEFORE 1.0.0 ─────────
   // The name the one-time backup of a pre-1.0.0 stack is saved under, in rw_presets_v1.
   var MIGRATION_BACKUP_NAME = "Before 1.0.0";
-  // The text renders 1.0.0 has: "big" and "sideways" (High Roller cheers) and "hanzi" (Han
-  // tiling, plain text, which prints at any cheer size).
-  var TEXT_RENDERS = ["big", "sideways", "hanzi"];
+  // The text renders: "big" and "sideways" (High Roller cheers), "hanzi" (Han tiling, plain text,
+  // which prints at any cheer size) and, since 1.2.0, "typed" (Han text as typed, plain text too).
+  var TEXT_RENDERS = ["big", "sideways", "hanzi", "typed"];
   // Which render a TEXT block uses. Absent or unknown reads as "big", the default: by the
   // time a block reaches the card or the builders, migrateBlocks has already turned every
   // older render into one of the three, so this only ever meets junk from a hand-edited
@@ -1065,9 +1069,10 @@
       || (cp >= 0xA960 && cp <= 0xA97F) || (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF)
       || (cp >= 0xFE30 && cp <= 0xFE4F) || (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6);
   }
-  // "wrap" is the lines as typed with each too-wide line broken at its spaces (bigWrapPlan):
-  // one of Auto's candidates, and a layout of its own so the shorter wrapped form is one pick
-  // away when Auto prefers a long stack of slightly bigger letters.
+  // "wrap" is the lines as typed with each too-wide line broken at its spaces, and a run of Han,
+  // kana or Hangul between its characters (bigWrapPlan): one of Auto's candidates, and a layout
+  // of its own so the shorter wrapped form is one pick away when Auto prefers a long stack of
+  // slightly bigger letters.
   var BIG_LAYOUTS = ["auto", "lines", "wrap", "stack", "each"];
   // Capitals' height: Arial Bold's cap height (0.716em), in cm at 96 CSS px per inch.
   var BIG_CAP_EM = 0.716, MM_PER_PX = 25.4 / 96;
@@ -1269,39 +1274,120 @@
   // `ems` are the advances (what the browser wraps by); `inkEms` add bigEdgeEm, the room the
   // first and last glyphs' ink needs: the width fit (pxW) and "too wide" (overflow) use those.
   function bigPrep(lines, layout, contentW) {
+    return bigPrepFrom(lines.map(function (l) {
+      var gs = bigGraphemes(l), em = 0, emoji = false, k, w;
+      for (k = 0; k < gs.length; k++) { w = bigGlyphEm(gs[k]); em += w; if (w === BIG_W_EMOJI) emoji = true; }
+      return { t: l, em: em, g: gs.length, edge: bigEdgeEm(gs), emoji: emoji };
+    }), layout, contentW);
+  }
+  // bigPrep from lines already measured: [{t, em (advances), g (graphemes), edge (bigEdgeEm),
+  // emoji}]. The Wrap layout builds its lines out of measured words, so it never measures a line
+  // twice (1.2.0 review: it re-read every line at every size it tried, and long CJK text froze
+  // the page for a second).
+  function bigPrepFrom(recs, layout, contentW) {
+    var lines = recs.map(function (r) { return r.t; });
     var m = { lines: lines, layout: layout, contentW: contentW, ems: [], inkEms: [], lens: [], fit: [], pxW: [],
               spaced: [], lhs: [], words: [], minPxW: Infinity, ink: 0, emoji: false };
-    for (var i = 0; i < lines.length; i++) {
-      var l = lines[i], gs = bigGraphemes(l), em = 0, k, w;
-      for (k = 0; k < gs.length; k++) { w = bigGlyphEm(gs[k]); em += w; if (w === BIG_W_EMOJI) m.emoji = true; }
-      var fit = bigFitPx(contentW, gs.length), inkEm = em + bigEdgeEm(gs);
+    for (var i = 0; i < recs.length; i++) {
+      var r = recs[i], l = r.t, fit = bigFitPx(contentW, r.g), inkEm = r.em + r.edge;
       var pw = l === "" ? Infinity : Math.min(BIG_MAX_PX, Math.floor(fit / inkEm));
-      m.ems.push(em); m.inkEms.push(inkEm); m.lens.push(payloadLength(escapeHtml(l))); m.fit.push(fit); m.pxW.push(pw);
+      if (r.emoji) m.emoji = true;
+      m.ems.push(r.em); m.inkEms.push(inkEm); m.lens.push(payloadLength(escapeHtml(l))); m.fit.push(fit); m.pxW.push(pw);
       m.spaced.push(/ /.test(l)); m.lhs.push(BIG_CAPS_SAFE.test(l) ? BIG_LH_CAPS : BIG_LH_TEXT);
       if (l !== "") { m.ink++; if (pw < m.minPxW) m.minPxW = pw; }
     }
     m.lh = bigLineHeight(lines);
     return m;
   }
-  // Greedy word wrap at px, at the spaces only: the lines the Wrap layout sends (every word
-  // stays whole on its line). Words go on a line while it (its spaces included, and the room
-  // its first and last glyphs' ink needs, bigEdgeEm) fits bigFitPx; a word wider than a whole
-  // line sits on a line of its own. How many lines a line too wide for the paper really PRINTS
-  // as is bigWrapCount's job, which also knows the breaks the page makes inside a word (Han,
-  // kana, emoji, a hyphen).
-  function bigWrapWords(line, px, contentW) {
-    var words = String(line).split(" ").filter(function (w) { return w !== ""; });
-    if (words.length < 2) return [String(line)];
-    var spEm = BIG_W[" "], out = [], cur = words[0], curGs = bigGraphemes(cur), curEm = bigLineEm(cur), curG = curGs.length;
-    var curL = bigEdge(curGs[0])[0];
-    for (var i = 1; i < words.length; i++) {
-      var w = words[i], wGs = bigGraphemes(w), wEm = bigLineEm(w), wG = wGs.length;
-      var e = curEm + spEm + wEm, g = curG + 1 + wG, edge = 2 * Math.max(curL, bigEdge(wGs[wG - 1])[1]);
-      if ((e + edge) * px <= bigFitPx(contentW, g) + PX_EPS) { cur += " " + w; curEm = e; curG = g; }
-      else { out.push(cur); cur = w; curEm = wEm; curG = wG; curL = bigEdge(wGs[0])[0]; }
+  // THE WRAP LAYOUT'S BREAKS (1.2.0). A line breaks at its spaces, and a word also breaks between
+  // two of its characters where the page breaks a run of Han, kana or Hangul (between two of them,
+  // or between one and a neighbour: bigWrapsBetween), never before a closing mark or after an
+  // opening one, quotation marks included (BIG_WRAP_NO_BEFORE / AFTER). Such a word fills the line it starts on, the way
+  // the page fills a line of Chinese, so a Korean word may break across two lines. Latin words
+  // never break. A Han run with no spaces used to be one unbreakable word, so Auto stacked it one
+  // character a line: 35 a cheer (owner, 1.1.0).
+  // Han, kana or Hangul: what Wrap breaks between. Not the full-width Latin letters and digits,
+  // which are as wide but make a Latin word (ＧＧ, ８８８), nor the CJK punctuation and symbols,
+  // which break only beside one of these (review of the fixes: "ＨＥＬＬＯ ＷＯＲＬＤ" wrapped
+  // as ＨＥＬＬ / Ｏ ＷＯ / ＲＬＤ, and text with none of these wrapped differently from 1.1.0).
+  function bigWrapsBetween(cp) {
+    return (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0xF900 && cp <= 0xFAFF)
+      || (cp >= 0x20000 && cp <= 0x3FFFD) || (cp >= 0x2E80 && cp <= 0x2FDF) || cp === 0x3005 || cp === 0x3007
+      || (cp >= 0x3021 && cp <= 0x3029) || (cp >= 0x3038 && cp <= 0x303B)
+      || (cp >= 0x3041 && cp <= 0x30FF) || (cp >= 0x31F0 && cp <= 0x31FF)
+      || (cp >= 0x1100 && cp <= 0x11FF) || (cp >= 0x3130 && cp <= 0x318F) || (cp >= 0xA960 && cp <= 0xA97F)
+      || (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xD7B0 && cp <= 0xD7FF);
+  }
+  // A typed line's words, measured once: {t, gs, ems, em, cut (cut[i]: the page may break before
+  // gs[i]), breakable, l, r (the first and last glyphs' ink past their advances, bigEdge)}.
+  function bigWrapPrep(line) {
+    return String(line).split(" ").filter(function (w) { return w !== ""; }).map(function (w) {
+      var gs = bigGraphemes(w), ems = [], em = 0, cut = [false], any = false;
+      for (var i = 0; i < gs.length; i++) {
+        var e = bigGlyphEm(gs[i]);
+        ems.push(e); em += e;
+        if (i) {
+          var p = gs[i - 1], g = gs[i];
+          var c = (bigWrapsBetween(p.codePointAt(0)) || bigWrapsBetween(g.codePointAt(0))) && !BIG_WRAP_NO_BEFORE.test(g) && !BIG_WRAP_NO_AFTER.test(p);
+          cut.push(c);
+          if (c) any = true;
+        }
+      }
+      return { t: w, gs: gs, ems: ems, em: em, cut: cut, breakable: any, l: bigEdge(gs[0])[0], r: bigEdge(gs[gs.length - 1])[1],
+               emoji: ems.indexOf(BIG_W_EMOJI) >= 0 };
+    });
+  }
+  // A breakable word's pieces, the runs between its breaks, measured: [{t, em, g, l, r, emoji}].
+  function bigWrapPieces(w) {
+    if (w.pieces) return w.pieces;
+    var out = [], cur = null;
+    for (var i = 0; i < w.gs.length; i++) {
+      if (!cur || w.cut[i]) { cur = { t: "", em: 0, g: 0, l: bigEdge(w.gs[i])[0], r: 0, emoji: false }; out.push(cur); }
+      cur.t += w.gs[i]; cur.em += w.ems[i]; cur.g++; cur.r = bigEdge(w.gs[i])[1];
+      if (w.ems[i] === BIG_W_EMOJI) cur.emoji = true;
     }
-    out.push(cur);
+    return (w.pieces = out);
+  }
+  // What a line may never be broken below: each unbreakable word, and each piece of a breakable
+  // one. The biggest px at which every one fits a line of its own bounds Wrap's size search.
+  function bigWrapAtoms(words) {
+    var out = [];
+    words.forEach(function (w) {
+      if (w.breakable) out = out.concat(bigWrapPieces(w));
+      else out.push({ t: w.t, em: w.em, g: w.gs.length, l: w.l, r: w.r, emoji: w.emoji });
+    });
     return out;
+  }
+  // Greedy wrap of a line's measured words at px into a width W: [{t, em, g, edge, emoji}]. Words
+  // (a breakable one piece by piece) go on a line while it (its spaces included, and the room its
+  // first and last glyphs' ink needs, bigEdgeEm) fits bigFitPx; a word wider than a whole line
+  // that can't break sits on a line of its own, and what follows it starts the next. How many
+  // lines a line too wide for the paper really PRINTS as is bigWrapCount's job.
+  function bigWrapLines(words, px, W) {
+    var spEm = BIG_W[" "], out = [], cur = null;
+    var fits = function (em, g, l, r) { return (em + 2 * Math.max(l, r)) * px <= bigFitPx(W, g) + PX_EPS; };
+    var close = function () { if (cur) out.push({ t: cur.t, em: cur.em, g: cur.g, edge: 2 * Math.max(cur.l, cur.r), emoji: cur.emoji }); };
+    var put = function (x, sp) {
+      var s = sp ? 1 : 0;
+      if (cur && fits(cur.em + s * spEm + x.em, cur.g + s + x.g, cur.l, x.r)) {
+        cur.t += (sp ? " " : "") + x.t; cur.em += s * spEm + x.em; cur.g += s + x.g; cur.r = x.r; cur.emoji = cur.emoji || x.emoji;
+        return;
+      }
+      close();
+      cur = { t: x.t, em: x.em, g: x.g, l: x.l, r: x.r, emoji: x.emoji };
+    };
+    words.forEach(function (w, wi) {
+      if (!w.breakable) { put({ t: w.t, em: w.em, g: w.gs.length, l: w.l, r: w.r, emoji: w.emoji }, wi > 0); return; }
+      bigWrapPieces(w).forEach(function (p, pi) { put(p, pi === 0 && wi > 0); });
+    });
+    close();
+    return out;
+  }
+  // The lines the Wrap layout sends for one typed line at px (a line with nothing to break at
+  // comes back as it is).
+  function bigWrapWords(line, px, contentW) {
+    var words = bigWrapPrep(line);
+    return words.length ? bigWrapLines(words, px, contentW).map(function (r) { return r.t; }) : [String(line)];
   }
   // HOW A TOO-WIDE LINE WRAPS ON THE BOT'S PAGE, as an upper bound. A High Roller message keeps
   // its own styling (the renderer's overflow-wrap:anywhere is for .part:not(.raw)), so the
@@ -1331,8 +1417,16 @@
   // "WWW WWW WWW" at 48px is three lines (two 136px words and a space don't fit 244px), and
   // that guess said two.
   var BIG_ATOM_RE = /^[A-Za-z0-9'"\u2019\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F\u0391-\u03A9\u03B1-\u03C9\u0400-\u045F]/;
-  var BIG_NO_BREAK_BEFORE = /^[)\]},.:;!?'"\u2019\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\uFF5D\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
-  var BIG_NO_BREAK_AFTER = /^[(\[{'\uFF08\u300C\u300E\u3010\u3014\uFF5B\uFF3B\u3008\u300A]/;
+  var BIG_NO_BREAK_BEFORE = /^[)\]},.:;!?'"\u2019\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\u3017\u3019\u301B\u301E\u301F\uFF5D\uFF60\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
+  var BIG_NO_BREAK_AFTER = /^[(\[{'\uFF08\u300C\u300E\u3010\u3014\u3016\u3018\u301A\u301D\uFF5B\uFF5F\uFF3B\u3008\u300A]/;
+  // Where the Wrap layout itself won't break: those, and never after an opening curly quote (“ ‘)
+  // or before a closing one (”), so a wrapped line never ends with “ or starts with ” (1.2.0
+  // review), nor on either side of a straight " (it opens and closes, and the page never breaks
+  // beside one either). Only for the breaks Wrap picks: since Unicode 15.1 the page may break
+  // beside a curly quote between two Han characters, so bigWrapCount's upper bound must not
+  // count those as unbreakable.
+  var BIG_WRAP_NO_BEFORE = /^[)\]},.:;!?'"\u2019\u201D\-|\u2013\u2026\u3001\u3002\uFF0C\uFF0E\uFF09\u300D\u300F\u3011\u3015\u3017\u3019\u301B\u301E\u301F\uFF5D\uFF60\uFF3D\u3009\u300B\uFF01\uFF1F\uFF1A\uFF1B\u30FB\u3005\u309D\u309E\u30FD\u30FE\u301C]/;
+  var BIG_WRAP_NO_AFTER = /^[(\[{'"\u2018\u201C\uFF08\u300C\u300E\u3010\u3014\u3016\u3018\u301A\u301D\uFF5B\uFF5F\uFF3B\u3008\u300A]/;
   // A line's words, measured once: {em, g (graphemes), pieces (see above)}.
   function bigWrapWordsOf(line) {
     return String(line).split(" ").filter(function (w) { return w !== ""; }).map(function (w) {
@@ -1560,43 +1654,51 @@
   function bigPickUniform(m, size, budget, room, flip, linear) {
     return bigPickSize(function (px) { return bigEvalUniform(m, px, budget, room, flip); }, size, m.minPxW, linear);
   }
-  // The WRAPPED layout (one of Auto's candidates, and a block's own pick): the lines as typed, each one broken at its spaces where
-  // it is too wide at px (bigWrapWords), then fitted like Lines. A sentence typed on one line
-  // used to have no good layout: as one line it is tiny, and stacked it is a column of small
-  // letters most of a receipt long. Every word stays whole on its line. The breaks depend on
-  // the size, so each size is evaluated on its own wrapping; the line count only grows with
-  // the size, so the search still holds. The size it settles on is then BALANCED: the same
-  // number of lines, each as short as it can be ("THANKS FOR / THE RAID", not "THANKS FOR
-  // THE / RAID"), which changes neither the height nor the characters. null when no line has
-  // a space to break at (it would be Lines exactly).
+  // The WRAPPED layout (one of Auto's candidates, and a block's own pick): the lines as typed, each
+  // one broken where it is too wide at px (bigWrapLines: at its spaces, and between the characters
+  // of a run of Han, kana or Hangul), then fitted like Lines. A sentence typed on
+  // one line used to have no good layout: as one line it is tiny, and stacked it is a column of
+  // small letters most of a receipt long. The breaks depend on the size, so each size is evaluated
+  // on its own wrapping. Each size is also BALANCED: the same number of lines, each as short as it
+  // can be ("THANKS FOR / THE RAID", not "THANKS FOR THE / RAID"). Breaking at a space drops the
+  // space and breaking between two characters doesn't, so balancing can change the characters
+  // (and the cheers): each size keeps whichever of the two costs less, balanced on a tie, and the
+  // search ranks sizes by that (1.2.0 review: it ranked them greedy and sent them balanced, so
+  // "fits one cheer" came back as two). null when no line has anything to break at (it would be
+  // Lines exactly).
   function bigWrapPlan(baseLines, contentW, size, budget, room, flip, linear) {
-    if (!baseLines.some(function (l) { return / /.test(l); })) return null;
-    var wrapAt = function (px, w) {
-      var out = [];
-      baseLines.forEach(function (l) { out = out.concat(l === "" ? [""] : bigWrapWords(l, px, w)); });
-      return out;
-    };
-    var ev = function (px) {
-      var m = bigPrep(wrapAt(px, contentW), "lines", contentW), c = bigEvalUniform(m, px, budget, room, flip);
+    var preps = baseLines.map(function (l) { return l === "" ? null : bigWrapPrep(l); });
+    if (!preps.some(function (w) { return w && (w.length > 1 || (w.length === 1 && w[0].breakable)); })) return null;
+    var blank = { t: "", em: 0, g: 0, edge: 0, emoji: false };
+    var evLines = function (recs, px) {
+      var m = bigPrepFrom(recs, "lines", contentW), c = bigEvalUniform(m, px, budget, room, flip);
       c.m = m;
       return c;
     };
-    var words = [];
-    baseLines.forEach(function (l) { l.split(" ").forEach(function (w) { if (w) words.push(w); }); });
-    var pick = bigPickSize(ev, size, bigPrep(words, "lines", contentW).minPxW, linear), px = pick.px;
-    // Balance: for each typed line, the narrowest width that still wraps it to as many lines.
-    var balanced = [];
-    baseLines.forEach(function (l) {
-      if (l === "") { balanced.push(""); return; }
-      var n = bigWrapWords(l, px, contentW).length;
-      if (n < 2) { balanced.push(l); return; }
-      var lo = 1, hi = contentW;
-      while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (bigWrapWords(l, px, mid).length <= n) hi = mid; else lo = mid; }
-      balanced = balanced.concat(bigWrapWords(l, px, hi));
-    });
-    var m = bigPrep(balanced, "lines", contentW), c = bigEvalUniform(m, px, budget, room, flip);
-    c.m = m;
-    return c;
+    var ev = function (px) {
+      var greedy = [], balanced = [], same = true;
+      preps.forEach(function (w) {
+        if (!w) { greedy.push(blank); balanced.push(blank); return; }
+        var g = bigWrapLines(w, px, contentW);
+        greedy = greedy.concat(g);
+        if (g.length < 2) { balanced = balanced.concat(g); return; }
+        // The narrowest width that still wraps this typed line to as many lines.
+        var lo = 1, hi = contentW;
+        while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (bigWrapLines(w, px, mid).length <= g.length) hi = mid; else lo = mid; }
+        var b = bigWrapLines(w, px, hi);
+        for (var i = 0; i < b.length && same; i++) if (b[i].t !== g[i].t) same = false;
+        balanced = balanced.concat(b);
+      });
+      var cb = evLines(balanced, px);
+      if (same) return cb;
+      var cg = evLines(greedy, px);
+      return bigRank(cg) < bigRank(cb) ? cg : cb;
+    };
+    var atoms = [];
+    preps.forEach(function (w) { if (w) atoms = atoms.concat(bigWrapAtoms(w)); });
+    return bigPickSize(ev, size, bigPrepFrom(atoms.map(function (a) {
+      return { t: a.t, em: a.em, g: a.g, edge: 2 * Math.max(a.l, a.r), emoji: a.emoji };
+    }), "lines", contentW).minPxW, linear);
   }
   // Whether Auto prefers candidate x to candidate y: a layout whose letters would be cut off
   // never beats one that fits; then a clean one (not over, not tall) beats one that is not;
@@ -1636,14 +1738,20 @@
     }
     var p;
     if (o.layout === "wrap") {
-      // A line with no space to break at wraps to itself: that is Lines exactly, and says so.
+      // A line with nothing to break at (no space, no run of Han, kana or Hangul) wraps to itself:
+      // that is Lines exactly, and says so.
       var l0 = one("lines"), w0 = l0.pick ? bigWrapPlan(l0.lines, contentW, o.size, budget, room, o.flip, opts.linear) : null;
       p = w0 ? { layout: "wrap", lines: w0.m.lines, m: w0.m, pick: w0 } : l0;
     } else if (o.layout !== "auto") p = one(o.layout);
     else {
       var a = one("lines"), cands = [a];
       var w = a.pick ? bigWrapPlan(a.lines, contentW, o.size, budget, room, o.flip, opts.linear) : null;
-      if (w) cands.push({ layout: "wrap", lines: w.m.lines, m: w.m, pick: w });
+      // A wrap that splits a word into one character a line is Stack without its word gaps: spaced
+      // Korean, "아버지가 방에" and "아버지 가방에", sent the same message (1.2.0 review). Never
+      // Auto's pick. (When every word is one character, each line is a whole word: that stays.)
+      var split = w && w.m.lines.every(function (l) { return bigGraphemes(l).length <= 1; })
+        && a.lines.some(function (l) { return l.split(" ").some(function (x) { return bigGraphemes(x).length > 1; }); });
+      if (w && !split) cands.push({ layout: "wrap", lines: w.m.lines, m: w.m, pick: w });
       cands.push(one("stack"));
       p = cands[0];
       for (var ci = 1; ci < cands.length; ci++) if (bigBetter(cands[ci], p, o.size)) p = cands[ci];
@@ -2508,11 +2616,14 @@
       return r;
     });
     if (!rows.length) return glyphEmpty();
-    var h = designTHeader(p.mm, mode), header = new Array(h + 1).join(HAN_LIGHT);
+    var h = mode === "raw" && opts.headerless ? 0 : designTHeader(p.mm, mode), header = new Array(h + 1).join(HAN_LIGHT);
     var trail = trailLength({ cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce });
-    var extra = 1 + (trail ? 1 : 0);
+    var extra = (h ? 1 : 0) + (trail ? 1 : 0);
     var limit = (typeof opts.limitPx === "number" && isFinite(opts.limitPx) && opts.limitPx > 0) ? opts.limitPx : CONTENT_CEILING_PX;
-    var per = Math.max(1, Math.min(Math.floor((MAX_CHARS - trail - h) / C), Math.floor(limit / LEAD_LINE_PX + 1e-9) - extra));
+    // A row's characters: C, unless a cell is several code points (Han text as typed keeps a
+    // variation sequence whole), so a cheer holds as many rows as its LONGEST row allows.
+    var rowLen = rows.reduce(function (m, r) { return Math.max(m, payloadLength(r.join(""))); }, C);
+    var per = Math.max(1, Math.min(Math.floor((MAX_CHARS - trail - h) / rowLen), Math.floor(limit / LEAD_LINE_PX + 1e-9) - extra));
     // As many cheers as `per` rows a cheer needs, with the rows spread evenly over them: the
     // last cheer used to carry whatever was left, sometimes one row (the bottom stroke of a
     // letter) for a whole cheer and a whole header.
@@ -2530,6 +2641,77 @@
     }
     out.forEach(function (b) { b.hanzi.chunkCount = out.length; });
     return out;
+  }
+  // HAN TEXT AS TYPED (1.2.0): the characters the viewer typed or pasted, printed as themselves at
+  // the receipt's own 16px, in rows of exactly C Han cells, packed like Design T (a pasted
+  // receiptify mosaic prints as the mosaic). Each typed line starts a new row, light cells
+  // filling its last. ONLY HAN CHARACTERS go in (owner, 2026-10-11), the only ones a full cell
+  // wide in every CJK font, so the paper's own wrapping makes exact rows. Everything else is left
+  // out and reported: Latin letters, digits and spaces are narrower, and a typed < or <br can
+  // never go out in a plain cheer, which the bot prints as typed (owner, 1.2.0); kana and Hangul
+  // are narrower in some fonts (a Mac's Hangul printed 16 a row through the vendored renderer, and
+  // Noto's is 0.92 of a cell; Windows draws kana with the condensed Yu Gothic UI); and CJK
+  // punctuation breaks the rows, since the page never starts a line with a closing mark (、。」！？)
+  // or ends one with an opening mark (「（), and Chromium squeezes two of them side by side into less
+  // than two cells: every row after one slipped by a cell while the heights still matched (1.2.0
+  // review). Han characters here are Unicode's Han script in the BMP: the ideographs, the
+  // compatibility ideographs, the radicals, 々, 〇 and the Hangzhou numerals.
+  function hanTypedKeeps(cp) {
+    return (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0xF900 && cp <= 0xFAFF)
+      || (cp >= 0x2E80 && cp <= 0x2FDF) || cp === 0x3005 || cp === 0x3007 || (cp >= 0x3021 && cp <= 0x3029)
+      || (cp >= 0x3038 && cp <= 0x303B);
+  }
+  // The iteration marks (々 〻) are Han characters the page won't start a line with. They stay, and
+  // never start a row: the character before one moves down with it, a light cell taking its place,
+  // and a typed line that starts with one gets a light cell before it.
+  function hanTypedNoStart(g) {
+    var cp = String(g).codePointAt(0);
+    return cp === 0x3005 || cp === 0x303B;
+  }
+  // The text is read the way every Text render reads it (bigClean: CR, CRLF and U+2028/2029 break
+  // the line; invisible characters go, listed in `invisible`). A cell may be several code points
+  // (a variation sequence), so buildDesignT sizes a cheer by its longest row's characters.
+  function hanTypedGrid(text, paperMm) {
+    var C = hanziCols(paperSpec(paperMm).contentW), rows = [], dropped = [];
+    var clean = bigClean(text);
+    clean.text.split("\n").forEach(function (line) {
+      var cells = [], row = [];
+      bigGraphemes(line).forEach(function (g) {
+        if (hanTypedKeeps(g.codePointAt(0))) cells.push(g); else dropped.push(g);
+      });
+      if (!cells.length && /\S/.test(line)) return;
+      if (cells.length && hanTypedNoStart(cells[0])) cells.unshift(HAN_LIGHT);
+      cells.forEach(function (c) {
+        if (row.length === C) {
+          var k = 0;
+          if (hanTypedNoStart(c)) {
+            k = 1;
+            while (k < C && hanTypedNoStart(row[C - k])) k++;
+            if (k >= C) k = 0;                                  // a whole row of them: nothing to move
+          }
+          var next = row.splice(C - k, k);
+          while (row.length < C) row.push(HAN_LIGHT);
+          rows.push(row);
+          row = next;
+        }
+        row.push(c);
+      });
+      while (row.length < C) row.push(HAN_LIGHT);
+      rows.push(row);
+    });
+    while (rows.length && rows[rows.length - 1].every(function (c) { return c === HAN_LIGHT; })) rows.pop();
+    while (rows.length && rows[0].every(function (c) { return c === HAN_LIGHT; })) rows.shift();
+    return { rows: rows, dropped: dropped, invisible: clean.dropped };
+  }
+  // opts as buildDesignT's. A High Roller cheer has no quote marks, so no light first row.
+  function buildHanTyped(text, opts) {
+    opts = opts || {};
+    var g = hanTypedGrid(text, opts.paperMm), o = {}, k;
+    for (k in opts) o[k] = opts[k];
+    o.headerless = true;
+    var bodies = g.rows.length ? buildDesignT(g.rows, o) : glyphEmpty();
+    bodies.forEach(function (b) { b.typed = { dropped: g.dropped.slice(), invisible: g.invisible.slice(), rows: g.rows.length }; });
+    return bodies;
   }
   // A picture in Design T: its cells (C - 2 a row) framed by a light column each side, which
   // absorbs a one-cell slip if the quote turns out wider than expected.
@@ -2580,7 +2762,7 @@
     shapes.slice().sort(function (a, b) { return a.rank - b.rank; }).forEach(function (s) {
       if (used + s.h <= room + PX_EPS && (s.id === "big" || keep.big)) { keep[s.id] = true; used += s.h; }
     });
-    var works = t > 0 && !!keep.big, kept = shapes.filter(function (s) { return keep[s.id]; });
+    var works = t > 0 && o.allowHighRoller !== false && !!keep.big, kept = shapes.filter(function (s) { return keep[s.id]; });
     if (!kept.length) kept = [shapes[0]];
     var left = shapes.filter(function (s) { return !keep[s.id] && s.name; }).map(function (s) { return s.name; });
     var html = kept.map(function (s) { return s.html; }).join("");
@@ -2590,6 +2772,8 @@
     var list = function (xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; };
     var note;
     if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
+    else if (o.allowHighRoller === false) note = "The streamer's printer has Allow High Roller prints off, so this prints as plain text, tags and all. "
+      + "It is a Printer Bot 3.0 setting, on by default, for each printer: ask the streamer to turn it on for the printer that prints cheers.";
     // Not working because the box is too short: either the Cheer line fills it (nothing after it
     // prints at all), or a little is left after it, too little for BIG, the smallest shape. That
     // case said "the Cheer line fills it" too, under a verdict that the receipt prints the Cheer
@@ -2601,7 +2785,7 @@
       + ", so this test can't show anything. Check the bits-per-inch and maximum length above.";
     else note = "One " + bits + "-bit cheer, exactly the threshold. If BIG prints big, High Roller is on at " + bitsWord(bits)
       + (checks.length ? ": check that " + list(checks) : "") + ". If it all prints small inside quote marks, the threshold is "
-      + "higher than " + bits + "."
+      + "higher than " + bits + ", or (on Printer Bot 3.0) the streamer's printer has Allow High Roller prints off."
       + (left.length ? " At the streamer's length settings this cheer gets only about " + cm + " of receipt, so the test leaves out "
         + list(left) + "." : "");
     return { bits: bits, mode: "raw",
@@ -2609,9 +2793,9 @@
                         preview: { kind: "html", html: html }, probe: "highroller" }],
              note: note, works: works, left: left };
   }
-  // Plain test: one bit under the threshold (1 bit when High Roller is off), a small Design T
-  // grid: a light header, "HI" in block letters inside the light frame, a gap, and a row of
-  // the ramp's tones. It shows that plain mode is what this amount gets, that every line holds
+  // Plain test: one bit under the threshold (1 bit when High Roller is off or the printer doesn't
+  // allow High Roller prints), a small Design T grid: a light header, "HI" in block letters
+  // inside the light frame, a gap, and a row of the ramp's tones. It shows that plain mode is what this amount gets, that every line holds
   // C glyphs and the rows line up (the rig's quote width and Han face), and how the tones print.
   var PROBE_LETTERS = {
     15: ["X...X.XXX", "X...X..X.", "X...X..X.", "XXXXX..X.", "X...X..X.", "X...X..X.", "X...X.XXX"],
@@ -2637,13 +2821,15 @@
   }
   function buildPlainProbe(o) {
     o = o || {};
-    var t = hrThresholdOf(o.hrThreshold), bits = t > 1 ? t - 1 : 1, p = paperSpec(o.paperMm);
-    var mode = printMode({ cheer: true, bits: bits, hrThreshold: t });
+    var off = o.allowHighRoller === false, t = hrThresholdOf(o.hrThreshold), bits = !off && t > 1 ? t - 1 : 1, p = paperSpec(o.paperMm);
+    var mode = printMode({ cheer: true, bits: bits, hrThreshold: t, allowHighRoller: o.allowHighRoller });
     var bodies = buildDesignT(probeHiGrid(hanziCols(p.contentW)),
       { mode: mode, paperMm: p.mm, cheer: true, bits: bits, noNonce: !!o.noNonce, limitPx: CONTENT_CEILING_PX });
     bodies.forEach(function (b) { b.probe = "plain"; });
     var note = mode === "plain"
-      ? (t === 0 ? "One " + bits + "-bit cheer. High Roller is off, so every cheer prints plain: it should print small, inside quote marks: a light first line, "
+      ? (off && t > 0 ? "One " + bits + "-bit cheer. The streamer's printer has Allow High Roller prints off, so every cheer prints plain: "
+                 + "it should print small, inside quote marks: a light first line, "
+         : t === 0 ? "One " + bits + "-bit cheer. High Roller is off, so every cheer prints plain: it should print small, inside quote marks: a light first line, "
                  : "One " + bits + "-bit cheer, one under the threshold. It should print small, inside quote marks: a light first line, ")
         + "HI in Han characters, a row of tones, then Cheer" + bits + ". Check that every line holds " + hanziCols(p.contentW)
         + " characters and the edges of HI line up."
@@ -2676,7 +2862,8 @@
     return { cheer: s.cheer !== false, bits: cheerBits(s.bits), hrThreshold: hrThresholdOf(s.hrThreshold),
              bitsPerInch: bitsPerInchOf(s.bitsPerInch), maxInches: maxInchesOf(s.maxInches),
              paperMm: paperSpec(s.paperMm).mm, nonce: s.nonce === true, thermalView: s.thermalView === true,
-             thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd" };
+             thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd",
+             allowHighRoller: s.allowHighRoller !== false };
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
@@ -2695,37 +2882,53 @@
   // settings (normalizeControls' fields; `cheer`, `bits`, `hrThreshold` and, for a High
   // Roller cheer, the two length settings are read). "" when the stack prints as built, in
   // its High Roller forms, with room after the Cheer line.
-  // `shape` (optional): "plain" when every part is a Han tiling part, "mixed" when some are.
-  // Such a part has no Cheer line at its top (its token goes last), so when the box leaves no
-  // room it prints its light first row, and saying "the Cheer line fills it" contradicted the
-  // part's own card (final review 2).
+  // `shape` (optional, partsShape's answer): which kinds of part ride alone with no Cheer line at
+  // their top (the token goes last), "plain" (Han tiling), "typed" (Han text as typed) or both,
+  // prefixed "mixed " when other parts do start with one. When the box leaves no room such a part
+  // still prints its first row, so saying "the Cheer line fills it" contradicted the part's own
+  // card (final review 2). Han tiling's first row is light; Han text's is the viewer's text,
+  // faded out by the bot's cut (1.2.0 review).
+  function shapeFlags(shape) {
+    var s = String(shape || "");
+    return { lead: s === "" || /^mixed/.test(s), tiling: /plain/.test(s), typed: /typed/.test(s) };
+  }
+  function aloneNoun(f) { return f.tiling && f.typed ? "Han tiling or Han text part" : f.typed ? "Han text part" : "Han tiling part"; }
+  function aloneRow(f) {
+    return f.tiling && f.typed ? "part of its first row (a Han tiling part's is a light row)"
+      : f.typed ? "part of its first row, fading out" : "its light first row";
+  }
+  // The plain form, in words: what each render prints in a plain cheer.
+  var PLAIN_FORMS = "Every block prints in its plain form: big and sideways text as Han tiling, pictures as a grid of Han characters. "
+    + "Han text as typed prints at any cheer. ";
   function modeNotice(o, shape) {
     o = o || {};
     if (!o.cheer) {
       // The free test is always the High Roller form (buildMode). When the real cheer would be
-      // below the threshold it prints as Han tiling instead, so the test checks another message,
-      // and says so.
-      var ft = hrThresholdOf(o.hrThreshold), fb = cheerBits(o.bits);
+      // below the threshold it prints in its plain form instead, so the test checks another
+      // message, and says so.
+      var ft = hrThresholdOf(o.hrThreshold), fb = cheerBits(o.bits), instead = " in its plain form instead (big and sideways text as Han tiling)";
       return "Free test: Cheer-ready is off, so this message never reaches the printer. It still goes "
         + "through the channel's chat filter, so sending it shows whether chat lets this markup through "
         + "before you spend bits."
-        + (ft <= 0 ? " The streamer's High Roller is off (threshold 0), so a real cheer prints as Han tiling instead: "
+        + (ft <= 0 ? " The streamer's High Roller is off (threshold 0), so a real cheer prints" + instead + ": "
                      + "this tests the High Roller form, which needs the streamer to set a threshold."
-         : fb < ft ? " Your " + fb + "-bit cheer will print as Han tiling instead: this tests the High Roller form, "
+         : o.allowHighRoller === false ? " The streamer's printer has Allow High Roller prints off, so a real cheer prints" + instead
+                     + ": this tests the High Roller form, which needs that setting on."
+         : fb < ft ? " Your " + fb + "-bit cheer will print" + instead + ": this tests the High Roller form, "
                      + "which needs " + bitsWord(ft) + " or more."
          : "");
     }
     if (printMode(o) === "raw") {
       var lim = contentLimitPx(o);
       if (!boxNoRoom(lim)) return "";
-      var mm = Math.max(1, Math.round(lim.px * MM_PER_PX));
-      var han = shape === "mixed" ? " A Han tiling part prints only its light first row." : "";
-      if (shape === "plain") {
+      var mm = Math.max(1, Math.round(lim.px * MM_PER_PX)), f = shapeFlags(shape);
+      var han = f.lead && (f.tiling || f.typed) ? " A " + aloneNoun(f) + " prints only " + aloneRow(f) + "." : "";
+      if (!f.lead) {
         return (lim.by === "cap"
-          ? "The streamer's maximum length (about " + mm + " mm) is shorter than one line of text, so each Han tiling part "
-            + "prints only its light first row, whatever the bits."
+          ? "The streamer's maximum length (about " + mm + " mm) is shorter than one line of text, so each " + aloneNoun(f) + " "
+            + "prints only " + aloneRow(f) + ", whatever the bits."
           : "The streamer's bits-per-inch setting gives a " + cheerBits(o.bits) + "-bit cheer about " + mm + " mm of receipt, "
-            + "shorter than one line of text, so each Han tiling part prints only its light first row.")
+            + "shorter than one line of text, so each " + aloneNoun(f) + " prints only " + aloneRow(f) + ".")
           + (lim.by === "cap" ? "" : " The streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch))
             + ": set Bits per cheer higher for room to print.");
       }
@@ -2738,10 +2941,14 @@
           + ": set Bits per cheer higher for room to print.";
     }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
+    if (t > 0 && o.allowHighRoller === false) {
+      return "The streamer's printer has Allow High Roller prints off (a Printer Bot 3.0 setting), so the bot prints every cheer as plain text. "
+        + PLAIN_FORMS + "Big text, sideways text and glyph-art in the characters you picked need that setting on.";
+    }
     return (t > 0
-        ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + bitsWord(t) + "), so the bot prints plain text."
-        : "The streamer's High Roller threshold is 0 (off), so the bot prints every cheer as plain text.")
-      + " Every block prints in its plain form: text as Han tiling, pictures as a grid of Han characters. "
+        ? "A " + bits + "-bit cheer is below the streamer's High Roller threshold (" + bitsWord(t) + "), so the bot prints plain text. "
+        : "The streamer's High Roller threshold is 0 (off), so the bot prints every cheer as plain text. ")
+      + PLAIN_FORMS
       + (t > 0 ? "For big text, sideways text or glyph-art in the characters you picked, set Bits per cheer to " + t + " or more."
                : "Big text, sideways text and glyph-art in the characters you picked need the streamer to set a High Roller threshold.");
   }
@@ -2750,8 +2957,9 @@
   // worth sending. opts and `shape` as modeNotice.
   function noRoomAdvice(o, shape) {
     o = o || {};
-    var lim = contentLimitPx(o);
-    var what = shape === "plain" ? "its light first row" : shape === "mixed" ? "its first line (the Cheer line, or a Han tiling part's light first row)" : "its Cheer line";
+    var lim = contentLimitPx(o), f = shapeFlags(shape);
+    var first = f.tiling && f.typed ? "a Han tiling or Han text part's first row" : f.typed ? "part of a Han text part's first row" : "a Han tiling part's light first row";
+    var what = !f.lead ? aloneRow(f) : f.tiling || f.typed ? "its first line (the Cheer line, or " + first + ")" : "its Cheer line";
     return lim.by === "cap"
       ? "Nothing worth sending: every part would print only " + what + ", whatever the bits. The streamer's "
         + "maximum length would have to be longer than one line."
@@ -2766,7 +2974,7 @@
   function bitsRaiseFor(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), from = cheerBits(o.bits);
-    if (!o.cheer || from >= t) return null;
+    if (!o.cheer || o.allowHighRoller === false || from >= t) return null;
     var lim = contentLimitPx({ bits: t, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches });
     if (boxNoRoom(lim)) return { action: "noRoom", from: from, to: t, by: lim.by };
     var ask = !!o.noAuto || t > RAISE_MAX_FACTOR * from || t > RAISE_MAX_BITS;
@@ -2797,16 +3005,22 @@
         : "at " + bitsWord(r.to) + " the streamer's bits per inch leaves no room after the Cheer line, so ") + plain;
     }
     var cost = now && now.cheers ? ": " + cheersWord(now.cheers) + ", " + bitsWord(now.bits)
-      + (was && was.cheers ? " (was " + was.cheers + " Han tiling " + (was.cheers === 1 ? "cheer" : "cheers") + ", " + bitsWord(was.bits) + ")" : "")
+      + (was && was.cheers ? " (was " + was.cheers + " plain " + (was.cheers === 1 ? "cheer" : "cheers") + ", " + bitsWord(was.bits) + ")" : "")
       : "";
     return "Bits per cheer raised from " + r.from + " to " + r.to + " for " + what + cost + ".";
   }
-  // modeNotice's `shape` for a list of parts: "plain" when every printable part is a Han tiling
-  // part (alone), "mixed" when some are, else "".
+  // modeNotice's `shape` for a list of parts: "" when every printable part starts with its Cheer
+  // line; else which kinds ride alone without one, "plain" (Han tiling) and/or "typed" (Han text
+  // as typed in a High Roller cheer: no header, so no light row), prefixed "mixed " when some
+  // parts do start with a Cheer line.
   function partsShape(items) {
     var ps = (items || []).filter(function (it) { return it && it.bodies && it.bodies.some(function (b) { return b.html; }); });
-    var n = ps.filter(function (it) { return it.alone; }).length;
-    return !ps.length || !n ? "" : n === ps.length ? "plain" : "mixed";
+    var alone = ps.filter(function (it) { return it.alone; });
+    if (!alone.length) return "";
+    var isTyped = function (it) { return it.bodies.some(function (b) { return b.typed && b.hanzi && b.hanzi.header === 0; }); };
+    var typed = alone.filter(isTyped).length;
+    var kinds = (typed < alone.length ? ["plain"] : []).concat(typed ? ["typed"] : []).join(" ");
+    return alone.length === ps.length ? kinds : "mixed " + kinds;
   }
   // SassyTP's printer-bot turns its screenshot into dots with its own C# Ditherer. This is a
   // port of it (MIT, Copyright (c) 2026 SassyTP; the full licence notice is at the end of this
@@ -2979,8 +3193,9 @@
     o = o || {};
     return {
       event: { __source: "TwitchCheer", bits: cheerBits(o.bits), user: "viewer", message: String(o.payload == null ? "" : o.payload) },
-      options: { highRollerBits: o.cheer === false ? 1 : hrThresholdOf(o.hrThreshold), highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch),
-                 highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false }
+      options: { highRollerBits: o.cheer === false ? 1 : o.allowHighRoller === false ? 0 : hrThresholdOf(o.hrThreshold),
+                 highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false,
+                 allowHighRoller: o.cheer === false || o.allowHighRoller !== false }
     };
   }
   // previewVerdict: what the renderer said about one part, in plain words, for the line under
@@ -3328,6 +3543,10 @@
       ctx = ctx || stackContext({ cheer: true });
       if (block.type === "image") return block.imgKind === "glyph" ? glyphImageBodies(block, ctx) : [];
       var text = block.text || "", r = blockRender(block);
+      if (r === "typed") {
+        return buildHanTyped(text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
+                                     noNonce: ctx.noNonce, limitPx: ctx.limit.px });
+      }
       if (r === "hanzi" || ctx.mode === "plain") return hanziBodies(text, block, ctx);
       if (r === "sideways") {
         var so = sideOpts(block);
@@ -3379,7 +3598,7 @@
         cheer: !!els.cheer.checked, bits: okBits || lastBits == null ? rawBits : lastBits, hrThreshold: sv("hrThreshold"),
         bitsPerInch: sv("bitsPerInch"), maxInches: sv("maxInches"), paperMm: v(els.paperMm),
         nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
-        thermalDither: v(els.thermalDither)
+        thermalDither: v(els.thermalDither), allowHighRoller: !(els.allowHighRoller && !els.allowHighRoller.checked)
       });
       if (okBits) lastBits = s.bits;
       STREAMER_FIELDS.forEach(function (id) { if (els[id] && streamerEntryOk(els[id].value)) lastStreamer[id] = s[id]; });
@@ -3416,7 +3635,7 @@
     // `extra` (a probe's bits and mode).
     function stackOpts(extra) {
       var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !getNonce(), hrThreshold: s.hrThreshold,
-        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm }, k;
+        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm, allowHighRoller: s.allowHighRoller }, k;
       for (k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -3459,8 +3678,9 @@
         + "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
         + "so a run of parts costs bits × parts; the total is under the preview. "
         + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
+           : s.allowHighRoller === false ? "The streamer's printer has Allow High Roller prints off (a Printer Bot 3.0 setting), so every cheer prints as plain text."
            : s.bits >= t ? "At " + bitsWord(s.bits) + " the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
-           : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints as Han tiling."
+           : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints in its plain form, big and sideways text as Han tiling."
              + (raiseOffered() ? " Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth shading, raises it to "
                 + bitsWord(t) + ", or offers to." : ""));
     }
@@ -3516,6 +3736,7 @@
       if (els.cheerNonce) els.cheerNonce.checked = s.nonce;
       els.thermalView.checked = s.thermalView;
       if (els.thermalDither) els.thermalDither.value = s.thermalDither;
+      if (els.allowHighRoller) els.allowHighRoller.checked = s.allowHighRoller;
     }
 
     // ── THE PREVIEW: SassyTP's own receipt page ─────────────────────────────
@@ -3736,7 +3957,7 @@
       // bits to the header and the bot's High Roller test, and makes a free test a real cheer.
       var pcheer = partCheer(item);
       var pe = previewEvent({ payload: item.payload, bits: pcheer.bits, cheer: pcheer.cheer, hrThreshold: s.hrThreshold,
-                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller });
       if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
       var key = JSON.stringify([pe, p.mm]);
       if (key !== pc.key) {
@@ -3912,6 +4133,7 @@
         if (!boxNoRoom(lim)) return null;
         return lim.by === "cap" ? { id: "maxInches", label: "Go to Maximum length" } : { id: "bitsAmount", label: "Change Bits per cheer" };
       }
+      if (hrThresholdOf(st.hrThreshold) > 0 && st.allowHighRoller === false) return { id: "allowHighRoller", label: "Go to Allow High Roller prints" };
       return hrThresholdOf(st.hrThreshold) > 0 ? { id: "bitsAmount", label: "Change Bits per cheer" }
         : { id: "hrThreshold", label: "Go to High Roller threshold" };
     }
@@ -4091,9 +4313,10 @@
         before.push(failBox);
       }
       if (item.noRoom) {
-        before.push(mkEl("div", { "class": "over-note" }, item.alone
-          ? "Prints only its light first row: the streamer's settings leave this cheer no room for the rest."
-          : "Prints nothing but the Cheer line: the streamer's settings leave this cheer no room after it."));
+        before.push(mkEl("div", { "class": "over-note" }, !item.alone
+          ? "Prints nothing but the Cheer line: the streamer's settings leave this cheer no room after it."
+          : "Prints only " + (partsShape([item]) === "typed" ? "part of its first row, fading out" : "its light first row")
+            + ": the streamer's settings leave this cheer no room for the rest."));
       }
       // Twitch rejects (doesn't truncate) an over-length message, so an over-budget part
       // would silently fail to send: say why and how to fix it.
@@ -4176,6 +4399,9 @@
       }
       // bigClean drops what prints nothing (zero-width characters, control codes), so a text
       // can be non-blank and still print NOTHING. Ask the same cleaner every text render uses.
+      // Han text as typed prints only Han characters: a text of kana, say, prints nothing, and
+      // its empty part used to say a picture was still loading (review of the 1.2.0 fixes).
+      if (blockRender(b) === "typed") return hanTypedGrid(b.text, 80).rows.length > 0;
       return /\S/.test(bigClean(b.text).text);
     }
     function saveBlocks() {
@@ -4237,7 +4463,8 @@
     // hints only promise it then.
     function raiseOffered() {
       var st = getSettings();
-      var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch, maxInches: st.maxInches });
+      var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch, maxInches: st.maxInches,
+                             allowHighRoller: st.allowHighRoller });
       return !!r && r.action !== "noRoom";
     }
     function raiseHost(block) {
@@ -4253,7 +4480,7 @@
     function pickedHighRoller(block, what, ctl) {
       var st = getSettings();
       var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch,
-                             maxInches: st.maxInches, noAuto: raiseNoAuto });
+                             maxInches: st.maxInches, allowHighRoller: st.allowHighRoller, noAuto: raiseNoAuto });
       if (!r) { dropRaiseOffer(block); return; }
       raiseSlot = { blockId: block.id, r: r, what: what, ctl: ctl.className.split(" ")[0],
                     was: partsTally(copyableParts()), sig: stackSig(), ver: (raiseSlot ? raiseSlot.ver : 0) + 1 };
@@ -4542,19 +4769,26 @@
       render.appendChild(opt("big", "Big text (High Roller cheers)", rNow === "big"));
       render.appendChild(opt("sideways", "Sideways text (High Roller cheers)", rNow === "sideways"));
       render.appendChild(opt("hanzi", "Han tiling (plain text, any cheer)", rNow === "hanzi"));
+      render.appendChild(opt("typed", "Han text as typed (small and dense, any cheer)", rNow === "typed"));
       card.appendChild(render);
       var RENDER_HINTS = {
         big: "Your words in bold Arial, as big as the paper allows. Big text needs a High Roller cheer: "
           + "at least the streamer's High Roller threshold. Picking it below the threshold raises Bits per "
-          + "cheer to the threshold, or offers to (the card says which, with an Undo). Left below it, the bot "
-          + "prints plain text, and this block prints as Han tiling instead.",
+          + "cheer to the threshold, or offers to (the card says which, with an Undo), unless the streamer's "
+          + "printer has Allow High Roller prints off. Left below it, the bot prints plain text, and this block "
+          + "prints as Han tiling instead.",
         sideways: "Your words running down the tape, as big as the paper's width allows: each line of "
           + "your text becomes a column across the paper. Turn the receipt to read it. Needs a High "
           + "Roller cheer, like Big text, and picking it below the threshold raises Bits per cheer the same way.",
+        typed: "The Han characters you type or paste, printed as themselves at the receipt's own size: 15 a row "
+          + "on 80 mm (9 on 58 mm), at any cheer size; up to about 480 a cheer with the streamer's length settings at 0. "
+          + "Only Han characters go in: kana, Hangul, punctuation, Latin letters and the rest are left out, since "
+          + "they would knock the rows out of line, and the note below says what. Big text prints those. "
+          + "Each line you type starts a new row. It needs a CJK font on the streamer's PC (Windows has one).",
         hanzi: "Your words drawn sideways out of Han characters, as plain text with no markup at all, so "
-          + "it prints the same at any cheer size: it is also what every block prints as below the "
-          + "streamer's High Roller threshold. Turn the receipt to read it. It needs a CJK font on the "
-          + "streamer's PC (Windows has one)."
+          + "it prints the same at any cheer size: it is also what Big text and Sideways text print as "
+          + "below the streamer's High Roller threshold. Turn the receipt to read it. It needs a CJK font "
+          + "on the streamer's PC (Windows has one)."
       };
       var renderHint = moreHint();
       card.appendChild(renderHint.el);
@@ -4586,9 +4820,11 @@
       // every layout, migrated "Lines" blocks included).
       var LAYOUT_HINTS = {
         auto: "Auto tries your lines as typed, the words wrapped to the paper and one letter a line, and keeps "
-          + "whichever prints biggest at the Size picked (to choose the line breaks yourself, press Enter between words and pick Lines).",
+          + "whichever prints biggest at the Size picked, but never a wrap that splits a word into one letter a line, which loses "
+          + "the gaps between words (to choose the line breaks yourself, press Enter between words and pick Lines).",
         lines: "Each line you typed prints as one line, all at one size, so press Enter between words to choose where the lines break.",
-        wrap: "Your lines with the words wrapped to the paper's width, all at one size, and no word split in two.",
+        wrap: "Your lines with the words wrapped to the paper's width, all at one size. Latin words stay whole; "
+          + "Han, kana and Hangul break between their characters, as the page breaks them.",
         stack: "One letter a line with a gap between words: the biggest letters, and the most tape.",
         each: "Every line you typed at its own size, as big as that line allows (a size in px caps them all)."
       };
@@ -4768,20 +5004,52 @@
         // Labelled for a High Roller cheer whatever the bits. Below the threshold the block
         // prints as Han tiling, and the labels say what it prints AT the threshold: its bits,
         // so its share of the receipt under a bits-per-inch setting and its lead's length.
-        // (With High Roller off, no cheer prints them; they stay at the current bits.)
-        relabelSoon(stackContext(stackOpts(ctx.mode === "plain" && t0 > 0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
+        // (With High Roller off, no cheer prints them; they stay at the current bits. With the
+        // printer's Allow High Roller prints off at or above the threshold, they are this cheer's,
+        // the 1.2.0 review: they were a threshold cheer's, a quarter of the box at 100 bits.)
+        var below0 = ctx.mode === "plain" && t0 > 0 && so0.bits < t0;
+        relabelSoon(stackContext(stackOpts(below0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
         var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
         var lines = [], fine = [], plainNow = ctx.mode === "plain";
         // The parts' own test for "nothing after the Cheer line prints" (composeParts).
         var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
-        if (r === "hanzi" || plainNow) {
+        // A free test counts messages, as the parts' total does.
+        var countOf = function (n) { return ctx.cheer ? cheersOf(n) : n === 1 ? "1 message" : n + " messages"; };
+        if (r === "typed") {
+          var ts = where.own.filter(function (b) { return b.hanzi; }), tg = hanTypedGrid(text, ctx.paperMm);
+          if (ts.length) {
+            var trows = ts.reduce(function (t, b) { return t + b.hanzi.rows; }, 0);
+            lines.push("Han text as typed: " + trows + (trows === 1 ? " row" : " rows") + " of " + ts[0].hanzi.cols
+              + " characters · " + (noRoom
+                ? "prints only part of its first row, fading out: the streamer's settings leave no room for the rest (see the note above the parts)"
+                : countOf(where.inParts.length || ts.length)));
+            if (!noRoom && ts.some(function (b) { return b.tall; })) {
+              lines.push("Even one row a part (with the Cheer line) is taller than " + boxWords(ctx.limit) + ", so the bot cuts every part."
+                + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
+            }
+          } else if (/\S/.test(bigClean(text).text)) {
+            lines.push("Nothing to print: this render prints Han characters only. Big text prints other writing.");
+          } else {
+            lines.push("Type something to print it.");
+          }
+          if (tg.dropped.length) {
+            var shown = [];
+            tg.dropped.forEach(function (c) { var w = c === " " ? "space" : c === "\u3000" ? "wide space" : quoteCut(c); if (shown.indexOf(w) < 0) shown.push(w); });
+            lines.push("Left out: " + tg.dropped.length + (tg.dropped.length === 1 ? " character" : " characters") + " that could knock the rows out of line ("
+              + shown.slice(0, 6).join(", ") + (shown.length > 6 ? ", …" : "") + "). Big text prints those.");
+          }
+          lines = lines.concat(bigDropNotes(tg.invisible));
+          fine.push("Each row is " + (ts.length ? ts[0].hanzi.cols : hanziCols(ctx.contentW)) + " characters at the receipt's own size, at any cheer"
+            + (plainNow ? ": in a plain cheer a light first row takes the opening quote mark." : "."));
+          fine.push("Han text needs a CJK font on the streamer's PC (Windows has one): if the receipt comes out blank, it has none.");
+        } else if (r === "hanzi" || plainNow) {
           var hs = where.own.filter(function (b) { return b.hanzi; });
           if (hs.length) {
             var rows = hs.reduce(function (t, b) { return t + b.hanzi.rows; }, 0), gone = hs[0].hanzi.droppedLines || 0;
             lines.push("Han tiling: " + rows + (rows === 1 ? " row" : " rows") + " of " + hs[0].hanzi.cols
               + " Han characters · " + (noRoom
                 ? "prints only its light first row: the streamer's settings leave no room for the rest (see the note above the parts)"
-                : cheersOf(where.inParts.length || hs.length)));
+                : countOf(where.inParts.length || hs.length)));
             if (gone) {
               lines.push("Han tiling draws the first " + HAN_MAX_LINES + " lines only, so the last " + (gone === 1 ? "line is" : gone + " lines are")
                 + " left out. Put the rest in another block.");
@@ -4795,9 +5063,16 @@
             lines.push("Type something to print it.");
           }
           if (plainNow && r !== "hanzi") {
-            fine.push(t0 > 0
+            // Under a bits-per-inch setting a bigger cheer buys a taller box, so the sizes worked
+            // out for a threshold cheer are not the sizes of every bigger one (review of the fixes).
+            var orMore = contentLimitPx({ bits: t0, bitsPerInch: so0.bitsPerInch, maxInches: so0.maxInches }).by === "bits"
+              ? " (more bits buy more receipt, so a bigger cheer can print bigger)." : " or more.";
+            fine.push(t0 > 0 && getSettings().allowHighRoller === false
+              ? "The streamer's printer has Allow High Roller prints off, so this block prints as Han tiling (plain text). "
+                + "The sizes above are what it prints with that setting on" + (below0 ? ", at " + bitsWord(t0) + orMore : ".")
+              : t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
-                + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + " or more."
+                + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + orMore
                 + (raiseOffered() ? (r === "sideways" ? " Changing Direction or Size" : " Changing Layout, Size or Upside down")
                    + " raises Bits per cheer to " + bitsWord(t0) + ", or offers to." : "")
               : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
@@ -4834,7 +5109,7 @@
       render.addEventListener("change", function () {
         block.render = render.value; applyRender();
         var r = blockRender(block);
-        if (r === "hanzi") dropRaiseOffer(block); else pickedHighRoller(block, r === "sideways" ? "Sideways text" : "Big text", render);
+        if (r === "hanzi" || r === "typed") dropRaiseOffer(block); else pickedHighRoller(block, r === "sideways" ? "Sideways text" : "Big text", render);
         saveBlocks(); update();
       });
       applyRender();
@@ -5144,8 +5419,9 @@
         if (gs.length) {
           var rows = gs.reduce(function (n, b) { return n + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
           var cols = gs[0].glyph ? gs[0].glyph.cols : designTPictureCols(ctx.paperMm);
+          var parts0 = where.inParts.length || gs.length;
           lines.push(cols + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · "
-            + (noRoom ? "prints nothing (see below)" : cheersOf(where.inParts.length || gs.length)));
+            + (noRoom ? "prints nothing (see below)" : ctx.cheer ? cheersOf(parts0) : parts0 === 1 ? "1 message" : parts0 + " messages"));
         } else if (block._decoding) {
           lines.push("Reading the picture…");
         } else if (block._decodeFailed && !block._expired) {
@@ -5164,7 +5440,9 @@
           // Worded as a condition while the block prints nothing (no picture yet, a link that can't
           // be read or has expired): it sat under the red "prints nothing" saying the picture
           // prints (final review 1). Information, so quiet.
-          fine.push((t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
+          var hrOff = t > 0 && getSettings().allowHighRoller === false;
+          fine.push((hrOff ? "The streamer's printer has Allow High Roller prints off, so "
+                     : t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
             + (!gs.length ? "once this block has a picture it prints" : t > 0 ? "the picture prints" : "every picture prints")
             + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above."
             + (t > 0 && raiseOffered() ? " Changing Characters, Detail or Smooth shading raises Bits per cheer to " + bitsWord(t) + ", or offers to." : ""));
@@ -5732,10 +6010,13 @@
         // yet; or nothing typed at all.
         var repick = blocks.some(function (b) { return b.type === "image" && b.imgKind === "glyph" && b.fileName && !b.url && !b._img; });
         var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph"; });
+        var typedNone = blocks.some(function (b) { return b.type === "text" && blockRender(b) === "typed" && /\S/.test(bigClean(b.text).text); });
         return [{ payload: repick
           ? "Nothing to print yet: pick the picture's file again on its Image card. A picked file isn't kept after a reload or in a preset."
           : realOnly
           ? "Nothing to print: a Real picture can't print on SassyTP's bot. Switch it to Glyph-art, or add some text."
+          : typedNone
+          ? "Nothing to print: Han text as typed prints only Han characters, and its text has none (its card says what was left out). Big text prints other writing."
           : "Nothing to print yet: add a block, or type into one.", chars: 0, copyable: false, showHead: false }];
       }
       var so = stackOpts({ nonceFn: nonceForPart }), ctx = stackContext(so);
@@ -5795,8 +6076,8 @@
       var s = getSettings();
       var pr = kind === "hrprobe"
         ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm,
-                                 bitsPerInch: s.bitsPerInch, maxInches: s.maxInches })
-        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !getNonce() });
+                                 bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller })
+        : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !getNonce(), allowHighRoller: s.allowHighRoller });
       var so = stackOpts({ cheer: true, bits: pr.bits, mode: pr.mode, nonceFn: nonceForPart }), ctx = stackContext(so), po = {}, k;
       for (k in ctx) po[k] = ctx[k];
       po.nonceFn = nonceForPart;
@@ -5903,6 +6184,7 @@
         cheerNonce: document.getElementById("cheerNonce"),
         cheerNonceHint: document.getElementById("cheerNonceHint"),
         bitsAmount: document.getElementById("bitsAmount"),
+        allowHighRoller: document.getElementById("allowHighRoller"),
         bitsHint: document.getElementById("bitsHint"),
         hrThreshold: document.getElementById("hrThreshold"),
         bitsPerInch: document.getElementById("bitsPerInch"),
@@ -5927,10 +6209,17 @@
 
       restoreControls();
       syncModeUi();
+      // The layout the preview draws with, read off the vendored block itself, so it can't drift from
+      // it. SassyTP's bot can download a newer layout to the streamer's dock by itself.
+      var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
+      if (rver && /^\d+$/.test(rver)) {
+        document.getElementById("rendererVersion").textContent = ", layout v" + rver;
+        document.getElementById("rendererCompare").textContent = " If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer.";
+      }
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);
 
-      [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm].forEach(function (el) {
+      [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm, els.allowHighRoller].forEach(function (el) {
         if (!el) return;
         // Cheer-ready gates the repeat number, and the bits and the threshold decide whether
         // the stack prints its High Roller or its plain forms.
@@ -6036,7 +6325,7 @@
       brailleFontPx: brailleFontPx, glyphAspect: glyphAspect, buildCjkGrid: buildCjkGrid, buildMonoGrid: buildMonoGrid,
       buildBrailleGrid: buildBrailleGrid, buildGlyphBodies: buildGlyphBodies, HAN_CELL_PX: HAN_CELL_PX,
       HAN_LIGHT: HAN_LIGHT, hanziCols: hanziCols, designTHeader: designTHeader, designTPictureCols: designTPictureCols,
-      buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture, HAN_MAX_LINES: HAN_MAX_LINES,
+      buildDesignT: buildDesignT, buildDesignTPicture: buildDesignTPicture, hanTypedGrid: hanTypedGrid, buildHanTyped: buildHanTyped, HAN_MAX_LINES: HAN_MAX_LINES,
       hanTextLines: hanTextLines, bitsWord: bitsWord,
       // The two rig tests.
       buildHighRollerProbe: buildHighRollerProbe, buildPlainProbe: buildPlainProbe,

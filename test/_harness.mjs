@@ -49,9 +49,11 @@ export function loadCore() {
   return sandbox.module.exports;
 }
 
-// Structural (prototype-agnostic) compare across the vm realm boundary.
-export const eq = (a, b, msg) =>
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b, msg);
+// Structural (prototype-agnostic) compare across the vm realm boundary. The message goes in only
+// when there is one: Node 26 refuses an explicit undefined and reports that instead of the diff.
+export const eq = (a, b, msg) => msg === undefined
+  ? assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b)
+  : assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b, msg);
 
 // Every tag in a blob, EVERY occurrence, with its attributes split the way an HTML
 // parser splits them: name, then an optional value that is double-quoted, single-quoted

@@ -1,7 +1,8 @@
-// SassyTP printer-bot 2.5.4 (1.0.0): the target's geometry, the streamer's settings, the
-// High Roller decision, the message-box limit, the lead and the plain parts' trailing token,
-// and how the packer carries them. Every number here is a fact read from the bot's receipt
-// page (v/2.5.0/renderer.html @ b9f12b0, MIT) or measured through it with tools/forkbench.mjs;
+// SassyTP printer-bot (2.5.4 in 1.0.0; 3.0.0-beta.6 since 1.3.0, which prints the same on a roll):
+// the target's geometry, the streamer's settings, the High Roller decision, the message-box limit,
+// the lead and the plain parts' trailing token, and how the packer carries them. Every number here
+// is a fact read from the bot's receipt page (v/3.0.0-beta.6/renderer.html @ b7f9991 since 1.3.0,
+// v/2.5.0/renderer.html @ b9f12b0 before; MIT) or measured through it with tools/forkbench.mjs;
 // the page itself is never imported (CI is offline, and nothing of the bot is vendored here).
 import test from "node:test";
 import assert from "node:assert/strict";

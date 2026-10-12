@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // tools/forkbench.mjs: render one Twitch cheer through SassyTP printer-bot's REAL receipt page
-// (v/2.5.0/renderer.html) in headless Chromium, the way the bot's Streamer.bot action drives it in
-// headless Edge, and report what would print.
+// (the pinned v/3.0.0-beta.6/renderer.html) in headless Chromium, the way the bot's Streamer.bot
+// action drives it in headless Edge, and report what would print.
 //
-// How the bot prints (printer-bot 2.5.4, verified against its source): the action opens the
+// How the bot prints (printer-bot 2.5.4 and, on a roll printer, 3.0.0-beta.6, verified against
+// their source): the action opens the
 // receipt page in headless Edge with a 272 x 5000 CSS px viewport on 80 mm paper (181 px on
 // 58 mm) at deviceScaleFactor 576/272 (384/181), calls PrinterBot.render(event, options),
 // screenshots the height render() returns, converts it to 8-bit grey ((77R + 151G + 28B) >> 8),
@@ -40,6 +41,9 @@
 //   --threshold N         the streamer's High Roller threshold, highRollerBits (default 25; 0 = never)
 //   --bits-per-inch N     the streamer's High Roller bits-per-inch limit (default 0 = off)
 //   --max-inches N        the streamer's High Roller maximum length in inches (default 0 = off)
+//   --no-high-roller-prints   the printer's Allow High Roller prints is off (Printer Bot 3.0):
+//                         every cheer prints as plain text. The bench sends what a 3.0 roll printer
+//                         gets: allowHighRoller and pxPerInch 96 (a 2.5.4 page ignores both)
 //   --paper 80|58         roll width in mm (default 80): page 272 or 181 CSS px, 576 or 384 dots
 //   --dither floyd|atkinson|threshold      the bot's dither setting (default floyd)
 //   --user NAME           the header's sender (default Viewer)
@@ -77,11 +81,12 @@ import { deflateSync, inflateSync } from "node:zlib";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..");
 
-// The printer-bot commit this bench is pinned to (2.5.4), and the sha256 of its renderer page.
+// The printer-bot commit this bench is pinned to (3.0.0-beta.6, the page the app vendors since
+// 1.3.0), and the sha256 of its renderer page.
 // A fetched copy that does not match is refused rather than measured.
-const PINNED_SHA = "b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef";
-const RENDERER_PATH = "v/2.5.0/renderer.html";
-const RENDERER_SHA256 = "51b1f93f901c6b0895b428b697bc02cf19280049c0346f4d5aac172cc0c6bdff";
+const PINNED_SHA = "b7f9991816a58b60bf3b9e29806ec29831b54a2c";
+const RENDERER_PATH = "v/3.0.0-beta.6/renderer.html";
+const RENDERER_SHA256 = "4379ce089d57b5fc49c9dc902edcd8b74e3050cb752708b0b39acf5ba1566037";
 const RENDERER_URL = "https://raw.githubusercontent.com/SassyTP/printer-bot/" + PINNED_SHA + "/" + RENDERER_PATH;
 const CACHE_DIR = join(REPO, ".render", "sassytp", PINNED_SHA);
 const CACHE_FILE = join(CACHE_DIR, RENDERER_PATH);
@@ -105,7 +110,7 @@ class Exit extends Error {
 function usage(msg) {
     throw new Exit(2, (msg ? msg + ". " : "") +
         "usage: node tools/forkbench.mjs [--message TEXT | --message-file FILE | < stdin] [--bits 100] [--threshold 25] " +
-        "[--bits-per-inch N] [--max-inches N] [--paper 80|58] [--dither floyd|atkinson|threshold] [--user NAME] " +
+        "[--bits-per-inch N] [--max-inches N] [--no-high-roller-prints] [--paper 80|58] [--dither floyd|atkinson|threshold] [--user NAME] " +
         "[--theme-file FILE] [--hide-links] [--renderer PATH] [--offline] [--fonts DIR] [--out FILE.png] [--pretty]");
 }
 
@@ -117,7 +122,8 @@ function dropOneNewline(s) {
 
 function parseArgs(argv) {
     const o = { bits: 100, threshold: 25, maxInches: 0, bitsPerInch: 0, user: "Viewer", out: DEFAULT_OUT, dither: "floyd",
-                hideLinks: false, renderer: null, offline: false, pretty: false, message: null, themeCss: "", fontsDir: null, paper: 80 };
+                hideLinks: false, renderer: null, offline: false, pretty: false, message: null, themeCss: "", fontsDir: null, paper: 80,
+                allowHighRoller: true };
     const num = (flag, v) => {
         const n = Number(v);
         if (v === undefined || v === "" || !Number.isFinite(n)) usage(flag + " needs a number");
@@ -153,6 +159,7 @@ function parseArgs(argv) {
                 if (!v || !existsSync(v)) usage("--fonts needs an existing folder (your own copy of Segoe UI, e.g. segoeui.ttf + segoeuib.ttf)");
                 o.fontsDir = resolve(v); i++; break;
             case "--hide-links": o.hideLinks = true; break;
+            case "--no-high-roller-prints": o.allowHighRoller = false; break;
             case "--pretty": o.pretty = true; break;
             case "-h": case "--help": usage();
             default: usage("unknown argument " + a);
@@ -207,7 +214,7 @@ async function resolveRenderer(o) {
     return { file: CACHE_FILE, source: "fetched", url: RENDERER_URL, commit: PINNED_SHA, sha256: got, fetched_at: note.fetched_at, pinned: true };
 }
 
-// ---- the bot's dither: a line-for-line port of printer-bot 2.5.4's C# Ditherer ---------------------
+// ---- the bot's dither: a line-for-line port of printer-bot 2.5.4's C# Ditherer (3.0 dithers a roll the same)
 // Ported from SassyTP's printer-bot (https://github.com/SassyTP/printer-bot), under its licence:
 //
 //   MIT License
@@ -477,7 +484,9 @@ async function main() {
         if (o.themeCss) await page.evaluate((css) => window.PrinterBot.setTheme(css), o.themeCss);
 
         const event = { __source: "TwitchCheer", bits: o.bits, user: o.user, message: o.message };      // no userName: no avatar lookup
-        const options = { highRollerBits: o.threshold, highRollerBitsPerInch: o.bitsPerInch, highRollerMaxInches: o.maxInches, hideLinks: o.hideLinks };
+        // What Printer Bot 3.0's action sends a roll printer (OptionsFor); a 2.5.4 page ignores the last two.
+        const options = { highRollerBits: o.threshold, highRollerBitsPerInch: o.bitsPerInch, highRollerMaxInches: o.maxInches, hideLinks: o.hideLinks,
+                          allowHighRoller: o.allowHighRoller, pxPerInch: 96 };
         const result = await page.evaluate(async ({ event, options }) => window.PrinterBot.render(event, options), { event, options });
         if (!result || !result.ok) throw new Error("render failed: " + JSON.stringify(result));
         await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));   // let the final layout paint
@@ -567,7 +576,8 @@ async function main() {
         const report = {
             ok: true, summary,
             input: { message: o.message, messageChars: Array.from(o.message).length, bits: o.bits, threshold: o.threshold,
-                     highRoller: o.threshold > 0 && o.bits >= o.threshold, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches,
+                     highRoller: o.allowHighRoller && o.threshold > 0 && o.bits >= o.threshold, allowHighRoller: o.allowHighRoller, pxPerInch: 96,
+                     bitsPerInch: o.bitsPerInch, maxInches: o.maxInches,
                      paperMm: o.paper, pageCssW: pageW, dotsW, user: o.user, theme: !!o.themeCss, hideLinks: o.hideLinks,
                      dither: o.dither, fontsDir: o.fontsDir },
             renderer: { ...renderer, version: m.rendererVersion },

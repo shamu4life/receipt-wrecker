@@ -815,12 +815,14 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, bits: 24 },                                    // one under the threshold: plain
     { ...SETTINGS, bits: 24, paperMm: 58, nonce: true },          // plain on 58 mm, repeat digits on
     { ...SETTINGS, cheer: false },                                // a free test, drawn as a High Roller cheer
+    { ...SETTINGS, allowHighRoller: false },                      // 1.3.0: Printer Bot 3.0's switch off at 100 bits, read by the page itself
   ];
   const heights = [];
   let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0;
   const check = async (page, i, payload, want, s, label) => {
     const { frame, last, verdict } = await drawnPart(page, i, payload);
-    const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+    const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch,
+                                maxInches: s.maxInches, allowHighRoller: s.allowHighRoller });
     assert.deepEqual(last.event, JSON.parse(JSON.stringify(pe.event)), label + ": the frame was not handed the part's exact payload");
     assert.deepEqual(last.options, JSON.parse(JSON.stringify(pe.options)), label);
     assert.ok(!("userName" in last.event), label);
@@ -861,7 +863,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     // as a High Roller cheer. A Han tiling part in a High Roller cheer is raw too: plain text.
     const raw = !s.cheer || C.printMode(stackOptsOf(s)) === "raw";
     for (let i = 0; i < got.length; i++) {
-      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, part: i + 1 });
+      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, hrPrints: s.allowHighRoller, part: i + 1 });
       await check(page, i, got[i], { ...want[i], raw }, s, label);
     }
     const origin = new URL(server.url).origin;
@@ -1658,7 +1660,7 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   await card.locator("details.more summary", { hasText: "What's this?" }).nth(1).click();
   assert.match(await card.innerText(), /bold Arial and can't be changed/);
   assert.equal(await page.locator(".preview > details.more").evaluate((d) => d.open), false, "the thermal caption's detail is folded");
-  assert.match(await page.locator(".preview > .hint").first().textContent(), /give or take fonts: this computer's fonts may differ from the streamer's/);
+  assert.match(await page.locator(".preview > .hint").first().textContent(), /in this computer's fonts, which may differ from the streamer's\./);
   // The Cheer-ready hint says where the word goes.
   assert.match(await page.locator("#cheer").locator("xpath=../following-sibling::div[1]").textContent(),
     /^Adds "Cheer<bits>" to each message \(at the start, or at the end of a plain-text part\) so it triggers the print/);
@@ -2637,18 +2639,34 @@ test("1.1.0: Glyph-art's Characters counts too; a jump past 4x asks first; lower
 });
 
 test("1.1.0: the preview draws a stand-in in the bot's profile-picture circle and counts it in the receipt's length", async () => {
-  for (const [paperMm, side, extra] of [[80, 184, 182], [58, 153, 151]]) {
+  // printer-bot 3.0 draws the circle larger, 13.875em: 222 px on 80 mm, and on 58 mm the 153 px
+  // message width plus a 10 px bleed into each margin, 173 px. It takes what that gains over
+  // 2.5.4's 184 / 153 px (38 / 20 px) back out of the gaps around the header and the footer, so
+  // the receipt is as tall as it was: the extra stays 182 / 151 px (avatarExtraPx).
+  // shares: the bot's own tightenGaps for a receipt with a real picture, measured in the frame (gaps
+  // a, c, d, e, f, g, h: review of 1.3.0; a split with the same sum but other shares moves the
+  // message and the logo).
+  for (const [paperMm, side, extra, gained, shares] of [[80, 222, 182, 38, [6, 6, 5, 6, 6, 2, 7]], [58, 173, 151, 20, [3, 3, 3, 3, 3, 1, 4]]]) {
     const { page, ctx, errors, requests } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, paperMm }, eager: true });
     const payload = await copyPayload(page, 0);
     const { frame, card, last, verdict } = await drawnPart(page, 0, payload);
     const pic = await frame.evaluate(() => {
       const av = document.getElementById("receipt-avatar"), r = av.getBoundingClientRect();
       return { src: (av.getAttribute("src") || "").slice(0, 19), shown: getComputedStyle(av).display !== "none",
-               side: Math.round(r.height), noAvatar: document.getElementById("receipt-container").classList.contains("no-avatar") };
+               side: Math.round(r.height), width: Math.round(r.width), noAvatar: document.getElementById("receipt-container").classList.contains("no-avatar") };
     });
-    // min(11.5em, 100%) square: 184 px on 80 mm, the 153 px message width on 58 mm.
-    assert.deepEqual(pic, { src: "data:image/svg+xml,", shown: true, side, noAvatar: false }, paperMm + " mm");
-    // The bot's page measured without it, the preview with it: the picture, its 14 px gap, less the 16 px top padding.
+    assert.deepEqual(pic, { src: "data:image/svg+xml,", shown: true, side, width: side, noAvatar: false }, paperMm + " mm");
+    // The gaps the bot's own tightenGaps trims for a receipt with a picture (one with a message
+    // and the platform logo has all seven), shared out by its shareCuts: what the circle gained.
+    const cuts = await frame.evaluate(() => {
+      const v = (id, p) => parseFloat(document.getElementById(id).style.getPropertyValue(p)) || 0;
+      return [v("receipt-container", "--pb-cut-a"), v("receipt-rule-top", "--pb-cut-above"), v("receipt-rule-top", "--pb-cut-below"),
+              v("receipt-footer", "--pb-cut-above"), v("receipt-footer", "--pb-cut-below"), v("receipt-footer", "--pb-cut-g"), v("receipt-container", "--pb-cut-h")];
+    });
+    assert.equal(cuts.reduce((a, b) => a + b, 0), gained, paperMm + " mm: " + cuts);
+    assert.deepEqual(cuts, shares, paperMm + " mm: not the bot's own split");
+    // The bot's page measured without it, the preview with it: the picture and its gap, less the
+    // 16 px top padding and what the gaps give back.
     assert.equal(last.result.standIn, true);
     assert.equal(last.result.height - last.result.botHeight, extra, paperMm + " mm");
     assert.equal(await card.locator("iframe.rcpt-frame").evaluate((f) => f.style.height), last.result.height + "px");
@@ -2656,6 +2674,52 @@ test("1.1.0: the preview draws a stand-in in the bot's profile-picture circle an
     // Nothing is fetched for it, and what is copied is what the core builds.
     assert.ok(!requests.some((u) => !u.startsWith(server.url) && !u.startsWith("data:")), "the stand-in made a request");
     assert.equal(payload, expectNode([BIG({ id: 1 })], { ...SETTINGS, paperMm })[0]);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("printer-bot 3.0: the Thermal view draws the profile-picture circle where the bot's page has it, 58 mm's bleed included", async () => {
+  // The Thermal view rasterises a copy of the frame's receipt inside an SVG image, whose viewport
+  // is the printer's dot width (576 / 384 px), not the bot's page (272 / 181 px). The 3.0 page
+  // sizes the circle on 58 mm with @media (max-width: 220px), which can't match in there, so the
+  // frame writes the circle's used size and margins into the copy (previewGlue's serialise).
+  // Crisp (threshold) leaves only the circle's black ring of it: the stand-in's greys are light.
+  for (const [paperMm, pageW, dots] of [[80, 272, 576], [58, 181, 384]]) {
+    const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], eager: true,
+      controls: { ...SETTINGS, paperMm, thermalView: true, thermalDither: "threshold" } });
+    const payload = await copyPayload(page, 0);
+    const { frame, last } = await drawnPart(page, 0, payload);
+    const live = await frame.evaluate(() => {
+      const box = (id) => document.getElementById(id).getBoundingClientRect(), r = box("receipt-avatar"), t = box("receipt-title"), d = box("receipt-date");
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, titleTop: t.top, titleBottom: t.bottom, dateBottom: d.bottom,
+               dateLine: parseFloat(getComputedStyle(document.getElementById("receipt-date")).lineHeight) };
+    });
+    await page.waitForSelector("#parts .part[data-thermal=done]", { timeout: 15000 });
+    const s = dots / pageW;
+    const ink = await page.locator("canvas.rcpt-thermal").first().evaluate((cv, o) => {
+      const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data, W = cv.width, H = cv.height;
+      const dark = (x, y) => d[(y * W + x) * 4] === 0;
+      const inked = (y) => { for (let x = 0; x < W; x++) if (dark(x, y)) return true; return false; };
+      const row = Math.round((o.top + o.bottom) / 2 * o.s), col = Math.round((o.left + o.right) / 2 * o.s);
+      let left = -1, right = -1, top = -1, ring = -1, title = -1, lastInk = -1, y;
+      for (let x = 0; x < W; x++) if (dark(x, row)) { if (left < 0) left = x; right = x; }
+      for (y = 0; y < H && top < 0; y++) if (dark(col, y)) top = y;
+      for (y = row; y < H && !dark(col, y); y++);   // down from the middle to the ring's bottom edge
+      for (; y < H && dark(col, y); y++) ring = y;
+      for (y = ring + 1; y < H && title < 0; y++) if (inked(y)) title = y;   // the first ink under the circle: the title's
+      for (y = H - 1; y >= 0 && lastInk < 0; y--) if (inked(y)) lastInk = y;
+      return { W, H, left, right: right + 1, top, bottom: ring + 1, title, lastInk };
+    }, { ...live, s });
+    const label = paperMm + " mm: " + JSON.stringify({ ink, live: Object.fromEntries(Object.entries(live).map(([k, v]) => [k, Math.round(v * s * 10) / 10])) });
+    const near = (a, b) => Math.abs(a - b) <= 2;
+    assert.deepEqual([ink.W, ink.H], [dots, Math.round(Math.ceil(last.result.height) * s)], label);
+    assert.ok(near(ink.left, live.left * s) && near(ink.right, live.right * s), "the circle's width and place: " + label);
+    assert.ok(near(ink.top, live.top * s) && near(ink.bottom, live.bottom * s), "the circle's height: " + label);
+    // What is under the circle stays where the page has it: the title's ink starts inside the
+    // title's box, and the last ink is in the date's last line.
+    assert.ok(ink.title >= live.titleTop * s - 1 && ink.title <= live.titleBottom * s, "the title moved: " + label);
+    assert.ok(ink.lastInk >= (live.dateBottom - live.dateLine / 2) * s && ink.lastInk <= live.dateBottom * s + 2, "the date moved: " + label);
     assert.deepEqual(errors, []);
     await ctx.close();
   }
@@ -2872,7 +2936,15 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  assert.match(credit, /If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer\./);
+  // 1.3.0: the page is Printer Bot 3.0's beta. A 2.5.4 dock's Renderer (202610090056) prints the
+  // app's messages the same on a roll (measured: 19 of 19), so the line says so rather than "may not match".
+  assert.equal(v, "202610110524");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0-beta\.6's layout v202610110524, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match; Printer Bot 2\.5\.4's 202610090056 does, with a smaller profile picture\.$/);
+  // Short enough that on a phone the preview still starts right under the blocks (the round 3
+  // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
+  // made the gap 414px in CI's fonts.
+  assert.ok(credit.length <= 360, credit.length + " characters");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -2917,8 +2989,10 @@ test("1.2.0: with Allow High Roller prints off the preview draws the part the wa
   const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, allowHighRoller: false }, eager: true });
   const payload = await copyPayload(page, 0);
   const { last } = await drawnPart(page, 0, payload);
-  assert.equal(last.options.highRollerBits, 0);
+  // 3.0's call (1.3.0): the streamer's real threshold, the printer's switch, a roll's px per inch.
+  assert.equal(last.options.highRollerBits, 25);
   assert.equal(last.options.allowHighRoller, false);
+  assert.equal(last.options.pxPerInch, 96);
   assert.doesNotMatch(last.measure.partClass, /\braw\b/, "the preview drew a styled receipt the printer won't print");
   assert.deepEqual(errors, []);
   await ctx.close();

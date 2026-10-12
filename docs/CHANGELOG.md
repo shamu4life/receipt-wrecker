@@ -12,6 +12,55 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.3.0] - 2026-10-12
+
+### Changed
+
+- **Preview: drawn with Printer Bot 3.0's beta.** The preview now runs the newest Printer Bot
+  beta's receipt page, 3.0.0-beta.6 (layout v202610110524), in place of 2.5.4's. On a receipt
+  printer, 2.5.4 prints every one of this app's messages exactly as the beta does: measured on
+  both pages at 80 and 58 mm, 19 of 19, 1.2.0's forms included. The one visible difference is
+  the profile-picture circle, which 3.0 draws larger (222 px on 80 mm, 173 px on 58 mm) and pays
+  for out of the gaps around the header and footer, so the receipt is just as long. The
+  preview's stand-in picture and the Thermal view follow it.
+- **Preview: asked the 3.0 way.** Each part is drawn with the options a 3.0 receipt printer
+  gets: the streamer's threshold, bits per inch and maximum length, the printer's Allow High
+  Roller prints (sent as the bot sends it: its own value for a cheer that could be High Roller),
+  and its px per inch. With Allow High Roller prints off, the page itself prints
+  the cheer as plain text (1.2.0 drew that receipt on 2.5.4's page as threshold 0: the same
+  receipt).
+- **Preview: the layout line** names the beta ("Printer Bot 3.0.0-beta.6's layout
+  v202610110524") and no longer tells a 2.5.4 streamer the preview may not match: their dock's
+  Renderer, 202610090056, prints these messages the same with a smaller profile picture. The line
+  is shorter, so on a phone the preview still starts right under the blocks: what the thermal view
+  is moved under its "What's this?".
+- **The app follows the betas.** Each new Printer Bot beta is vendored on a branch, run through
+  both test suites and merged like any other change. Printer Bot 3.0 can also print one cheer
+  on several printers, each with its own paper and switch, and print Letter paper through an
+  ordinary printer; the app builds for one receipt printer and doesn't model either.
+
+### How sure
+
+- **Tests**: 232 unit tests and 77 browser tests (1 new: the Thermal view draws 3.0's circle
+  where the page has it, 58 mm's bleed included; the stand-in's gap trimming is held to the bot's
+  own split, gap by gap). The MANDATORY contract test runs every mode
+  through the beta's page, now also with Allow High Roller prints off at 100 bits, read by the
+  page itself. `tools/vendor-renderer.mjs --check` passes against beta.6.
+- **Not printed yet** on a 3.0 rig. The measurements are the bot's own page in Playwright's
+  Chromium.
+
+### Tools
+
+- `tools/vendor-renderer.mjs` and `tools/forkbench.mjs` are pinned to 3.0.0-beta.6.
+  `forkbench` sends what a 3.0 roll printer gets and takes `--no-high-roller-prints`;
+  `payload.mjs` takes `"hrprints": false`. `tools/upstream-watch.mjs` also compares the
+  profile picture's CSS and gap trimming, the `internals` lines the preview's stand-in calls,
+  the cheer handler, `present()` and render()'s API notes, the parts the preview relies on.
+  `tools/vendor-renderer.mjs` refuses a `--ref` that resolves a renderer older than the vendored
+  one unless `--path` or `--prerelease` names it (a beta's commit alone resolves 2.5.4's page).
+
+---
+
 ## [1.2.0] - 2026-10-11
 
 ### Added

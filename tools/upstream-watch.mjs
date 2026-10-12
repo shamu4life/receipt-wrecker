@@ -26,11 +26,20 @@
 //   viewOf              when either copy has it (the 3.0.0 betas moved the High Roller limit into it)
 //   show                the function that builds the receipt and sets the message box's limit
 //   MAX_RECEIPT_HEIGHT  the receipt's height cap
+//   CSS #receipt-avatar the profile picture's rules, its 58 mm @media rule included (1.3.0)
+//   larger picture      from "const OLD_AVATAR_PX" to the end of tightenGaps: the gap trimming the
+//                       preview's stand-in repeats with the page's own shareCuts and gapRooms (3.0)
+//   TwitchCheer         the cheer handler (High Roller or plain, the plain copy for viewOf)
+//   present             what render() does with a receipt model since 3.0 (the trimmed report)
+//   API notes           the page's notes on render()'s options and result
+//   internals' gaps     the lines of `const internals = {...}` that export shareCuts and gapRooms,
+//                       which the preview's stand-in calls (a beta that drops them leaves the
+//                       stand-in's gaps untrimmed and its receipt 38 / 20 px taller)
 // A function's region is its paragraph (the comment and constants right above it, back to a blank
 // line or the end of the block before) and its body, to the first line that closes it at the same
 // indent. Regions are compared as text (trailing spaces aside), so a reworded comment counts as a
-// change: read the diff. A renderer whose VERSION is below the vendored one's (master's 2.5.x while a
-// canary branch vendors a beta) is listed, and its regions compared without diffs, but it is not new.
+// change: read the diff. A renderer whose VERSION is below the vendored one's (master's 2.5.x, now
+// that the app vendors a beta) is listed, and its regions compared without diffs, but it is not new.
 //
 // Writes only under .render/upstream/ (last.json: the baseline it saw, compared with the previous
 // run's; last-report.txt: the report; trees/<sha>.json: a commit's tree) and .render/sassytp/<sha>/.
@@ -408,6 +417,39 @@ function cssRegion(page, token) {
     return out.length ? out : null;
 }
 
+// The larger profile picture (the 3.0.0 betas): OLD_AVATAR_PX and GAP_ROOM with their paragraph,
+// shareCuts, clearGaps and tightenGaps, to tightenGaps' end.
+function largerPictureRegion(L) {
+    const i = findLine(L, /\bconst OLD_AVATAR_PX\b/);
+    if (i < 0) return null;
+    const t = fnStart(L, "tightenGaps", i), e = t >= 0 ? blockEnd(L, t) : -1;
+    return e < 0 ? null : span(L, paragraphStart(L, i), e);
+}
+
+// A handler in the page's HANDLERS table ("async NAME(d, opts) {" to its "}," at that indent).
+function handlerRegion(L, name) {
+    const i = findLine(L, new RegExp("^\\s*(?:async\\s+)?" + escapeRe(name) + "\\s*\\("));
+    if (i < 0) return null;
+    const e = blockEnd(L, i);
+    return e < 0 ? null : span(L, paragraphStart(L, i), e);
+}
+
+// The lines of the page's `const internals = {...}` that name shareCuts or gapRooms (3.0).
+function internalsGapsRegion(L) {
+    const i = findLine(L, /^\s*const internals = \{/);
+    const e = i < 0 ? -1 : blockEnd(L, i);
+    const r = e < 0 ? [] : span(L, i, e).filter((l) => /\b(?:shareCuts|gapRooms)\b/.test(l.text));
+    return r.length ? r : null;
+}
+
+// The page's notes on render(): from "PrinterBot.render(" to the line before "PrinterBot.setTheme(".
+function apiNotesRegion(L) {
+    const i = findLine(L, /^\s*\/\/\s*PrinterBot\.render\(/);
+    if (i < 0) return null;
+    const j = findLine(L, /^\s*\/\/\s*PrinterBot\.setTheme\(/, i);
+    return j > i ? span(L, i, j - 1) : null;
+}
+
 const REGIONS = [
     { id: "safety", label: "safety section (MAX_PLAIN_CHARS to sanitizeRich)", get: (p) => safetyRegion(p.lines) },
     { id: "css-container", label: "CSS #receipt-container", get: (p) => cssRegion(p, "#receipt-container") },
@@ -418,6 +460,12 @@ const REGIONS = [
     { id: "viewOf", label: "viewOf()", optional: true, get: (p) => fnRegion(p.lines, "viewOf") },
     { id: "show", label: "show()", get: (p) => fnRegion(p.lines, "show") },
     { id: "MAX_RECEIPT_HEIGHT", label: "MAX_RECEIPT_HEIGHT", get: (p) => receiptHeightRegion(p.lines) },
+    { id: "css-avatar", label: "CSS #receipt-avatar", get: (p) => cssRegion(p, "#receipt-avatar") },
+    { id: "larger-picture", label: "the larger picture (OLD_AVATAR_PX to tightenGaps)", optional: true, get: (p) => largerPictureRegion(p.lines) },
+    { id: "TwitchCheer", label: "the TwitchCheer handler", get: (p) => handlerRegion(p.lines, "TwitchCheer") },
+    { id: "present", label: "present()", optional: true, get: (p) => fnRegion(p.lines, "present") },
+    { id: "api-notes", label: "render()'s API notes", get: (p) => apiNotesRegion(p.lines) },
+    { id: "internals-gaps", label: "internals.shareCuts / gapRooms", optional: true, get: (p) => internalsGapsRegion(p.lines) },
 ];
 
 // identical | changed | new (only upstream has it) | gone (only the vendored copy has it) |

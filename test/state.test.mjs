@@ -156,20 +156,26 @@ test("forkDither: the bot's grey, its clamps, and threshold at 128", () => {
 
 test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's settings, no userName", () => {
   const payload = 'Cheer25 <div style="font:700 60px/.8 Arial">BIG</div>';
+  // The options a 3.0 printer's action sends (OptionsFor): the streamer's threshold, bits per inch
+  // and maximum length, the printer's Allow High Roller prints (as the action sends it: its own
+  // value for a cheer that can be High Roller, true otherwise), and its px per inch (96 on a roll;
+  // Letter paper is about 53.3 and also sends a pageHeightPx, which the preview never does).
   eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
     event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
-    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true } });
+    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true, pxPerInch: 96 } });
   // No userName (the renderer would start an avatar lookup), and the message is never touched.
   const e = C.previewEvent({ payload: "  " + payload + "  ", bits: "7", cheer: true, hrThreshold: "0" });
   assert.ok(!("userName" in e.event));
   assert.equal(e.event.message, "  " + payload + "  ");
-  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true });
+  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true, pxPerInch: 96 });
   assert.equal(e.event.bits, 7);
   // A free test never prints; it is drawn as the High Roller cheer whose markup it tests.
   assert.equal(C.previewEvent({ payload, bits: 100, cheer: false, hrThreshold: 500 }).options.highRollerBits, 1);
   // Junk settings read through the same sanitizers as the panel.
   eq(C.previewEvent({ payload: null, bits: "x", hrThreshold: -5, bitsPerInch: "y", maxInches: 99 }).options,
-     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false, allowHighRoller: true });
+     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false, allowHighRoller: true, pxPerInch: 96 });
+  // No page height: a roll has no pages, so the bot never cuts at a page's end ("page").
+  assert.ok(!("pageHeightPx" in e.options));
 });
 
 test("previewVerdict says what the bot's renderer said, in plain words", () => {
@@ -193,6 +199,12 @@ test("previewVerdict says what the bot's renderer said, in plain words", () => {
   const cap = texts(ok({ result: { ok: true, height: 600, trimmed: { limitIn: 2, fullIn: 4.38, by: "cap" }, security: [] } }), { warned: false });
   // The maximum length is set in inches, so it is echoed in inches too.
   assert.match(cap[1], /^! The bot cuts this message at 5\.1 cm, the streamer's maximum length \(2 in\)\..* This app expected it to fit: this computer's fonts may differ/);
+  // printer-bot 3.0 keeps a High Roller message on its page when it prints on Letter paper, and
+  // reports that cut as "page". A roll has no pages (the preview sends no pageHeightPx), so it
+  // can't happen here, but it is said as what it is: neither bits nor the maximum length, and
+  // not the fonts either.
+  const sheet = texts(ok({ result: { ok: true, height: 900, trimmed: { limitIn: 9.5, fullIn: 12, by: "page" }, security: [] } }), { bits: 300, warned: false });
+  assert.deepEqual(sheet.slice(1), ["! The bot cuts this message at 24.1 cm, at the end of the Letter page it prints on. The whole message is 30.5 cm, so its end fades out."]);
   // The 1600px box cuts hard and render() never reports it: the frame's own measurement does.
   const box = texts(ok({ measure: { contentPx: 1600, fullPx: 1700 } }), { warned: true });
   assert.match(box[1], /^! The bot's message box cuts this message off at 42\.3 cm, with no fade\. The whole message is 45\.0 cm\.$/);

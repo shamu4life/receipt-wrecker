@@ -2,7 +2,7 @@
 // tools/vendor-renderer.mjs: (re)generate the vendored copy of SassyTP printer-bot's receipt page
 // that public/index.html carries, the page the app's preview draws every part with.
 //
-// The preview is the bot's own renderer (v/2.5.0/renderer.html -> PrinterBot.render), not a model
+// The preview is the bot's own renderer (the vendored v/<version>/renderer.html -> PrinterBot.render), not a model
 // of it. The app keeps the page as INERT text, a <script type="text/plain" id="sassytp-renderer">
 // block after its own script, and loads it into one sandboxed frame per part. This tool writes
 // that block from the pinned upstream file by applying exactly three edits, each marked RW-EDIT
@@ -16,10 +16,10 @@
 // Above the block it writes SassyTP's copyright line and MIT permission notice (from the LICENSE
 // file at the same commit), the source repo, path and commit, and a note of the three edits.
 //
-// It is the "SassyTP shipped a new version" routine: --ref <sha> vendors another commit (its
-// renderer path comes from that commit's versions.json, or --path), and --prerelease vendors the
-// prerelease that versions.json names (core.prerelease), at --ref or at the head of the beta
-// branch. Not in CI (CI is offline): run it by hand, then run both test suites, whose contract
+// It is the "SassyTP shipped a new version" routine: --prerelease vendors the prerelease that
+// versions.json names (core.prerelease), at --ref or at the head of the beta branch (the app
+// follows the newest beta since 1.3.0), and --ref <sha> vendors another commit (its renderer path
+// comes from that commit's versions.json, or --path). Not in CI (CI is offline): run it by hand, then run both test suites, whose contract
 // test drives every mode through the vendored page. tools/upstream-watch.mjs says when there is
 // something new to vendor.
 //
@@ -40,10 +40,13 @@
 // write silently restored 2.5.4.) Update PINNED_* to the new commit too, with tools/forkbench.mjs.
 //
 // It always prints the renderer VERSION it found (the page's <meta name="printer-bot-renderer">).
-// It stops when --ref names a commit other than the committed block's but the file it resolves is
-// the renderer the block already holds (the same sha256): on the beta branch versions.json's
-// "latest" is still the stable frontend, so --ref <beta commit> alone resolves v/2.5.0/renderer.html,
-// the 2.5.4 page, and would have relabelled it as the beta. Pass --prerelease or --path then.
+// On the beta branch versions.json's "latest" is still the stable frontend, so --ref <beta commit>
+// alone resolves v/2.5.0/renderer.html, the 2.5.4 page. It stops when --ref (without --path or
+// --prerelease) resolves a renderer OLDER than the vendored one (a lower VERSION): since 1.3.0 the
+// block holds a beta, and that would quietly put 2.5.4 back under the beta's commit. It also
+// stops when --ref names a commit other than the block's but resolves the very file the block
+// holds (the same sha256), which would only relabel it. Pass --prerelease (a beta) or --path
+// v/<version>/renderer.html (anything else, an older page on purpose included) then.
 //
 // Flags:
 //   --check            compare only; exit 0 same, 1 different (the first differing line is printed)
@@ -51,7 +54,7 @@
 //                      pinned one below). A full 40-character sha, so the block always names one
 //                      exact commit
 //   --path P           the renderer's path in that commit (default: v/<latest>/renderer.html, from
-//                      that commit's versions.json; for the pinned commit, v/2.5.0/renderer.html)
+//                      that commit's versions.json; for the pinned commit, PINNED_PATH)
 //   --prerelease       the renderer's path is v/<core.prerelease>/renderer.html, from the
 //                      versions.json at --ref (default: at the head of the beta branch). Not with --path
 //   --renderer PATH    use a local renderer.html instead of fetching it. If it is not the pinned
@@ -81,7 +84,8 @@ import { inflateSync } from "node:zlib";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..");
 
-// The same pin as tools/forkbench.mjs: printer-bot 2.5.4, receipt page version 202610090056.
+// The same pin as tools/forkbench.mjs: printer-bot 3.0.0-beta.6, receipt page version 202610110524
+// (1.3.0: the app targets the newest beta; 2.5.4's page was b9f12b0, v/2.5.0/renderer.html).
 const REPO_URL = "https://github.com/SassyTP/printer-bot";
 const RAW = "https://raw.githubusercontent.com/SassyTP/printer-bot/";
 const API = "https://api.github.com/repos/SassyTP/printer-bot";
@@ -89,9 +93,9 @@ const BETA_BRANCH = "beta";
 // A version as versions.json names one (core.prerelease "3.0.0-beta.6"), which becomes a folder name:
 // no slash, no "..".
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
-const PINNED_SHA = "b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef";
-const PINNED_PATH = "v/2.5.0/renderer.html";
-const PINNED_SHA256 = "51b1f93f901c6b0895b428b697bc02cf19280049c0346f4d5aac172cc0c6bdff";
+const PINNED_SHA = "b7f9991816a58b60bf3b9e29806ec29831b54a2c";
+const PINNED_PATH = "v/3.0.0-beta.6/renderer.html";
+const PINNED_SHA256 = "4379ce089d57b5fc49c9dc902edcd8b74e3050cb752708b0b39acf5ba1566037";
 const DEFAULT_FILE = join(REPO, "public", "index.html");
 
 const BEGIN = "<!-- BEGIN vendored SassyTP printer-bot renderer: tools/vendor-renderer.mjs writes everything from here to END; do not edit by hand -->";
@@ -238,8 +242,8 @@ function committedPin(html) {
     const blk = html.slice(at.start, at.end);
     const m = blk.match(/id="sassytp-renderer" data-commit="([0-9a-f]{40})" data-path="([\w./-]+\.html)"/);
     if (!m) throw new Exit(2, "the vendored block names no commit (data-commit / data-path); pass --ref and --path");
-    const h = blk.match(/upstream file sha256 ([0-9a-f]{64})/);
-    return { sha: m[1], path: m[2], sha256: h ? h[1] : null };
+    const h = blk.match(/upstream file sha256 ([0-9a-f]{64})/), v = blk.match(/ data-version="(\d+)"/);
+    return { sha: m[1], path: m[2], sha256: h ? h[1] : null, version: v ? v[1] : null };
 }
 
 async function resolveSources(o) {
@@ -393,6 +397,7 @@ function locate(html) {
 
 async function main() {
     const o = parseArgs(process.argv);
+    const namedPath = !!o.path;                                  // --path given by hand (resolvePrerelease sets one too)
     checkPlaceholder();
     const html = readFileSync(o.file, "utf8");
     o.pin = committedPin(html);
@@ -405,8 +410,15 @@ async function main() {
     const pre = o.prerelease ? await resolvePrerelease(o) : null;
     const { sha, path, page, license } = await resolveSources(o);
     process.stderr.write("renderer VERSION " + (rendererVersion(page) || "(none found)") + ": " + path + " @ " + sha.slice(0, 7) + "\n");
-    // A --ref that resolves the very file the block already holds would only relabel it (the
-    // beta branch's versions.json still names the stable frontend as "latest").
+    // A --ref that resolves a renderer older than the vendored one, with no --path or --prerelease
+    // asking for it: the beta branch's versions.json still names the stable frontend as "latest",
+    // so a beta's commit alone resolves 2.5.4's page, and since 1.3.0 the block holds a beta.
+    const ver = rendererVersion(page);
+    if (o.ref && !namedPath && !pre && o.pin && o.pin.version && ver && Number(ver) < Number(o.pin.version)) {
+        throw new Exit(2, "this commit's " + path + " (VERSION " + ver + ") is older than the vendored renderer (VERSION " + o.pin.version
+            + "): versions.json's latest is the stable frontend; pass --prerelease for a beta, or --path v/<version>/renderer.html to vendor this one anyway");
+    }
+    // A --ref that resolves the very file the block already holds would only relabel it.
     if (o.ref && o.pin && o.pin.sha256 && o.ref !== o.pin.sha && sha256(page) === o.pin.sha256) {
         throw new Exit(2, pre
             ? "this commit's " + path + " is the renderer you already have: versions.json's core.prerelease is still " + pre + ", so there is nothing new to vendor"

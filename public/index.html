@@ -6269,11 +6269,18 @@
       restoreControls();
       syncModeUi();
       // The layout the preview draws with, read off the vendored block itself, so it can't drift from
-      // it. SassyTP's bot can download a newer layout to the streamer's dock by itself.
+      // it. SassyTP's bot can download a newer layout to the streamer's dock by itself. Since 1.3.0 the
+      // block is Printer Bot 3.0's beta; a 2.5.4 dock's layout prints the app's messages the same on a
+      // roll (measured, 19 of 19, all but the profile picture's size), so that one is named as such.
+      var SAME_PRINTS = { "202610090056": "Printer Bot 2.5.4" };
       var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
+      var rpath = /^v\/([0-9][0-9A-Za-z.-]*)\/renderer\.html$/.exec((rblock && rblock.getAttribute("data-path")) || "");
       if (rver && /^\d+$/.test(rver)) {
-        document.getElementById("rendererVersion").textContent = ", layout v" + rver;
-        document.getElementById("rendererCompare").textContent = " If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer.";
+        document.getElementById("rendererVersion").textContent = (rpath ? ", Printer Bot " + rpath[1] + "'s" : ",") + " layout v" + rver;
+        var same = Object.keys(SAME_PRINTS).filter(function (v) { return v !== rver; });
+        document.getElementById("rendererCompare").textContent = " If the streamer's dock shows another Renderer version under Updates, this preview may not match their printer"
+          + (same.length ? ", except " + same.map(function (v) { return SAME_PRINTS[v] + "'s " + v; }).join(" and ")
+             + ", which prints these messages the same with a smaller profile picture." : ".");
       }
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);

@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.2.0](https://img.shields.io/badge/version-1.2.0-blue)](docs/CHANGELOG.md)
+[![Version 1.3.0](https://img.shields.io/badge/version-1.3.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -18,7 +18,8 @@ prints it as big as the paper allows on a printer driven by
 Receipt Wrecker is a single HTML file with no dependencies. You build a stack of blocks
 (text and pictures), it packs them into as few chat messages as it can, and you paste each
 one into Twitch chat as a cheer. The preview shows each message drawn by the bot's own
-receipt code.
+receipt code: the newest Printer Bot beta, 3.0.0-beta.6. A streamer still on Printer Bot 2.5.4
+prints these messages the same on a receipt printer; only the profile picture is smaller.
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
 > different printer bot (nutty.gg's). Everything made for that one is gone, and saved work
@@ -282,13 +283,21 @@ access. It is not an imitation of the receipt. Whether a cheer prints High Rolle
 where the bot's box cuts it off and any fade come from the bot's own code. The Twitch logo in
 the footer is a grey box here.
 
-The line above the parts names the layout the preview draws with (for example *layout
-v202610090056*). SassyTP's bot can download a newer layout to the streamer's dock by itself, so
-if their dock shows a different **Renderer** version under **Updates**, the preview may not match
-their printer.
+The line above the parts names the layout the preview draws with: *Printer Bot
+3.0.0-beta.6's layout v202610110524*. SassyTP's bot can download a newer layout to the streamer's
+dock by itself, so if their dock shows another **Renderer** version under **Updates**, the
+preview may not match their printer. The exception is Printer Bot 2.5.4's 202610090056, which
+prints this app's messages the same, with a smaller profile picture.
+
+The app follows the newest beta as SassyTP ships it. Printer Bot 3.0 can also print one cheer on
+several printers, each with its own paper and its own Allow High Roller prints, and print on
+Letter paper through an ordinary printer. The app builds for one receipt printer and doesn't
+model either.
 
 The big circle at the top is where the bot puts the viewer's profile picture. The preview never
-asks Twitch for it, so it draws a grey stand-in there, and the receipt's length counts it. Under
+asks Twitch for it, so it draws a grey stand-in there, and the receipt's length counts it. (3.0
+draws the circle bigger than 2.5.4 did and takes the difference back out of the gaps around the
+header and footer, so the receipt is just as long.) Under
 each part, the preview says how long the receipt is (about 4.8 cm shorter on 80 mm, 4.0 cm on
 58 mm, when the bot finds no profile picture), whether the bot cuts it (and why), and whether
 the bot's safety filter would take anything out (it shouldn't, for anything this app builds).

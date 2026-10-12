@@ -815,12 +815,14 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, bits: 24 },                                    // one under the threshold: plain
     { ...SETTINGS, bits: 24, paperMm: 58, nonce: true },          // plain on 58 mm, repeat digits on
     { ...SETTINGS, cheer: false },                                // a free test, drawn as a High Roller cheer
+    { ...SETTINGS, allowHighRoller: false },                      // 1.3.0: Printer Bot 3.0's switch off at 100 bits, read by the page itself
   ];
   const heights = [];
   let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0;
   const check = async (page, i, payload, want, s, label) => {
     const { frame, last, verdict } = await drawnPart(page, i, payload);
-    const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch, maxInches: s.maxInches });
+    const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch,
+                                maxInches: s.maxInches, allowHighRoller: s.allowHighRoller });
     assert.deepEqual(last.event, JSON.parse(JSON.stringify(pe.event)), label + ": the frame was not handed the part's exact payload");
     assert.deepEqual(last.options, JSON.parse(JSON.stringify(pe.options)), label);
     assert.ok(!("userName" in last.event), label);
@@ -861,7 +863,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     // as a High Roller cheer. A Han tiling part in a High Roller cheer is raw too: plain text.
     const raw = !s.cheer || C.printMode(stackOptsOf(s)) === "raw";
     for (let i = 0; i < got.length; i++) {
-      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, part: i + 1 });
+      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, hrPrints: s.allowHighRoller, part: i + 1 });
       await check(page, i, got[i], { ...want[i], raw }, s, label);
     }
     const origin = new URL(server.url).origin;
@@ -2931,7 +2933,11 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  assert.match(credit, /If the streamer's dock shows a different Renderer version under Updates, this preview may not match their printer\./);
+  // 1.3.0: the page is Printer Bot 3.0's beta. A 2.5.4 dock's Renderer (202610090056) prints the
+  // app's messages the same on a roll (measured: 19 of 19), so the line says so rather than "may not match".
+  assert.equal(v, "202610110524");
+  assert.match(credit, /Printer Bot 3\.0\.0-beta\.6/);
+  assert.match(credit, /If the streamer's dock shows another Renderer version under Updates, this preview may not match their printer, except Printer Bot 2\.5\.4's 202610090056, which prints these messages the same with a smaller profile picture\./);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -2976,8 +2982,10 @@ test("1.2.0: with Allow High Roller prints off the preview draws the part the wa
   const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, allowHighRoller: false }, eager: true });
   const payload = await copyPayload(page, 0);
   const { last } = await drawnPart(page, 0, payload);
-  assert.equal(last.options.highRollerBits, 0);
+  // 3.0's call (1.3.0): the streamer's real threshold, the printer's switch, a roll's px per inch.
+  assert.equal(last.options.highRollerBits, 25);
   assert.equal(last.options.allowHighRoller, false);
+  assert.equal(last.options.pxPerInch, 96);
   assert.doesNotMatch(last.measure.partClass, /\braw\b/, "the preview drew a styled receipt the printer won't print");
   assert.deepEqual(errors, []);
   await ctx.close();

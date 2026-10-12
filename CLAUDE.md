@@ -7,9 +7,10 @@ Guidance for AI assistants (and humans) working in this repository.
 **Receipt Wrecker** (repo `receipt-wrecker`, Cloudflare Worker `receipt-wrecker`, live at
 `receipt.uwutoowo.com`) is a single-file, dependency-free web page. It turns a viewer's words
 or a picture into a Twitch chat message that prints big on a streamer's thermal receipt
-printer. The printer is driven by **SassyTP's printer-bot** (version 2.5.4, MIT,
+printer. The printer is driven by **SassyTP's printer-bot** (MIT,
 <https://github.com/SassyTP/printer-bot>), a Streamer.bot action that draws every cheer on a
-receipt page in headless Edge and prints a screenshot of it.
+receipt page in headless Edge and prints a screenshot of it. The app targets the newest beta,
+3.0.0-beta.6 (since 1.3.0); a streamer on 2.5.4 prints its messages the same on a roll.
 
 The bot prints a cheer in one of two ways, and the whole app follows from that:
 
@@ -36,11 +37,15 @@ logos (trademarks outside the licence).
 
 ## The target, with evidence
 
-The facts below were read from `v/2.5.0/renderer.html` at commit
-`b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef` (renderer `VERSION` `202610090056`, line 368) and
-from the action's C#, which ships in the same repo as the Streamer.bot import `import.txt`
-(base64 + gzip; decode it to read the code). Line numbers are for that file at that commit.
-Re-check them whenever the pin moves.
+Since 1.3.0 the app targets the newest Printer Bot beta, **3.0.0-beta.6**. The facts below were
+read from `v/3.0.0-beta.6/renderer.html` at commit `b7f9991816a58b60bf3b9e29806ec29831b54a2c`
+(renderer `VERSION` `202610110524`, line 392) and from the action's C#, which ships in the same
+repo as the Streamer.bot import (`import.prerelease.txt` on the beta branch, `import.txt` for
+2.5.4; base64 + gzip, decode it to read the code). Line numbers are for that file at that
+commit. Re-check them whenever the pin moves. **A streamer still on 2.5.4 prints the same:**
+on a roll printer the 2.5.4 page (`v/2.5.0/renderer.html` at `b9f12b0`, VERSION
+`202610090056`) printed every one of 19 measured app messages exactly as beta.6 does, 1.2.0's
+forms included (review of 1.3.0's plan, 2026-10-12); only the profile picture differs (below).
 
 How a cheer prints:
 
@@ -50,62 +55,80 @@ How a cheer prints:
 2. `EdgeRenderer` (C#) opens the receipt page in headless Edge and sets the viewport with
    `Emulation.setDeviceMetricsOverride`: `round(dots / 8 × 96 / 25.4)` CSS px wide, so 272 px
    on 80 mm paper (576 dots) and 181 px on 58 mm (384 dots), at deviceScaleFactor
-   dots / width.
-3. It calls `PrinterBot.render(event, options)` (API notes lines 338-361, `render` lines
-   1883-1946). `options` = `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches,
-   hideLinks}` from the dock.
+   dots / width. (3.0 adds Letter paper, a Windows printer or Preview only, never a thermal
+   one: a 400 px page at about 53.3 px to the inch. The app does not model it.)
+3. It calls `PrinterBot.render(event, options)` (API notes lines 355-380, `render` lines
+   2092-2116, then `present()` 2129-2193). `options` (`OptionsFor` in the C#) = the dock's
+   `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks}`, one setting for
+   every printer, plus the printer's own `allowHighRoller` (3.0's **Allow High Roller prints**,
+   on by default) and `pxPerInch` (96 on a roll; Letter also sends `pageHeightPx`).
 4. It screenshots the height `render()` returns, turns it grey with `(77R + 151G + 28B) >> 8`
    (`ToGray`), dithers it to 1 bit with `class Ditherer` (Floyd-Steinberg by default, Atkinson,
    or a plain `< 128` threshold; the two diffusion modes force grey ≥ 250 to white and ≤ 5 to
-   black first) and sends it as an ESC/POS raster on a continuous roll. The dock calls the
-   three dithers Detailed, Soft and Crisp (`PRINTER_OPERATION.md` line 59).
+   black first) and sends it as an ESC/POS raster on a continuous roll. A roll dithers exactly
+   as in 2.5.4 (3.0's serpentine Floyd-Steinberg is for pictures on Letter only). The dock calls
+   the three dithers Detailed, Soft and Crisp (`PRINTER_OPERATION.md` line 94).
+5. 3.0 can print one cheer on several printers (up to 100, picked by rules on Bits or the
+   message), each with its own paper and its own Allow High Roller prints, and a stuck printer
+   is held back: a cheer sent to it fails at once and is not retried. The app builds for ONE
+   printer and does not model either.
 
 What the page decides:
 
-- **High Roller or plain.** `isHighRoller` (lines 726-730): threshold > 0 and bits ≥ threshold,
-  25 when no option arrives. The `TwitchCheer` handler (lines 1439-1449) sends a High Roller
-  message to `sanitizeRich` and anything else down the plain path. The app mirrors the test in
-  `printMode`.
-- **The High Roller sanitizer.** `sanitizeRich` (lines 704-711) parses the message in an inert
-  document and builds a new tree from allow-lists: `ALLOWED_TAGS` (447-449; `div`, `pre` and
-  `br` are on it), `DROP_WITH_CONTENT` (452-454; script, style, iframe, object, embed, svg and
-  more go with their content), `ALLOWED_CSS` (464-480; longhands only, because `copyStyle`
-  (628) walks the CSSOM, which hands out longhands: font-*, line-height, letter-spacing,
+- **High Roller or plain.** `isHighRoller` (lines 756-759): threshold > 0 and bits ≥ threshold,
+  25 when no option arrives. The `TwitchCheer` handler (lines 1550-1562) keeps a High Roller
+  message for `sanitizeRich` and a plain copy beside it; `viewOf` (1957-1964) shows the plain
+  copy, with no length limit of its own, when the printer has `allowHighRoller: false`, as if
+  the cheer were below the threshold. The app mirrors the test in `printMode`.
+- **The High Roller sanitizer.** `sanitizeRich` (lines 733-741) parses the message in an inert
+  document and builds a new tree from allow-lists: `ALLOWED_TAGS` (476-478; `div`, `pre` and
+  `br` are on it), `DROP_WITH_CONTENT` (481-483; script, style, iframe, object, embed, svg and
+  more go with their content), `ALLOWED_CSS` (493-509; longhands only, because `copyStyle`
+  (657) walks the CSSOM, which hands out longhands: font-*, line-height, letter-spacing,
   text-align, the white-space longhands, word-break, overflow-wrap, writing-mode,
   text-orientation, transform/rotate/scale/translate, width/height, margins, paddings,
-  display, position, colours, borders), `CSS_VALUE_ALLOWED` (482-490; position only static,
-  relative or absolute; a display allow-list) and `CSS_VALUE_FORBIDDEN` (492; `url(`,
+  display, position, colours, borders), `CSS_VALUE_ALLOWED` (511-519; position only static,
+  relative or absolute; a display allow-list) and `CSS_VALUE_FORBIDDEN` (521; `url(`,
   backslashes, `<`, `>`, `var(`, `attr(`, comments and more). `class` and `id` are dropped,
   except an img's `emote` or `bits` class. Pictures load only from the Twitch, Kick, BTTV, 7TV
-  and FFZ CDNs (`TRUSTED_IMAGE_HOSTS`, 444) or as a data: PNG/GIF/WebP of at most 2000
-  characters (438), never larger than 64px (437; `vetImage` 598, `clampImage` 619). Whatever
+  and FFZ CDNs (`TRUSTED_IMAGE_HOSTS`, 473) or as a data: PNG/GIF/WebP of at most 2000
+  characters (467), never larger than 64px (466; `vetImage` 627, `clampImage` 648). Whatever
   it removes is a `security` note in `render()`'s result. The message lands in ONE
-  `<div class="part raw">` (`show()`, line 1830) and inherits the receipt's Segoe UI
-  16px/1.35, centred, black.
-- **Plain.** `plainText` (lines 555-559) uses the message as text and cuts it at 500
-  characters plus `…` (`MAX_PLAIN_CHARS`, 430). The part gets “ and ” from
-  `.part.message::before` / `::after` (209-210) and `overflow-wrap: anywhere` (218-221, new in
+  `<div class="part raw">` (`show()`, line 2021) and inherits the receipt's Segoe UI
+  16px/1.35, centred, black. All of this is identical to 2.5.4's.
+- **Plain.** `plainText` (lines 584-590) uses the message as text and cuts it at 500
+  characters plus `…` (`MAX_PLAIN_CHARS`, 459). The part gets “ and ” from
+  `.part.message::before` / `::after` (226-227) and `overflow-wrap: anywhere` (235-238, new in
   2.5.4). Markup prints as text.
-- **Geometry.** `#receipt-container` (lines 27-40): padding `0 14px 14px`, `font-family:
+- **Geometry.** `#receipt-container` (lines 27-41): padding `0 14px 14px`, `font-family:
   "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif`, 16px, line-height 1.35,
   centred. A message therefore has the page width less 28px: **244 px on 80 mm, 153 px on
   58 mm**. One line of plain text is **21.6 px**.
-- **The message box.** `#receipt-content` (157-162): `overflow: hidden; contain: paint;
-  max-height: 1600px`. `highRollerMaxHeight` (741-753) and `show()` (1819-1826) apply the
-  streamer's limits to High Roller messages only: bitsPx = bpi > 0 ? max(1, floor(bits / bpi
-  × 96)) : none; capPx = maxIn > 0 ? max(1, floor(min(maxIn, 40) × 96)) : none. With no cap
-  the box is min(bitsPx, 1600), or 1600. With a cap it is bitsPx when that is smaller, else
-  capPx, and the 1600 ceiling no longer applies. A message cut by either setting fades its
-  last 40px (`.cut`, 179-182) and `render()` reports it as `trimmed` (1914-1933). The 1600
-  ceiling on its own cuts **hard**, with no fade and no report.
-- **Receipt height** is capped at 5000 CSS px (`MAX_RECEIPT_HEIGHT`, 373, applied at 1943).
+- **The message box.** `#receipt-content` (174-179): `overflow: hidden; contain: paint;
+  max-height: 1600px`. `highRollerMaxHeight` (782-796, with `pxPerInch` 772 and `pageHeightPx`
+  778) and `show()` (2007-2018) apply the streamer's limits to High Roller messages only:
+  bitsPx = bpi > 0 ? max(1, floor(bits / bpi × pxPerInch)) : none; capPx = maxIn > 0 ? max(1,
+  floor(min(maxIn, 40) × pxPerInch)) : none, with pxPerInch 96 on a roll. With no cap the box
+  is min(bitsPx, 1600), or 1600 (the ceiling is a length of paper, scaled by pxPerInch / 96).
+  With a cap it is bitsPx when that is smaller, else capPx, and the 1600 ceiling no longer
+  applies. A message cut by either setting fades its last 40px (`.cut`, 196-199) and
+  `render()` reports it as `trimmed` (`present()`, 2138-2179; `by` is `bits`, `cap`, or on
+  Letter `page`). The 1600 ceiling on its own cuts **hard**, with no fade and no report.
+- **Receipt height** is capped at 5000 CSS px (`MAX_RECEIPT_HEIGHT`, 397, applied at 2189).
+- **The profile picture** (3.0): `#receipt-avatar` (110-131) is 13.875em, 222 px on 80 mm and
+  173 px on 58 mm (the 153 px message width plus a 10 px bleed into each margin, its own
+  `@media` rule), where 2.5.4 drew min(11.5em, 100%), 184 / 153 px. The page takes what it
+  gains back out of seven gaps around the header and the footer (`OLD_AVATAR_PX`, `GAP_ROOM`,
+  `shareCuts`, `tightenGaps`: 1893-1952), so a receipt with a picture is as tall as it was.
+  That runs only for the bot's own pictures; the preview repeats it for its stand-in.
 - **The page's own policy** (CSP, line 7) runs only the renderer's script and connects only
   to two avatar lookups. A `userName` in the event starts an avatar lookup; the app never
   sends one.
 
 The app mirrors these in `PAPERS` / `paperSpec`, `BASE_PX` / `BASE_LH` / `LEAD_LINE_PX`,
 `CONTENT_CEILING_PX`, `contentLimitPx` (a line-for-line mirror of `highRollerMaxHeight` plus
-`show()`), `printMode` and `forkDither` (a port of `class Ditherer`).
+`show()`, on a roll), `printMode` (the switch included) and `forkDither` (a port of
+`class Ditherer`).
 
 ## The field record: this channel's chat filter
 
@@ -211,7 +234,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.2.0. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.3.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -865,9 +888,10 @@ generations; `presetImageUrls` walks a stack's picture links.
   Copy (its note names the switch) and the Plain test is one bit; the size labels describe this
   cheer with the switch on (a threshold cheer's only below the threshold, and the card's note
   then says "at N bits or more", or, when a bits-per-inch setting makes the box grow with the
-  bits, that more bits buy more receipt); `previewEvent` sends
-  `allowHighRoller: false` and `highRollerBits: 0`, so the vendored 2.5.4 page draws exactly what a
-  3.0 printer with the switch off prints (plainText, quote marks, the 1600px box). A free test still
+  bits, that more bits buy more receipt); `previewEvent` sends what a 3.0 printer with the switch
+  off gets, the streamer's real threshold and `allowHighRoller: false`, and the vendored 3.0 page
+  prints it plain (plainText, quote marks, the 1600px box). (1.2.0 drew it on the 2.5.4 page,
+  which has no switch, as `highRollerBits: 0`: the same receipt, 19 of 19 measured.) A free test still
   builds and draws the High Roller form (it tests what chat lets through). With the switch on, the
   High Roller test's note names it as the second cause when BIG prints small inside quotes.
 - **The bits raise (1.1.0).** Every High Roller-only control calls `pickedHighRoller(block,
@@ -1067,8 +1091,9 @@ The preview does not model the receipt; it **is** the bot's receipt page. There 
 hand-written model of the receipt in this app. The pure core's width and height models only
 choose sizes and split parts, and a browser test holds them to what `render()` reports.
 
-**The vendored block.** `public/index.html` carries `v/2.5.0/renderer.html` at
-`b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef` (version `202610090056`) as inert text,
+**The vendored block.** `public/index.html` carries `v/3.0.0-beta.6/renderer.html` at
+`b7f9991816a58b60bf3b9e29806ec29831b54a2c` (version `202610110524`, Printer Bot 3.0.0-beta.6;
+2.5.4's `v/2.5.0/renderer.html` at `b9f12b0` until 1.3.0) as inert text,
 `<script type="text/plain" id="sassytp-renderer" data-commit data-path data-version>`, placed
 after the app's script. Above it: SassyTP's copyright line, the full MIT permission notice
 (from LICENSE at that commit), the source repo, path, commit and upstream sha256, and a note of
@@ -1117,27 +1142,39 @@ unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
 **Driven like the bot.** `previewEvent(o)` builds the call the way the C# routine makes it (a
 `TwitchCheer` carrying the bits and the message untouched) and the way the bench does:
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
-`{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks: false}`. No
+what 3.0's `OptionsFor` sends a roll printer: `{highRollerBits, highRollerBitsPerInch,
+highRollerMaxInches, hideLinks: false, allowHighRoller, pxPerInch: 96}`, never a `pageHeightPx`
+(a roll has no pages). No
 `userName`, so no avatar lookup starts and the bot draws none. A real cheer's receipt has the
 viewer's picture whenever the lookup answers, so `previewGlue` puts a stand-in in the bot's
 circle (`standIn`: a grey silhouette as an inline SVG, which the frame's `img-src data:` allows;
 `#receipt-avatar` shown and `.no-avatar` removed) and measures the page again the way `render()`
 does (`min(5000, ceil(documentElement height))`), keeping render()'s own answer as
-`result.botHeight` and setting `result.standIn`. The difference is `avatarExtraPx`: 182px on
-80 mm, 151px on 58 mm. The Thermal view copies the circle with the rest. The
+`result.botHeight` and setting `result.standIn`. 3.0 draws the circle larger (222 / 173 px)
+and takes the gain back out of seven gaps (`tightenGaps`), but only for its own pictures, so the
+glue repeats that for the stand-in with the page's exported `internals.shareCuts` and
+`gapRooms()` and the bot's old 184 px (`OLD_AVATAR_PX`); a page without them is left as it is.
+The difference is still `avatarExtraPx`: 182px on 80 mm, 151px on 58 mm. The Thermal view
+copies the circle with the rest, and writes its used size and margins into the copy: 3.0 sizes
+it on 58 mm with `@media (max-width: 220px)`, which the raster's 384-dot viewport never
+matches. The
 renderer, not this app, decides High Roller or plain, the box and the fade. A free test (Cheer-ready off) is drawn as a High Roller cheer
 (threshold 1) and says it never reaches the printer.
 
 **The layout version.** The credit line above the parts (`#rendererCredit`) names the vendored
-layout, read at init from the block's own `data-version` (`#rendererVersion`, `#rendererCompare`),
-and says to compare it with the Renderer version the streamer's dock shows under Updates: the bot
-can download a newer layout to the dock by itself (UPDATING.md, "Download updates" on by default).
+layout, read at init from the block's own `data-version` and `data-path` ("Printer Bot
+3.0.0-beta.6's layout v202610110524"; `#rendererVersion`, `#rendererCompare`), and says to compare
+it with the Renderer version the streamer's dock shows under Updates: the bot can download a newer
+layout to the dock by itself (UPDATING.md, "Download updates" on by default). Layouts measured to
+print the app's messages the same on a roll are named as such (`SAME_PRINTS`: 2.5.4's
+202610090056, "the same with a smaller profile picture").
 
 **The verdict** under each part (`previewVerdict`): the receipt's height in cm and px, the
 stand-in profile picture included, and how much shorter a receipt with no picture is (about
-4.8 cm on 80 mm, 4.0 cm on 58 mm; `#receipt-avatar` is min(11.5em, 100%) square with a 14px gap
-and replaces the 16px top padding; without `standIn` the line says what a found picture adds); a
-`trimmed` cut (bits or cap) with its lengths; a hard cut by the 1600px box (measured in the
+4.8 cm on 80 mm, 4.0 cm on 58 mm: the picture, its 14px gap, less the 16px top padding and what
+the gaps give back; without `standIn` the line says what a found picture adds); a
+`trimmed` cut (bits or cap, or on Letter `page`, said as the end of the page and never blamed on
+the fonts) with its lengths; a hard cut by the 1600px box (measured in the
 frame with the box's limit lifted, because `render()` reports only the streamer's limits);
 "this app expected it to fit" when the app had not warned; any `security` notes (the bot's
 sanitizer would remove something: should never happen for our payloads, please report it);
@@ -1176,9 +1213,11 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    `data-version` and the upstream sha256 in its notice). Every renderer with another sha256 is
    cached under `.render/sassytp/<sha>/` and compared with the vendored copy, region by region,
    found by text markers: the safety section (`const MAX_PLAIN_CHARS` to `function
-   formatCurrency`), the CSS rules of `#receipt-container`, `#receipt-content` and `.part`,
-   `isHighRoller` through `highRollerMaxHeight`, `viewOf` when either copy has it, `show()` and
-   `MAX_RECEIPT_HEIGHT`. Each region is identical or changed (a changed one with a unified diff;
+   formatCurrency`), the CSS rules of `#receipt-container`, `#receipt-content`, `.part` and
+   `#receipt-avatar`, `isHighRoller` through `highRollerMaxHeight`, `viewOf` when either copy has
+   it, `show()`, `MAX_RECEIPT_HEIGHT`, the larger picture's gap trimming (`OLD_AVATAR_PX` to the end
+   of `tightenGaps`, which the preview's stand-in repeats), the `TwitchCheer` handler, `present()`
+   and render()'s API notes. Each region is identical or changed (a changed one with a unified diff;
    a reworded comment counts). Exit 0: nothing new; 10: a new renderer, every region identical;
    20: a region changed (or appeared, or lost its markers). It keeps what it saw in
    `.render/upstream/last.json` and says what changed since the previous run. A renderer built
@@ -1213,9 +1252,14 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    plain text, geometry) and update this file's line numbers and facts.
 5. Run both suites. The contract test re-runs every mode through the new page.
 
-New betas are tested on the canary branch, `canary/printer-bot-3`: a draft PR that is never
-merged before 3.0.0 is final and the streamer runs it. On that branch the watch compares against
-the beta it vendors, so it exits 0 until a newer beta (or a newer stable build) ships.
+**The app tracks the newest beta (since 1.3.0).** A new beta is vendored with `--prerelease`
+on a branch, its pins and this file's facts moved, both suites run (the contract test re-runs
+every mode through the new page), and it goes to `main` as a PR like any other change. The
+watch compares against the beta `main` vendors, so it exits 0 until a newer beta (or a newer
+stable build) ships. (Until 1.3.0 betas were tried on a never-merge canary branch,
+`canary/printer-bot-3`, PR #38; 1.3.0 merged it.) Ask the streamer which Renderer version their
+dock shows: 2.5.4's prints the app's messages the same on a roll, so a streamer who hasn't moved
+to 3.0 loses nothing.
 
 ## Measuring: the bench
 
@@ -1369,7 +1413,8 @@ lives in `test-browser/` and is not in the default matcher.
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
   Han tiling; plain CJK picture; a pasted mosaic in Han text as typed; both probes; a Han and an
   emoji run at a fixed size too wide for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
-  with the streamer's length limits, and as a free test, goes through the app's own vendored
+  with the streamer's length limits, as a free test, and with Printer Bot 3.0's Allow High
+  Roller prints off at 100 bits (read by the vendored 3.0 page itself), goes through the app's own vendored
   `PrinterBot.render` in the frame. It asserts: `ok`; no `security` notes; the renderer agrees
   on raw vs plain; cut only where the app warned; for raw parts the sanitised DOM keeps every
   tag, every attribute and every style declaration the app sent, compared after CSSOM

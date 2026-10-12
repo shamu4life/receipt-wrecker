@@ -3189,13 +3189,19 @@
   // the length limit and the fade. o: payload, bits, cheer, hrThreshold, bitsPerInch, maxInches.
   // A free test (cheer false) never reaches the printer; it is drawn as the High Roller cheer
   // whose markup it tests (threshold 1), and previewVerdict says so.
+  // The options are the ones Printer Bot 3.0's action sends a roll printer (OptionsFor): the
+  // streamer's threshold, bits per inch and maximum length, that printer's Allow High Roller
+  // prints (o.allowHighRoller; off, the page prints every cheer as plain text), and pxPerInch 96
+  // (a roll; Letter paper is about 53.3 and also sends a pageHeightPx, which this never does). A
+  // free test is drawn High Roller whatever the switch says. (1.2.0 drew the switch's plain
+  // receipt on 2.5.4's page, which has no switch, as threshold 0: the same receipt, measured.)
   function previewEvent(o) {
     o = o || {};
     return {
       event: { __source: "TwitchCheer", bits: cheerBits(o.bits), user: "viewer", message: String(o.payload == null ? "" : o.payload) },
-      options: { highRollerBits: o.cheer === false ? 1 : o.allowHighRoller === false ? 0 : hrThresholdOf(o.hrThreshold),
+      options: { highRollerBits: o.cheer === false ? 1 : hrThresholdOf(o.hrThreshold),
                  highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false,
-                 allowHighRoller: o.cheer === false || o.allowHighRoller !== false }
+                 allowHighRoller: o.cheer === false || o.allowHighRoller !== false, pxPerInch: PX_PER_INCH }
     };
   }
   // previewVerdict: what the renderer said about one part, in plain words, for the line under
@@ -3209,9 +3215,11 @@
   // without writing-mode: sideways-lr), paperMm (for the profile picture's height). Returns [{text, warn}].
   // The viewer's profile picture: the preview sends no userName, so the bot draws none and the
   // preview's glue puts a stand-in in its circle (result.standIn); a real cheer has the viewer's
-  // own whenever the bot's lookup answers in time. #receipt-avatar is
+  // own whenever the bot's lookup answers in time. In printer-bot 2.5.4 #receipt-avatar is
   // min(11.5em, 100%) square with a 14px gap under it, and replaces the 16px top padding a
-  // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm.
+  // receipt without one gets: 182px (4.8 cm) more on 80 mm, 151px (4.0 cm) on 58 mm. 3.0 draws
+  // it larger (222 / 173 px) and takes the difference back out of the gaps around the header and
+  // the footer (its tightenGaps, which the glue repeats for the stand-in), so the same.
   function avatarExtraPx(paperMm) {
     return Math.min(11.5 * BASE_PX, paperSpec(paperMm).contentW) + 14 - 16;
   }
@@ -3230,19 +3238,23 @@
         ? ". The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about "
           + cm(avatarExtraPx(o.paperMm)) + " cm shorter."
         : ", plus about " + cm(avatarExtraPx(o.paperMm)) + " cm if the bot finds the viewer's profile picture."), warn: false });
-    var cut = "";
+    var cut = "", byPage = false;
     if (r.trimmed) {
       // In cm like every other length here; the inches only where they echo a streamer setting
-      // that is set in inches (the maximum length).
+      // that is set in inches (the maximum length). "page" (printer-bot 3.0): on Letter paper the
+      // bot keeps a High Roller message on its page. A roll has no pages and the preview sends no
+      // page height, so it can't happen here; if it ever does, the fonts are not why.
       var t = r.trimmed, inCm = function (x) { return (Math.round(Number(x) * 25.4) / 10).toFixed(1); };
+      byPage = t.by === "page";
       cut = (t.by === "cap"
         ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, the streamer's maximum length (" + t.limitIn + " in)"
+        : byPage ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, at the end of the Letter page it prints on"
         : "The bot cuts this message at " + inCm(t.limitIn) + " cm, all that " + bitsWord(cheerBits(o.bits)) + (cheerBits(o.bits) === 1 ? " buys" : " buy") + " at the streamer's bits-per-inch setting")
         + ". The whole message is " + inCm(t.fullIn) + " cm, so its end fades out.";
     } else if (d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
       cut = "The bot's message box cuts this message off at " + cm(d.measure.contentPx) + " cm, with no fade. The whole message is " + cm(d.measure.fullPx) + " cm.";
     }
-    if (cut) out.push({ text: cut + (o.warned ? "" : " This app expected it to fit: this computer's fonts may differ from the streamer's."), warn: true });
+    if (cut) out.push({ text: cut + (o.warned || byPage ? "" : " This app expected it to fit: this computer's fonts may differ from the streamer's."), warn: true });
     if (r.security && r.security.length) {
       out.push({ text: "The bot's sanitizer would take something out of this message (" + r.security.join(", ") + "). Nothing this app builds should do that: please report it.", warn: true });
     }
@@ -3782,7 +3794,10 @@
       }
       // The receipt as XHTML, for the Thermal preview's raster. That raster is an SVG image whose
       // viewport is not this page's, so every vw in an inline style (the glyph grids size their
-      // font in vw) is written out in px at this page's own width, in the copy only.
+      // font in vw) is written out in px at this page's own width, in the copy only. So is the
+      // profile picture's circle, as laid out here: printer-bot 3.0 sizes it on 58 mm paper with
+      // @media (max-width: 220px) (173 px, 10 px into each margin), which the raster's viewport,
+      // the printer's 384 dots, never matches. Its used width, height and margins go into the copy.
       function serialise() {
         var css = "", sheets = document.querySelectorAll("style"), i, j;
         for (i = 0; i < sheets.length; i++) css += X.serializeToString(sheets[i]);
@@ -3795,6 +3810,13 @@
             if (/vw/.test(v)) to[i].style.setProperty(st[j], v.replace(/(-?[\d.]+)vw/g, function (m, n) { return (parseFloat(n) * vw) + "px"; }), st.getPropertyPriority(st[j]));
           }
         }
+        var av = document.getElementById("receipt-avatar"), avCopy = copy.querySelector("#receipt-avatar");
+        if (av && avCopy && getComputedStyle(av).display !== "none") {
+          var used = getComputedStyle(av);
+          ["width", "height", "margin-top", "margin-right", "margin-bottom", "margin-left"].forEach(function (p) {
+            avCopy.style.setProperty(p, used.getPropertyValue(p));
+          });
+        }
         return { css: css, html: X.serializeToString(copy) };
       }
       // A real cheer's receipt carries the viewer's profile picture in the bot's avatar circle when
@@ -3804,10 +3826,47 @@
       var STAND_IN = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E"
         + "%3Crect width='100' height='100' fill='%23d9d9d9'/%3E%3Ccircle cx='50' cy='38' r='18' fill='%238c8c8c'/%3E"
         + "%3Cpath d='M14 100c0-22 16-36 36-36s36 14 36 36z' fill='%238c8c8c'/%3E%3C/svg%3E";
+      // Printer-bot 3.0 draws the circle larger (13.875em, 222 px on 80 mm; 173 px on 58 mm) and
+      // takes what it gains over 2.5.4's 184 px back out of seven gaps around the header and the
+      // footer (its tightenGaps), so a receipt with a picture is as tall as it was. That runs only
+      // when the bot itself puts a picture in, never for this stand-in, so it is done here the same
+      // way, with the page's own exported pieces: internals.shareCuts (how the px are shared out)
+      // and gapRooms() (the most each gap gives). The old size is not exported: OLD_AVATAR_PX is
+      // the bot's own 184. A 2.5.4 page has neither, and nothing to give back: nothing is changed.
+      var OLD_AVATAR_PX = 184;
+      function tightenGaps(av, box) {
+        var I = window.PrinterBot && window.PrinterBot.internals;
+        var rule = document.getElementById("receipt-rule-top"), foot = document.getElementById("receipt-footer");
+        var icon = document.getElementById("receipt-icon");
+        if (!I || typeof I.shareCuts !== "function" || typeof I.gapRooms !== "function" || !rule || !foot) return;
+        // The bot's clearGaps, then its tightenGaps: the same variables, read the same way.
+        ["--pb-cut-a", "--pb-cut-h"].forEach(function (p) { box.style.removeProperty(p); });
+        [rule, foot].forEach(function (el) {
+          ["--pb-cut-above", "--pb-cut-below", "--pb-cut-g"].forEach(function (p) { el.style.removeProperty(p); });
+        });
+        var cs = getComputedStyle(box);
+        var inner = box.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        var grow = av.offsetWidth - Math.min(OLD_AVATAR_PX, inner);
+        if (!(grow > 0)) return;
+        // show() hides the rule under the header when the receipt has no message, and takes the
+        // logo's src away when it has no logo; such a gap takes no part.
+        var hasContent = rule.style.display !== "none", hasIcon = !!(icon && icon.getAttribute("src"));
+        var G = I.gapRooms(), rooms = { a: G.a, e: G.e, f: G.f, h: G.h };   // the bot's order: shareCuts breaks ties by it
+        if (hasContent) { rooms.c = G.c; rooms.d = G.d; }
+        if (hasIcon) rooms.g = G.g;
+        var cut = I.shareCuts(grow, rooms), px = function (n) { return (cut[n] || 0) + "px"; };
+        box.style.setProperty("--pb-cut-a", px("a"));
+        box.style.setProperty("--pb-cut-h", px("h"));
+        if (hasContent) { rule.style.setProperty("--pb-cut-above", px("c")); rule.style.setProperty("--pb-cut-below", px("d")); }
+        foot.style.setProperty("--pb-cut-above", px("e"));
+        foot.style.setProperty("--pb-cut-below", px("f"));
+        if (hasIcon) foot.style.setProperty("--pb-cut-g", px("g"));
+      }
       function standIn(result) {
         var av = document.getElementById("receipt-avatar"), box = document.getElementById("receipt-container");
         if (!result || result.ok !== true || !av || !box) return Promise.resolve(result);
         av.src = STAND_IN; av.style.display = ""; box.classList.remove("no-avatar");
+        tightenGaps(av, box);
         var measured = function () {
           result.botHeight = result.height;
           result.height = Math.min(5000, Math.ceil(document.documentElement.getBoundingClientRect().height));
@@ -6353,8 +6412,8 @@
 <!--
   The receipt preview is drawn by SassyTP's printer-bot renderer (MIT): the receipt page the bot
   itself prints from, kept here as inert text and loaded into one sandboxed frame per part.
-  Source: https://github.com/SassyTP/printer-bot  path v/2.5.0/renderer.html  commit b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef
-  (renderer version 202610090056, upstream file sha256 51b1f93f901c6b0895b428b697bc02cf19280049c0346f4d5aac172cc0c6bdff)
+  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0-beta.6/renderer.html  commit b7f9991816a58b60bf3b9e29806ec29831b54a2c
+  (renderer version 202610110524, upstream file sha256 4379ce089d57b5fc49c9dc902edcd8b74e3050cb752708b0b39acf5ba1566037)
 
   MIT License
 
@@ -6383,7 +6442,7 @@
   logo; (2) the page's Content-Security-Policy is a no-network policy; (3) every closing script tag
   is written with a backslash before its slash, undone when the app reads the block.
 -->
-<script type="text/plain" id="sassytp-renderer" data-commit="b9f12b0cbaf680b01d4e72fb96b3d5e9aa0aa0ef" data-path="v/2.5.0/renderer.html" data-version="202610090056">
+<script type="text/plain" id="sassytp-renderer" data-commit="b7f9991816a58b60bf3b9e29806ec29831b54a2c" data-path="v/3.0.0-beta.6/renderer.html" data-version="202610110524">
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6393,7 +6452,7 @@
 <!-- RW-EDIT 2 (Receipt Wrecker): this policy replaces the page's own. Nothing loads from the network (no connections, images only from data: URLs) and no frame, form or object; inline scripts are allowed instead of the renderer script's hash, so the preview's glue script can run next to it. -->
 <!-- RW-EDIT 3 (Receipt Wrecker): every closing script tag in this copy is written with a backslash before its slash, so the page can sit inside Receipt Wrecker's own page as inert text. The app takes the backslash out again before it loads the page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
-<meta name="printer-bot-renderer" content="202610090056">
+<meta name="printer-bot-renderer" content="202610110524">
 <style>
 /*
  * Printer Bot receipt
@@ -6415,8 +6474,9 @@ html, body {
 #receipt-container {
 	box-sizing: border-box;
 	/* No blank paper above the avatar. It used to be 16px (33.9 dots, 4.2 mm). Everything else keeps its place relative to the picture.
-	   A receipt without a picture keeps the old margin, see .no-avatar below. */
-	padding: 0 14px 14px;
+	   A receipt without a picture keeps the old margin, see .no-avatar below.
+	   --pb-cut-h is the part of the bottom padding that a receipt with a picture gives back (see the larger picture below). */
+	padding: 0 14px calc(14px - var(--pb-cut-h, 0px));
 	font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
 	font-size: 16px;
 	font-weight: 400;
@@ -6490,17 +6550,31 @@ html, body {
 
 /* ---- header: avatar, title, name --------------------------------------- */
 
+/* The picture is 13.875em = 222 px = 470 dots = 58.8 mm across on 80 mm paper. It was 11.5em = 184 px = 390 dots = 48.7 mm. A receipt with a picture is
+   not allowed to grow for that: renderer.js hands the 38 px back out of the gaps around the header and the footer, and sets the variables that start with
+   --pb-cut- (a number of px per gap) on the receipt. A variable that is not set cuts nothing, so a receipt without a picture lays out as it always did.
+   The size has a variable of its own, --pb-avatar, which theme.css can set (on :root, #receipt-container or #receipt-avatar). */
 #receipt-avatar {
 	display: block;
 	box-sizing: border-box;
-	/* 11.5 em = 184 px = 390 dots on 80 mm paper. On narrower paper (58 mm) the picture shrinks to fit between the margins, so it never runs off the edge. */
-	width: min(11.5em, 100%);
+	width: min(var(--pb-avatar, 13.875em), 100%);
 	height: auto;
 	aspect-ratio: 1 / 1;
-	margin: 0 auto 14px;
+	margin: 0 auto calc(14px - var(--pb-cut-a, 0px));
 	border: 3px solid #000;
 	border-radius: 50%;
 	object-fit: cover;
+}
+
+/* 58 mm paper is 181 px wide with 14 px of margin on each side, and the printer head covers all 181 px (48 mm). The picture may use --pb-avatar-bleed
+   (10 px) of each margin, which leaves 4 px (1 mm) of white on each side, so the ring stays whole. It is 173 px = 367 dots = 45.9 mm there, and it was
+   153 px = 40.6 mm. */
+@media (max-width: 220px) {
+	#receipt-avatar {
+		width: calc(100% + 2 * var(--pb-avatar-bleed, 10px));
+		margin-left: calc(-1 * var(--pb-avatar-bleed, 10px));
+		margin-right: calc(-1 * var(--pb-avatar-bleed, 10px));
+	}
 }
 
 #receipt-title {
@@ -6532,8 +6606,10 @@ html, body {
 
 /* ---- dividers -------------------------------------------------------------- */
 
+/* --pb-cut-above and --pb-cut-below are set on the rule under the header and on the footer (the rule in the footer takes them from there). They are 0 unless the
+   receipt has a picture. */
 .rule {
-	margin: 16px 0;
+	margin: calc(16px - var(--pb-cut-above, 0px)) 0 calc(16px - var(--pb-cut-below, 0px));
 	border-top: 2px solid #000;
 }
 
@@ -6673,14 +6749,14 @@ img.bits {
 /* ---- footer: platform mark and date ----------------------------------------------- */
 
 #receipt-footer {
-	margin-top: 16px;
+	margin-top: calc(16px - var(--pb-cut-above, 0px));
 }
 
 #receipt-icon {
 	display: block;
 	height: 3em;
 	max-width: 70%;
-	margin: 14px auto 10px;
+	margin: calc(14px - var(--pb-cut-below, 0px)) auto calc(10px - var(--pb-cut-g, 0px));
 }
 
 #receipt-icon:not([src]),
@@ -6723,7 +6799,7 @@ img.bits {
 // Streamer.bot hands it a raw event (all trigger arguments + __source). It builds
 // the receipt on the page, then the routine screenshots and prints it.
 //
-//   PrinterBot.render(eventData, options)  -> { ok, height, avatars, trimmed, security } | { ok:false, reason }
+//   PrinterBot.render(eventData, options)  -> { ok, height, avatars, trimmed, security, photos } | { ok:false, reason }
 //                                  height  = the page height in CSS px. A receipt is cut at MAX_RECEIPT_HEIGHT (5000), except a gift list (Twitch gift
 //                                            bomb, Kick mass gift) or the item list of a Fourthwall order, which report their real height however many
 //                                            names or items they have
@@ -6731,6 +6807,8 @@ img.bits {
 //                                            picture, key -> { none: true, ts } for a viewer the lookup service does not know (kept NOT_FOUND_TTL_MS)
 //                                  trimmed = { limitIn, fullIn, by } when a High Roller message was cut. by is 'bits' when the bits-per-inch
 //                                  limit cut it and 'cap' when the maximum length cut it.
+//                                  photos  = [[x, y, width, height], ...] in CSS px: where the pictures are on the page (the viewer's picture and the images
+//                                            in a message). The action dithers only these on a page of Letter size, and prints the text with no shading (3.0.0-beta.5)
 //                                  options: { highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks } from the dock's settings
 //                                    highRollerBits         cheers of at least this many bits may style their message with HTML (0 = never)
 //                                    highRollerBitsPerInch  a High Roller message prints at most (bits / this) inches long (0 = no limit of its own)
@@ -6742,6 +6820,11 @@ img.bits {
 //                                    hideLinks              boolean, default false. true = URL-looking text in normal (plain) messages
 //                                                           (http://, https://, www., domain.tld/path, bare domains on common endings)
 //                                                           prints as "[link]". Does not apply to High Roller messages (their links are always removed).
+//                                    allowHighRoller        boolean, default true (3.0.0-beta.5). false = this printer prints a High Roller cheer as an ordinary
+//                                                           cheer: its message is plain text, with no styling and no length limit of its own. The receipt is the same
+//                                                           event, so a Hype Train tally counts it once whichever printers allow High Roller.
+//                                    pxPerInch              number, default 96 (3.0.0-beta.5). How many CSS px are one inch of paper at this paper size: 96 on a roll,
+//                                                           about 53.3 on Letter paper. The inch limits of High Roller messages are inches of paper.
 //   PrinterBot.setTheme(css)       -> extra CSS from the streamer's theme.css
 //   PrinterBot.loadAvatarCache(o)  -> restore avatar lookups saved by the routine (both shapes above)
 //   PrinterBot.clearAvatarCache()  -> forget every viewer, failure and pinned picture (the dock's "Clear picture cache"); returns how many were known
@@ -6753,7 +6836,7 @@ img.bits {
 window.PrinterBot = (function () {
     'use strict';
 
-    const VERSION = '202610090056';
+    const VERSION = '202610110524';
     // RW-EDIT 1 (Receipt Wrecker): the Twitch, YouTube and Kick logos (trademarks of their owners, outside the MIT licence) are replaced by one plain grey box the size of the Twitch logo (336 x 112 px), so the footer keeps its size.
     const ICONS = {"twitch":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","youtube":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","kick":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII="};
 
@@ -6775,6 +6858,11 @@ window.PrinterBot = (function () {
                                                              // again for this long. Unlike a failure, this answer goes to the routine's avatar file, so it
                                                              // survives a page reload (the C# side keeps the same two hours)
     const AVATAR_IMAGE_WAIT_MS = 2500;                       // the avatar's own wait for its image to load (separate from the emotes')
+    const VARIANT_PX = 600;                                  // the size of the larger picture that is asked for first (see largerAvatarUrl). 600 px is the largest Twitch serves
+    const VARIANT_WAIT_MS = 1500;                            // how long the larger picture may take before the one the page was given is used. It comes out of AVATAR_IMAGE_WAIT_MS
+    const VARIANT_MIN_PX = 32;                               // a larger picture that comes and is smaller than this either way (a placeholder, which some servers send for a size they do not have) counts as missing
+    const VARIANT_LULL_AFTER = 3;                            // this many larger pictures in a row that did not come (from one host) stop the page from asking for them...
+    const VARIANT_LULL_MS = 60 * 60 * 1000;                  // ...for this long. One that comes lifts it at once
     const EMOTE_WAIT_MS = 2500;                              // emotes in High Roller messages, the platform logo and fonts
     const MAX_LOOKUP_BYTES = 512 * 1024;                     // a lookup answer is a short text or one small JSON object
     const MAX_PINNED_IMAGES = 200;                           // recently used avatar / emote images kept alive so repeat viewers don't re-download or re-decode
@@ -7127,16 +7215,29 @@ window.PrinterBot = (function () {
     // The receipt is laid out at 96 CSS px per inch of paper (80 mm paper = 272 px = 72 mm printed).
     const PX_PER_INCH = 96;
     const MAX_CAP_INCHES = 40;              // 40 in = 3840 px, which leaves room for the rest of the receipt under MAX_RECEIPT_HEIGHT
+    // CSS px per inch of paper for this print. The action sends it (96 on a roll, about 53.3 on Letter paper, where the receipt is laid out 400 px wide and printed 7.5 inches wide).
+    // Anything that is not a sensible number is 96.
+    function pxPerInch(opts) {
+        const v = opts ? opts.pxPerInch : NaN;
+        return Number.isFinite(v) && v >= 24 && v <= 400 ? v : PX_PER_INCH;          // Number.isFinite takes no text and no list: only a number counts
+    }
+    // The height of one page of this paper in CSS px, for a print that has pages (Letter, where the action sends it as pageHeightPx). Null for a roll, which has none, and for anything that
+    // is no number of at least 100.
+    function pageHeightPx(opts) {
+        const v = opts ? opts.pageHeightPx : NaN;
+        return Number.isFinite(v) && v >= 100 ? v : null;
+    }
     function highRollerMaxHeight(bits, opts) {
         const perInch = opts ? Number(opts.highRollerBitsPerInch) : 0;
+        const pxIn = pxPerInch(opts);
         let bitsPx = null;
         if (perInch > 0) {
-            const px = Math.floor(Number(bits) / perInch * PX_PER_INCH);
+            const px = Math.floor(Number(bits) / perInch * pxIn);
             if (Number.isFinite(px)) bitsPx = Math.max(1, px);
         }
         const capIn = opts ? Number(opts.highRollerMaxInches) : 0;
         let capPx = null;
-        if (capIn > 0 && Number.isFinite(capIn)) capPx = Math.max(1, Math.floor(Math.min(capIn, MAX_CAP_INCHES) * PX_PER_INCH));    // NaN, negatives, 0 and infinity give no cap
+        if (capIn > 0 && Number.isFinite(capIn)) capPx = Math.max(1, Math.floor(Math.min(capIn, MAX_CAP_INCHES) * pxIn));    // NaN, negatives, 0 and infinity give no cap
         if (capPx === null) return bitsPx === null ? null : { px: bitsPx, by: 'bits', ignoreCeiling: false };
         if (bitsPx !== null && bitsPx < capPx) return { px: bitsPx, by: 'bits', ignoreCeiling: true };
         return { px: capPx, by: 'cap', ignoreCeiling: true };
@@ -7182,6 +7283,67 @@ window.PrinterBot = (function () {
         badImages.delete(url);
         badImages.set(url, Date.now() + NEGATIVE_TTL_MS);
         capMap(badImages, MAX_BAD_IMAGES);
+    }
+
+    // ---- larger pictures --------------------------------------------------------------------------------------------------------------------------
+    // The circle is about 470 dots across on 80 mm paper, and the pictures the platforms hand over are small: Twitch 300 px, Kick 300 px, YouTube 88 px. The same
+    // servers have the same picture in larger sizes at an address that differs in one number, so the page asks for the larger one first. Only an address that is
+    // on the allow-list already can come out of it (the host never changes, and the result goes through the same check), and the page does not trust that the larger
+    // picture exists: when it does not come (an error, or no answer within VARIANT_WAIT_MS) the address it was given is used, as it always was, and the larger one is
+    // remembered as bad for 10 minutes like any picture that fails. Three misses in a row from one host stop the asking for an hour (VARIANT_LULL_MS), so a server that
+    // has no larger pictures at all costs a few requests and then nothing. Returns '' when the address names no size the page knows how to change.
+    //   Twitch  .../jtv_user_pictures/<id>-profile_image-300x300.png   the number appears twice. The generic default pictures (user-default-pictures-uv) are left alone
+    //   Google  .../<id>=s88-c-k-c0x00ffffff-no-rj   (yt3.ggpht.com and lh3.googleusercontent.com, the pictures of YouTube) the number after =s
+    //   Kick    .../<id>-thumb.webp or -medium.webp   the same file name ends in -fullsize.webp
+    function largerAvatarUrl(url) {
+        let u;
+        try { u = new URL(url); } catch { return ''; }
+        if (u.search || u.hash) return '';
+        const host = u.hostname.toLowerCase();
+        let path = u.pathname, m;
+        if (host === 'static-cdn.jtvnw.net') {
+            if (!path.startsWith('/jtv_user_pictures/')) return '';                             // an uploaded picture. The generic default pictures may have no larger copy
+            m = /^(.+-profile_image-)(\d{2,4})x(\d{2,4})(\.(?:png|jpe?g))$/i.exec(path);
+            if (!m || m[2] !== m[3] || Number(m[2]) >= VARIANT_PX) return '';
+            path = m[1] + VARIANT_PX + 'x' + VARIANT_PX + m[4];
+        } else if (/\.(?:ggpht\.com|googleusercontent\.com)$/.test(host)) {
+            m = /^(.+=s)(\d{2,4})((?:-[A-Za-z0-9-]*)?)$/.exec(path);
+            if (!m || Number(m[2]) >= VARIANT_PX) return '';
+            path = m[1] + VARIANT_PX + m[3];
+        } else if (host === 'files.kick.com') {
+            m = /^(.+)-(?:thumb|medium)(\.webp)$/i.exec(path);
+            if (!m) return '';
+            path = m[1] + '-fullsize' + m[2];
+        } else return '';
+        const out = vetUrl(u.protocol + '//' + u.host + path, AVATAR_HOSTS).url;       // the same checks as any avatar address
+        return out && out !== url ? out : '';
+    }
+
+    const variantMisses = new Map();     // host -> larger pictures from it that did not come, in a row
+    const variantLull = new Map();       // host -> the time until which none is asked for
+
+    function variantHost(url) { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } }
+
+    // The address to put on the page for this picture: the larger one when there is one that is worth asking for, else the address itself.
+    function pickAvatarImage(url) {
+        const big = largerAvatarUrl(url);
+        if (!big || isBadImage(big)) return url;
+        const until = variantLull.get(variantHost(big));
+        return until && until > Date.now() ? url : big;
+    }
+
+    function variantCame(url) {
+        const host = variantHost(url);
+        variantMisses.delete(host); variantLull.delete(host);
+    }
+
+    function variantMissed(url) {
+        const host = variantHost(url), n = (variantMisses.get(host) || 0) + 1;
+        markBad(url);
+        const img = pinnedImages.get(url);                                                // a larger picture that is still on its way stops, so it does not compete with the one that is used
+        if (img) { pinnedImages.delete(url); img.removeAttribute('src'); }
+        if (n >= VARIANT_LULL_AFTER) { variantMisses.delete(host); variantLull.set(host, Date.now() + VARIANT_LULL_MS); capMap(variantLull, 50); }
+        else { variantMisses.set(host, n); capMap(variantMisses, 50); }
     }
 
     // Keeps the most recently used avatar and emote images alive (an Image object holds the downloaded and decoded picture), so a returning viewer's
@@ -7274,7 +7436,7 @@ window.PrinterBot = (function () {
     // Returns how many viewers were known (pictures and "not found" answers together).
     function clearAvatarCache() {
         const n = avatarCache.size + avatarNegative.size;
-        avatarCache.clear(); avatarNegative.clear(); badImages.clear();
+        avatarCache.clear(); avatarNegative.clear(); badImages.clear(); variantMisses.clear(); variantLull.clear();
         for (const k of Object.keys(avatarFresh)) delete avatarFresh[k];
         for (const img of pinnedImages.values()) img.removeAttribute('src');
         pinnedImages.clear();
@@ -7429,6 +7591,7 @@ window.PrinterBot = (function () {
 
     const HYPE_MAX_USERS = 2000;                       // cheerers in the tally of one train. Past this the smallest one is folded into "other"
     const HYPE_STALE_MS = 30 * 60 * 1000;              // a train that has been silent this long is over, whether or not its End event came
+    const HYPE_RESUME_MS = 2 * 60 * 60 * 1000;         // a train whose end receipt the clock printed is taken up again when it speaks within this long
     const HYPE_MAX_NUMBER = 1e12;
     const HYPE_TYPE_NAMES = { regular: 'Normal', treasure: 'Treasure', golden_kappa: 'Golden Kappa' };
     const ANONYMOUS_LOGIN = /^(ananonymouscheerer|anonymous)$/;
@@ -7575,7 +7738,7 @@ window.PrinterBot = (function () {
     // that has been announced, with the name and bits as announced. subConductor: the same for the top sub gifter, with the points. stage: how far
     // a test train has got (see HYPE_STEPS). ended: its End receipt has printed, so a second End event for the same train prints nothing.
     function newHype() {
-        return { id: '', active: false, ended: false, seen: 0, startedAt: 0, level: 0, otherBits: 0, users: new Map(),
+        return { id: '', active: false, ended: false, endedBy: '', seen: 0, startedAt: 0, level: 0, otherBits: 0, users: new Map(),
                  conductor: '', conductorName: '', conductorBits: 0, subConductor: '', subConductorName: '', subConductorPoints: 0, stage: 0, sampleType: 'regular' };
     }
     const hypeLive = newHype(), hypeTest = newHype();
@@ -7601,7 +7764,7 @@ window.PrinterBot = (function () {
     }
 
     function hypeReset(h, id, startedAt, level) {
-        h.id = id; h.active = true; h.ended = false; h.seen = Date.now(); h.startedAt = startedAt; h.level = level;
+        h.id = id; h.active = true; h.ended = false; h.endedBy = ''; h.seen = Date.now(); h.startedAt = startedAt; h.level = level;
         h.otherBits = 0; h.users.clear(); h.conductor = ''; h.conductorName = ''; h.conductorBits = 0;
         h.subConductor = ''; h.subConductorName = ''; h.subConductorPoints = 0;
     }
@@ -7663,6 +7826,13 @@ window.PrinterBot = (function () {
     // the last one has been silent for too long, or when its id is another train's (the Start event was missed, or a train ended unseen).
     function hypeEnter(d, kind) {
         const id = String(d.id ?? '').slice(0, 100), level = Math.floor(hypeNum(d.level)), now = Date.now();
+        // A train whose end receipt the clock printed (the End event did not come, see the C# side) and that speaks again was still going: its tally is taken up again.
+        if (kind !== 'start' && hype.ended && hype.endedBy === 'clock' && id !== '' && id === hype.id && now - hype.seen <= HYPE_RESUME_MS) {
+            hype.active = true; hype.ended = false; hype.endedBy = '';
+            if (level > hype.level) hype.level = level;
+            hype.seen = now;
+            return;
+        }
         const fresh = kind === 'start' || !hype.active || now - hype.seen > HYPE_STALE_MS || (id !== '' && hype.id !== '' && id !== hype.id);
         if (fresh) hypeReset(hype, id, hypeTime(d.startedAt) || now, level);
         else if (level > hype.level) hype.level = level;
@@ -7710,7 +7880,7 @@ window.PrinterBot = (function () {
     const hypeTypeName = (d) => HYPE_TYPE_NAMES[hypeKind(d)];
 
     // what a test can look at of a train's state
-    const hypeSummary = (h) => ({ id: h.id, active: h.active, ended: h.ended, level: h.level, conductor: h.conductor, conductorBits: h.conductorBits,
+    const hypeSummary = (h) => ({ id: h.id, active: h.active, ended: h.ended, endedBy: h.endedBy, level: h.level, conductor: h.conductor, conductorBits: h.conductorBits,
                                   subConductor: h.subConductor, subConductorPoints: h.subConductorPoints, cheerers: h.users.size, total: hypeTotal(h), stage: h.stage });
 
     const hypeRow = (label, value) => `<div class="hype-row"><span>${label}</span><b>${value}</b></div>`;
@@ -7828,13 +7998,14 @@ window.PrinterBot = (function () {
         async TwitchCheer(d, opts) {
             // High Roller: at or above the dock's threshold the message is used as-is (styling, rotated text,
             // cheermotes). Below it, the message is cleaned like any other viewer text.
+            // A High Roller cheer carries its message twice: as styled content, and as the plain message that a printer gets when it does not allow High Roller prints (options.allowHighRoller
+            // false, see viewOf). The length limit is worked out when the receipt is shown, because it is a length of paper and the paper differs from printer to printer.
             const raw = !!d.message && isHighRoller(d.bits, opts);
             const content = !d.message ? null : raw ? { kind: 'raw', rich: d.message } : message(d.message);
-            const limit = raw ? highRollerMaxHeight(d.bits, opts) : null;       // only High Roller messages are length-limited, by bits per inch and by the maximum length
             return {
                 avatar: await getAvatar(d.userName, 'twitch'),
                 title: `${displayName(d.bits, 12)} BITS`, subtitle: displayName(d.user), content, icon: 'twitch',
-                contentMaxHeight: limit ? limit.px : null, contentLimitBy: limit ? limit.by : null, contentIgnoreCeiling: limit ? limit.ignoreCeiling : false,
+                highRoller: raw ? { bits: d.bits } : null, contentPlain: raw ? message(d.message) : null,
             };
         },
         async TwitchRewardRedemption(d) {
@@ -7953,8 +8124,10 @@ window.PrinterBot = (function () {
             const content = [hypeConductorBlock('Bits Conductor', conductor && conductor.name, conductor && `${fmtNum(conductor.bits)} bits`, 'Nobody'),
                              hypeConductorBlock('Gift Sub Conductor', subsNow && subsNow.name, subsNow && hypeSubText(subsNow.points), 'Nobody')];
             if (followers.length) content.push(hypeRows('<div class="hype-head">Also aboard (bits)</div>' + followers.map((f, i) => hypeRow(`${i + 2}. ${esc(f.name)}`, esc(fmtNum(f.bits)))).join('')));
-            content.push(hypeRows(hypeRow('Total bits', esc(fmtNum(hypeTotal(hype)))) + hypeRow('Final level', esc(fmtNum(level)))));
-            hype.active = false; hype.ended = true;
+            // The clock printed this receipt: Twitch's End event did not come, and the figures are the last ones Printer Bot saw (core: PbService.HypeExpired)
+            const byClock = d.pbSynthetic === true;
+            content.push(hypeRows(hypeRow('Total bits', esc(fmtNum(hypeTotal(hype)))) + hypeRow('Final level', esc(fmtNum(level))) + (byClock ? hypeRow('Ended', 'time ran out') : '')));
+            hype.active = false; hype.ended = true; hype.endedBy = byClock ? 'clock' : '';
             return { bannerHtml: ART.caboose(hypeKind(d)), bannerAt: 'top', title: 'Hype Train', subtitle: 'Ended', content, icon: 'twitch' };
         },
         async TwitchCustomPowerUpRedemption(d) {
@@ -8165,6 +8338,79 @@ window.PrinterBot = (function () {
 
     const $ = (id) => document.getElementById(id);
 
+    // ---- the larger picture ---------------------------------------------------------------------------------------------------------------------
+    // The picture is larger than it was (receipt.css, #receipt-avatar), and a receipt with a picture must not get taller for that. The height comes out of
+    // the gaps around the header and the footer. Each gap can give back at most the number of px in GAP_ROOM (the letters are the variables of receipt.css:
+    // a under the picture, c above and d below the rule under the header, e above and f below the rule in the footer, g under the logo, h under the date).
+    // A receipt gives back exactly what its picture gained, shared out among the gaps it has in proportion to their rooms and in whole px. All the lengths are
+    // whole px, so the page height comes out the same as before to the last row. A gap that a receipt does not have (no content: no rule under the header,
+    // no logo: no space around it) takes no part and the others give a little more.
+    const OLD_AVATAR_PX = 184;                                   // 11.5em, the size before the picture was enlarged. The page height is held to what it was with this
+    const GAP_ROOM = { a: 10, c: 10, d: 10, e: 10, f: 10, g: 4, h: 12 };
+
+    // How many px each of the named gaps gives back so that `total` px are found in all. rooms: name -> most px it can give. Pure: the result holds whole numbers,
+    // their sum is `total` (or the sum of all the rooms when that is less), and none is above its room. The leftover px of the rounding go to the largest remainders.
+    function shareCuts(total, rooms) {
+        const names = Object.keys(rooms);
+        const room = names.reduce((sum, n) => sum + rooms[n], 0);
+        const goal = Math.min(Math.max(0, Math.round(Number(total) || 0)), room);
+        const cuts = {};
+        if (room === 0) return cuts;
+        let given = 0;
+        const rest = [];
+        for (const n of names) {                                   // the exact share is goal * room / all the rooms: whole px and a remainder, both integers, so ties are exact
+            const share = goal * rooms[n];
+            cuts[n] = Math.floor(share / room);
+            given += cuts[n];
+            rest.push({ n, frac: share % room });
+        }
+        rest.sort((x, y) => y.frac - x.frac || names.indexOf(x.n) - names.indexOf(y.n));
+        for (let i = 0; given < goal; i++, given++) cuts[rest[i].n]++;
+        return cuts;
+    }
+
+    const CUT_PROPS = ['--pb-cut-a', '--pb-cut-h'];                              // set on the receipt itself
+    const CUT_RULE_PROPS = ['--pb-cut-above', '--pb-cut-below', '--pb-cut-g'];     // set on the rule under the header and on the footer (the logo is in the footer)
+
+    function clearGaps() {
+        for (const p of CUT_PROPS) $('receipt-container').style.removeProperty(p);
+        for (const id of ['receipt-rule-top', 'receipt-footer']) for (const p of CUT_RULE_PROPS) $(id).style.removeProperty(p);
+    }
+
+    // Called with the picture in place. hasContent: the rule and the content area under the header are on the page. hasIcon: the platform logo is.
+    // The size of the picture is read from the page (a theme may change it), and the old size is the one this page always had at this paper width.
+    function tightenGaps(hasContent, hasIcon) {
+        clearGaps();
+        const container = $('receipt-container'), avatar = $('receipt-avatar');
+        const cs = getComputedStyle(container);
+        const inner = container.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+        const grow = avatar.offsetWidth - Math.min(OLD_AVATAR_PX, inner);
+        if (!(grow > 0)) return 0;
+        const rooms = { a: GAP_ROOM.a, e: GAP_ROOM.e, f: GAP_ROOM.f, h: GAP_ROOM.h };      // the gaps every receipt has
+        if (hasContent) { rooms.c = GAP_ROOM.c; rooms.d = GAP_ROOM.d; }
+        if (hasIcon) rooms.g = GAP_ROOM.g;
+        const cut = shareCuts(grow, rooms), px = (n) => (cut[n] || 0) + 'px';
+        container.style.setProperty('--pb-cut-a', px('a'));
+        container.style.setProperty('--pb-cut-h', px('h'));
+        if (hasContent) { $('receipt-rule-top').style.setProperty('--pb-cut-above', px('c')); $('receipt-rule-top').style.setProperty('--pb-cut-below', px('d')); }
+        $('receipt-footer').style.setProperty('--pb-cut-above', px('e'));
+        $('receipt-footer').style.setProperty('--pb-cut-below', px('f'));
+        if (hasIcon) $('receipt-footer').style.setProperty('--pb-cut-g', px('g'));
+        return grow;
+    }
+
+    // What this printer's receipt shows of the message: { content, maxPx, by, ignoreCeiling }. A High Roller cheer shows its styled message, limited in length by the dock's settings
+    // (in px of this paper, see pxPerInch). A printer that does not allow High Roller (opts.allowHighRoller === false) shows the plain message that the handler kept, with no limit of
+    // its own, exactly as a cheer below the threshold. Any other receipt shows its content as the handler made it.
+    function viewOf(model, opts) {
+        if (model.highRoller) {
+            if (opts && opts.allowHighRoller === false) return { content: model.contentPlain, maxPx: null, by: null, ignoreCeiling: false };
+            const limit = highRollerMaxHeight(model.highRoller.bits, opts);
+            return { content: model.content, maxPx: limit ? limit.px : null, by: limit ? limit.by : null, ignoreCeiling: limit ? limit.ignoreCeiling : false, styled: true };
+        }
+        return { content: model.content, maxPx: model.contentMaxHeight != null ? model.contentMaxHeight : null, by: model.contentLimitBy, ignoreCeiling: !!model.contentIgnoreCeiling };
+    }
+
     // Builds the receipt from the model. Returns the avatar URL that is on the page ('' = none).
     function show(model, opts) {
         const avatar = $('receipt-avatar'), title = $('receipt-title'), subtitle = $('receipt-subtitle');
@@ -8186,7 +8432,7 @@ window.PrinterBot = (function () {
 
         let avatarUrl = safeAvatarUrl(model.avatar);                         // (a refused URL is noted in the log, with its host)
         if (avatarUrl && isBadImage(avatarUrl)) avatarUrl = '';              // this picture failed (or didn't load in time) a moment ago: don't wait for it again
-        if (avatarUrl) { pinImage(avatarUrl); avatar.src = avatarUrl; if (model.avatarSquare) avatar.style.borderRadius = '0px'; }
+        if (avatarUrl) { const shown = pickAvatarImage(avatarUrl); pinImage(shown); avatar.src = shown; if (model.avatarSquare) avatar.style.borderRadius = '0px'; }       // (the larger picture, see largerAvatarUrl)
         else { avatar.style.display = 'none'; $('receipt-container').classList.add('no-avatar'); }
 
         if (model.titleBig) title.classList.add('big');
@@ -8195,7 +8441,8 @@ window.PrinterBot = (function () {
 
         // content: one part or a list of parts ({ kind: text | lead | message | raw, left } plus html | text | rich).
         // Nothing = no content area
-        const parts = [].concat(model.content || []).filter(Boolean)
+        const view = viewOf(model, opts);
+        const parts = [].concat(view.content || []).filter(Boolean)
             .map(p => typeof p === 'string' ? { html: p } : p)
             .map(p => p.kind === 'message' && p.value != null ? { kind: 'message', text: plainText(p.value, opts) } : p)
             .filter(p => p.html || p.text || p.rich);
@@ -8205,14 +8452,18 @@ window.PrinterBot = (function () {
         // returns their real page height. Our own code builds them from cleaned names and product labels, and an order lists at most MAX_VARIANTS items.
         // Only a handler can set roomy, so event data cannot ask for it.
         if (parts.some(p => p.roomy === true)) content.classList.add('roomy');
-        if (model.contentMaxHeight != null) {
+        // The built-in ceiling (1600 px in receipt.css, 16.7 inches of a roll) is a length of paper, so it follows the paper: on Letter paper, where an inch is fewer CSS px, it is
+        // 16.7 inches of the page as well. The CSS cannot know the paper, so the box is given the scaled ceiling here.
+        const ceiling = getComputedStyle(content).maxHeight;
+        const ceilingScale = pxPerInch(opts) / PX_PER_INCH;
+        const ceilingScaled = /px$/.test(ceiling) ? parseFloat(ceiling) * ceilingScale : Infinity;
+        if (view.maxPx != null) {
             // The bits-per-inch limit can only tighten the box: the built-in ceiling (or a larger/smaller one set in theme.css) still applies.
             // The dock's maximum length is the final word, so when it is set (contentIgnoreCeiling) it replaces that ceiling.
             // Applied as !important so a theme's own "max-height: ... !important" can't quietly switch the limit off.
-            const ceiling = getComputedStyle(content).maxHeight;
-            const ceilingPx = (!model.contentIgnoreCeiling && /px$/.test(ceiling)) ? parseFloat(ceiling) : Infinity;
-            content.style.setProperty('max-height', Math.min(model.contentMaxHeight, ceilingPx) + 'px', 'important');
+            content.style.setProperty('max-height', Math.min(view.maxPx, view.ignoreCeiling ? Infinity : ceilingScaled) + 'px', 'important');
         }
+        else if (ceilingScale !== 1 && Number.isFinite(ceilingScaled)) content.style.setProperty('max-height', ceilingScaled + 'px', 'important');
         for (const p of parts) {
             const div = document.createElement('div');
             div.className = 'part ' + (p.kind || 'text') + (p.left ? ' left' : '');
@@ -8222,14 +8473,30 @@ window.PrinterBot = (function () {
             content.appendChild(div);
         }
 
-        if (model.icon && ICONS[model.icon]) icon.src = ICONS[model.icon]; else icon.removeAttribute('src');
+        const hasIcon = !!(model.icon && ICONS[model.icon]);
+        if (hasIcon) icon.src = ICONS[model.icon]; else icon.removeAttribute('src');
         $('receipt-date').textContent = formatDate(new Date());
+        if (avatarUrl) tightenGaps(parts.length > 0, hasIcon); else clearGaps();       // the larger picture takes its height out of the gaps (see above)
         return avatarUrl;
     }
 
     // true when the image has loaded and decoded, false when it failed or `ms` ran out first
     function waitImage(img, ms) {
         return withTimeout(img.decode().then(() => true, () => false), ms).then(ok => ok === true);
+    }
+
+    // Waits for the avatar's picture. When the larger picture is on the page (largerAvatarUrl) it gets VARIANT_WAIT_MS, and if it does not come (or comes as a placeholder of a few pixels)
+    // the picture the page was given takes its place and gets what is left of AVATAR_IMAGE_WAIT_MS (at least half a second). The receipt waits about as long as it ever did: a larger
+    // picture that is missing costs one failed request, and one that hangs costs VARIANT_WAIT_MS inside the old limit.
+    async function waitAvatar(url) {
+        const avatar = $('receipt-avatar'), shown = avatar.getAttribute('src');
+        if (!shown || shown === url) return waitImage(avatar, AVATAR_IMAGE_WAIT_MS);
+        const started = Date.now();
+        if (await waitImage(avatar, VARIANT_WAIT_MS) && avatar.naturalWidth >= VARIANT_MIN_PX && avatar.naturalHeight >= VARIANT_MIN_PX) { variantCame(shown); return true; }
+        variantMissed(shown);
+        pinImage(url);
+        avatar.src = url;
+        return waitImage(avatar, Math.max(500, AVATAR_IMAGE_WAIT_MS - (Date.now() - started)));
     }
 
     // Waits for what the screenshot needs. The avatar gets its own budget, and the other images (emotes in a High Roller message, the
@@ -8240,12 +8507,13 @@ window.PrinterBot = (function () {
         const avatar = $('receipt-avatar');
         const jobs = [];
         if (avatarUrl) {
-            jobs.push(waitImage(avatar, AVATAR_IMAGE_WAIT_MS).then((ok) => {
+            jobs.push(waitAvatar(avatarUrl).then((ok) => {
                 if (ok) return;
                 markBad(avatarUrl);
                 avatar.removeAttribute('src');
                 avatar.style.display = 'none';
                 $('receipt-container').classList.add('no-avatar');
+                clearGaps();                                                     // with no picture the gaps are what they always were
             }));
         }
         for (const img of document.images) {
@@ -8290,8 +8558,23 @@ window.PrinterBot = (function () {
         securityNotes.clear();
         const opts = options || {};
         const model = await handler(data, opts);
+        lastModel = model || null;                                            // again() shows it once more
         if (!model) return { ok: false, reason: 'skipped' };
+        return present(model, opts);
+    }
 
+    // The receipt that render() built last. The action asks for it once more when the event goes to a printer with another paper width: the
+    // handler has done its work for the event (a cheer is counted, a Hype Train moved on), and only the layout has to run again.
+    let lastModel = null;
+
+    async function again(options) {
+        if (!lastModel) return { ok: false, reason: 'no receipt to show again' };
+        securityNotes.clear();
+        return present(lastModel, options || {});
+    }
+
+    // Builds the page from a model and reports how tall it is (the picture is taken by the action). The handler has run already, once per event.
+    async function present(model, opts) {
         const avatarUrl = show(model, opts);
         await settle(avatarUrl);
         enforceImageLimit();
@@ -8301,7 +8584,29 @@ window.PrinterBot = (function () {
         // "Longer" means the height the message takes up in the flow of the page, measured with the limit lifted. Rotated,
         // nudged or absolutely positioned bits that stick out of the box (but would fit once it's drawn) don't count as cut.
         let trimmed = null;
-        if (model.contentMaxHeight != null) {
+        const view = viewOf(model, opts);
+        let limitBy = view.by;
+        // A High Roller message on a page of Letter paper stays on that page. Where a roll prints a message as long as its limits allow, a sheet has an end: when the receipt reaches past the
+        // page, the excess is taken off the message box (which keeps at least an inch), and a longer message fades out there like at any other limit. This is measured now, after the pictures
+        // have loaded, so the picture and the lines around the message count at the size they have. A receipt of a viewer's own words and a list are no High Roller message and go on to the
+        // next page as before.
+        const pagePx = view.styled ? pageHeightPx(opts) : null;
+        let limited = view.maxPx != null;
+        if (pagePx !== null) {
+            const box = $('receipt-content');
+            const over = Math.ceil(document.documentElement.getBoundingClientRect().height) - pagePx;
+            if (over > 0) {
+                const cs = getComputedStyle(box);
+                // max-height does not count the padding and the border of a box that is not border-box (receipt.css has none, a theme can add them)
+                const frame = cs.boxSizing === 'border-box' ? 0 : ['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth'].reduce((sum, k) => sum + (parseFloat(cs[k]) || 0), 0);
+                const want = Math.max(Math.floor(box.getBoundingClientRect().height - frame - over), Math.floor(pxPerInch(opts)));
+                if (!(want >= parseFloat(cs.maxHeight))) {                      // a limit is only ever tightened (NaN: the box has none)
+                    box.style.setProperty('max-height', want + 'px', 'important');
+                    limited = true; limitBy = 'page';
+                }
+            }
+        }
+        if (limited) {
             const box = $('receipt-content');
             const shown = box.getBoundingClientRect().height;
             const limit = box.style.getPropertyValue('max-height');
@@ -8316,8 +8621,8 @@ window.PrinterBot = (function () {
             }
             if (full > shown + 1) {
                 box.classList.add('cut');
-                const inches = (px) => Math.round(px / PX_PER_INCH * 100) / 100;
-                trimmed = { limitIn: inches(shown), fullIn: inches(full), by: model.contentLimitBy === 'cap' ? 'cap' : 'bits' };
+                const inches = (px) => Math.round(px / pxPerInch(opts) * 100) / 100;
+                trimmed = { limitIn: inches(shown), fullIn: inches(full), by: limitBy === 'cap' || limitBy === 'page' ? limitBy : 'bits' };
             }
         }
 
@@ -8331,7 +8636,29 @@ window.PrinterBot = (function () {
             ok: true, avatars: fresh, trimmed,
             height: longList ? pageHeight : Math.min(MAX_RECEIPT_HEIGHT, pageHeight),
             security: Array.from(securityNotes).slice(0, 10),      // what was removed from this receipt (the log reports it)
+            photos: photoRects(),
         };
+    }
+
+    // Where the pictures are on the page, in CSS px: [[x, y, width, height], ...]. The viewer's picture and the images of a message count (a cheermote, an emote). The platform logo and
+    // the drawings of a Hype Train are no pictures: they have flat black and white and print crisp. A message with more than PHOTO_RECT_MAX images is given as one box, the whole message.
+    // Never throws: a receipt is not lost for lack of this list.
+    const PHOTO_RECT_MAX = 24;
+    function photoRects() {
+        const out = [];
+        try {
+            const add = (el) => {
+                const r = el.getBoundingClientRect();
+                const x = Math.floor(r.left + window.scrollX), y = Math.floor(r.top + window.scrollY), x2 = Math.ceil(r.right + window.scrollX), y2 = Math.ceil(r.bottom + window.scrollY);
+                if (Number.isFinite(x + y + x2 + y2) && x2 > x && y2 > y) out.push([x, y, x2 - x, y2 - y]);
+            };
+            const avatar = $('receipt-avatar');
+            if (avatar.getAttribute('src') && avatar.style.display !== 'none' && getComputedStyle(avatar).display !== 'none') add(avatar);
+            const images = Array.from($('receipt-content').querySelectorAll('img')).filter(img => img.getAttribute('src') && getComputedStyle(img).display !== 'none');
+            if (images.length > PHOTO_RECT_MAX) add($('receipt-content'));
+            else images.forEach(add);
+        } catch (e) { /* no list: the action then treats the whole picture as one */ }
+        return out;
     }
 
     function setTheme(css) { $('theme').textContent = css || ''; }
@@ -8344,6 +8671,8 @@ window.PrinterBot = (function () {
         avatarHosts: () => AVATAR_HOSTS.slice(),
         emoteHosts: () => TRUSTED_IMAGE_HOSTS.slice(),
         displayName, replaceLinks, formatDate,
+        shareCuts, gapRooms: () => Object.assign({}, GAP_ROOM),
+        largerAvatarUrl, variants: () => ({ misses: Array.from(variantMisses.entries()), lull: Array.from(variantLull.entries()) }),
         allowedCss: () => Array.from(ALLOWED_CSS),
         cached: (key) => { const e = avatarCache.get(key); return e ? { url: e.url, ts: e.ts } : null; },
         pinned: () => Array.from(pinnedImages.keys()),
@@ -8351,12 +8680,15 @@ window.PrinterBot = (function () {
         hype: () => ({ live: hypeSummary(hypeLive), test: hypeSummary(hypeTest) }),
         hypeObserve: (d) => hypeObserveCheer(d),
         hypeForget: () => { for (const h of [hypeLive, hypeTest]) { hypeReset(h, '', 0, 0); h.active = false; h.stage = 0; } },
+        // what the C# side holds of each sample for a test print that follows the rules (Routing.SampleEvent): the events of SAMPLES, and the event kind and level of each Hype Train step
+        sampleEvents: () => JSON.parse(JSON.stringify(SAMPLES)),
+        hypeStepEvents: () => HYPE_STEPS.map(x => ({ name: x.name, source: HYPE_SOURCES[x.kind], level: x.level })),
         fmtNum, fmtElapsed,
         limits: () => ({ AVATAR_LOOKUP_BUDGET_MS, AVATAR_BACKGROUND_TIMEOUT_MS, AVATAR_TTL_MS, AVATAR_STALE_MS, NEGATIVE_TTL_MS, NOT_FOUND_TTL_MS, AVATAR_IMAGE_WAIT_MS, EMOTE_WAIT_MS,
-                         MAX_PINNED_IMAGES, MAX_NAME_CHARS, MAX_VARIANTS, MAX_VIEWER_IMAGE_PX, MAX_DATA_IMAGE_CHARS }),
+                         MAX_PINNED_IMAGES, MAX_NAME_CHARS, MAX_VARIANTS, MAX_VIEWER_IMAGE_PX, MAX_DATA_IMAGE_CHARS, VARIANT_PX, VARIANT_WAIT_MS, VARIANT_MIN_PX, VARIANT_LULL_AFTER, VARIANT_LULL_MS }),
     };
 
-    return { version: VERSION, render, setTheme, loadAvatarCache, clearAvatarCache, ready: true, violations: () => violationCount, violationLog: () => violationLog.slice(),
+    return { version: VERSION, render, again, setTheme, loadAvatarCache, clearAvatarCache, ready: true, violations: () => violationCount, violationLog: () => violationLog.slice(),
              eventTypes: Object.keys(HANDLERS), sampleNames: Object.keys(SAMPLES).concat(HYPE_STEPS.map(x => x.name)), internals };
 })();
 <\/script>

@@ -48,10 +48,15 @@ test("the Plain test with the switch off: every cheer prints plain, so it is one
 });
 
 test("previewEvent: with the switch off a part is drawn the way that printer prints it", () => {
-  // Printer Bot 2.5.4's page has no switch: threshold 0 draws the same plain receipt. 3.0 reads allowHighRoller.
+  // The preview's page is 3.0's (1.3.0), which reads the switch itself, so the call is the one a
+  // 3.0 printer with the switch off gets: the streamer's real threshold and allowHighRoller false.
+  // (1.2.0 drew it on 2.5.4's page, which has no switch, as threshold 0: the same plain receipt.)
   const off = C.previewEvent({ payload: "x", bits: 100, cheer: true, hrThreshold: 25, allowHighRoller: false }).options;
-  assert.equal(off.highRollerBits, 0);
+  assert.equal(off.highRollerBits, 25);
   assert.equal(off.allowHighRoller, false);
+  assert.equal(off.pxPerInch, 96);
   // A free test is drawn as the High Roller cheer whose markup it tests, switch or not.
-  assert.equal(C.previewEvent({ payload: "x", bits: 100, cheer: false, hrThreshold: 25, allowHighRoller: false }).options.highRollerBits, 1);
+  const free = C.previewEvent({ payload: "x", bits: 100, cheer: false, hrThreshold: 25, allowHighRoller: false }).options;
+  assert.equal(free.highRollerBits, 1);
+  assert.equal(free.allowHighRoller, true);
 });

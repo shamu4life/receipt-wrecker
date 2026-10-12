@@ -20,6 +20,8 @@
 //   "bits": 100               the cheer's bits, any whole number from 1 up
 //   "threshold": 25           the streamer's High Roller threshold (0 = never)
 //   "bpi": 0, "maxin": 0      the streamer's bits-per-inch limit and maximum length (inches)
+//   "hrprints": true          the printer's Allow High Roller prints (Printer Bot 3.0); false =
+//                             every cheer prints plain
 //   "cheer": true             false = the free chat-test message (LEAD_GUARD, no token)
 //   "nonce": false            the app's "Add a repeat number" toggle, off by default like the app's
 //   "part": 0                 which part (cheer) to emit, 0-based; the count goes to stderr
@@ -64,10 +66,11 @@ const threshold = C.hrThresholdOf(spec.threshold);
 const paperMm = C.paperSpec(spec.paper).mm;
 let bits = C.cheerBits(spec.bits);
 if (spec.kind === "plain" && spec.bits == null && threshold > 1) bits = threshold - 1;
-if (spec.kind === "hrprobe") bits = C.buildHighRollerProbe({ hrThreshold: threshold, bits }).bits;
-if (spec.kind === "plainprobe") bits = C.buildPlainProbe({ hrThreshold: threshold }).bits;
+const allowHighRoller = spec.hrprints !== false;
+if (spec.kind === "hrprobe") bits = C.buildHighRollerProbe({ hrThreshold: threshold, bits, allowHighRoller }).bits;
+if (spec.kind === "plainprobe") bits = C.buildPlainProbe({ hrThreshold: threshold, allowHighRoller }).bits;
 const settings = { cheer: spec.cheer !== false, bits, noNonce: spec.nonce !== true, hrThreshold: threshold,
-                   bitsPerInch: spec.bpi, maxInches: spec.maxin, paperMm };
+                   bitsPerInch: spec.bpi, maxInches: spec.maxin, paperMm, allowHighRoller };
 const k = C.stackContext(settings);
 const bopts = { budget: k.budget, heightPx: k.room, contentW: k.contentW, paperMm };
 
@@ -168,12 +171,12 @@ switch (spec.kind) {
     break;
   }
   case "hrprobe": {
-    const p = C.buildHighRollerProbe({ hrThreshold: threshold, bits, paperMm, bitsPerInch: spec.bpi, maxInches: spec.maxin });
+    const p = C.buildHighRollerProbe({ hrThreshold: threshold, bits, paperMm, bitsPerInch: spec.bpi, maxInches: spec.maxin, allowHighRoller });
     bodies = p.bodies; note = p.note;
     break;
   }
   case "plainprobe": {
-    const p = C.buildPlainProbe({ hrThreshold: threshold, paperMm, noNonce: k.noNonce });
+    const p = C.buildPlainProbe({ hrThreshold: threshold, paperMm, noNonce: k.noNonce, allowHighRoller });
     bodies = p.bodies; note = p.note;
     break;
   }
@@ -201,7 +204,8 @@ if (bodies) {
 }
 say("forkbench flags: --paper " + paperMm + " --bits " + bits + " --threshold " + threshold
   + (C.bitsPerInchOf(spec.bpi) ? " --bits-per-inch " + C.bitsPerInchOf(spec.bpi) : "")
-  + (C.maxInchesOf(spec.maxin) ? " --max-inches " + C.maxInchesOf(spec.maxin) : ""));
+  + (C.maxInchesOf(spec.maxin) ? " --max-inches " + C.maxInchesOf(spec.maxin) : "")
+  + (allowHighRoller ? "" : " --no-high-roller-prints"));
 process.stdout.write(html);
 if (process.stdout.isTTY) process.stdout.write("\n");
 say(Array.from(html).length + " chars of " + C.MAX_CHARS + (Array.from(html).length > C.MAX_CHARS ? "  — OVER, Twitch would reject this" : ""));

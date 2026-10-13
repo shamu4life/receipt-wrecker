@@ -902,6 +902,39 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     assert.deepEqual(errors, []);
     await ctx.close();
   }
+  // 1.4.0: every face, on both papers, one page a face (so no part mixes faces): Big text in
+  // capitals and in mixed case, Sideways text both ways. The bot's sanitizer must keep every
+  // declaration, the family's name included. Where this browser draws the face (on a Mac, all ten;
+  // on CI's Linux, Arial Bold, Times New Roman and Courier New through their metric twins), each
+  // part must also be as tall as predicted and cut only where warned; elsewhere the browser draws
+  // another face, so only the markup is held. tools/facecheck.mjs checks the ink's edges too.
+  let faceFull = 0, faceMarkup = 0;
+  for (const paperMm of [80, 58]) for (const face of C.FACE_IDS) {
+    const s = { ...SETTINGS, paperMm };
+    const blocks = [BIG({ id: 1, face, text: "HELLO", bigLayout: "lines" }), BIG({ id: 2, face, text: "jiff fluff", bigLayout: "lines" }),
+                    SIDE({ id: 3, face, text: "HELLO" }), SIDE({ id: 4, face, text: "jumping", sideDir: "up" })];
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+    await settled(page);
+    const got = await copyAll(page), want = await expectParts(page, blocks, s);
+    assert.deepEqual(got, want.map((w) => w.payload));
+    const f = C.faceOf(face);
+    const drawn = await page.evaluate(([weight, css]) => {
+      const c = document.createElement("canvas").getContext("2d"), t = "HELLO world 0123 mmmWWWiii";
+      return ["monospace", "serif", "sans-serif"].some((fb) => {
+        c.font = weight + " 40px " + fb; const plain = c.measureText(t).width;
+        c.font = weight + ' 40px "' + css + '", ' + fb; return Math.abs(c.measureText(t).width - plain) > 0.5;
+      });
+    }, [f.weight, f.css]);
+    for (let i = 0; i < got.length; i++) {
+      assert.ok(got[i].includes("px/") && got[i].includes(" " + f.css), face + ": " + got[i].slice(0, 120));
+      await check(page, i, got[i], { ...want[i], raw: true, contentPx: drawn ? want[i].contentPx : null }, s,
+        face + " " + paperMm + " mm, part " + (i + 1) + (drawn ? "" : " (markup only: this browser has no " + f.label + ")"));
+      if (drawn) faceFull++; else faceMarkup++;
+    }
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  assert.ok(faceFull > 0, "fixture: no part in a face this browser draws (" + faceMarkup + " markup only)");
   assert.ok(rawSeen > 20 && plainSeen > 4, "fixture: too few parts of each kind (" + rawSeen + " raw, " + plainSeen + " plain)");
   assert.ok(trimmedSeen > 0, "fixture: the length-limit config should make the bot cut a part the app warned about");
   assert.ok(noOps > 0, "fixture: no font shorthand reset was checked");

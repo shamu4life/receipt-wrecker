@@ -26,6 +26,12 @@
 //            0.003em left of the pen or ends more than 0.003em past the advance, plus 0.001em
 //            for the anti-aliased edge (with that, Arial Bold's f, j and r come out as BIG_EDGE
 //            has them)
+//   kern     the pairs the face spaces APART (kerning that widens), {"ab": thousandths of an em},
+//            rounded up. Arial Black has 66 (rv, ry, f! up to 0.083em), Impact 258 (X., vy up to
+//            0.035em), Trebuchet MS one (vi); none involves the space. The model sums advances
+//            and leaves out kerning that tightens (an upper bound), so these are added back: with
+//            them left out, Arial Black's "fluff" ran 4.9px longer down the tape than modelled.
+//            Arial Bold must have none (the tool stops if it does: its hand tables assume so).
 //   capEm    the ink height of H (BIG_CAP_EM's rule)
 //   lhCaps   the tightest of .8 .85 .9 .95 1 at which every capital but Q fits its line box,
 //            above and below; the box puts the baseline (L + ascent - descent) / 2 below its top
@@ -93,7 +99,13 @@ async function measureAll(chars) {
         r[ch] = [t.width, t.actualBoundingBoxLeft, t.actualBoundingBoxRight, t.actualBoundingBoxAscent, t.actualBoundingBoxDescent];
       }
       const h = ctx.measureText("H");
-      return { chars: r, ascent: h.fontBoundingBoxAscent, descent: h.fontBoundingBoxDescent };
+      // Every pair's kerning: what the two together measure beyond their own advances.
+      const kern = {};
+      for (const a of chars) for (const b of chars) {
+        const k = ctx.measureText(a + b).width - r[a][0] - r[b][0];
+        if (k > 0.5) kern[a + b] = k;
+      }
+      return { chars: r, kern, ascent: h.fontBoundingBoxAscent, descent: h.fontBoundingBoxDescent };
     }, [chars, font]);
     const out = { arial: await run("700 1000px Arial"), fallbacks: [await run("700 1000px serif"), await run("700 1000px sans-serif"), await run("700 1000px monospace")] };
     for (const f of FACES) out[f.id] = await run(`${f.weight} 1000px "${f.css}"`);
@@ -133,8 +145,10 @@ function derive(face, m, chars) {
   };
   const capsHalf = inkSpan(caps.split("")), textHalf = inkSpan(chars);
   const side = [+lhCaps / 2, near3(+lhCaps / 2 - capsHalf), +lhText / 2, near3(textHalf + SIDE_TEXT_MARGIN), SIDE_SHIFT_PX];
+  const kern = {};
+  for (const pair of Object.keys(m.kern).sort()) kern[pair] = Math.ceil(m.kern[pair] - 1e-6);
   return { label: face.label, css: face.css, weight: face.weight, capEm, lhCaps, lhText, box: [-up3(d), up3(a)], wDefault: up3(wDefault), side, caps,
-    w: w.map(thou), lo: lo.map(thou), hi: his.map(thou), edge };
+    w: w.map(thou), lo: lo.map(thou), hi: his.map(thou), edge, kern };
 }
 
 function jsString(s) { return JSON.stringify(s); }
@@ -155,7 +169,9 @@ function block(chars, tables) {
     lines.push("      w: [" + t.w.join(",") + "],\n");
     lines.push("      lo: [" + t.lo.join(",") + "],\n");
     lines.push("      hi: [" + t.hi.join(",") + "],\n");
-    lines.push("      edge: { " + edge + " } }" + (k < ids.length - 1 ? "," : "") + "\n");
+    lines.push("      edge: { " + edge + " },\n");
+    const kern = Object.keys(t.kern).map((p) => jsString(p) + ": " + t.kern[p]).join(", ");
+    lines.push("      kern: { " + kern + " } }" + (k < ids.length - 1 ? "," : "") + "\n");
   });
   lines.push("  };\n");
   lines.push(END);
@@ -172,6 +188,11 @@ async function main() {
   if (off.length) {
     console.error("Calibration failed: Arial Bold measures differently from BIG_W for " + off.slice(0, 8).map(jsString).join(" ")
       + ". This browser is not drawing Arial Bold; is the font installed?");
+    process.exit(2);
+  }
+  if (Object.keys(m.arial.kern).length) {
+    console.error("Calibration failed: Arial Bold spaces some pairs apart (" + Object.keys(m.arial.kern).slice(0, 8).map(jsString).join(" ")
+      + "), which its hand tables assume it never does.");
     process.exit(2);
   }
   const sig = (r) => chars.map((ch) => r.chars[ch][0].toFixed(2)).join(",");

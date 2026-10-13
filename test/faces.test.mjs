@@ -126,7 +126,8 @@ test("a face's line is sized by its own advances and the ink past them", () => {
     const f = C.faceOf(id);
     for (const [text, paperMm] of [["HELLO WORLD", 80], ["jiff", 80], ["Wow", 58], ["QUICK", 58], ["Æther", 80]]) {
       const gs = Array.from(text);
-      const em = gs.reduce((s, g) => s + f.w[g], 0);
+      // Advances, plus the kerning a face widens a pair by (Arial Black's ff), in reading order.
+      const em = gs.reduce((s, g, i) => s + (f.w[g] + (i && f.kern && f.kern[gs[i - 1] + g] ? f.kern[gs[i - 1] + g] : 0)), 0);
       const edge = (g, side) => (Object.prototype.hasOwnProperty.call(f.edge, g) ? f.edge[g] : [0, 0])[side];
       const ink = em + 2 * Math.max(edge(gs[0], 0), edge(gs[gs.length - 1], 1));
       const room = C.paperSpec(paperMm).contentW - 2 - 0.5 * gs.length;
@@ -199,4 +200,28 @@ test("the High Roller test stays in Arial Bold", () => {
   const html = p.bodies.map((b) => b.html).join("");
   assert.match(html, / Arial/);
   for (const id of FACES.slice(1)) assert.ok(!html.includes(C.faceOf(id).css), id);
+});
+
+test("a face's widening kerning is counted: a pair the face spaces apart makes the line longer", () => {
+  // Arial Black spaces some pairs apart (rv +0.058em, ff, f! +0.083em), Impact others (X. +0.035em),
+  // Trebuchet MS one (vi). Kerning that tightens is left out, as for Arial Bold (an upper bound),
+  // but a pair that widens made Arial Black's "fluff" 4.9px longer down the tape than modelled.
+  const f = C.faceOf("arialblack");
+  assert.ok(f.kern.rv > 0.05 && f.kern["f!"] > 0.08, JSON.stringify(f.kern).slice(0, 80));
+  assert.equal(C.faceOf("arial").kern, null);
+  assert.ok(C.faceOf("trebuchet").kern.vi > 0.03);
+  const k = ctx();
+  const S = 100;
+  const body = C.buildSideBodies("rv", { size: S, face: "arialblack", budget: k.budget, heightPx: k.room, contentW: k.contentW })[0];
+  const pad = C.sidePad(S, [(Object.prototype.hasOwnProperty.call(f.edge, "v") ? f.edge.v : [0, 0])[1]]);
+  assert.equal(body.heightPx, Math.round((S * (f.w.r + f.w.v + f.kern.rv) + 0.5 * 2 + pad) * 1000) / 1000);
+  // Big text's width fit counts it too: each glyph's advance plus the kerning it widens with the
+  // glyph before it, summed in reading order as the model sums them.
+  const kp = (x, y) => f.kern[x + y] || 0;
+  let em = 0, prev = null;
+  for (const g of "rvrv") { em += f.w[g] + (prev ? kp(prev, g) : 0); prev = g; }
+  const edge = (g, side) => (Object.prototype.hasOwnProperty.call(f.edge, g) ? f.edge[g] : [0, 0])[side];
+  const ink = em + 2 * Math.max(edge("r", 0), edge("v", 1));
+  const fit = C.bigFit("rvrv", { layout: "lines", size: "width", paperMm: 80, face: "arialblack" });
+  assert.equal(fit.px, Math.min(400, Math.floor((244 - 2 - 0.5 * 4) / ink)));
 });

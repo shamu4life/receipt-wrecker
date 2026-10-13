@@ -17,8 +17,8 @@ The bot prints a cheer in one of two ways, and the whole app follows from that:
 
 - **High Roller** (the code calls it `"raw"`): a cheer of at least the streamer's High Roller
   threshold (default 25 bits; 0 turns High Roller off). The message is treated as HTML and
-  passed through the bot's allow-list sanitizer, so inline styles print: big text, sideways
-  text, glyph-art grids.
+  passed through the bot's allow-list sanitizer, so inline styles print: big text and sideways
+  text (in a face the block picks, since 1.4.0), glyph-art grids.
 - **Plain**: any smaller cheer. The message prints as 16px text inside quote marks, markup
   and all. The app then builds every block in its plain form, a grid that is nothing but plain
   text: Big text and Sideways text as Han tiling (the words drawn out of Han characters), a
@@ -248,12 +248,14 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.3.1. No runtime deps. |
-| `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.4.0. No runtime deps. |
+| `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
 | `tools/payload.mjs` | Builds a message with the app's own core, for the bench. |
 | `tools/vendor-renderer.mjs` | Writes (or `--check`s) the vendored renderer block in `public/index.html`; `--prerelease` takes the beta that `versions.json` names. |
+| `tools/fontmetrics.mjs` | Measures the nine faces Big and Sideways text offer besides Arial Bold, from the fonts on this machine, in Chromium, and writes (or `--check`s) their tables in `public/index.html`. Dev-only; needs the fonts (a Mac has Microsoft's own copies). |
+| `tools/facecheck.mjs` | Prints every face's Big and Sideways text through the vendored receipt page and checks the ink's edges and the heights against the model. Dev-only, like the bench. |
 | `tools/upstream-watch.mjs` | Says whether SassyTP shipped a renderer other than the vendored one and compares the regions the app depends on (exit 0 / 10 / 20). Reads GitHub anonymously, writes only under `.render/`. Dev-only. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, `wrangler deploy --dry-run`, on push/PR to `main`. Offline: no tool that fetches runs there. |
 | `.github/` | CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue and PR templates, dependabot. |
@@ -293,7 +295,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **158 keys**. Regenerate the list instead of trusting this one:
+test harness **163 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -306,7 +308,7 @@ test harness **158 keys**. Regenerate the list instead of trusting this one:
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `FONT_PROP`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
 `bigFitPx`, `BIG_EDGE`, `bigEdge`, `bigEdgeEm`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
-`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `SIDE_DIRS`,
+`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `FACE_PROBE`, `faceMatches`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sidePad`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
@@ -374,16 +376,17 @@ report `{payload, lead, trail, chars, heightPx, leadPx, contentPx, bodies, nonce
 `contentPx` is the height the bot's message box gets.
 
 **Big text (High Roller).** One literal shape:
-`<div style="\66ont:700 <PX>px/<LH> Arial"><div>line 1</div><div>line 2</div></div>` (a block of
+`<div style="\66ont:<W> <PX>px/<LH> <FAMILY>"><div>line 1</div><div>line 2</div></div>` (a block of
 ONE line is the bare `<div style="…">line</div>`); upside down appends `;rotate:180deg`. The
 CSS unicode escape `\66ont:` (where `\66` is `f`) resolves to `font:` for the parser but hides
 the literal word from the chat filter; see the field record. The browser expands the shorthand
 into longhands, and the bot's sanitizer keeps weight, size, line-height and family with no
 security notes (the resets it drops change nothing that prints).
-- **Arial Bold is pinned.** The receipt's own face is Segoe UI, which the bench cannot
-  measure; Arial Bold's advances are exact on the bench (Liberation Sans Bold shares them) and
-  on the streamer's Windows. Never weight 900 or a nested `<b>`: that asks for a Black face,
-  which no table here covers.
+- **The face is the block's** (1.4.0; see Faces below): `<W>` and `<FAMILY>` are its weight and
+  family, `700 Arial` for Arial Bold, the default. Everything below is Arial Bold's own (its
+  tables are hand-measured and unchanged since 1.3); the other faces have the same kind of table,
+  generated. The receipt's own face is Segoe UI, which the bench cannot measure, so a face is
+  always set. Never a nested `<b>`: it asks the face for a bolder weight that no table covers.
 - `BIG_W`: case-aware Arial Bold advances in em (the payload is never uppercased). Unknown
   characters count `BIG_W_DEFAULT` 1.0 (errs wide), East Asian wide and full-width ones
   (`bigIsWide`: Han, kana, Hangul, full-width forms) `BIG_W_WIDE` 1.05, because they are a full
@@ -538,7 +541,7 @@ security notes (the resets it drops change nothing that prints).
   rule is unchanged. In Each, a range of capitals that rounds to one value reads as one.
 
 **Sideways (High Roller).** One literal shape:
-`<div style="writing-mode:<DIR>;\66ont:700 <S>px/<LH> Arial;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>`;
+`<div style="writing-mode:<DIR>;\66ont:<W> <S>px/<LH> <FAMILY>;white-space:nowrap;margin:auto[;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>`;
 one column is the bare `…">line</div>`, and an empty column is a `<div>` holding an nbsp. The
 property name uses the `\66ont` escape, as big text does; see the field record.
 - `down` = `vertical-rl;text-orientation:sideways` (letter tops toward the right edge: turn
@@ -648,6 +651,101 @@ property name uses the `\66ont` escape, as big text does; see the field record.
   against big text's line-height .8, a sideways column's whole font box), so nearly every big
   and sideways part lists sides there with its ink well clear. Until 1.0.0's final review the
   verdict was the box one, and it called almost every correct big or sideways print clipped.
+
+**Faces (1.4.0).** Big and Sideways text print in the face the block picks (its `face`, read
+through `faceIdOf` in `bigOpts` and `sideOpts`; junk is `"arial"`). `FACE_IDS`: arial, arialblack,
+impact, comic, georgia, times, courier, trebuchet, verdana, tahoma, labelled Arial Bold (default),
+Arial Black, Impact, Comic Sans MS, Georgia, Times New Roman, Courier New, Trebuchet MS, Verdana and
+Tahoma. Every one ships with Windows, so the streamer's Edge has it. The owner asked for "a bigger
+menu" (2026-10-12): the pre-1.0.0 menu (Arial, Arial Black, Impact, Comic Sans MS, Georgia, and its
+Serif and Monospace, which were Windows' Times New Roman and Courier New) plus Trebuchet MS, Verdana
+and Tahoma. Its Segoe Script and Papyrus are not offered: a Mac has no Segoe Script, and its Papyrus
+is Apple's own copy, so neither could be measured from Microsoft's files. A face is a literal family
+name inside the `\66ont` shorthand, so no new token, tag or property; the names are new words in
+chat, and the free chat test is how a channel finds out.
+- **Arial Bold keeps its hand-measured tables.** `ARIAL_FACE` points at `BIG_W`, `BIG_EDGE`,
+  `BIG_CAPS_SAFE`, `BIG_CAP_EM`, the two line heights, `SIDE_INK` (`ink: null`) and the width rule's
+  0.4 / 0.0305 / 0.575 / 0.6, so every Arial message in Latin-1 is byte for byte what 1.3.1 sent:
+  `test/faces.test.mjs` holds 859 cases (Big and Sideways, both papers, every layout and direction,
+  fixed and fitted sizes, flips, a short box, the card's notes) to `test/fixtures/arial-1.3.json`,
+  hashes written once from 1.3.1's core. Never rewrite the fixture to make a change pass: a changed
+  Arial case is a changed print. Beyond Latin-1, Arial Bold takes `FACE_EXTRA_ARIAL`, generated
+  like the other faces: the WGL4 characters it draws wider than `BIG_W_DEFAULT` (№ 1.115em, Љ Њ Ш
+  Щ Ю) and the ink of the WGL4 characters at or past their advance (€, Ĩ, ĵ and more). That is the
+  one change to Arial: a message holding one of them is measured as it prints ("№1" was cut in
+  1.3.1).
+- **The other nine are generated** by `tools/fontmetrics.mjs` into the block between `BEGIN` and
+  `END generated faces` (never edit it by hand; `--check` compares): `FACE_CHARS` (`BIG_W`'s 189
+  characters) and per face in `FACE_TABLES`: `w` (advances), `lo` / `hi` (ink below and above the
+  baseline; arrays in thousandths of an em), `wide` (the WGL4 characters beyond `FACE_CHARS`, Latin
+  Extended-A, Greek, Cyrillic, the Windows-1252 extras and the numero sign, that the face draws
+  wider than `wDefault`: Arial Black's Ш is 1.11em and cut "ШОК" at the paper's edge, Verdana's
+  per-mille 1.78em), `edge` (every side whose ink comes within 0.01em of the advance's edge or
+  crosses it, as the crossing plus 0.001em for the anti-aliased edge, WGL4 included: a sideways
+  run's end has no margin, and Georgia's g and Impact's t and j lost a dot row there), `capEm`,
+  `lhCaps` (the tightest of .8 .85 .9 .95 1 at which every capital but Q fits its line box with
+  0.012em to spare, the baseline (L + ascent - descent) / 2 below its top), `caps` (`BIG_CAPS_SAFE`'s
+  candidates, Q included, that fit at `lhCaps`), `lhText` (the tightest of 1.15 to 1.5 at which every
+  character fits, with the same spare), `box` ([-descent, ascent]), `wDefault` (the widest listed,
+  at least 1em), `side` (the width rule's numbers, plus 0.5px kept back from each edge for the
+  whole-px centring shift: their capitals' half-span is exact, where Arial Bold's 0.3695 leaves
+  slack) and `kern` (below). The spare: with the ink exactly at the box's edge, the last line's
+  descenders lost 0.5 to 0.9px to the box's clip (Comic Sans's j at 65px, Georgia's y at 29px); it
+  covers that from about 40px up, and below a dot row can still go, as for Arial Bold's flipped
+  capitals. Line heights, capitals and text: Arial Black .85 / 1.25, Impact .9 / 1.25, Comic Sans
+  MS 1 / 1.45 (its capitals dip up to 0.06em below the baseline by design, its accents reach its
+  whole ascent), Georgia .8 / 1.2 (its old-style 3 4 5 7 9 hang 0.18em, so they are not caps-safe),
+  Times New Roman .8 / 1.15, Courier New and Trebuchet MS .8 / 1.2, Verdana and Tahoma .85 / 1.25.
+- **How they are measured.** In Playwright's Chromium on a Mac, from Microsoft's own copies of the
+  fonts (`/System/Library/Fonts/Supplemental`), canvas `measureText` at 1000px; the pairs with the
+  space in laid-out text, since canvas doesn't kern across a space. The tool calibrates on Arial
+  Bold first (every `BIG_W` advance must come out exactly, and it must have no widening kerning, or
+  it stops) and stops on a face that measures as the browser's fallback at its own weight. A WGL4
+  character counts only when every generic fallback measures it the same, so the face itself draws
+  it; one the face lacks prints in another font and counts `wDefault`. Every face's hhea ascent and
+  descent (what a Mac lays out with) equal the OS/2 win metrics the streamer's Windows uses (none
+  sets USE_TYPO_METRICS), so the vertical metrics carry over; the advances are Microsoft's, from the
+  Mac's copies, not checked against Windows' own files: a test print settles it.
+- **One face is current while a block is planned or built.** The entry points `bigPlan`,
+  `buildBigBodies`, `bigReport` (the face its bodies were built in: `big.face`), `sidePlan` and
+  `buildSideBodies` set it with `withFace(id, fn, args)` (an absent id keeps the current one), and
+  the measuring helpers read `curFace`: `bigGlyphEm`, `bigEdge`, `bigLineHeight`, `bigKern`,
+  `bigOpen`, `sideOpen`, `sideInk`, `sideInkSpan` and the space in `sideRun` and the wrap. `bigCapCm(px,
+  face)` and `sideWidthPx(n, caps, contentW, face)` take a face for the card's labels. Outside an
+  entry point it is Arial Bold (the probes, and a test calling a helper directly). The card and
+  `renderBlockBodies` pass `face` in every option object; so must anything new that builds a block.
+- **Kerning that widens** (`kern`, `bigKern(a, b)`). The model sums advances and leaves out kerning
+  that tightens (an upper bound), but Arial Black spaces 66 pairs apart within words (rv, ry, f! up
+  to 0.083em) and one with the space (an f before it, 0.058em, which the page keeps even where the
+  line breaks at that space), Impact 258 (X., vy up to 0.035em) and Trebuchet MS one (vi): Arial
+  Black's "fluff" ran 4.9px longer down the tape than modelled, and "if of if of" wrapped once more
+  than counted. Every sum of advances adds the pair each glyph makes with the one before it in its
+  word, and a word's measure adds the pairs its ends make with the spaces around it
+  (`bigSpaceKern`), in the line widths, the wrap and the sideways run. Arial Bold has none.
+- **Sideways in a roomier line height.** The size is also capped so the columns' line boxes fit the
+  paper (`boxPx` in `sidePlan`: margin:auto can't centre a wider block; Arial Black's .85 made one
+  column of capitals 255px wide at 300px on 80 mm). For Arial Bold the cap never binds below the
+  Size menu's 300.
+- **Verified** with `tools/facecheck.mjs` (a Mac, the real fonts): 4,036 messages, every face on
+  both papers, 20 Big texts (Cyrillic, the per-mille, the numero sign, Œ and an f before a space
+  among them) in six layouts and sizes and flipped, and 15 Sideways texts both ways and sizes,
+  through the vendored page with the box's clip lifted. Big text's ink is 1.6px or more inside both
+  edges, Sideways' 5.3px or more (the model keeps 6), no ink runs past the box's top or bottom by
+  more than 0.5px (1px for a flipped block and for Arial Bold, whose hand tables list no
+  anti-aliased edge: sideways HAPPY over BIRTHDAY on 58 mm runs 0.8px past its end), and no message
+  is taller than predicted. The MANDATORY contract test runs every face too (see Testing).
+- **The preview draws with the viewer's fonts.** `faceOnDevice` (glue) measures `FACE_PROBE`
+  ("HOWimo01") at 100px in the face, with monospace behind it, and `faceMatches(id, widths)` says
+  whether every width is the face's own within 0.75px. A test against the generic families took
+  the stand-in a phone draws under the face's name (Android's Roboto for "Tahoma" and "Verdana") for
+  the face. When it doesn't match (most phones have no Impact, Comic Sans or Tahoma), the card's
+  Font hint says the preview draws another font and the receipt still prints the chosen one. Linux
+  draws Arial, Times New Roman and Courier New with Liberation's metric twins, which match, rightly.
+  The browser tests' hook `window.__rwFaceMissing` (a list of ids) makes the page treat those as
+  missing.
+- A pre-1.0.0 block's old font pick (`fmt.font`) is not carried into `face`: it prints in Arial
+  Bold, as it has since 1.0.0. The migration note says the old fonts are gone and points at the
+  Font menu.
 
 **Glyph-art (High Roller).** The canvas work stays in the glue; these take a finished grid.
 The tier picks the form (`GLYPH_FORMS`):
@@ -911,7 +1009,7 @@ generations; `presetImageUrls` walks a stack's picture links.
   High Roller test's note names it as the second cause when BIG prints small inside quotes.
 - **The bits raise (1.1.0).** Every High Roller-only control calls `pickedHighRoller(block,
   what, ctl)` just before its own `update()`, so the raised amount and the High Roller forms go
-  out in one redraw: Render set to Big or Sideways; Big's Layout, Size and Upside down;
+  out in one redraw: Render set to Big or Sideways; the Font (1.4.0); Big's Layout, Size and Upside down;
   Sideways' Direction and Size; Glyph-art's Characters, Detail and Smooth shading
   (`.chk-dither`). Detail counts only when its commit keeps the focus in the field (Enter, its
   arrows, the spinner): leaving it for a click would raise the bits and move the parts under the
@@ -935,7 +1033,10 @@ generations; `presetImageUrls` walks a stack's picture links.
   `dropRaiseOffer`) ends an offer or a refusal, while a raise and its Undo stay. Nothing raises
   on add, load, Undo, migration, typing or a settings edit. The hints that promise a raise (the
   Bits hint, the cards' below-threshold lines) say so only when `raiseOffered()`.
-- **Cards.** `textCard`: Render select (`.sel-render`), then Big (`.sel-layout`, `.sel-size`,
+- **Cards.** `textCard`: Render select (`.sel-render`), then the Font (`.sel-face`, for Big and
+  Sideways text only, one `face` field for both; its hint `.face-hint` says every Windows PC has
+  the face, or, from `faceOnDevice`, that this device draws another one in the preview; the
+  browser tests force that with `window.__rwFaceMissing`), then Big (`.sel-layout`, `.sel-size`,
   `.chk-flip`), Sideways (`.sel-dir`, `.sel-side-size`), Han tiling (`.sel-weight`) or Han text as typed (no controls of its own). Every
   layout and size option is labelled with what it would print for the current text (capitals
   in cm, "N cm of message" (the bodies' height: the header, Cheer line and footer come on top,
@@ -1312,12 +1413,23 @@ commit a font or the upstream renderer page.
   bench always sends `allowHighRoller` and `pxPerInch: 96`, and its report echoes both), `--user`,
   `--theme-file`, `--hide-links`, `--fonts DIR` (your own font folder, through a fontconfig under
   `.render/fonts/`), `--pretty`. Exit 0 ok, 1 render failed, 2 usage or environment.
+- **`tools/fontmetrics.mjs`** measures the nine faces besides Arial Bold and writes their tables
+  (see Faces); `--check` compares, `--json` prints the raw measurements. **`tools/facecheck.mjs`**
+  prints every face's Big and Sideways text through the vendored receipt page in one browser
+  (`--face ID` for one, `--verbose` for every case) and fails on ink nearer an edge than 0.5px (Big)
+  or 4.5px (Sideways), ink past the box's top or bottom by more than 0.5px (1px for a flipped block
+  and for Arial Bold), a message taller than predicted, or one shorter than its upper bound allows
+  (1px for Big; 20px or 4% for Sideways, whose kerning that tightens is left out; never for a
+  message holding a character the face's tables don't list, which counts wide on purpose). A
+  message the card warns about is held only to "never taller". Both need the fonts: on a Mac they
+  are Microsoft's own copies. Neither runs in CI.
 - **`tools/payload.mjs`** (`npm run payload -- '<json>'`) builds a message with the app's own
   builders AND packer, so the bench measures what the app sends. Kinds: `big`, `side`,
   `glyph` (built-in test pictures through the app's own sampling), `plain` (text needs
   Playwright's Chromium, because it runs the app's canvas code; a picture does not),
   `hrprobe`, `plainprobe`, and `raw`. Fields: `paper`, `bits`, `threshold`, `bpi`, `maxin`,
-  `hrprints` (false: the printer's Allow High Roller prints off), `cheer`, `nonce`, `part`. It
+  `hrprints` (false: the printer's Allow High Roller prints off), `face` (a `FACE_IDS` id, for
+  `big` and `side`), `cheer`, `nonce`, `part`. It
   prints the matching forkbench flags on stderr (for a free test, threshold 1 and the switch on,
   as the preview draws one): pass the same ones, or the bench's High Roller decision and box
   differ from the app's.
@@ -1329,11 +1441,14 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 
 **What the bench cannot see** (each one needs a real print to settle):
 
-- **Fonts.** The rig is Windows: Segoe UI for the receipt's own text, Arial for big and
-  sideways text, Courier New for the R4 grids, a CJK face (most likely Microsoft YaHei) for Han
-  glyphs, Segoe UI Emoji, and some face for Braille. The bench has Liberation Sans/Mono (Arial
-  and Courier New metrics), WenQuanYi or another CJK face, and no Segoe UI. That is why big and
-  sideways text pin Arial and R4 pins Courier New: their advances match on both.
+- **Fonts.** The rig is Windows: Segoe UI for the receipt's own text, the block's face for big
+  and sideways text (Arial Bold by default), Courier New for the R4 grids, a CJK face (most likely
+  Microsoft YaHei) for Han glyphs, Segoe UI Emoji, and some face for Braille. The bench on Linux
+  has Liberation Sans/Serif/Mono (Arial, Times New Roman and Courier New metrics), WenQuanYi or
+  another CJK face, and no Segoe UI. That is why big and sideways text set a face and R4 pins
+  Courier New. The other faces' tables come from Microsoft's own copies on a Mac
+  (`tools/fontmetrics.mjs`), where `tools/facecheck.mjs` prints them through the receipt page;
+  a print on the rig is the last word for each.
 - **Edge.** The bench is Playwright's Chromium, not the streamer's Edge; `sideways-lr` needs
   Edge 132 or newer.
 - **The streamer's settings**: threshold, bits per inch, maximum length, paper width, dither.
@@ -1370,8 +1485,10 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   characters in any token.
 - **Every user character in markup goes through `escapeHtml` / `escapeAttr`.** Glyph ramps
   contain no `<`, `>` or `&`.
-- **Fonts are pinned**: Arial for big and sideways text (weight 700, never 900 or nested `<b>`),
-  Courier New for R4; Han grids inherit (Han glyphs are 1em in every CJK font).
+- **Faces are set, never inherited**: big and sideways text print in the block's face (one of the
+  ten in `FACE_IDS`, Arial Bold by default) at its own weight (700; Impact 400, Arial Black 900),
+  its family written literally in the `\66ont` shorthand; never a nested `<b>`. Courier New for R4;
+  Han grids inherit (Han glyphs are 1em in every CJK font).
 - **Plain grids**: exactly C cells a row, no space, Latin letter or U+3000 inside, the token
   last, one plain part per cheer.
 - **The nonce is visible digits, never zero-width, and off by default.** It exists for Twitch's
@@ -1437,7 +1554,12 @@ lives in `test-browser/` and is not in the default matcher.
 - **The tag test** (`test/tags.test.mjs`, AMENDMENT B1): every builder and both probes, at 80
   and 58 mm, with ordinary and hostile input, send only `div` and `pre` with only `style`,
   never a forbidden tag (a `<br>` included) in any case, and never a message starting with
-  `<`.
+  `<`. Big and Sideways text run in every face too.
+- **The faces** (`test/faces.test.mjs`): Arial Bold's 859 fixture cases, byte for byte; every
+  face's tables, family, weight, line heights, width fit (kerning included), cap height, sideways
+  width rule, centring and run length, worked out from the tables independently; the WGL4 widths
+  (`wide`), the pair an f makes with a space in a line, the wrap and a sideways run, and
+  `faceMatches`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
   Han tiling; plain CJK picture; a pasted mosaic in Han text as typed; both probes; a Han and an
@@ -1452,7 +1574,12 @@ lives in `test-browser/` and is not in the default matcher.
   the payload exactly; zero policy violations; and the height within tolerance (at most 1px
   over the core's prediction; at most 1px under, or 20px under for sideways text, whose
   prediction is an upper bound). Its fixture asserts it saw raw parts, plain parts, a trimmed
-  part and at least one such no-op reset.
+  part and at least one such no-op reset. Every face runs too, on both papers (Big text in capitals
+  and mixed case, Sideways both ways): the markup always, and the heights and cuts where this
+  browser draws the face (`faceMatches` on widths measured in the page; on CI's Linux, Arial Bold,
+  Times New Roman and Courier New through Liberation's metric twins). Elsewhere the browser draws
+  another font, whose lines run longer and wrap, so only the markup is held; the fixture asserts
+  at least one part was held in full.
 - **Copy is compared byte for byte with the pure core** for every mode, both papers, above and
   below the threshold. Browser tests capture payloads by stubbing
   `navigator.clipboard.writeText` and clicking Copy; canvas-backed expectations are computed in

@@ -174,7 +174,9 @@ test("junk in, a clean list out: not an array, null entries, ids that aren't num
 test("a migrated line prints: it is a working Big text block", () => {
   const tb = C.migrateBlocks([ITEMS_TK]).find((b) => b.text === "IRS");
   assert.equal(C.blockRender(tb), "big");
-  eq(C.bigOpts(tb), { layout: "lines", size: "fit1", flip: false });
+  // An old font pick rides along in `fmt` unused (1.4.0 gives faces their own field): the line
+  // prints in Arial Bold, as it has since 1.0.0.
+  eq(C.bigOpts(tb), { layout: "lines", size: "fit1", flip: false, face: "arial" });
   const bodies = C.buildBigBodies(tb.text, C.bigOpts(tb));
   assert.ok(bodies.length >= 1 && bodies[0].html.includes(">IRS<"), JSON.stringify(bodies.map((b) => b.html)));
 });
@@ -297,7 +299,8 @@ test("migrationNote says what changed and names the backup", () => {
   // What the conversion could not carry over is said too: emotes, fonts and italics.
   assert.match(n([{ ...GIANT, giantLayout: "emote" }]), /Emote names in them now print as words/);
   assert.ok(!/Emote/.test(n([GIANT])));
-  assert.match(n([TYPE]), /always bold Arial, so their fonts and italics are gone/);
+  // 1.4.0: the fonts are not carried over, but the card's Font menu has faces again.
+  assert.match(n([TYPE]), /Their fonts and italics are gone: Big and sideways text start in bold Arial, and the Font menu on each card has other fonts to pick from\./);
   assert.match(n([{ ...TYPE, fmt: { italic: true } }]), /fonts and italics are gone/);
   assert.match(n([ITEMS_TK]), /fonts and italics are gone/, "its lines had a font and italics");
   assert.ok(!/fonts and italics/.test(n([GIANT])), "Giant type had no fonts");

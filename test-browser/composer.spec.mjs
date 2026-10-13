@@ -147,10 +147,10 @@ function nodeBodies(block, ctx) {
   }
   if (C.blockRender(block) === "sideways") {
     const o = C.sideOpts(block);
-    return Array.from(C.buildSideBodies(block.text, { dir: o.dir, size: o.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW }));
+    return Array.from(C.buildSideBodies(block.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW }));
   }
   const o = C.bigOpts(block);
-  return Array.from(C.buildBigBodies(block.text, { layout: o.layout, size: o.size, flip: o.flip, budget: ctx.budget,
+  return Array.from(C.buildBigBodies(block.text, { layout: o.layout, size: o.size, flip: o.flip, face: o.face, budget: ctx.budget,
                                                    heightPx: ctx.room, contentW: ctx.contentW }));
 }
 function expectNode(blocks, s = SETTINGS) {
@@ -182,10 +182,10 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
         bodies = K.buildDesignT(K.designTTextGrid(K.bigClean(b.text).text, ctx.paperMm, K.hanziWeightOf(b.hanziWeight)), plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "sideways") {
         const o = K.sideOpts(b);
-        bodies = K.buildSideBodies(b.text, { dir: o.dir, size: o.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+        bodies = K.buildSideBodies(b.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
       } else {
         const o = K.bigOpts(b);
-        bodies = K.buildBigBodies(b.text, { layout: o.layout, size: o.size, flip: o.flip, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+        bodies = K.buildBigBodies(b.text, { layout: o.layout, size: o.size, flip: o.flip, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
       }
       for (const x of bodies) all.push(x);
     }
@@ -837,7 +837,9 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     const raw = /\braw\b/.test(k.partClass);
     if (raw) rawSeen++; else plainSeen++;
     assert.equal(raw, want.raw, label + ": drawn as " + k.partClass);
-    // Cut only where the app itself said it would be.
+    // Cut only where the app itself said it would be. (Not for a face this browser can't draw: it
+    // draws another font there, whose lines run longer, wrap and spill; only the markup is held.)
+    if (want.markupOnly) return;
     const cut = !!r.trimmed || last.measure.fullPx > last.measure.contentPx + 1;
     if (cut) { trimmedSeen++; assert.ok(want.warned, label + ": the bot cuts a part the app expected to fit: " + JSON.stringify(r.trimmed)); }
     assert.ok(!/expected it to fit/.test(verdict), label + ": " + verdict);
@@ -902,6 +904,38 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     assert.deepEqual(errors, []);
     await ctx.close();
   }
+  // 1.4.0: every face, on both papers, one page a face (so no part mixes faces): Big text in
+  // capitals and in mixed case, Sideways text both ways. The bot's sanitizer must keep every
+  // declaration, the family's name included. Where this browser draws the face (on a Mac, all ten;
+  // on CI's Linux, Arial Bold, Times New Roman and Courier New through their metric twins), each
+  // part must also be as tall as predicted and cut only where warned; elsewhere the browser draws
+  // another face, so only the markup is held. tools/facecheck.mjs checks the ink's edges too.
+  let faceFull = 0, faceMarkup = 0;
+  for (const paperMm of [80, 58]) for (const face of C.FACE_IDS) {
+    const s = { ...SETTINGS, paperMm };
+    const blocks = [BIG({ id: 1, face, text: "HELLO", bigLayout: "lines" }), BIG({ id: 2, face, text: "jiff fluff", bigLayout: "lines" }),
+                    SIDE({ id: 3, face, text: "HELLO" }), SIDE({ id: 4, face, text: "jumping", sideDir: "up" })];
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+    await settled(page);
+    const got = await copyAll(page), want = await expectParts(page, blocks, s);
+    assert.deepEqual(got, want.map((w) => w.payload));
+    const f = C.faceOf(face);
+    // Whether this browser draws the face: the app's own test (faceMatches), on widths measured here.
+    const drawn = C.faceMatches(face, await page.evaluate(([weight, css, probe]) => {
+      const c = document.createElement("canvas").getContext("2d");
+      c.font = weight + ' 100px "' + css + '", monospace';
+      return Array.from(probe).map((ch) => c.measureText(ch).width);
+    }, [f.weight, f.css, C.FACE_PROBE]));
+    for (let i = 0; i < got.length; i++) {
+      assert.ok(got[i].includes("px/") && got[i].includes(" " + f.css), face + ": " + got[i].slice(0, 120));
+      await check(page, i, got[i], { ...want[i], raw: true, contentPx: drawn ? want[i].contentPx : null, markupOnly: !drawn }, s,
+        face + " " + paperMm + " mm, part " + (i + 1) + (drawn ? "" : " (markup only: this browser has no " + f.label + ")"));
+      if (drawn) faceFull++; else faceMarkup++;
+    }
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  assert.ok(faceFull > 0, "fixture: no part in a face this browser draws (" + faceMarkup + " markup only)");
   assert.ok(rawSeen > 20 && plainSeen > 4, "fixture: too few parts of each kind (" + rawSeen + " raw, " + plainSeen + " plain)");
   assert.ok(trimmedSeen > 0, "fixture: the length-limit config should make the bot cut a part the app warned about");
   assert.ok(noOps > 0, "fixture: no font shorthand reset was checked");
@@ -1656,9 +1690,9 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   const more = card.locator("details.more");
   assert.ok(await more.count() >= 2);
   assert.equal(await more.first().evaluate((d) => d.open), false);
-  assert.ok(!/bold Arial and can't be changed/.test(await card.innerText()), "a folded hint shows");
+  assert.ok(!/Upside down turns the letters/.test(await card.innerText()), "a folded hint shows");
   await card.locator("details.more summary", { hasText: "What's this?" }).nth(1).click();
-  assert.match(await card.innerText(), /bold Arial and can't be changed/);
+  assert.match(await card.innerText(), /Upside down turns the letters/);
   assert.equal(await page.locator(".preview > details.more").evaluate((d) => d.open), false, "the thermal caption's detail is folded");
   assert.match(await page.locator(".preview > .hint").first().textContent(), /in this computer's fonts, which may differ from the streamer's\./);
   // The Cheer-ready hint says where the word goes.
@@ -2842,8 +2876,8 @@ test("1.1.0 review: the hints promise a raise only when a pick would raise or of
   await settled(page);
   const note = (i) => cards(page).nth(i).locator(".text-note").innerText();
   assert.match(await page.textContent("#bitsHint"), /Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth shading, raises it to 25 bits, or offers to\./);
-  assert.match(await note(0), /Changing Layout, Size or Upside down raises Bits per cheer to 25 bits, or offers to\./);
-  assert.match(await note(1), /Changing Direction or Size raises Bits per cheer to 25 bits, or offers to\./);
+  assert.match(await note(0), /Changing Font, Layout, Size or Upside down raises Bits per cheer to 25 bits, or offers to\./);
+  assert.match(await note(1), /Changing Font, Direction or Size raises Bits per cheer to 25 bits, or offers to\./);
   assert.match(await note(2), /Changing Characters, Detail or Smooth shading raises Bits per cheer to 25 bits, or offers to\./);
   // No room after the Cheer line at 25 bits: no promise anywhere.
   await commit(page, "#bitsPerInch", "200");
@@ -3243,6 +3277,116 @@ test("1.2.0 review 2: the hints say what each render prints, and Auto names the 
   assert.match(await cards(page).first().textContent(), /Only Han characters go in: kana, Hangul, punctuation, Latin letters and the rest are left out/);
   await cards(page).first().locator(".sel-render").selectOption("hanzi");
   assert.match(await cards(page).first().textContent(), /it is also what Big text and Sideways text print as below the streamer's High Roller threshold/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── 1.4.0: Big and Sideways text in ten faces ──
+test("1.4.0: the Font menu: ten faces, Arial Bold first; a pick is saved, sent and labelled in its own face", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO WORLD", bigLayout: "lines" })], core: true });
+  await settled(page);
+  const card = cards(page).first(), face = card.locator(".sel-face");
+  assert.deepEqual(await face.locator("option").allTextContents(), ["Arial Bold (default)", "Arial Black", "Impact", "Comic Sans MS",
+    "Georgia", "Times New Roman", "Courier New", "Trebuchet MS", "Verdana", "Tahoma"]);
+  assert.equal(await face.inputValue(), "arial");
+  assert.equal(await card.locator(".face-hint").textContent(), "Every Windows PC has Arial Bold, so the sizes here are the sizes on the tape.");
+  assert.equal(await card.locator("label", { hasText: /^Font$/ }).getAttribute("for"), await face.getAttribute("id"), "the menu is labelled");
+  await face.selectOption("impact");
+  const saved = await stored(page, "rw_blocks_v1");
+  assert.equal(saved[0].face, "impact");
+  await settled(page);
+  const sent = await copyAll(page);
+  assert.deepEqual(sent, (await expectParts(page, saved)).map((x) => x.payload));
+  // Impact's own line height for capitals, read from the core (the measured tables set it).
+  const lh = (await page.evaluate(() => window.module.exports.faceOf("impact").lhCaps)).replace(".", "\\.");
+  assert.match(sent[0], new RegExp('^Cheer100 <div style="\\\\66ont:400 \\d+px/' + lh + ' Impact">HELLO WORLD</div>$'));
+  // The Size menu's capitals are Impact's: 0.791em tall, where Arial Bold's are 0.716.
+  const want = await page.evaluate(([text, so]) => {
+    const K = window.module.exports, c = K.stackContext(so);
+    const f = K.bigFit(text, { layout: "lines", size: "fit1", face: "impact", budget: c.budget, heightPx: c.room, contentW: c.contentW });
+    return "capitals " + K.bigCapCm(f.px, "impact").toFixed(1) + " cm";
+  }, ["HELLO WORLD", stackOptsOf(SETTINGS)]);
+  assert.ok((await card.locator(".sel-size option[value=fit1]").textContent()).includes(want), want);
+  // Sideways reads the same field; Han tiling has no font, and the menu goes.
+  await card.locator(".sel-render").selectOption("sideways");
+  assert.ok(await face.isVisible());
+  await settled(page);
+  const side = await copyAll(page);
+  assert.deepEqual(side, (await expectParts(page, await stored(page, "rw_blocks_v1"))).map((x) => x.payload));
+  assert.match(side[0], new RegExp(';\\\\66ont:400 \\d+px/' + lh + ' Impact;white-space:nowrap;margin:auto'));
+  await card.locator(".sel-render").selectOption("hanzi");
+  assert.equal(await face.isVisible(), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.4.0: a face this device doesn't have: the hint says the preview draws another font", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, face: "comic" })],
+    init: () => { if (window.parent === window) window.__rwFaceMissing = ["comic"]; } });
+  await settled(page);
+  const card = cards(page).first();
+  assert.equal(await card.locator(".face-hint").textContent(), "Every Windows PC has Comic Sans MS, so the receipt prints in it, but this device "
+    + "doesn't have it: the preview below draws another font, and its letters and line breaks can differ from the print.");
+  await card.locator(".sel-face").selectOption("arial");
+  assert.equal(await card.locator(".face-hint").textContent(), "Every Windows PC has Arial Bold, so the sizes here are the sizes on the tape.");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.4.0: picking a font below the threshold raises Bits per cheer, as Layout does; Undo goes back to the menu", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })], controls: { ...SETTINGS, bits: 10 } });
+  await settled(page);
+  const card = cards(page).first();
+  assert.match(await card.locator(".text-note").innerText(), /Changing Font, Layout, Size or Upside down raises Bits per cheer to 25 bits, or offers to\./);
+  await card.locator(".sel-face").focus();
+  await card.locator(".sel-face").selectOption("georgia");
+  assert.equal(await bitsValue(page), "25");
+  assert.match(await raiseNoteOf(card).textContent(), /^Bits per cheer raised from 10 to 25 for Big text: /);
+  await raiseNoteOf(card).getByRole("button", { name: "Undo" }).click();
+  assert.equal(await bitsValue(page), "10");
+  assert.equal(await card.locator(".sel-face").inputValue(), "georgia", "the pick stays");
+  assert.equal(await focusedClass(page), "sel-face");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.4.0 review: a saved font is the menu's pick after a reload, a preset load and an Undo, and its payload follows", async () => {
+  const blocks = [BIG({ id: 1, text: "HELLO", bigLayout: "lines", face: "georgia" }), SIDE({ id: 2, text: "HI", face: "tahoma" })];
+  const { page, ctx, errors } = await freshPage({ blocks, core: true });
+  await settled(page);
+  const pick = (i) => cards(page).nth(i).locator(".sel-face").inputValue();
+  assert.deepEqual([await pick(0), await pick(1)], ["georgia", "tahoma"]);
+  const sent = await copyAll(page);
+  assert.ok(sent.some((p) => / Georgia">HELLO</.test(p)) && sent.some((p) => / Tahoma;white-space/.test(p)), JSON.stringify(sent));
+  // A reload reads the saved stack back.
+  await page.reload();
+  await settled(page);
+  assert.deepEqual([await pick(0), await pick(1)], ["georgia", "tahoma"]);
+  // A preset keeps it, and loading it puts it back.
+  await page.fill("#presetName", "fonts");
+  await page.click("#presetSave");
+  await cards(page).first().locator(".sel-face").selectOption("impact");
+  await page.click("#presetLoad");
+  if (await page.textContent("#presetLoad") === "Replace stack?") await page.click("#presetLoad");
+  await page.waitForFunction(() => document.querySelector("#blockList > .block-card .sel-face").value === "georgia");
+  // Undo of a removed block brings its font back with it.
+  await cards(page).first().getByRole("button", { name: "Remove block" }).click();
+  await page.click("#undoRemove");
+  assert.equal(await pick(0), "georgia");
+  await settled(page);
+  assert.deepEqual(await copyAll(page), (await expectParts(page, await stored(page, "rw_blocks_v1"))).map((x) => x.payload));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.4.0 review: a one-column sideways block too big for the paper is labelled 'letters cut off', not 'lines'", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [SIDE({ id: 1, text: "hello" }), SIDE({ id: 2, text: "hello\nworld" })] });
+  await settled(page);
+  const at300 = (i) => cards(page).nth(i).locator(".sel-side-size option[value='300']").textContent();
+  const one = await at300(0), two = await at300(1);
+  assert.match(one, / · letters cut off/, one);
+  assert.doesNotMatch(one, /lines cut off/, one);
+  assert.match(two, / · first lines cut off/, two);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

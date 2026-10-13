@@ -410,7 +410,7 @@ test("explicit sizes are honoured exactly and reported honestly", () => {
   for (const [v, want] of [["fit1", "fit1"], ["width", "width"], [120, 120], ["120", 120], [5, 20], [9999, 400], ["junk", "fit1"], [null, "fit1"]]) {
     assert.equal(C.bigSizeOf(v), want, JSON.stringify(v));
   }
-  eq({ ...C.bigOpts({ bigLayout: "weird", bigSize: "90", bigFlip: "yes" }) }, { layout: "auto", size: 90, flip: false });
+  eq({ ...C.bigOpts({ bigLayout: "weird", bigSize: "90", bigFlip: "yes" }) }, { layout: "auto", size: 90, flip: false, face: "arial" });
 });
 
 test("width: fill the paper whatever it costs", () => {

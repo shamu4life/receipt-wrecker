@@ -27,6 +27,7 @@
 //   "cheer": true             false = the free chat-test message (LEAD_GUARD, no token)
 //   "nonce": false            the app's "Add a repeat number" toggle, off by default like the app's
 //   "part": 0                 which part (cheer) to emit, 0-based; the count goes to stderr
+//   "face": "arial"           big and side only: the face (an id of the app's FACE_IDS, 1.4.0)
 //
 // Kinds:
 //   {"kind":"big","text":"HELLO","layout":"auto|lines|wrap|stack|each","size":"fit1|width"|px,"flip":false}
@@ -137,7 +138,7 @@ async function hanTilingGrid(text, mm) {
 let bodies, html, note = "";
 switch (spec.kind) {
   case "big":
-    bodies = C.buildBigBodies(String(spec.text ?? ""), { ...bopts, layout: spec.layout, size: spec.size, flip: spec.flip === true });
+    bodies = C.buildBigBodies(String(spec.text ?? ""), { ...bopts, layout: spec.layout, size: spec.size, flip: spec.flip === true, face: spec.face });
     if (bodies[0].big.px) {
       const g = bodies[0].big;
       say("big: layout " + g.layout + ", " + (g.pxs ? "sizes " + g.pxs.filter(Boolean).join("/") : g.px + "px") + "/" + g.lh
@@ -146,7 +147,7 @@ switch (spec.kind) {
     }
     break;
   case "side":
-    bodies = C.buildSideBodies(String(spec.text ?? ""), { ...bopts, dir: spec.dir, size: spec.size });
+    bodies = C.buildSideBodies(String(spec.text ?? ""), { ...bopts, dir: spec.dir, size: spec.size, face: spec.face });
     if (bodies[0].side.px) {
       const g = bodies[0].side;
       say("side: " + g.dir + ", " + g.px + "px/" + g.lh + " (width rule " + g.maxPx + "), " + g.columns + " column(s), "

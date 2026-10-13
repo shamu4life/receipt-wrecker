@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.3.1 (2026-10-12). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.4.0 (2026-10-13). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -42,14 +42,16 @@ streamer's printer has Allow High Roller prints off, since no amount helps.
 
 ## What it outputs
 
-- Big text (High Roller): the words in bold Arial, as large as the paper's width allows
+- Big text (High Roller): the words in the font the block picks (since 1.4.0: Arial Bold, the
+  default, Arial Black, Impact, Comic Sans MS, Georgia, Times New Roman, Courier New, Trebuchet
+  MS, Verdana or Tahoma, all on every Windows PC and each measured), as large as the paper's width allows
   (leaving room for a j's hook or an f's arm at a line's ends), as
   typed, with the words wrapped to the paper, stacked one letter per line, or each line at its
   own size; optionally upside down.
   Example: `Cheer100 <div style="\66ont:700 70px/.8 Arial">HELLO</div>` (the CSS property name "font" is written \66ont to pass this channel's chat filter; see below).
 - Sideways text (High Roller): the words running down the tape using CSS writing-mode; each
-  typed line becomes a column, centred across the paper by its ink, worked out from Arial
-  Bold (most blocks get a small `position:relative;left` shift; a column whose bottom end is a
+  typed line becomes a column, centred across the paper by its ink, worked out from the font's
+  own measurements (most blocks get a small `position:relative;left` shift; a column whose bottom end is a
   letter that draws past its own space, such as an f's arm or a j's hook, gets a
   `padding-bottom` so the bot's box doesn't cut it). Top to bottom (read by turning the receipt
   anticlockwise) or bottom to top (turn it clockwise; needs Edge 132 or newer on the

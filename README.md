@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.3.1](https://img.shields.io/badge/version-1.3.1-blue)](docs/CHANGELOG.md)
+[![Version 1.4.0](https://img.shields.io/badge/version-1.4.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -102,7 +102,8 @@ bot's header and footer; the line under each part's preview gives the whole rece
 
 ### Big text (High Roller)
 
-Your words in bold Arial, as big as the paper allows. `HELLO` with Layout set to Lines:
+Your words in the font you pick (bold Arial unless you pick another), as big as the paper allows.
+`HELLO` with Layout set to Lines:
 
 ```text
 Cheer100 <div style="\66ont:700 70px/.8 Arial">HELLO</div>
@@ -140,8 +141,20 @@ Each line its own size:
 Cheer100 <div style="\66ont:700 69px/.8 Arial">HAPPY</div><div style="\66ont:700 46px/.8 Arial">BIRTHDAY</div><div style="\66ont:700 108px/.8 Arial">SAM</div>
 ```
 
-The font is fixed: the streamer's Windows has Arial, so the sizes in the app are the sizes on
-the tape. A few letters draw a little past their own space (the hook of a j, the arm of an f),
+**Font** (since 1.4.0, for Big and Sideways text alike): Arial Bold (the default), Arial Black,
+Impact, Comic Sans MS, Georgia, Times New Roman, Courier New, Trebuchet MS, Verdana or Tahoma,
+each block its own. Every Windows PC has all ten, so the sizes in the app are the sizes on the
+tape: each face's letter widths, ink, cap height and line heights were measured from Microsoft's
+own copies of the fonts. `HELLO` in Impact, which draws tall, narrow capitals:
+
+```text
+Cheer100 <div style="\66ont:400 105px/.85 Impact">HELLO</div>
+```
+
+A phone usually lacks some of these faces; then the card says the preview draws another one, and
+the receipt still prints the font you picked. Each face gets the line heights its own ink needs
+(Comic Sans MS's capitals dip below the line, Georgia's 3, 4, 5, 7 and 9 hang below it), so the
+same text can take a different number of cheers in another font. A few letters draw a little past their own space (the hook of a j, the arm of an f),
 so a line that starts or ends with one is sized a touch smaller, to keep that ink on the paper.
 Emoji are allowed and print as grey dots (the printer has no colour). Invisible
 characters from copy-paste (zero-width spaces and the like) are left out, and the card says
@@ -165,8 +178,8 @@ quarter turn to the left) and it reads left to right, line 1 on top. *Bottom to 
 The letters sit in the middle of the paper. A column's ink isn't in the middle of its line:
 lowercase and punctuation with tails would sit toward the side their tails point to, and
 capitals a little toward their tops, so the app moves the block back by that much
-(`position:relative;left:…px`), worked out from Arial Bold, the streamer's font. Nothing is cut
-off. (A preview on a computer without Arial can show capitals a few pixels off the middle.)
+(`position:relative;left:…px`), worked out from the font's own measurements. Nothing is cut
+off. (A preview on a computer without the font can show it a few pixels off the middle.)
 A few letters draw a little past their own space, like the hook of a j or the arm of an f. When
 one of them sits at the bottom end of a column, the app adds that much room below the column
 (`padding-bottom:…px`), so the bot's message box doesn't cut it off.
@@ -394,8 +407,8 @@ Work saved by an older version is converted the first time you open 1.0.0:
   a Glyph-art block;
 - old Giant type and Type blocks become Big text or Sideways text (the nearest match:
   upside-down text stays upside down, sideways stays sideways);
-- emote names print as words, and the old fonts and italics are gone (big text is always
-  bold Arial);
+- emote names print as words, and the old fonts and italics are gone (big text starts in bold
+  Arial; pick a font on its card);
 - the stack as it was is saved once, as a preset called **Before 1.0.0**, so nothing is lost.
   Your own presets are never overwritten. A preset is converted when you load it; the stored
   copy stays as it was, and **Export JSON** keeps it that way. A note above the blocks says

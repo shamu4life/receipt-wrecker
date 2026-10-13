@@ -145,17 +145,18 @@ Cheer100 <div style="\66ont:700 69px/.8 Arial">HAPPY</div><div style="\66ont:700
 Impact, Comic Sans MS, Georgia, Times New Roman, Courier New, Trebuchet MS, Verdana or Tahoma,
 each block its own. Every Windows PC has all ten, so the sizes in the app are the sizes on the
 tape: each face's letter widths, ink, cap height and line heights were measured from Microsoft's
-own copies of the fonts. `HELLO` in Impact, which draws tall, narrow capitals:
+own copies of the fonts. `HELLO` in Impact, which draws tall, narrow capitals (Lines layout):
 
 ```text
-Cheer100 <div style="\66ont:400 105px/.85 Impact">HELLO</div>
+Cheer100 <div style="\66ont:400 105px/.9 Impact">HELLO</div>
 ```
 
-A phone usually lacks some of these faces; then the card says the preview draws another one, and
-the receipt still prints the font you picked. Each face gets the line heights its own ink needs
-(Comic Sans MS's capitals dip below the line, Georgia's 3, 4, 5, 7 and 9 hang below it), so the
-same text can take a different number of cheers in another font. A few letters draw a little past their own space (the hook of a j, the arm of an f),
-so a line that starts or ends with one is sized a touch smaller, to keep that ink on the paper.
+A phone usually lacks some of these fonts; then the card says the preview draws another font,
+and the receipt still prints the one you picked. Each font gets the line heights its own ink
+needs (Comic Sans MS's capitals dip below the line, Georgia's 3, 4, 5, 7 and 9 hang below it), so
+the same text can take a different number of cheers in another font. A few letters draw a little
+past their own space (the hook of a j, the arm of an f), so a line that starts or ends with one is
+sized a touch smaller, to keep that ink on the paper.
 Emoji are allowed and print as grey dots (the printer has no colour). Invisible
 characters from copy-paste (zero-width spaces and the like) are left out, and the card says
 so.
@@ -179,7 +180,7 @@ The letters sit in the middle of the paper. A column's ink isn't in the middle o
 lowercase and punctuation with tails would sit toward the side their tails point to, and
 capitals a little toward their tops, so the app moves the block back by that much
 (`position:relative;left:…px`), worked out from the font's own measurements. Nothing is cut
-off. (A preview on a computer without the font can show it a few pixels off the middle.)
+off. (A preview on a computer without the font draws a stand-in, which can sit off the middle.)
 A few letters draw a little past their own space, like the hook of a j or the arm of an f. When
 one of them sits at the bottom end of a column, the app adds that much room below the column
 (`padding-bottom:…px`), so the bot's message box doesn't cut it off.

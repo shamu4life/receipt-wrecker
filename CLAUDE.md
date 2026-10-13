@@ -295,7 +295,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **161 keys**. Regenerate the list instead of trusting this one:
+test harness **163 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -308,7 +308,7 @@ test harness **161 keys**. Regenerate the list instead of trusting this one:
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `FONT_PROP`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
 `bigFitPx`, `BIG_EDGE`, `bigEdge`, `bigEdgeEm`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
-`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `SIDE_DIRS`,
+`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `FACE_PROBE`, `faceMatches`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sidePad`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
@@ -657,38 +657,55 @@ through `faceIdOf` in `bigOpts` and `sideOpts`; junk is `"arial"`). `FACE_IDS`: 
 impact, comic, georgia, times, courier, trebuchet, verdana, tahoma, labelled Arial Bold (default),
 Arial Black, Impact, Comic Sans MS, Georgia, Times New Roman, Courier New, Trebuchet MS, Verdana and
 Tahoma. Every one ships with Windows, so the streamer's Edge has it. The owner asked for "a bigger
-menu" (2026-10-12): the pre-1.0.0 menu's faces that Windows ships, plus Trebuchet MS, Verdana and
-Tahoma. A face is a literal family name inside the `\66ont` shorthand, so no new token, tag or
-property; the names are new words in chat, and the free chat test is how a channel finds out.
+menu" (2026-10-12): the pre-1.0.0 menu (Arial, Arial Black, Impact, Comic Sans MS, Georgia, and its
+Serif and Monospace, which were Windows' Times New Roman and Courier New) plus Trebuchet MS, Verdana
+and Tahoma. Its Segoe Script and Papyrus are not offered: a Mac has no Segoe Script, and its Papyrus
+is Apple's own copy, so neither could be measured from Microsoft's files. A face is a literal family
+name inside the `\66ont` shorthand, so no new token, tag or property; the names are new words in
+chat, and the free chat test is how a channel finds out.
 - **Arial Bold keeps its hand-measured tables.** `ARIAL_FACE` points at `BIG_W`, `BIG_EDGE`,
   `BIG_CAPS_SAFE`, `BIG_CAP_EM`, the two line heights, `SIDE_INK` (`ink: null`) and the width rule's
-  0.4 / 0.0305 / 0.575 / 0.6, so every Arial message is byte for byte what 1.3.1 sent:
+  0.4 / 0.0305 / 0.575 / 0.6, so every Arial message in Latin-1 is byte for byte what 1.3.1 sent:
   `test/faces.test.mjs` holds 859 cases (Big and Sideways, both papers, every layout and direction,
   fixed and fitted sizes, flips, a short box, the card's notes) to `test/fixtures/arial-1.3.json`,
   hashes written once from 1.3.1's core. Never rewrite the fixture to make a change pass: a changed
-  Arial case is a changed print.
+  Arial case is a changed print. Beyond Latin-1, Arial Bold takes `FACE_EXTRA_ARIAL`, generated
+  like the other faces: the WGL4 characters it draws wider than `BIG_W_DEFAULT` (№ 1.115em, Љ Њ Ш
+  Щ Ю) and the ink of the WGL4 characters at or past their advance (€, Ĩ, ĵ and more). That is the
+  one change to Arial: a message holding one of them is measured as it prints ("№1" was cut in
+  1.3.1).
 - **The other nine are generated** by `tools/fontmetrics.mjs` into the block between `BEGIN` and
   `END generated faces` (never edit it by hand; `--check` compares): `FACE_CHARS` (`BIG_W`'s 189
   characters) and per face in `FACE_TABLES`: `w` (advances), `lo` / `hi` (ink below and above the
-  baseline; arrays in thousandths of an em), `edge` (`BIG_EDGE`'s rule, plus 0.001em for the
-  anti-aliased edge), `capEm`, `lhCaps` (the tightest of .8 .85 .9 .95 1 at which every capital but
-  Q fits its line box, the baseline (L + ascent - descent) / 2 below its top), `caps` (`BIG_CAPS_SAFE`'s
+  baseline; arrays in thousandths of an em), `wide` (the WGL4 characters beyond `FACE_CHARS`, Latin
+  Extended-A, Greek, Cyrillic, the Windows-1252 extras and the numero sign, that the face draws
+  wider than `wDefault`: Arial Black's Ш is 1.11em and cut "ШОК" at the paper's edge, Verdana's
+  per-mille 1.78em), `edge` (every side whose ink comes within 0.01em of the advance's edge or
+  crosses it, as the crossing plus 0.001em for the anti-aliased edge, WGL4 included: a sideways
+  run's end has no margin, and Georgia's g and Impact's t and j lost a dot row there), `capEm`,
+  `lhCaps` (the tightest of .8 .85 .9 .95 1 at which every capital but Q fits its line box with
+  0.012em to spare, the baseline (L + ascent - descent) / 2 below its top), `caps` (`BIG_CAPS_SAFE`'s
   candidates, Q included, that fit at `lhCaps`), `lhText` (the tightest of 1.15 to 1.5 at which every
-  character fits), `box` ([-descent, ascent]), `wDefault` (the widest listed, at least 1em),
-  `side` (the width rule's numbers, plus 0.5px kept back from each edge for the whole-px centring
-  shift: their capitals' half-span is exact, where Arial Bold's 0.3695 leaves slack) and `kern`
-  (below). Line heights, capitals and tight line: Arial Black .85 / 1.25, Impact .85 / 1.25,
-  Comic Sans MS .95 / 1.4 (its capitals dip up to 0.06em below the baseline by design, its accents
-  reach its whole ascent), Georgia .8 / 1.15 (its old-style 3 4 5 7 9 hang 0.18em, so they are not
-  caps-safe), Times New Roman and Courier New .8 / 1.15, Trebuchet MS .8 / 1.2, Verdana and Tahoma
-  .85 / 1.25.
+  character fits, with the same spare), `box` ([-descent, ascent]), `wDefault` (the widest listed,
+  at least 1em), `side` (the width rule's numbers, plus 0.5px kept back from each edge for the
+  whole-px centring shift: their capitals' half-span is exact, where Arial Bold's 0.3695 leaves
+  slack) and `kern` (below). The spare: with the ink exactly at the box's edge, the last line's
+  descenders lost 0.5 to 0.9px to the box's clip (Comic Sans's j at 65px, Georgia's y at 29px); it
+  covers that from about 40px up, and below a dot row can still go, as for Arial Bold's flipped
+  capitals. Line heights, capitals and text: Arial Black .85 / 1.25, Impact .9 / 1.25, Comic Sans
+  MS 1 / 1.45 (its capitals dip up to 0.06em below the baseline by design, its accents reach its
+  whole ascent), Georgia .8 / 1.2 (its old-style 3 4 5 7 9 hang 0.18em, so they are not caps-safe),
+  Times New Roman .8 / 1.15, Courier New and Trebuchet MS .8 / 1.2, Verdana and Tahoma .85 / 1.25.
 - **How they are measured.** In Playwright's Chromium on a Mac, from Microsoft's own copies of the
-  fonts (`/System/Library/Fonts/Supplemental`), canvas `measureText` at 1000px. The tool calibrates
-  on Arial Bold first (every `BIG_W` advance must come out exactly, and it must have no widening
-  kerning, or it stops) and stops on a face that measures as the browser's fallback. Every face's
-  hhea ascent and descent (what a Mac lays out with) equal the OS/2 win metrics the streamer's
-  Windows uses (none sets USE_TYPO_METRICS), so the vertical metrics carry over; the advances are
-  Microsoft's, from the Mac's copies, not checked against Windows' own files: a test print settles it.
+  fonts (`/System/Library/Fonts/Supplemental`), canvas `measureText` at 1000px; the pairs with the
+  space in laid-out text, since canvas doesn't kern across a space. The tool calibrates on Arial
+  Bold first (every `BIG_W` advance must come out exactly, and it must have no widening kerning, or
+  it stops) and stops on a face that measures as the browser's fallback at its own weight. A WGL4
+  character counts only when every generic fallback measures it the same, so the face itself draws
+  it; one the face lacks prints in another font and counts `wDefault`. Every face's hhea ascent and
+  descent (what a Mac lays out with) equal the OS/2 win metrics the streamer's Windows uses (none
+  sets USE_TYPO_METRICS), so the vertical metrics carry over; the advances are Microsoft's, from the
+  Mac's copies, not checked against Windows' own files: a test print settles it.
 - **One face is current while a block is planned or built.** The entry points `bigPlan`,
   `buildBigBodies`, `bigReport` (the face its bodies were built in: `big.face`), `sidePlan` and
   `buildSideBodies` set it with `withFace(id, fn, args)` (an absent id keeps the current one), and
@@ -698,24 +715,34 @@ property; the names are new words in chat, and the free chat test is how a chann
   entry point it is Arial Bold (the probes, and a test calling a helper directly). The card and
   `renderBlockBodies` pass `face` in every option object; so must anything new that builds a block.
 - **Kerning that widens** (`kern`, `bigKern(a, b)`). The model sums advances and leaves out kerning
-  that tightens (an upper bound), but Arial Black spaces 66 pairs apart (rv, ry, f! up to 0.083em),
-  Impact 258 (X., vy up to 0.035em) and Trebuchet MS one (vi): Arial Black's "fluff" ran 4.9px
-  longer down the tape than modelled. Every sum of advances adds the pair each glyph makes with the
-  one before it in its word (no such pair involves the space). Arial Bold has none.
+  that tightens (an upper bound), but Arial Black spaces 66 pairs apart within words (rv, ry, f! up
+  to 0.083em) and one with the space (an f before it, 0.058em, which the page keeps even where the
+  line breaks at that space), Impact 258 (X., vy up to 0.035em) and Trebuchet MS one (vi): Arial
+  Black's "fluff" ran 4.9px longer down the tape than modelled, and "if of if of" wrapped once more
+  than counted. Every sum of advances adds the pair each glyph makes with the one before it in its
+  word, and a word's measure adds the pairs its ends make with the spaces around it
+  (`bigSpaceKern`), in the line widths, the wrap and the sideways run. Arial Bold has none.
 - **Sideways in a roomier line height.** The size is also capped so the columns' line boxes fit the
   paper (`boxPx` in `sidePlan`: margin:auto can't centre a wider block; Arial Black's .85 made one
   column of capitals 255px wide at 300px on 80 mm). For Arial Bold the cap never binds below the
   Size menu's 300.
-- **Verified** with `tools/facecheck.mjs` (a Mac, the real fonts): 2,320 messages, every face on
-  both papers, 12 Big texts in six layouts and sizes and flipped and 8 Sideways texts both ways
-  and sizes, through the vendored page with the box's clip lifted. Big text's ink is 1.6px or more
-  inside both edges (Arial Bold's own: 1.6 to 2.1), Sideways' 5.3px or more (the model keeps 6),
-  and no message is taller than predicted. The MANDATORY contract test runs every face too.
-- **The preview draws with the viewer's fonts.** `faceOnDevice` (glue) measures a test string in the
-  face over three generic families; when it measures as a fallback (most phones have no Impact,
-  Comic Sans or Tahoma), the card's Font hint says the preview draws another face and the receipt
-  still prints the chosen one. Linux draws Arial, Times New Roman and Courier New with Liberation's
-  metric twins, which measure as the face, rightly.
+- **Verified** with `tools/facecheck.mjs` (a Mac, the real fonts): 4,036 messages, every face on
+  both papers, 20 Big texts (Cyrillic, the per-mille, the numero sign, Œ and an f before a space
+  among them) in six layouts and sizes and flipped, and 15 Sideways texts both ways and sizes,
+  through the vendored page with the box's clip lifted. Big text's ink is 1.6px or more inside both
+  edges, Sideways' 5.3px or more (the model keeps 6), no ink runs past the box's top or bottom by
+  more than 0.5px (1px for a flipped block and for Arial Bold, whose hand tables list no
+  anti-aliased edge: sideways HAPPY over BIRTHDAY on 58 mm runs 0.8px past its end), and no message
+  is taller than predicted. The MANDATORY contract test runs every face too (see Testing).
+- **The preview draws with the viewer's fonts.** `faceOnDevice` (glue) measures `FACE_PROBE`
+  ("HOWimo01") at 100px in the face, with monospace behind it, and `faceMatches(id, widths)` says
+  whether every width is the face's own within 0.75px. A test against the generic families took
+  the stand-in a phone draws under the face's name (Android's Roboto for "Tahoma" and "Verdana") for
+  the face. When it doesn't match (most phones have no Impact, Comic Sans or Tahoma), the card's
+  Font hint says the preview draws another font and the receipt still prints the chosen one. Linux
+  draws Arial, Times New Roman and Courier New with Liberation's metric twins, which match, rightly.
+  The browser tests' hook `window.__rwFaceMissing` (a list of ids) makes the page treat those as
+  missing.
 - A pre-1.0.0 block's old font pick (`fmt.font`) is not carried into `face`: it prints in Arial
   Bold, as it has since 1.0.0. The migration note says the old fonts are gone and points at the
   Font menu.
@@ -1390,9 +1417,12 @@ commit a font or the upstream renderer page.
   (see Faces); `--check` compares, `--json` prints the raw measurements. **`tools/facecheck.mjs`**
   prints every face's Big and Sideways text through the vendored receipt page in one browser
   (`--face ID` for one, `--verbose` for every case) and fails on ink nearer an edge than 0.5px (Big)
-  or 4.5px (Sideways), a message taller than predicted, or one shorter than its upper bound allows
-  (1px for Big; 20px or 4% for Sideways, whose kerning that tightens is left out). Both need the
-  fonts: on a Mac they are Microsoft's own copies. Neither runs in CI.
+  or 4.5px (Sideways), ink past the box's top or bottom by more than 0.5px (1px for a flipped block
+  and for Arial Bold), a message taller than predicted, or one shorter than its upper bound allows
+  (1px for Big; 20px or 4% for Sideways, whose kerning that tightens is left out; never for a
+  message holding a character the face's tables don't list, which counts wide on purpose). A
+  message the card warns about is held only to "never taller". Both need the fonts: on a Mac they
+  are Microsoft's own copies. Neither runs in CI.
 - **`tools/payload.mjs`** (`npm run payload -- '<json>'`) builds a message with the app's own
   builders AND packer, so the bench measures what the app sends. Kinds: `big`, `side`,
   `glyph` (built-in test pictures through the app's own sampling), `plain` (text needs
@@ -1527,7 +1557,9 @@ lives in `test-browser/` and is not in the default matcher.
   `<`. Big and Sideways text run in every face too.
 - **The faces** (`test/faces.test.mjs`): Arial Bold's 859 fixture cases, byte for byte; every
   face's tables, family, weight, line heights, width fit (kerning included), cap height, sideways
-  width rule, centring and run length, worked out from the tables independently.
+  width rule, centring and run length, worked out from the tables independently; the WGL4 widths
+  (`wide`), the pair an f makes with a space in a line, the wrap and a sideways run, and
+  `faceMatches`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
   stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
   Han tiling; plain CJK picture; a pasted mosaic in Han text as typed; both probes; a Han and an
@@ -1542,7 +1574,12 @@ lives in `test-browser/` and is not in the default matcher.
   the payload exactly; zero policy violations; and the height within tolerance (at most 1px
   over the core's prediction; at most 1px under, or 20px under for sideways text, whose
   prediction is an upper bound). Its fixture asserts it saw raw parts, plain parts, a trimmed
-  part and at least one such no-op reset.
+  part and at least one such no-op reset. Every face runs too, on both papers (Big text in capitals
+  and mixed case, Sideways both ways): the markup always, and the heights and cuts where this
+  browser draws the face (`faceMatches` on widths measured in the page; on CI's Linux, Arial Bold,
+  Times New Roman and Courier New through Liberation's metric twins). Elsewhere the browser draws
+  another font, whose lines run longer and wrap, so only the markup is held; the fixture asserts
+  at least one part was held in full.
 - **Copy is compared byte for byte with the pure core** for every mode, both papers, above and
   below the threshold. Browser tests capture payloads by stubbing
   `navigator.clipboard.writeText` and clicking Copy; canvas-backed expectations are computed in

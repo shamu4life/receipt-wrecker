@@ -11,16 +11,26 @@
 // For each message (a packed part, Cheer line first, as Copy sends it) it renders the cheer the
 // way the bot does (the page at its print width and dot scale, PrinterBot.render with what a 3.0
 // roll printer gets), then lifts #receipt-content's clip (overflow, max-height, contain), so
-// ink the box would cut shows, and reads the dark pixels (the bot's own grey < 128) across the
-// whole page width over the message box's height:
+// ink the box would cut shows, hides the rest of the receipt (header, picture, footer), and reads
+// the dark pixels (the bot's own grey < 128) across the whole page width, from 80px above the
+// message box to 80px below it:
 //   - Big text: the ink must stay inside the message box with at least BIG_MARGIN px each side.
 //   - Sideways text: at least SIDE_MARGIN px each side (the app models 6, and keeps 0.5 back for
 //     the whole-px centring shift; the bench's rounding takes up to about 1.3px).
+//   - Above and below: no ink past the box's top or bottom edge (a sideways run's end, a flipped
+//     block's overshoot) by more than 0.5px. A flipped block, and Arial Bold, may go 1px: a
+//     flipped block's capitals and accents overshoot the line box by up to about a px at small
+//     sizes (Chromium rounds the ascent to whole px; CLAUDE.md's "Known limit, upside down"), and
+//     Arial Bold's hand tables, unchanged since 1.3.1, list no anti-aliased edge (sideways HAPPY
+//     over BIRTHDAY on 58 mm runs 0.8px past its end).
 //   - The message box's height: what the page laid out against the packer's contentPx: at most
 //     1px over, and at most 1px under for big text. Sideways text's length is an upper bound (the
 //     model leaves out kerning that tightens), so it may come up short by 20px or 4% of the
 //     message, whichever is more: HAPPY over BIRTHDAY kerns 23px shorter in Arial Black, Times
 //     New Roman and Trebuchet MS (3.2% in Trebuchet). Short only splits a run a little early.
+//     A message holding a character the face's tables don't list (Cyrillic, say) isn't held to
+//     "short" at all: the model counts such a character at least the face's widest Latin-1
+//     letter, on purpose, so "ШОК" sideways runs well short of its prediction.
 // A message the card already warns about (a line too wide for the paper at a fixed size, taller
 // than the box, too long to send) is held only to "never taller than predicted": its letters are
 // cut where the card says, and a too-wide line's height is counted as an upper bound.
@@ -36,9 +46,16 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = join(HERE, "../.render/facecheck");
 const PAPER = { 80: { pageW: 272, dotsW: 576 }, 58: { pageW: 181, dotsW: 384 } };
 const BIG_MARGIN = 0.5, SIDE_MARGIN = 4.5;
+// Beyond Latin-1 too (the review of 1.4.0: Cyrillic, the per-mille, the numero sign and OE were
+// wider than the default width), and an f before a space (Arial Black kerns it, even where the
+// line breaks there).
+const CP = (...cps) => String.fromCodePoint(...cps);
+const SHOK = CP(0x428, 0x41E, 0x41A), YULYA = CP(0x42E, 0x41B, 0x42F), PERMILLE = CP(0x2030), NUMERO = CP(0x2116), OE = CP(0x152);
 const BIG_TEXTS = ["HELLO", "jiff jog", "Happy birthday", "QUIZ 100%", "WWW MMM", "Ægir ÎÏ", "gjpqy", "THE END",
-  "Sphinx of black quartz", "1234567890", "fifty-five?!", "Stuff & Things"];
-const SIDE_TEXTS = ["HELLO", "jumping", "Happy birthday", "HAPPY\nBIRTHDAY", "gg", "QUIZ", "fluff", "1, 2; 3"];
+  "Sphinx of black quartz", "1234567890", "fifty-five?!", "Stuff & Things", SHOK, YULYA + " " + SHOK, "100" + PERMILLE,
+  NUMERO + "1", OE + "uvre", "if of if of", "one of a kind if you know", "OGCS"];
+const SIDE_TEXTS = ["HELLO", "jumping", "Happy birthday", "HAPPY\nBIRTHDAY", "gg", "QUIZ", "fluff", "1, 2; 3", "just", "jiff",
+  "stuff", "full of beef and full of stuff", "self of self of self", SHOK, "100" + PERMILLE];
 
 function parseArgs(argv) {
   const o = { faces: [], verbose: false };
@@ -74,16 +91,17 @@ function cases(C, face) {
     const k = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, paperMm });
     const o = { budget: k.budget, heightPx: k.room, contentW: k.contentW, face };
     const warnedBody = (b) => { const r = b.big || b.side; return !!r && (!r.fits || r.tall || r.over); };
-    const add = (what, bodies) => C.packStackBodies(bodies, k).forEach((p, i) => out.push({ paperMm, what: what + (i ? " part " + (i + 1) : ""), part: p,
-      side: /^side/.test(what), warned: p.bodies.some(warnedBody) }));
+    const f = C.faceOf(face), listed = (g) => g === " " || g === "\n" || Object.prototype.hasOwnProperty.call(f.w, g);
+    const add = (what, bodies, text, flipped) => C.packStackBodies(bodies, k).forEach((p, i) => out.push({ paperMm, what: what + (i ? " part " + (i + 1) : ""), part: p,
+      side: /^side/.test(what), warned: p.bodies.some(warnedBody), unlisted: !Array.from(text).every(listed), flipped: !!flipped }));
     for (const t of BIG_TEXTS) {
       for (const [layout, size] of [["lines", "fit1"], ["lines", "width"], ["wrap", "fit1"], ["auto", "fit1"], ["each", "fit1"], ["lines", 48]]) {
-        add("big " + layout + " " + size + " " + JSON.stringify(t), C.buildBigBodies(t, { ...o, layout, size }));
+        add("big " + layout + " " + size + " " + JSON.stringify(t), C.buildBigBodies(t, { ...o, layout, size }), t);
       }
-      add("big flipped " + JSON.stringify(t), C.buildBigBodies(t, { ...o, layout: "lines", size: "fit1", flip: true }));
+      add("big flipped " + JSON.stringify(t), C.buildBigBodies(t, { ...o, layout: "lines", size: "fit1", flip: true }), t, true);
     }
     for (const t of SIDE_TEXTS) for (const dir of ["down", "up"]) for (const size of ["fit1", "width"]) {
-      add("side " + dir + " " + size + " " + JSON.stringify(t), C.buildSideBodies(t, { ...o, dir, size }));
+      add("side " + dir + " " + size + " " + JSON.stringify(t), C.buildSideBodies(t, { ...o, dir, size }), t);
     }
   }
   return out;
@@ -127,22 +145,36 @@ async function main() {
               { highRollerBits: 25, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true, pxPerInch: 96 });
             const box = document.getElementById("receipt-content");
             box.style.overflow = "visible"; box.style.maxHeight = "none"; box.style.contain = "none";
+            // Only the message's ink: everything else on the receipt goes invisible (the box keeps its place).
+            for (let el = box; el && el !== document.body; el = el.parentElement) {
+              for (const sib of el.parentElement ? el.parentElement.children : []) if (sib !== el) sib.style.visibility = "hidden";
+            }
             await new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok)));
             const rc = box.getBoundingClientRect(), part = box.querySelector(".part");
             return { ok: res && res.ok, security: (res && res.security) || [], raw: !!(part && part.classList.contains("raw")),
                      box: { x: rc.x, y: rc.y, right: rc.right, bottom: rc.bottom, height: rc.height }, page: document.documentElement.scrollHeight };
           }, { message: c.part.payload });
           if (!r.ok || r.security.length || !r.raw) { stats.fails.push(c.what + ": render " + JSON.stringify(r).slice(0, 160)); continue; }
-          const shot = await page.screenshot({ clip: { x: 0, y: r.box.y, width: pageW, height: Math.max(1, r.box.height) }, type: "png" });
+          const top = Math.max(0, r.box.y - 80), bottom = Math.min(r.page, r.box.bottom + 80);
+          const shot = await page.screenshot({ clip: { x: 0, y: top, width: pageW, height: Math.max(1, bottom - top) }, type: "png" });
+          // Put the receipt back as render() left it, for the next message.
+          await page.evaluate(() => {
+            const box = document.getElementById("receipt-content");
+            box.style.overflow = ""; box.style.maxHeight = ""; box.style.contain = "";
+            document.querySelectorAll("[style*='visibility']").forEach((el) => { el.style.visibility = ""; });
+          });
           const img = decodePng(shot);
           const k = inkBox(img.rgba, img.w, img.h, 0, 0, img.w, img.h);
           stats.n++;
           // The message box's own height (the lead's line is inside it) against the packer's.
           const dh = r.box.height - c.part.contentPx;
           if (dh > 1.01) { stats.over++; stats.fails.push(c.what + ": " + r.box.height.toFixed(2) + "px laid out, predicted " + c.part.contentPx); }
-          if (!c.warned && dh < (c.side ? -Math.max(20, 0.04 * c.part.contentPx) - 0.01 : -1.01)) { stats.under++; stats.fails.push(c.what + ": " + r.box.height.toFixed(2) + "px laid out, predicted " + c.part.contentPx); }
+          if (!c.warned && !c.unlisted && dh < (c.side ? -Math.max(20, 0.04 * c.part.contentPx) - 0.01 : -1.01)) { stats.under++; stats.fails.push(c.what + ": " + r.box.height.toFixed(2) + "px laid out, predicted " + c.part.contentPx); }
           if (!k || c.warned) { if (c.warned) stats.warned++; continue; }
           const left = k.left / dsf - r.box.x, right = r.box.right - k.right / dsf;
+          const above = (r.box.y - top) - k.top / dsf, below = (top + k.bottom / dsf) - r.box.bottom;
+          const vtol = c.flipped || id === "arial" ? 1 : 0.5;
+          if (above > vtol || below > vtol) stats.fails.push(c.what + ": ink " + (above > 0.5 ? above.toFixed(1) + "px above the box's top" : below.toFixed(1) + "px below its bottom"));
           const min = c.side ? SIDE_MARGIN : BIG_MARGIN;
           if (c.side) { stats.sideL = Math.min(stats.sideL, left); stats.sideR = Math.min(stats.sideR, right); }
           else { stats.bigL = Math.min(stats.bigL, left); stats.bigR = Math.min(stats.bigR, right); }

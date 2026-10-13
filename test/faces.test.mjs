@@ -146,11 +146,12 @@ test("each face takes its own line heights: tight for capitals that fit it, room
   }
   // Georgia's old-style 3 4 5 7 9 hang below the baseline; its 0 1 2 6 8 don't.
   assert.equal(lh("1260", "georgia"), ".8");
-  assert.equal(lh("3457", "georgia"), "1.15");
+  assert.equal(lh("3457", "georgia"), C.faceOf("georgia").lhText);
   assert.equal(lh("3457", "arial"), ".8");
-  // Comic Sans's capitals dip below the baseline by design; Impact's stand tall.
-  assert.equal(lh("HELLO", "comic"), ".95");
-  assert.equal(lh("HELLO", "impact"), ".85");
+  // Comic Sans's capitals dip below the baseline by design; Impact's stand tall. Each keeps 0.012em
+  // spare above and below its ink for the anti-aliased edge (review of 1.4.0).
+  assert.equal(lh("HELLO", "comic"), "1");
+  assert.equal(lh("HELLO", "impact"), ".9");
 });
 
 test("the card's capitals in cm follow the face's cap height", () => {
@@ -224,4 +225,84 @@ test("a face's widening kerning is counted: a pair the face spaces apart makes t
   const ink = em + 2 * Math.max(edge("r", 0), edge("v", 1));
   const fit = C.bigFit("rvrv", { layout: "lines", size: "width", paperMm: 80, face: "arialblack" });
   assert.equal(fit.px, Math.min(400, Math.floor((244 - 2 - 0.5 * 4) / ink)));
+});
+
+// ── Review of 1.4.0 ──
+const SHA = String.fromCodePoint(0x428), NUMERO = String.fromCodePoint(0x2116), PERMILLE = String.fromCodePoint(0x2030);
+const own = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+// A face's width for one character, as the model counts it.
+const glyphW = (f, ch) => own(f.w, ch) ? f.w[ch] : own(f.wide, ch) ? f.wide[ch] : f.wDefault;
+const edgeOf = (f, ch, side) => (own(f.edge, ch) ? f.edge[ch] : [0, 0])[side];
+
+test("beyond Latin-1, a face counts its own width where it draws a character wider than its default", () => {
+  // The default width (the widest Latin-1 letter, at least 1em) was no upper bound: Arial Black's
+  // Ш is 1.11em and cut "ШОК" at the paper's edge; Verdana's per-mille is 1.78em; even Arial Bold's
+  // numero sign is 1.115em, and "№1" was cut in 1.3.1.
+  assert.ok(C.faceOf("arialblack").wide[SHA] > 1.05, "Arial Black Sha");
+  assert.ok(C.faceOf("verdana").wide[PERMILLE] > 1.7, "Verdana per-mille");
+  assert.ok(C.faceOf("arial").wide[NUMERO] > 1.1, "Arial Bold numero sign");
+  for (const [face, text] of [["arialblack", SHA + "OK"], ["verdana", "100" + PERMILLE], ["arial", NUMERO + "1"]]) {
+    const f = C.faceOf(face), gs = Array.from(text);
+    let em = 0;
+    gs.forEach((g, i) => { em += glyphW(f, g) + (i && own(f.kern, gs[i - 1] + g) ? f.kern[gs[i - 1] + g] : 0); });
+    const ink = em + 2 * Math.max(edgeOf(f, gs[0], 0), edgeOf(f, gs[gs.length - 1], 1));
+    const fit = C.bigFit(text, { layout: "lines", size: "width", paperMm: 80, face });
+    assert.equal(fit.px, Math.min(400, Math.floor((244 - 2 - 0.5 * gs.length) / ink)), face + " " + text);
+  }
+});
+
+test("Arial Black's f before a space widens it, in a line, at a line break and down the tape", () => {
+  // Canvas measureText doesn't kern across a space, but the page does: Arial Black adds 0.058em
+  // after an f that a space follows, even where the line breaks at that space. "if of if of"
+  // wrapped once more than the model counted, and a sideways run ran past the bot's box.
+  const f = C.faceOf("arialblack"), k = (pair) => (own(f.kern, pair) ? f.kern[pair] : 0);
+  assert.ok(k("f ") > 0.05, JSON.stringify(k("f ")));
+  // A word's width as the model counts it before a break: its glyphs, the pairs inside it, and
+  // the pairs it makes with the spaces around it.
+  const wordEm = (w, i, n) => {
+    const gs = Array.from(w);
+    let em = 0;
+    gs.forEach((g, j) => { em += f.w[g] + (j ? k(gs[j - 1] + g) : 0); });
+    return em + (i < n - 1 ? k(gs[gs.length - 1] + " ") : 0) + (i ? k(" " + gs[0]) : 0);
+  };
+  const linesAt = (text, px, kerned) => {
+    const words = text.split(" "), sp = f.w[" "];
+    let n = 0, em = 0, g = 0, open = false;
+    words.forEach((w, i) => {
+      const e = kerned ? wordEm(w, i, words.length) : wordEm(w, 0, 1), wg = Array.from(w).length;
+      if (open && (em + sp + e) * px <= 244 - 2 - 0.5 * (g + 1 + wg) + 1e-6) { em += sp + e; g += 1 + wg; return; }
+      n++; em = e; g = wg; open = true;
+    });
+    return n;
+  };
+  let seen = 0;
+  for (let px = 60; px <= 200; px++) {
+    const fit = C.bigFit("if of if of", { layout: "lines", size: px, paperMm: 80, face: "arialblack" });
+    const one = px * (wordEm("if", 0, 4) + f.w[" "] + wordEm("of", 1, 4) + k(" i")) <= 0;   // never: keeps the lint quiet
+    if (fit.fits || one) continue;
+    const want = linesAt("if of if of", px, true);
+    if (want !== linesAt("if of if of", px, false)) seen++;
+    assert.equal(Math.round(fit.lengthPx / (px * 1.25)), want, "at " + px + "px");
+  }
+  assert.ok(seen > 0, "fixture: no size where the f's kerning changes the count");
+  // Down the tape: the f before the space counts in the run's length.
+  const kx = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25 });
+  const body = C.buildSideBodies("if of", { size: 100, face: "arialblack", budget: kx.budget, heightPx: kx.room, contentW: kx.contentW })[0];
+  const em = wordEm("if", 0, 2) + f.w[" "] + wordEm("of", 1, 2);
+  const pad = C.sidePad(100, [edgeOf(f, "f", 1)]);
+  assert.equal(body.heightPx, Math.round((100 * em + 0.5 * 5 + pad) * 1000) / 1000);
+});
+
+test("faceMatches: a device draws a face when its widths are the face's own", () => {
+  const probe = Array.from(C.FACE_PROBE);
+  for (const id of C.FACE_IDS) {
+    const f = C.faceOf(id), px = probe.map((ch) => 100 * f.w[ch]);
+    assert.equal(C.faceMatches(id, px), true, id);
+    // Another font under the face's name (a phone's stand-in) measures differently somewhere.
+    const off = px.slice(); off[off.length - 1] += 2;
+    assert.equal(C.faceMatches(id, off), false, id);
+  }
+  // A metric twin within a quarter of a px is the face's sizes, rightly (Liberation for Arial).
+  assert.equal(C.faceMatches("arial", probe.map((ch) => 100 * C.BIG_W[ch] + 0.25)), true);
+  for (const junk of [null, [], "x", probe.map(() => NaN)]) assert.equal(C.faceMatches("arial", junk), false, String(junk));
 });

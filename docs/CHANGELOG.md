@@ -19,42 +19,56 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 - **Big text and Sideways text: a Font menu.** Arial Bold (the default), Arial Black, Impact,
   Comic Sans MS, Georgia, Times New Roman, Courier New, Trebuchet MS, Verdana and Tahoma, each
   block its own (one pick for Big and Sideways text alike). Every Windows PC has all ten, so the
-  sizes the card shows are the sizes on the tape: each face's letter widths, ink, cap height, line
+  sizes the card shows are the sizes on the tape: each font's letter widths, ink, cap height, line
   heights and sideways centring were measured from Microsoft's own copies of the fonts. The family's
   name goes into the message as written, inside the same `\66ont` shorthand: no new tag or
   property, and nothing literal says "font". Picking a font below the threshold raises Bits per
-  cheer, as Layout and Size do. When this device doesn't have the face, the card says the preview
-  draws another one and the receipt still prints the face picked.
-- **Each face takes the line heights its own ink needs.** Arial Bold keeps .8 for capitals and
-  1.15 for the rest; Arial Black, Impact, Verdana and Tahoma take .85 and 1.25; Comic Sans MS .95
-  and 1.4 (its capitals dip below the line by design); Trebuchet MS .8 and 1.2; Georgia, Times New
-  Roman and Courier New .8 and 1.15, though Georgia's old-style 3, 4, 5, 7 and 9 hang below the
-  line, so a line with them takes 1.15.
+  cheer, as Layout and Size do. When this device doesn't have the font, the card says the preview
+  draws another font and the receipt still prints the one picked.
+- **Each font takes the line heights its own ink needs**, capitals first, then the rest: Arial
+  Bold .8 and 1.15, as before; Arial Black, Verdana and Tahoma .85 and 1.25; Impact .9 and 1.25;
+  Comic Sans MS 1 and 1.45 (its capitals dip below the line by design); Georgia, Courier New and
+  Trebuchet MS .8 and 1.2, though Georgia's old-style 3, 4, 5, 7 and 9 hang below the line, so a
+  line with them takes 1.2; Times New Roman .8 and 1.15. Each keeps a little room for the soft
+  edge of its letters, so the box's bottom doesn't shave a descender.
+
+### Fixed
+
+- **Letters beyond Latin-1 that are wider than the app counted.** Cyrillic, Greek, the rest of
+  Latin, the per-mille and the numero sign counted as wide as a font's widest Latin-1 letter, and
+  some are wider: in Arial Bold, № (1.115em), Љ, Њ, Ш, Щ and Ю, so "№1" sized to the paper had its
+  edge cut in 1.3.1. Each font now lists the ones it draws wider, and the ink of those that reach
+  past their own space.
+- **The sideways Size menu** said "first lines cut off" for a block of one line too big for the
+  paper; it has no lines to lose, and now says "letters cut off", as the card's note did.
 
 ### Changed
 
-- **Arial Bold prints exactly as before**: every message, height and card note, held to 1.3.1's
-  by 859 test cases.
+- **Arial Bold prints as before**: every message in Latin-1, its height and the card's note for it,
+  held to 1.3.1's by 859 test cases. Beyond Latin-1, see Fixed.
 - **The hints and the migration note** no longer say the font is bold Arial and can't be changed;
   the note for a pre-1.0.0 stack points at the Font menu. An old block's old font pick stays
   unused: it prints in Arial Bold, as it has since 1.0.0.
 
 ### How sure
 
-- **Tests**: 244 unit tests and 80 browser tests (12 and 3 new). `tools/facecheck.mjs` printed
-  2,320 messages (every face, both papers, Big and Sideways text) through the bot's own receipt
-  page on a Mac with Microsoft's fonts: Big text's ink stays 1.6px or more inside both edges,
-  Sideways' 5.3px or more, and no message comes out taller than predicted. It caught what the model
-  missed: Arial Black, Impact and Trebuchet MS space some letter pairs apart (Arial Black's "fluff"
-  ran 4.9px longer down the tape than predicted), and those pairs are now counted. The contract
-  test runs every face too.
+- **Tests**: 247 unit tests and 82 browser tests (15 and 5 new). `tools/facecheck.mjs` printed
+  4,036 messages (every font, both papers, 20 Big texts and 15 Sideways texts in every layout,
+  size and direction, Cyrillic and the per-mille among them) through the bot's own receipt page on
+  a Mac with Microsoft's fonts: Big text's ink stays 1.6px or more inside both edges, Sideways'
+  5.3px or more, no ink runs past the box's top or bottom by more than half a pixel (a pixel for
+  an upside-down block and for Arial Bold), and no message comes out taller than predicted. It
+  caught what the model missed: Arial Black, Impact and Trebuchet MS space some letter pairs apart
+  (Arial Black's "fluff" ran 4.9px longer down the tape than predicted, and an f before a space
+  made "if of if of" wrap once more than counted), the letters beyond Latin-1 above, and the soft
+  edges a tight line height shaved. All are counted now. The contract test runs every font too.
 - **Not printed yet** on the streamer's printer. The fonts measured are the Mac's copies of
   Microsoft's; Windows' own should match, and one test print in each font settles it.
 
 ### Tools
 
-- `tools/fontmetrics.mjs` measures the faces and writes their tables (`--check` compares);
-  `tools/facecheck.mjs` checks every face through the receipt page; `tools/payload.mjs` takes
+- `tools/fontmetrics.mjs` measures the fonts and writes their tables (`--check` compares);
+  `tools/facecheck.mjs` checks every font through the receipt page; `tools/payload.mjs` takes
   `"face"`. Both new tools need the fonts and never run in CI.
 
 ---

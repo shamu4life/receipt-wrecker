@@ -84,7 +84,7 @@ const STABLE = "master", BETA = "beta";
 const BEGIN = "<!-- BEGIN vendored SassyTP printer-bot renderer";
 const END = "<!-- END vendored SassyTP printer-bot renderer -->";
 const SHA_RE = /^[0-9a-f]{40}$/;
-// A version as versions.json and the v/ folders name one ("2.5.0", "3.0.0-beta.6"): no slash, no "..".
+// A version as versions.json and the v/ folders name one ("2.5.0", "3.0.0-beta.7"): no slash, no "..".
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
 const TREE_RENDERER_RE = /^v\/([^/]+)\/renderer\.html$/;
 const ATTENTION = new Set(["changed", "new", "gone", "missing"]);

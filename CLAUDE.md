@@ -9,8 +9,9 @@ Guidance for AI assistants (and humans) working in this repository.
 or a picture into a Twitch chat message that prints big on a streamer's thermal receipt
 printer. The printer is driven by **SassyTP's printer-bot** (MIT,
 <https://github.com/SassyTP/printer-bot>), a Streamer.bot action that draws every cheer on a
-receipt page in headless Edge and prints a screenshot of it. The app targets the newest beta,
-3.0.0-beta.6 (since 1.3.0); a streamer on 2.5.4 prints its messages the same on a roll.
+receipt page in headless Edge and prints a screenshot of it. The app targets the newest beta
+(since 1.3.0), 3.0.0-beta.7 since 1.3.1; a streamer on 2.5.4 prints its messages the same on a
+roll.
 
 The bot prints a cheer in one of two ways, and the whole app follows from that:
 
@@ -37,12 +38,20 @@ logos (trademarks outside the licence).
 
 ## The target, with evidence
 
-Since 1.3.0 the app targets the newest Printer Bot beta, **3.0.0-beta.6**. The facts below were
-read from `v/3.0.0-beta.6/renderer.html` at commit `b7f9991816a58b60bf3b9e29806ec29831b54a2c`
-(renderer `VERSION` `202610110524`, line 392) and from the action's C#, which ships in the same
-repo as the Streamer.bot import (`import.prerelease.txt` on the beta branch, `import.txt` for
-2.5.4; base64 + gzip, decode it to read the code). Line numbers are for that file at that
-commit. Re-check them whenever the pin moves. **A streamer still on 2.5.4 prints the same:**
+Since 1.3.0 the app targets the newest Printer Bot beta: **3.0.0-beta.7** since 1.3.1. The facts
+below were read from `v/3.0.0-beta.7/renderer.html` at commit
+`64afbfc5cfaf1e2dda3cec11efc241f797f02ebf` (renderer `VERSION` `202610122236`, line 392) and from
+the action's C#, which ships in the same repo as the Streamer.bot import (`import.prerelease.txt`
+on the beta branch, `import.txt` for 2.5.4; base64 + gzip, decode it to read the code). Line
+numbers are for that file at that commit. Re-check them whenever the pin moves. **A streamer on
+beta.6 prints the same:** beta.7's page differs from 1.3.0's (`v/3.0.0-beta.6/renderer.html` at
+`b7f9991`, VERSION `202610110524`) only in its version stamps (lines 8 and 392) and its CSP's
+script hash (line 7), so every renderer line number below holds for both, and its C# draws,
+greys and dithers a cheer and builds its raster as before (`EdgeRenderer`, `OptionsFor`,
+`ToGray`, `class Ditherer` and `Raster` unchanged; checked for 1.3.1). What beta.7 adds is the
+dock's: Do not cut Hype Trains (while a train runs, a thermal printer with the box sends each
+receipt, a cheer's included, without the cut and the extra feed), Clear print queue, and a cut
+after Check this printer's test line. **A streamer still on 2.5.4 prints the same:**
 on a roll printer the 2.5.4 page (`v/2.5.0/renderer.html` at `b9f12b0`, VERSION
 `202610090056`) printed every one of 19 measured app messages exactly as beta.6 does, 1.2.0's
 forms included (review of 1.3.0's plan, 2026-10-12); only the profile picture differs (below).
@@ -69,7 +78,7 @@ How a cheer prints:
    or a plain `< 128` threshold; the two diffusion modes force grey ≥ 250 to white and ≤ 5 to
    black first) and sends it as an ESC/POS raster on a continuous roll. A roll dithers exactly
    as in 2.5.4 (3.0's serpentine Floyd-Steinberg is for pictures on Letter only). The dock calls
-   the three dithers Detailed, Soft and Crisp (`PRINTER_OPERATION.md` line 94).
+   the three dithers Detailed, Soft and Crisp (`PRINTER_OPERATION.md` line 105, at the same commit).
 5. 3.0 can print one cheer on several printers (up to 100, picked by rules on Bits or the
    message), each with its own paper and its own Allow High Roller prints, and a stuck printer
    is held back: a cheer sent to it fails at once and is not retried. The app builds for ONE
@@ -238,7 +247,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.3.0. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.3.1. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -1096,9 +1105,10 @@ The preview does not model the receipt; it **is** the bot's receipt page. There 
 hand-written model of the receipt in this app. The pure core's width and height models only
 choose sizes and split parts, and a browser test holds them to what `render()` reports.
 
-**The vendored block.** `public/index.html` carries `v/3.0.0-beta.6/renderer.html` at
-`b7f9991816a58b60bf3b9e29806ec29831b54a2c` (version `202610110524`, Printer Bot 3.0.0-beta.6;
-2.5.4's `v/2.5.0/renderer.html` at `b9f12b0` until 1.3.0) as inert text,
+**The vendored block.** `public/index.html` carries `v/3.0.0-beta.7/renderer.html` at
+`64afbfc5cfaf1e2dda3cec11efc241f797f02ebf` (version `202610122236`, Printer Bot 3.0.0-beta.7,
+since 1.3.1; 3.0.0-beta.6's `v/3.0.0-beta.6/renderer.html` at `b7f9991` in 1.3.0; 2.5.4's
+`v/2.5.0/renderer.html` at `b9f12b0` until 1.3.0) as inert text,
 `<script type="text/plain" id="sassytp-renderer" data-commit data-path data-version>`, placed
 after the app's script. Above it: SassyTP's copyright line, the full MIT permission notice
 (from LICENSE at that commit), the source repo, path, commit and upstream sha256, and a note of
@@ -1169,7 +1179,7 @@ renderer, not this app, decides High Roller or plain, the box and the fade. A fr
 
 **The layout version.** The credit line above the parts (`#rendererCredit`) names the vendored
 layout, read at init from the block's own `data-version` and `data-path` ("Printer Bot
-3.0.0-beta.6's layout v202610110524"; `#rendererVersion`, `#rendererCompare`), and says to compare
+3.0.0-beta.7's layout v202610122236"; `#rendererVersion`, `#rendererCompare`), and says to compare
 it with the Renderer version the streamer's dock shows under Updates: the bot can download a newer
 layout to the dock by itself (UPDATING.md, "Download updates" on by default). Layouts measured to
 print the app's messages the same on a roll are named as such (`SAME_PRINTS`: 2.5.4's
@@ -1248,7 +1258,7 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp.
    prints the renderer `VERSION` it found.
 
    **A beta:** `node tools/vendor-renderer.mjs --prerelease` reads `versions.json` at the head
-   of the beta branch (or at `--ref`), takes `core.prerelease` (`3.0.0-beta.6`) and vendors
+   of the beta branch (or at `--ref`), takes `core.prerelease` (`3.0.0-beta.7`) and vendors
    `v/<prerelease>/renderer.html`. Don't pass a beta commit as `--ref` alone: beta's
    `versions.json` still names the stable frontend as `latest`, so that resolves
    `v/2.5.0/renderer.html`, the 2.5.4 page under a beta's commit. The tool refuses a `--ref`
@@ -1273,7 +1283,7 @@ watch compares against the beta `main` vendors, so it exits 0 until a newer beta
 stable build) ships. (Until 1.3.0 betas were tried on a never-merge canary branch,
 `canary/printer-bot-3`, PR #38; 1.3.0 merged it.) Ask the streamer which Renderer version their
 dock shows: 2.5.4's prints the app's messages the same on a roll, so a streamer who hasn't moved
-to 3.0 loses nothing.
+to 3.0 loses nothing, and beta.6's (202610110524) is beta.7's page in every region the app reads.
 
 ## Measuring: the bench
 

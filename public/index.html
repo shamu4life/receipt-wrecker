@@ -989,7 +989,7 @@
       }
       return isOldText(b) && styled(b.fmt);
     })) {
-      out.push("Big and sideways text are always bold Arial, so their fonts and italics are gone.");
+      out.push("Their fonts and italics are gone: Big and sideways text start in bold Arial, and the Font menu on each card has nine other faces.");
     }
     out.push(loaded
       ? "The preset \"" + name + "\" itself is unchanged: loading it converts it again, and Export JSON keeps it as it was."
@@ -3687,10 +3687,10 @@
       if (r === "hanzi" || ctx.mode === "plain") return hanziBodies(text, block, ctx);
       if (r === "sideways") {
         var so = sideOpts(block);
-        return buildSideBodies(text, { dir: so.dir, size: so.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+        return buildSideBodies(text, { dir: so.dir, size: so.size, face: so.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
       }
       var bo = bigOpts(block);
-      return buildBigBodies(text, { layout: bo.layout, size: bo.size, flip: bo.flip, budget: ctx.budget,
+      return buildBigBodies(text, { layout: bo.layout, size: bo.size, flip: bo.flip, face: bo.face, budget: ctx.budget,
                                     heightPx: ctx.room, contentW: ctx.contentW });
     }
     // Pack a whole block stack into Parts. opts = the stack options (stackOpts(): the
@@ -4932,6 +4932,27 @@
       try { return typeof CSS !== "undefined" && !!CSS.supports && CSS.supports("writing-mode", "sideways-lr"); }
       catch (e) { return false; }
     }
+    // Whether this device draws a face (1.4.0): a test string measured in the face over each of
+    // three generic families must differ from the generic alone in at least one, or the browser
+    // fell back. A Linux preview draws Arial, Times New Roman and Courier New with their metric
+    // twins (Liberation), which measure as the face, rightly: their sizes are the face's.
+    // Remembered per face. window.__rwFaceMissing (a list of ids) is the browser tests' hook.
+    var faceSeen = {};
+    function faceOnDevice(id) {
+      if (window.__rwFaceMissing && window.__rwFaceMissing.indexOf(id) >= 0) return false;
+      if (Object.prototype.hasOwnProperty.call(faceSeen, id)) return faceSeen[id];
+      var f = faceOf(id), ok = true;
+      try {
+        var c = document.createElement("canvas").getContext("2d"), t = "HELLO world 0123 mmmWWWiii";
+        ok = ["monospace", "serif", "sans-serif"].some(function (fb) {
+          c.font = f.weight + " 40px " + fb;
+          var plain = c.measureText(t).width;
+          c.font = f.weight + ' 40px "' + f.css + '", ' + fb;
+          return Math.abs(c.measureText(t).width - plain) > 0.5;
+        });
+      } catch (e) { ok = true; }
+      return (faceSeen[id] = ok);
+    }
     function textCard(block, at, count) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block, at, count));
@@ -4957,7 +4978,7 @@
       render.appendChild(opt("typed", "Han text as typed (small and dense, any cheer)", rNow === "typed"));
       card.appendChild(render);
       var RENDER_HINTS = {
-        big: "Your words in bold Arial, as big as the paper allows. Big text needs a High Roller cheer: "
+        big: "Your words in the Font you pick, as big as the paper allows. Big text needs a High Roller cheer: "
           + "at least the streamer's High Roller threshold. Picking it below the threshold raises Bits per "
           + "cheer to the threshold, or offers to (the card says which, with an Undo), unless the streamer's "
           + "printer has Allow High Roller prints off. Left below it, the bot prints plain text, and this block "
@@ -4977,6 +4998,34 @@
       };
       var renderHint = moreHint();
       card.appendChild(renderHint.el);
+
+      // ── Font (1.4.0): the face Big text and Sideways text print in ──
+      // Every face ships with Windows, so the streamer's Edge has it and the sizes here are the
+      // sizes on the tape. This device may lack it (most phones have no Impact or Comic Sans):
+      // then the preview draws another face, and the hint says so.
+      var faceWrap = mkEl("div");
+      faceWrap.appendChild(mkEl("label", null, "Font"));
+      var faceSel = mkEl("select", { "class": "sel-face" });
+      FACE_IDS.forEach(function (id) {
+        faceSel.appendChild(opt(id, faceOf(id).label + (id === "arial" ? " (default)" : ""), faceIdOf(block.face) === id));
+      });
+      faceWrap.appendChild(faceSel);
+      var faceHint = mkEl("div", { "class": "hint face-hint" });
+      var syncFaceHint = function () {
+        var f = faceOf(block.face);
+        faceHint.textContent = faceOnDevice(f.id)
+          ? "Every Windows PC has " + f.label + ", so the sizes here are the sizes on the tape."
+          : "Every Windows PC has " + f.label + ", so the receipt prints in it, but this device doesn't have it: "
+            + "the preview below draws another face, and its letters and line breaks can differ from the print.";
+      };
+      syncFaceHint();
+      faceWrap.appendChild(faceHint);
+      faceSel.addEventListener("change", function () {
+        block.face = faceIdOf(faceSel.value); syncFaceHint();
+        pickedHighRoller(block, blockRender(block) === "sideways" ? "Sideways text" : "Big text", faceSel);
+        saveBlocks(); update();
+      });
+      card.appendChild(faceWrap);
 
       // ── Big text: Layout, Size, Upside down ──
       // Every option is labelled with what it would PRINT for the text as it stands
@@ -5034,9 +5083,8 @@
       flipRow.appendChild(flipLbl);
       bigWrap.appendChild(flipRow);
       bigWrap.appendChild(moreHint(
-        "The font is bold Arial and can't be changed: the streamer's Windows has it, so the sizes here are "
-        + "the sizes on the tape. Upside down turns the letters (and the order of the lines) round, so the "
-        + "tape reads the right way up when it is turned over.").el);
+        "Upside down turns the letters (and the order of the lines) round, so the tape reads the right way "
+        + "up when it is turned over.").el);
       card.appendChild(bigWrap);
 
       // ── Sideways: Direction, Size ──
@@ -5060,7 +5108,7 @@
       sideWrap.appendChild(moreHint(
         "Each line of your text becomes a column across the paper, line 1 on top once the receipt is turned. "
         + "Bottom to top needs a current Edge on the streamer's PC (version 132 or newer); top to bottom "
-        + "works on every version. Bold Arial, fixed, like Big text.").el);
+        + "works on every version.").el);
       card.appendChild(sideWrap);
 
       // ── Han tiling: stroke weight ──
@@ -5089,13 +5137,13 @@
       // so they are only rebuilt when something they depend on changed. The note below is
       // cheap and always rebuilt: it reads the packed parts.
       var labelKey = "";
-      var capsOf = function (f) {
+      var capsOf = function (f, face) {
         if (f.pxs) {
           var ink = f.pxs.filter(function (p) { return p > 0; });
-          var lo = bigCapCm(Math.min.apply(null, ink)).toFixed(1), hi = bigCapCm(Math.max.apply(null, ink)).toFixed(1);
+          var lo = bigCapCm(Math.min.apply(null, ink), face).toFixed(1), hi = bigCapCm(Math.max.apply(null, ink), face).toFixed(1);
           if (lo !== hi) return "capitals " + lo + "–" + hi + " cm";
         }
-        return "capitals " + cmOf(bigCapCm(f.px));
+        return "capitals " + cmOf(bigCapCm(f.px, face));
       };
       // The message's own length, the bodies' height: the bot's header, the Cheer line and the
       // footer come on top (each part's line under the preview gives the whole receipt).
@@ -5115,7 +5163,7 @@
         var i, o, f, label;
         if (r === "big") {
           var fitFor = function (layout, size) {
-            return bigFit(text, { layout: layout, size: size, flip: bo.flip, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+            return bigFit(text, { layout: layout, size: size, flip: bo.flip, face: bo.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
           };
           for (i = 0; i < bLayout.options.length; i++) {
             o = bLayout.options[i]; label = LAYOUT_LABELS[o.value];
@@ -5123,7 +5171,7 @@
               f = fitFor(o.value, bo.size);
               if (f.px) {
                 label += " · " + (o.value === "auto" ? (f.layout === "stack" ? "stacked, " : f.layout === "wrap" ? "words wrapped, " : "as lines, ") : "")
-                  + capsOf(f) + ", " + tapeOf(f) + (f.cheers > 1 ? " · " + cheersOf(f.cheers) : "") + bigFlags(f);
+                  + capsOf(f, bo.face) + ", " + tapeOf(f) + (f.cheers > 1 ? " · " + cheersOf(f.cheers) : "") + bigFlags(f);
               }
             }
             o.textContent = label;
@@ -5132,31 +5180,31 @@
             o = bSize.options[i];
             if (BIG_SIZE_LABELS[o.value]) {
               label = BIG_SIZE_LABELS[o.value];
-              if (has) { f = fitFor(bo.layout, o.value); if (f.px) label += " · " + capsOf(f) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
+              if (has) { f = fitFor(bo.layout, o.value); if (f.px) label += " · " + capsOf(f, bo.face) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
             } else {
               // What really prints at this size: in Each a size is only a cap (every line at the
               // smaller of it and its own fit), so "400 px · capitals 7.6 cm" promised letters that
               // never print; the line sizes it gives are what the label states.
               var px = parseInt(o.value, 10);
               label = (bo.layout === "each" ? "up to " + px + " px" : px + " px") + " · ";
-              if (has) { f = fitFor(bo.layout, px); label += capsOf(f) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
-              else label += "capitals " + cmOf(bigCapCm(px));
+              if (has) { f = fitFor(bo.layout, px); label += capsOf(f, bo.face) + ", " + tapeOf(f) + " · " + cheersOf(f.cheers) + bigFlags(f); }
+              else label += "capitals " + cmOf(bigCapCm(px, bo.face));
             }
             o.textContent = label;
           }
         } else if (r === "sideways") {
           var sFor = function (size) {
-            return sideFit(text, { dir: so.dir, size: size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+            return sideFit(text, { dir: so.dir, size: size, face: so.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
           };
           var tape = tapeOf;
           for (i = 0; i < sSize.options.length; i++) {
             o = sSize.options[i];
             if (SIDE_SIZE_LABELS[o.value]) {
               label = SIDE_SIZE_LABELS[o.value];
-              if (has) { f = sFor(o.value); if (f.px) label += " · capitals " + cmOf(bigCapCm(f.px)) + ", " + tape(f) + " · " + cheersOf(f.cheers) + sideFlags(f); }
+              if (has) { f = sFor(o.value); if (f.px) label += " · capitals " + cmOf(bigCapCm(f.px, so.face)) + ", " + tape(f) + " · " + cheersOf(f.cheers) + sideFlags(f); }
             } else {
               var spx = parseInt(o.value, 10);
-              label = spx + " px · capitals " + cmOf(bigCapCm(spx));
+              label = spx + " px · capitals " + cmOf(bigCapCm(spx, so.face));
               if (has) { f = sFor(spx); label += ", " + tape(f) + " · " + cheersOf(f.cheers) + sideFlags(f); }
             }
             o.textContent = label;
@@ -5180,7 +5228,7 @@
         if (document.activeElement !== ta) { relabelNow(); return; }
         relabelTimer = setTimeout(function () { relabelTimer = null; if (ta.isConnected) relabelNow(); }, 250);
       };
-      [bLayout, bSize, sSize].forEach(function (sel) {
+      [faceSel, bLayout, bSize, sSize].forEach(function (sel) {
         sel.addEventListener("focus", relabelNow);
         sel.addEventListener("mousedown", relabelNow);
       });
@@ -5258,7 +5306,7 @@
               : t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
                 + "Han tiling (plain text). The sizes above are what it prints at " + bitsWord(t0) + orMore
-                + (raiseOffered() ? (r === "sideways" ? " Changing Direction or Size" : " Changing Layout, Size or Upside down")
+                + (raiseOffered() ? (r === "sideways" ? " Changing Font, Direction or Size" : " Changing Font, Layout, Size or Upside down")
                    + " raises Bits per cheer to " + bitsWord(t0) + ", or offers to." : "")
               : "The streamer's High Roller is off (threshold 0), so every cheer prints as plain text and this block "
                 + "prints as Han tiling. The sizes above apply only if the streamer turns High Roller on.");
@@ -5269,10 +5317,10 @@
           if (own.length) cheers = where.inParts.length;
           else if (r === "big") {
             var bo = bigOpts(block);
-            own = buildBigBodies(text, { layout: bo.layout, size: bo.size, flip: bo.flip, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+            own = buildBigBodies(text, { layout: bo.layout, size: bo.size, flip: bo.flip, face: bo.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
           } else {
             var so = sideOpts(block);
-            own = buildSideBodies(text, { dir: so.dir, size: so.size, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+            own = buildSideBodies(text, { dir: so.dir, size: so.size, face: so.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
           }
           var rep = (r === "big" ? bigReport : sideReport)(own, { cheers: cheers, bits: ctx.bits, limit: ctx.limit, free: !ctx.cheer });
           lines = rep ? rep.split("\n") : [];
@@ -5286,6 +5334,7 @@
       };
       var applyRender = function () {
         var r = blockRender(block);
+        faceWrap.style.display = r === "big" || r === "sideways" ? "" : "none";
         bigWrap.style.display = r === "big" ? "" : "none";
         sideWrap.style.display = r === "sideways" ? "" : "none";
         hanziWrap.style.display = r === "hanzi" ? "" : "none";

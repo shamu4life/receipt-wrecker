@@ -299,7 +299,8 @@ test("migrationNote says what changed and names the backup", () => {
   // What the conversion could not carry over is said too: emotes, fonts and italics.
   assert.match(n([{ ...GIANT, giantLayout: "emote" }]), /Emote names in them now print as words/);
   assert.ok(!/Emote/.test(n([GIANT])));
-  assert.match(n([TYPE]), /always bold Arial, so their fonts and italics are gone/);
+  // 1.4.0: the fonts are not carried over, but the card's Font menu has faces again.
+  assert.match(n([TYPE]), /Their fonts and italics are gone: Big and sideways text start in bold Arial, and the Font menu on each card has nine other faces\./);
   assert.match(n([{ ...TYPE, fmt: { italic: true } }]), /fonts and italics are gone/);
   assert.match(n([ITEMS_TK]), /fonts and italics are gone/, "its lines had a font and italics");
   assert.ok(!/fonts and italics/.test(n([GIANT])), "Giant type had no fonts");

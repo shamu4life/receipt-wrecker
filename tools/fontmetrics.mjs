@@ -41,7 +41,10 @@
 //   side     the sideways width rule's constants, as sideWidthPx uses Arial Bold's
 //            (0.4N - 0.0305 for capitals, 0.575(N - 1) + 0.6 otherwise): [lhCaps / 2,
 //            lhCaps / 2 - the capitals' ink half-span, lhText / 2, the text's ink half-span +
-//            0.044] (0.044 is the margin Arial Bold's 0.6 keeps over its own half-span)
+//            0.044, 0.5] (0.044 is the margin Arial Bold's 0.6 keeps over its own half-span; the
+//            0.5 is px the rule keeps back from each edge for the centring shift, which is
+//            whole px: with the capitals' exact half-span and none kept back, Impact's HELLO
+//            on 58 mm was modelled 5.6px from one edge)
 //
 // The ids are what a block saves (its `face` field); the labels are what the Font menu shows.
 import { readFileSync, writeFileSync } from "node:fs";
@@ -69,7 +72,7 @@ const LH_CAPS = [".8", ".85", ".9", ".95", "1"];
 const LH_TEXT = ["1.15", "1.2", "1.25", "1.3", "1.35", "1.4", "1.45", "1.5"];
 const CAPS_CANDIDATES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .!?'\"&#:/+-";
 const CORE_CAPS = "ABCDEFGHIJKLMNOPRSTUVWXYZ";
-const SIDE_TEXT_MARGIN = 0.044;
+const SIDE_TEXT_MARGIN = 0.044, SIDE_SHIFT_PX = 0.5;
 const EDGE_MIN = 0.003, EDGE_AA = 0.001;
 
 const up3 = (x) => Math.ceil(x * 1000 - 1e-6) / 1000;
@@ -129,7 +132,7 @@ function derive(face, m, chars) {
     return up3((top + bot) / 2);
   };
   const capsHalf = inkSpan(caps.split("")), textHalf = inkSpan(chars);
-  const side = [+lhCaps / 2, near3(+lhCaps / 2 - capsHalf), +lhText / 2, near3(textHalf + SIDE_TEXT_MARGIN)];
+  const side = [+lhCaps / 2, near3(+lhCaps / 2 - capsHalf), +lhText / 2, near3(textHalf + SIDE_TEXT_MARGIN), SIDE_SHIFT_PX];
   return { label: face.label, css: face.css, weight: face.weight, capEm, lhCaps, lhText, box: [-up3(d), up3(a)], wDefault: up3(wDefault), side, caps,
     w: w.map(thou), lo: lo.map(thou), hi: his.map(thou), edge };
 }

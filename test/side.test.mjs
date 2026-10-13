@@ -148,8 +148,8 @@ test("fit1 is the biggest of the least bad sizes, found by trying every size, an
   for (const [v, want] of [["fit1", "fit1"], ["width", "width"], [100, 100], ["100", 100], [1, 20], [999, 300], ["x", "fit1"]]) {
     assert.equal(C.sideSizeOf(v), want, JSON.stringify(v));
   }
-  eq(J(C.sideOpts({ sideDir: "sideways", sideSize: "50" })), { dir: "down", size: 50 });
-  eq(J(C.sideOpts({ sideDir: "up" })), { dir: "up", size: "fit1" });
+  eq(J(C.sideOpts({ sideDir: "sideways", sideSize: "50" })), { dir: "down", size: 50, face: "arial" });
+  eq(J(C.sideOpts({ sideDir: "up" })), { dir: "up", size: "fit1", face: "arial" });
 });
 
 test("too many lines for the width is reported, never silently clipped", () => {

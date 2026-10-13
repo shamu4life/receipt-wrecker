@@ -174,7 +174,9 @@ test("junk in, a clean list out: not an array, null entries, ids that aren't num
 test("a migrated line prints: it is a working Big text block", () => {
   const tb = C.migrateBlocks([ITEMS_TK]).find((b) => b.text === "IRS");
   assert.equal(C.blockRender(tb), "big");
-  eq(C.bigOpts(tb), { layout: "lines", size: "fit1", flip: false });
+  // An old font pick rides along in `fmt` unused (1.4.0 gives faces their own field): the line
+  // prints in Arial Bold, as it has since 1.0.0.
+  eq(C.bigOpts(tb), { layout: "lines", size: "fit1", flip: false, face: "arial" });
   const bodies = C.buildBigBodies(tb.text, C.bigOpts(tb));
   assert.ok(bodies.length >= 1 && bodies[0].html.includes(">IRS<"), JSON.stringify(bodies.map((b) => b.html)));
 });

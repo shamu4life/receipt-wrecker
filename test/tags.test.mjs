@@ -35,6 +35,11 @@ function everyPayload(mm) {
         for (const flip of [false, true]) add("big " + layout + (flip ? " flipped" : ""), C.buildBigBodies(t, { ...o, layout, flip }));
       }
       for (const dir of ["down", "up"]) add("side " + dir, C.buildSideBodies(t, { ...o, dir }));
+      // 1.4.0: every face but Arial Bold (above), whose family name is new text in the message.
+      for (const face of C.FACE_IDS.slice(1)) {
+        for (const flip of [false, true]) add("big " + face + (flip ? " flipped" : ""), C.buildBigBodies(t, { ...o, layout: "auto", flip, face }));
+        for (const dir of ["down", "up"]) add("side " + face + " " + dir, C.buildSideBodies(t, { ...o, dir, face }));
+      }
     }
     const cjk = C.getTier("cjk").ramp;
     const grid = (cols, rows, ramp) => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => ramp[(r * 7 + c * 3) % ramp.length]));

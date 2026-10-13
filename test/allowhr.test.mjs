@@ -55,7 +55,7 @@ test("previewEvent: with the switch off a part is drawn the way that printer pri
   assert.equal(off.highRollerBits, 25);
   assert.equal(off.allowHighRoller, false);
   assert.equal(off.pxPerInch, 96);
-  // Exactly as 3.0's action (ProcessEvent: HighRoller = !CouldBeHighRoller || the printer's switch):
+  // Exactly as 3.0's action (PrintEventBody: HighRoller = !CouldBeHighRoller || the printer's switch):
   // a cheer that can't be High Roller, below the threshold or with threshold 0, is sent true
   // whatever the switch says (the page reads it only for a High Roller cheer: the same receipt).
   assert.equal(C.previewEvent({ payload: "x", bits: 24, cheer: true, hrThreshold: 25, allowHighRoller: false }).options.allowHighRoller, true);

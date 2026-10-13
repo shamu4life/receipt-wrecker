@@ -12,6 +12,40 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.3.1] - 2026-10-12
+
+### Changed
+
+- **Preview: drawn with Printer Bot 3.0.0-beta.7.** The preview now runs the newest beta's
+  receipt page, 3.0.0-beta.7 (layout v202610122236), in place of beta.6's, and the layout line
+  above the parts names it ("Printer Bot 3.0.0-beta.7's layout v202610122236"). Beta.7 changed
+  nothing in the page this app reads: its page differs from beta.6's only in the version stamps
+  and the page policy's script hash, and `tools/upstream-watch.mjs` found every part the app
+  depends on identical. A streamer still on beta.6 prints these messages exactly as one on beta.7,
+  so the layout line now names beta.6's Renderer, 202610110524, beside 2.5.4's as printing the same,
+  instead of telling that streamer the preview may not match.
+- **Printer Bot: what beta.7 adds for streamers doesn't change how cheers print.** Its new dock features are
+  Do not cut Hype Trains (while a Hype Train runs, a receipt printer with the box leaves out the
+  cut and the extra feed after every receipt, so a cheer printed then comes out inside the
+  train's strip: the same receipt, uncut), Clear print queue, and a cut after Check this
+  printer's test line. Otherwise the bot's print code (the C# in the Streamer.bot import) draws,
+  dithers and sends a cheer exactly as beta.6's did.
+
+### How sure
+
+- **Tests**: 232 unit tests and 77 browser tests, none new. The MANDATORY contract test runs
+  every mode through beta.7's page. `tools/vendor-renderer.mjs --check` passes against beta.7,
+  and `tools/upstream-watch.mjs` reports nothing new upstream.
+- **Not printed yet** on a 3.0 rig. The measurements are the bot's own page in Playwright's
+  Chromium.
+
+### Tools
+
+- `tools/vendor-renderer.mjs` and `tools/forkbench.mjs` are pinned to 3.0.0-beta.7 (commit
+  `64afbfc`).
+
+---
+
 ## [1.3.0] - 2026-10-12
 
 ### Changed

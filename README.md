@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.3.0](https://img.shields.io/badge/version-1.3.0-blue)](docs/CHANGELOG.md)
+[![Version 1.3.1](https://img.shields.io/badge/version-1.3.1-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -18,7 +18,7 @@ prints it as big as the paper allows on a printer driven by
 Receipt Wrecker is a single HTML file with no dependencies. You build a stack of blocks
 (text and pictures), it packs them into as few chat messages as it can, and you paste each
 one into Twitch chat as a cheer. The preview shows each message drawn by the bot's own
-receipt code: the newest Printer Bot beta, 3.0.0-beta.6. A streamer still on Printer Bot 2.5.4
+receipt code: the newest Printer Bot beta, 3.0.0-beta.7. A streamer still on Printer Bot 2.5.4
 prints these messages the same on a receipt printer; only the profile picture is smaller.
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
@@ -284,10 +284,11 @@ where the bot's box cuts it off and any fade come from the bot's own code. The T
 the footer is a grey box here.
 
 The line above the parts names the layout the preview draws with: *Printer Bot
-3.0.0-beta.6's layout v202610110524*. SassyTP's bot can download a newer layout to the streamer's
+3.0.0-beta.7's layout v202610122236*. SassyTP's bot can download a newer layout to the streamer's
 dock by itself, so if their dock shows another **Renderer** version under **Updates**, the
-preview may not match their printer. The exception is Printer Bot 2.5.4's 202610090056, which
-prints this app's messages the same, with a smaller profile picture.
+preview may not match their printer. The exceptions are 3.0.0-beta.6's 202610110524, which prints
+this app's messages exactly as beta.7 does, and Printer Bot 2.5.4's 202610090056, which prints them
+the same with a smaller profile picture.
 
 The app follows the newest beta as SassyTP ships it. Printer Bot 3.0 can also print one cheer on
 several printers, each with its own paper and its own Allow High Roller prints, and print on

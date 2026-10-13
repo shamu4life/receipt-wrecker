@@ -3194,8 +3194,8 @@
   // The options are the ones Printer Bot 3.0's action sends a roll printer (OptionsFor): the
   // streamer's threshold, bits per inch and maximum length, the printer's Allow High Roller
   // prints, and pxPerInch 96 (a roll; Letter paper is about 53.3 and also sends a pageHeightPx,
-  // which this never does). The switch goes out as the action sends it (ProcessEvent: HighRoller
-  // = !CouldBeHighRoller || the printer's switch): its own value for a cheer at or above the
+  // which this never does). The switch goes out as the action sends it (PrintEventBody, PrintEventCore in
+  // beta.6: HighRoller = !CouldBeHighRoller || the printer's switch): its own value for a cheer at or above the
   // threshold, true for one that can't be High Roller (below it, or threshold 0), where the page
   // never reads it. A free test is drawn High Roller whatever the switch says. (1.2.0 drew the
   // switch's plain receipt on 2.5.4's page, which has no switch, as threshold 0: the same receipt.)
@@ -6276,19 +6276,19 @@
       syncModeUi();
       // The layout the preview draws with, read off the vendored block itself, so it can't drift from
       // it. SassyTP's bot can download a newer layout to the streamer's dock by itself. Since 1.3.0 the
-      // block is Printer Bot 3.0's beta; a 2.5.4 dock's layout prints the app's messages the same on a
-      // roll (measured, 19 of 19, all but the profile picture's size), so that one is named as such.
+      // block is Printer Bot 3.0's beta. Layouts that print the app's messages the same on a roll are
+      // named as such, each with what differs: 2.5.4's (measured, 19 of 19, all but the profile
+      // picture's size) and, since 1.3.1, 3.0.0-beta.6's (beta.7's page in every region the app reads).
       // On a phone the line sits between the blocks and the parts, so it stays short (1.2.0's was 360
       // characters; at 493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).
-      var SAME_PRINTS = { "202610090056": "Printer Bot 2.5.4" };
+      var SAME_PRINTS = [["202610110524", "3.0.0-beta.6", "the same"], ["202610090056", "2.5.4", "a smaller profile picture"]];
       var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
       var rpath = /^v\/([0-9][0-9A-Za-z.-]*)\/renderer\.html$/.exec((rblock && rblock.getAttribute("data-path")) || "");
       if (rver && /^\d+$/.test(rver)) {
         document.getElementById("rendererVersion").textContent = (rpath ? ", Printer Bot " + rpath[1] + "'s" : ",") + " layout v" + rver;
-        var same = Object.keys(SAME_PRINTS).filter(function (v) { return v !== rver; });
+        var same = SAME_PRINTS.filter(function (s) { return s[0] !== rver; }).map(function (s) { return s[1] + "'s " + s[0] + " (" + s[2] + ")"; });
         document.getElementById("rendererCompare").textContent = " If their dock shows another Renderer version under Updates, it may not match"
-          + (same.length ? "; " + same.map(function (v) { return SAME_PRINTS[v] + "'s " + v; }).join(" and ")
-             + (same.length > 1 ? " do" : " does") + ", with a smaller profile picture." : ".");
+          + (same.length ? ", except " + same.slice(0, -1).join(", ") + (same.length > 1 ? " and " : "") + same[same.length - 1] : "") + ".";
       }
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);

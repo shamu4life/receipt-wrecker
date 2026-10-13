@@ -70,7 +70,8 @@ How a cheer prints:
    2092-2116, then `present()` 2129-2193). `options` (`OptionsFor` in the C#) = the dock's
    `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks}`, one setting for
    every printer, plus the printer's `allowHighRoller` (3.0's **Allow High Roller prints**, on by
-   default; ProcessEvent sends the printer's own value for a cheer that could be High Roller and
+   default; the action's `PrintEventBody` (`PrintEventCore` in beta.6) sends the printer's own
+   value for a cheer that could be High Roller (`CouldBeHighRoller`) and
    `true` for one that can't, below the threshold or with threshold 0) and `pxPerInch` (96 on a
    roll; Letter also sends `pageHeightPx`).
 4. It screenshots the height `render()` returns, turns it grey with `(77R + 151G + 28B) >> 8`
@@ -1159,7 +1160,7 @@ unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
 what 3.0's `OptionsFor` sends a roll printer: `{highRollerBits, highRollerBitsPerInch,
 highRollerMaxInches, hideLinks: false, allowHighRoller, pxPerInch: 96}` (the switch as
-ProcessEvent sends it: the printer's own value for a cheer that could be High Roller, `true`
+`PrintEventBody` sends it: the printer's own value for a cheer that could be High Roller, `true`
 otherwise), never a `pageHeightPx` (a roll has no pages). No
 `userName`, so no avatar lookup starts and the bot draws none. A real cheer's receipt has the
 viewer's picture whenever the lookup answers, so `previewGlue` puts a stand-in in the bot's
@@ -1182,8 +1183,9 @@ layout, read at init from the block's own `data-version` and `data-path` ("Print
 3.0.0-beta.7's layout v202610122236"; `#rendererVersion`, `#rendererCompare`), and says to compare
 it with the Renderer version the streamer's dock shows under Updates: the bot can download a newer
 layout to the dock by itself (UPDATING.md, "Download updates" on by default). Layouts measured to
-print the app's messages the same on a roll are named as such (`SAME_PRINTS`: 2.5.4's
-202610090056, "does, with a smaller profile picture"). The line also says the preview uses this
+print the app's messages the same on a roll are named as such, each with what differs (`SAME_PRINTS`:
+3.0.0-beta.6's 202610110524, "the same", since 1.3.1, and 2.5.4's 202610090056, "a smaller profile
+picture"). The line also says the preview uses this
 computer's fonts; what the thermal view is sits under its "What's this?". On a phone the line sits
 between the blocks and the parts, so a browser test holds it to 360 characters (1.2.0's length; at
 493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).

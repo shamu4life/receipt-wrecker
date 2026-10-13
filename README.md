@@ -286,8 +286,9 @@ the footer is a grey box here.
 The line above the parts names the layout the preview draws with: *Printer Bot
 3.0.0-beta.7's layout v202610122236*. SassyTP's bot can download a newer layout to the streamer's
 dock by itself, so if their dock shows another **Renderer** version under **Updates**, the
-preview may not match their printer. The exception is Printer Bot 2.5.4's 202610090056, which
-prints this app's messages the same, with a smaller profile picture.
+preview may not match their printer. The exceptions are 3.0.0-beta.6's 202610110524, which prints
+this app's messages exactly as beta.7 does, and Printer Bot 2.5.4's 202610090056, which prints them
+the same with a smaller profile picture.
 
 The app follows the newest beta as SassyTP ships it. Printer Bot 3.0 can also print one cheer on
 several printers, each with its own paper and its own Allow High Roller prints, and print on

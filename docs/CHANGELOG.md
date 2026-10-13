@@ -21,8 +21,10 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   above the parts names it ("Printer Bot 3.0.0-beta.7's layout v202610122236"). Beta.7 changed
   nothing in the page this app reads: its page differs from beta.6's only in the version stamps
   and the page policy's script hash, and `tools/upstream-watch.mjs` found every part the app
-  depends on identical. A streamer still on beta.6 prints these messages exactly as one on beta.7.
-- **What beta.7 adds for streamers doesn't change how cheers print.** Its new dock features are
+  depends on identical. A streamer still on beta.6 prints these messages exactly as one on beta.7,
+  so the layout line now names beta.6's Renderer, 202610110524, beside 2.5.4's as printing the same,
+  instead of telling that streamer the preview may not match.
+- **Printer Bot: what beta.7 adds for streamers doesn't change how cheers print.** Its new dock features are
   Do not cut Hype Trains (while a Hype Train runs, a receipt printer with the box leaves out the
   cut and the extra feed after every receipt, so a cheer printed then comes out inside the
   train's strip: the same receipt, uncut), Clear print queue, and a cut after Check this

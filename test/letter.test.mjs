@@ -250,3 +250,16 @@ test("the verdict under a Letter preview: centimetres of the Letter page, and wh
   const roll = C.previewVerdict({ result: { ok: true, height: 451, standIn: true, security: [] } }, { paperMm: 80, bits: 100 })[0].text;
   assert.equal(roll, "About 11.9 cm of receipt (451 px), header and footer included. The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about 4.8 cm shorter.");
 });
+
+test("blockLook: a block is centred in Large message and keeps its colours only on Letter in the colour profile", () => {
+  const ctx = (o) => C.stackContext({ cheer: true, bits: 600, hrThreshold: 25, letterBits: 500, ...o });
+  const block = { color: "#C00000", bg: "#FFFF00" };
+  eq(C.blockLook(block, ctx({ letterLayout: "message", letterProfile: "color" })), { center: true, color: "#c00000", bg: "#ffff00" });
+  eq(C.blockLook(block, ctx({ letterProfile: "color" })), { center: false, color: "#c00000", bg: "#ffff00" });
+  // Black and white, or the roll: no colours go out, whatever the block holds.
+  eq(C.blockLook(block, ctx({ letterLayout: "message" })), { center: true, color: "", bg: "" });
+  eq(C.blockLook(block, ctx({ bits: 100, letterProfile: "color" })), { center: false, color: "", bg: "" });
+  // Junk in the fields (an old preset, a hand-edited JSON) is no colour.
+  eq(C.blockLook({ color: "red", bg: "url(x)" }, ctx({ letterProfile: "color" })), { center: false, color: "", bg: "" });
+  eq(C.blockLook(null, null), { center: false, color: "", bg: "" });
+});

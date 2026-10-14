@@ -85,7 +85,8 @@ function installClipboardStub() {
 // fails the one test that checks the defaults rather than quietly changing what the others
 // test. (This is SassyTP's own defaults: threshold 25, no length limits, 80 mm.)
 const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [] };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [],
+                   letterBits: 0, letterLayout: "scaled", letterFit: "fit", letterProfile: "bw" };
 // `blocks`, `presets` and `controls` seed rw_blocks_v1, rw_presets_v1 and rw_controls_v1
 // before the app's first load, the way a returning user's saved state is there before the
 // page runs; `controls` defaults to SETTINGS, and `controls: null` seeds nothing (a first
@@ -149,20 +150,26 @@ const len = (s) => Array.from(s).length;     // payloadLength's rule: code point
 // stackContext's options for a settings object (normalizeControls' fields).
 const stackOptsOf = (s) => ({ cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
                               bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm,
-                              allowHighRoller: s.allowHighRoller, imageSites: s.imageSites });
+                              allowHighRoller: s.allowHighRoller, imageSites: s.imageSites, letterBits: s.letterBits,
+                              letterLayout: s.letterLayout, letterFit: s.letterFit, letterProfile: s.letterProfile });
 // What a stack of big and sideways blocks sends, per the core, computed here in Node.
 function nodeBodies(block, ctx) {
   if (C.blockRender(block) === "typed") {
     return Array.from(C.buildHanTyped(block.text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
                                                     noNonce: ctx.noNonce, limitPx: ctx.limit.px }));
   }
+  // 1.6.0: the paper's scale, and the block's look (centred in Letter's Large message, its colours
+  // on Letter in colour).
+  const look = C.blockLook(block, ctx);
   if (C.blockRender(block) === "sideways") {
     const o = C.sideOpts(block);
-    return Array.from(C.buildSideBodies(block.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW }));
+    return Array.from(C.buildSideBodies(block.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW,
+                                                      paperMm: ctx.paperMm, color: look.color, bg: look.bg }));
   }
   const o = C.bigOpts(block);
   return Array.from(C.buildBigBodies(block.text, { layout: o.layout, size: o.size, flip: o.flip, face: o.face, budget: ctx.budget,
-                                                   heightPx: ctx.room, contentW: ctx.contentW }));
+                                                   heightPx: ctx.room, contentW: ctx.contentW, paperMm: ctx.paperMm,
+                                                   center: look.center, color: look.color, bg: look.bg }));
 }
 function expectNode(blocks, s = SETTINGS) {
   const ctx = C.stackContext(stackOptsOf(s));
@@ -181,6 +188,7 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
     const plainOpts = (mode) => ({ mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
     for (const b of blocks) {
       let bodies;
+      const look = K.blockLook(b, ctx);
       if (b.type === "image") {
         const real = b.imgKind !== "glyph", f = real ? K.realPictureForm({ url: b.url, mode: ctx.mode, imageSites: ctx.imageSites }) : null;
         if (real && f.form === "none") continue;
@@ -188,22 +196,26 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
         img.src = (window.__rwPictureStub && window.__rwPictureStub[b.url]) || b.url;
         await img.decode();
         if (real && f.form === "picture") {
-          for (const x of K.buildPictureBodies(f.link, img.naturalWidth, img.naturalHeight, { contentW: ctx.contentW, heightPx: ctx.room })) all.push(x);
+          for (const x of K.buildPictureBodies(f.link, img.naturalWidth, img.naturalHeight,
+                                               { contentW: ctx.contentW, heightPx: ctx.room, pxPerInch: ctx.paper.pxPerInch, shrinks: !!ctx.letter })) all.push(x);
           continue;
         }
         const grid = K.glyphGrid(b, img, ctx);
         bodies = ctx.mode === "plain" ? K.buildDesignTPicture(grid, plainOpts("plain"))
-          : K.buildGlyphBodies(K.glyphOpts(b).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm });
+          : K.buildGlyphBodies(K.glyphOpts(b).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm,
+                                                            center: look.center, color: look.color });
       } else if (K.blockRender(b) === "typed") {
         bodies = K.buildHanTyped(b.text, plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "hanzi" || ctx.mode === "plain") {
         bodies = K.buildDesignT(K.designTTextGrid(K.bigClean(b.text).text, ctx.paperMm, K.hanziWeightOf(b.hanziWeight)), plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "sideways") {
         const o = K.sideOpts(b);
-        bodies = K.buildSideBodies(b.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+        bodies = K.buildSideBodies(b.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW,
+                                             paperMm: ctx.paperMm, color: look.color, bg: look.bg });
       } else {
         const o = K.bigOpts(b);
-        bodies = K.buildBigBodies(b.text, { layout: o.layout, size: o.size, flip: o.flip, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+        bodies = K.buildBigBodies(b.text, { layout: o.layout, size: o.size, flip: o.flip, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW,
+                                            paperMm: ctx.paperMm, center: look.center, color: look.color, bg: look.bg });
       }
       for (const x of bodies) all.push(x);
     }
@@ -836,13 +848,20 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, bits: 24, paperMm: 58, nonce: true },          // plain on 58 mm, repeat digits on
     { ...SETTINGS, cheer: false },                                // a free test, drawn as a High Roller cheer
     { ...SETTINGS, allowHighRoller: false },                      // 1.3.0: Printer Bot 3.0's switch off at 100 bits, read by the page itself
+    // 1.6.0: a cheer of the Letter printer's bits, built for its page: Scaled like 80 mm (about 2
+    // inches under the profile picture), Large message in colour (the blocks centred and coloured),
+    // and a plain cheer on Letter (23 Han cells a row), each cut at the end of its one page.
+    { ...SETTINGS, bits: 600, letterBits: 500 },
+    { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", coloured: true },
+    { ...SETTINGS, bits: 600, letterBits: 500, hrThreshold: 1000, letterLayout: "message" },
   ];
   const heights = [];
   let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0;
   const check = async (page, i, payload, want, s, label) => {
     const { frame, last, verdict } = await drawnPart(page, i, payload);
     const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch,
-                                maxInches: s.maxInches, allowHighRoller: s.allowHighRoller });
+                                maxInches: s.maxInches, allowHighRoller: s.allowHighRoller, paperMm: s.paperMm, letterBits: s.letterBits,
+                                letterLayout: s.letterLayout, letterFit: s.letterFit });
     assert.deepEqual(last.event, JSON.parse(JSON.stringify(pe.event)), label + ": the frame was not handed the part's exact payload");
     assert.deepEqual(last.options, JSON.parse(JSON.stringify(pe.options)), label);
     assert.ok(!("userName" in last.event), label);
@@ -863,18 +882,21 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     const cut = !!r.trimmed || last.measure.fullPx > last.measure.contentPx + 1;
     if (cut) { trimmedSeen++; assert.ok(want.warned, label + ": the bot cuts a part the app expected to fit: " + JSON.stringify(r.trimmed)); }
     assert.ok(!/expected it to fit/.test(verdict), label + ": " + verdict);
-    // As tall as the core predicted.
+    // As tall as the core predicted. (In Letter's Large message the box grows to fill the page,
+    // so there the parts' own height is the message's.)
     if (want.contentPx != null) {
-      const d = last.measure.fullPx - want.contentPx;
+      const shown = last.options.layout === "message" ? last.measure.partsPx : last.measure.fullPx;
+      const d = shown - want.contentPx;
       heights.push({ label, d: Math.round(d * 100) / 100 });
       const under = /writing-mode:/.test(payload) ? HEIGHT_UNDER_SIDEWAYS : HEIGHT_OVER;
-      assert.ok(d <= HEIGHT_OVER && d >= -under, label + ": the message is " + last.measure.fullPx + "px, the core predicted " + want.contentPx);
+      assert.ok(d <= HEIGHT_OVER && d >= -under, label + ": the message is " + shown + "px, the core predicted " + want.contentPx);
     }
   };
   for (const s of configs) {
     // Under the length limits, one letter set at 400px is taller than the bot's box (288px for
     // 300 bits at 100 bits per inch): the app warns about it, and the bot must cut that part.
-    const blocks = withPic(s.bitsPerInch ? [...EVERY_MODE(), BIG({ id: 20, text: "I", bigLayout: "lines", bigSize: 400 })] : EVERY_MODE());
+    const every = s.coloured ? EVERY_MODE().map((b) => ({ ...b, color: "#c00000", ...(b.type === "text" ? { bg: "#fff2a8" } : {}) })) : EVERY_MODE();
+    const blocks = withPic(s.bitsPerInch ? [...every, BIG({ id: 20, text: "I", bigLayout: "lines", bigSize: 400 })] : every);
     const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true });
     await settled(page);
     const got = await copyAll(page);
@@ -885,7 +907,8 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     // as a High Roller cheer. A Han tiling part in a High Roller cheer is raw too: plain text.
     const raw = !s.cheer || C.printMode(stackOptsOf(s)) === "raw";
     for (let i = 0; i < got.length; i++) {
-      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, hrPrints: s.allowHighRoller, part: i + 1 });
+      const label = JSON.stringify({ paper: s.paperMm, bits: s.bits, bpi: s.bitsPerInch, cheer: s.cheer, hrPrints: s.allowHighRoller,
+                                     letter: s.letterBits ? s.letterLayout + " " + s.letterProfile : 0, part: i + 1 });
       await check(page, i, got[i], { ...want[i], raw }, s, label);
     }
     const origin = new URL(server.url).origin;
@@ -920,6 +943,28 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
       const part = C.packStackBodies(probe.bodies, pctx)[0];
       assert.equal(payload, part.payload);
       await check(page, 0, payload, { bits: probe.bits, cheer: true, raw, warned: false, contentPx: part.contentPx }, s, btn + " " + paperMm + " mm");
+    }
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  // 1.6.0: both probes on Letter: the High Roller test at a threshold the Letter printer takes, and
+  // the Plain test one under a threshold above the Letter printer's bits, in Large message (in
+  // Scaled like 80 mm the page has room for its tones row only, and it sends that).
+  for (const letterLayout of ["scaled", "message"]) {
+    const s = { ...SETTINGS, letterBits: 500, letterLayout, hrThreshold: 600 };
+    const { page, ctx, errors } = await freshPage({ controls: s });
+    const lo = { letterBits: 500, letterLayout, paperMm: 80 };
+    const ps = { ...s, hrThreshold: 1000 };
+    for (const [btn, probe, raw, set] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 600, bits: 100, ...lo }), true, s],
+                                          ["#plainProbeBtn", C.buildPlainProbe({ hrThreshold: 1000, noNonce: true, ...lo }), false, ps]]) {
+      if (set !== s) { await page.fill("#hrThreshold", "1000"); await page.locator("#hrThreshold").dispatchEvent("change"); }
+      await page.click(btn);
+      const payload = await copyPayload(page);
+      assert.equal(probe.paperMm, "letter");
+      const pctx = C.stackContext({ ...stackOptsOf(set), cheer: true, bits: probe.bits, mode: probe.mode });
+      const part = C.packStackBodies(probe.bodies, pctx)[0];
+      assert.equal(payload, part.payload);
+      await check(page, 0, payload, { bits: probe.bits, cheer: true, raw, warned: false, contentPx: part.contentPx }, set, btn + " Letter " + letterLayout);
     }
     assert.deepEqual(errors, []);
     await ctx.close();
@@ -1395,7 +1440,8 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   const unlabelled = await page.evaluate(() => Array.from(document.querySelectorAll("#blockList textarea, #blockList select, #blockList input"))
     .filter((el) => !(el.labels && el.labels.length) && !el.getAttribute("aria-label")).map((el) => el.outerHTML.slice(0, 80)));
   assert.deepEqual(unlabelled, []);
-  assert.equal(await cards(page).first().getByLabel("Text").count(), 1, "the Text label names the textarea");
+  // (Exact: 1.6.0's "Text colour" picker is labelled too.)
+  assert.equal(await cards(page).first().getByLabel("Text", { exact: true }).count(), 1, "the Text label names the textarea");
   assert.equal(await cards(page).first().getByLabel("Layout").count(), 1);
   for (const name of ["Move block up", "Move block down", "Remove block"]) assert.equal(await cards(page).first().getByRole("button", { name }).count(), 1, name);
   assert.equal(await cards(page).nth(1).getByRole("button", { name: "Reset detail (columns) to 16" }).count(), 1);
@@ -3539,6 +3585,182 @@ test("1.5.0: three pictures and big text share a cheer as tall as predicted (two
     assert.ok(Math.abs(last.measure.fullPx - want[i].contentPx) <= 1, "part " + (i + 1) + ": " + last.measure.fullPx + " vs " + want[i].contentPx);
     assert.deepEqual(last.result.security, []);
   }
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── 1.6.0: Letter paper, a second printer for cheers of its bits or more ──
+const LETTER = { ...SETTINGS, bits: 600, letterBits: 500 };
+
+test("1.6.0: the Letter printer's settings are fields of rw_controls_v1, wait for its bits, and survive a reload", async () => {
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1 })] });
+  // No Letter printer: its card's selects wait, and say so.
+  for (const id of ["#letterLayout", "#letterFit", "#letterProfile"]) assert.equal(await page.locator(id).isDisabled(), true, id);
+  assert.equal(await page.locator("#letterOff").isVisible(), true);
+  await page.fill("#letterBits", "500");
+  assert.equal(await page.locator("#letterLayout").isDisabled(), false);
+  assert.equal(await page.locator("#letterProfile").isDisabled(), false);
+  // The image fit is Large message's only.
+  assert.equal(await page.locator("#letterFit").isDisabled(), true);
+  assert.equal(await page.locator("#letterFitOff").isVisible(), true);
+  await page.selectOption("#letterLayout", "message");
+  assert.equal(await page.locator("#letterFit").isDisabled(), false);
+  await page.selectOption("#letterFit", "fill");
+  await page.selectOption("#letterProfile", "color");
+  // A 100-bit cheer still prints on the roll; the Bits hint says where cheers of 500 go.
+  assert.match(await page.textContent("#bitsHint"), /Cheers of 500 bits or more print on the streamer's Letter printer\./);
+  await commit(page, "#bitsAmount", "600");
+  assert.match(await page.textContent("#bitsHint"), /This cheer prints on the streamer's Letter printer\./);
+  const s = { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", letterFit: "fill", letterProfile: "color" };
+  assert.deepEqual(await stored(page, "rw_controls_v1"), s);
+  // Junk in the Letter printer's bits is put back, and said beside the field.
+  await commit(page, "#letterBits", "-5");
+  assert.equal(await page.inputValue("#letterBits"), "500");
+  assert.match(await page.textContent("#letterBitsNote"), /isn't a number of 0 or more, so it stays at 500 bits/);
+  await page.reload();
+  await page.waitForSelector("#blockList");
+  assert.deepEqual([await page.inputValue("#letterBits"), await page.inputValue("#letterLayout"), await page.inputValue("#letterFit"),
+                    await page.inputValue("#letterProfile")], ["500", "message", "fill", "color"]);
+  const keys = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("rw_")).sort());
+  assert.deepEqual(keys, ["rw_blocks_v1", "rw_controls_v1"], "a new storage key: " + keys.join(","));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.6.0: a cheer of the Letter printer's bits is built for its page: Copy is the core's, the preview is the bot's 400 px page with its own stand-in", async () => {
+  const blocks = [BIG({ id: 1, text: "HELLO WORLD" }), { id: 2, type: "text", render: "hanzi", text: "HI" }];
+  for (const letterLayout of ["scaled", "message"]) {
+    const s = { ...LETTER, letterLayout };
+    const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true });
+    await settled(page);
+    const got = await copyAll(page), want = await expectParts(page, blocks, s);
+    assert.deepEqual(got, want.map((w) => w.payload));
+    // Big text at the Letter page's width: bigger than the roll's 244 px could hold.
+    assert.match(got[0], /\\66ont:700 \d+px\/\.8 Arial/);
+    // Han tiling on Letter is 23 cells a row.
+    const han = got.find((p) => /丶/.test(p) && !/</.test(p));
+    assert.ok(han, "a Han tiling part");
+    for (let i = 0; i < got.length; i++) {
+      const { card, last, verdict } = await drawnPart(page, i, got[i]);
+      assert.equal(await card.locator("iframe.rcpt-frame").evaluate((f) => f.style.width), "400px");
+      assert.equal(last.options.pageHeightPx, 533);
+      assert.equal(last.options.pxPerInch, 400 / 7.5);
+      assert.equal(last.options.layout, letterLayout === "message" ? "message" : undefined);
+      assert.ok(!("userName" in last.event), "the app's own event carries no login (the frame adds the stand-in's)");
+      assert.equal(last.result.ok, true);
+      assert.equal(last.result.standIn, true, "the bot drew the profile picture's stand-in itself");
+      // Drawn by the bot before its page cut, so render() lists it among its pictures (a stand-in put
+      // in afterwards, as on a roll, is not), at the layout's own size.
+      assert.deepEqual(last.result.photos[0].slice(2), letterLayout === "message" ? [123, 123] : [222, 222]);
+      assert.equal(last.result.botHeight, last.result.height);
+      assert.ok(last.result.height <= 533, "a Letter receipt is one page: " + last.result.height);
+      assert.deepEqual(last.result.security, []);
+      assert.match(await card.locator(".part-info").textContent(), /Letter page/);
+      assert.match(verdict, /when the bot finds none, the header is about (8\.7|2\.3) cm shorter/);
+    }
+    const origin = new URL(server.url).origin;
+    assert.deepEqual(requests.filter((u) => !/^(data|blob|about):/.test(u) && new URL(u).origin !== origin), [], "a request left the origin");
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.6.0: colours: the pickers show for a Letter printer in colour, say whether this cheer prints them, and the bot keeps them", async () => {
+  const s = { ...SETTINGS, letterBits: 500, letterProfile: "color", letterLayout: "message" };
+  const blocks = [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "image", imgKind: "glyph", url: "PIC", tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, rotate: 0 }];
+  const { page, ctx, errors } = await freshPage({ blocks: withPic(blocks), controls: s, core: true, eager: true });
+  await settled(page);
+  const card = cards(page).first(), gcard = cards(page).nth(1);
+  // A 100-bit cheer prints on the roll: the pickers show, and say the colours wait for the Letter printer.
+  assert.equal(await card.locator(".colour-wrap").isVisible(), true);
+  assert.match(await card.locator(".colour-hint").textContent(), /Colours print only on the Letter printer, which takes cheers of 500 bits or more: this 100-bit cheer prints on the roll/);
+  await card.locator(".chk-color").check();
+  await card.locator(".inp-color").evaluate((el) => { el.value = "#0050c8"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  await card.locator(".chk-bg").check();
+  await gcard.locator(".chk-color").check();
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].color, "#0050c8");
+  // On the roll no colour goes out.
+  for (const p of await copyAll(page)) assert.doesNotMatch(p, /color:/);
+  // At the Letter printer's bits it does, centred, and the bot keeps every declaration.
+  await commit(page, "#bitsAmount", "600");
+  await settled(page);
+  assert.match(await card.locator(".colour-hint").textContent(), /This cheer prints on the Letter printer, in colour/);
+  const got = await copyAll(page), saved = await stored(page, "rw_blocks_v1");
+  assert.deepEqual(got, (await expectParts(page, withPic(saved), { ...s, bits: 600 })).map((w) => w.payload));
+  assert.match(got[0], /;text-align:center;color:#0050c8;background-color:#fff2a8">/);
+  assert.ok(got.some((p) => /line-height:1;text-align:center;color:#c00000>/.test(p)), "the Glyph-art grid in its colour");
+  for (let i = 0; i < got.length; i++) {
+    assertTags(got[i]);
+    const { frame } = await drawnPart(page, i, got[i]);
+    const k = await frameContract(frame, got[i]);
+    assert.deepEqual(k.problems, [], "part " + (i + 1));
+  }
+  // Black and white: the pickers go, the block keeps its colours, and none goes out.
+  await page.selectOption("#letterProfile", "bw");
+  assert.equal(await card.locator(".colour-wrap").isVisible(), false);
+  for (const p of await copyAll(page)) assert.doesNotMatch(p, /color:/);
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].color, "#0050c8");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.6.0: the print view of a Letter page: 2250 dots across; black and white shades only the pictures, colour is the page as drawn", async () => {
+  const blocks = [BIG({ id: 1, text: "HI", color: "#c00000" })];
+  const counts = {};
+  for (const letterProfile of ["bw", "color"]) {
+    const s = { ...LETTER, letterProfile, thermalView: true };
+    const { page, ctx, errors } = await freshPage({ blocks, controls: s, eager: true });
+    await settled(page);
+    await page.waitForFunction(() => document.querySelector("#parts .part")?.getAttribute("data-thermal") === "done", null, { timeout: 15000 });
+    // Where the profile picture (a picture: shaded in black and white) and the footer's grey logo
+    // box (not a picture: a plain threshold, so a light grey prints nothing) are, in the frame.
+    const frame = await (await page.locator("#parts .part iframe.rcpt-frame").elementHandle()).contentFrame();
+    const rects = await frame.evaluate(() => ["receipt-avatar", "receipt-icon"].map((id) => {
+      const r = document.getElementById(id).getBoundingClientRect();
+      return [r.left + 2, r.top + 2, r.width - 4, r.height - 4];
+    }));
+    const c = await page.evaluate((rects) => {
+      const cv = document.querySelector("#parts .part canvas.rcpt-thermal"), x = cv.getContext("2d"), k = cv.width / 400;
+      const d = x.getImageData(0, 0, cv.width, cv.height).data;
+      let grey = 0, red = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] !== d[i + 1] || d[i + 1] !== d[i + 2]) { if (d[i] > 150 && d[i + 1] < 80) red++; }
+        else if (d[i] !== 0 && d[i] !== 255) grey++;
+      }
+      const dots = (r) => {
+        let black = 0, white = 0;
+        for (let y = Math.ceil(r[1] * k); y < Math.floor((r[1] + r[3]) * k); y++) for (let xx = Math.ceil(r[0] * k); xx < Math.floor((r[0] + r[2]) * k); xx++) {
+          if (d[(y * cv.width + xx) * 4] === 0) black++; else white++;
+        }
+        return { black, white };
+      };
+      return { w: cv.width, h: cv.height, profile: cv.getAttribute("data-profile"), grey, red, avatar: dots(rects[0]), logo: dots(rects[1]) };
+    }, rects);
+    counts[letterProfile] = c;
+    assert.equal(c.w, 2250);
+    assert.equal(c.profile, letterProfile);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+  // Black and white is dots only: the profile picture shaded, the grey logo box (no picture) none.
+  assert.equal(counts.bw.grey + counts.bw.red, 0, JSON.stringify(counts.bw));
+  assert.ok(counts.bw.avatar.black > 1000 && counts.bw.avatar.white > 1000, "the picture is shaded: " + JSON.stringify(counts.bw.avatar));
+  assert.equal(counts.bw.logo.black, 0, "a light grey outside the pictures prints nothing: " + JSON.stringify(counts.bw.logo));
+  assert.ok(counts.color.red > 1000 && counts.color.grey > 1000, JSON.stringify(counts.color));
+});
+
+test("1.6.0: the Letter printer prints High Roller whatever the roll printer's switch says; a raise onto it says so", async () => {
+  const s = { ...SETTINGS, bits: 300, hrThreshold: 500, letterBits: 500, allowHighRoller: false };
+  const { page, ctx, errors } = await freshPage({ blocks: [HAN({ id: 1, text: "HI" })], controls: s });
+  await settled(page);
+  // At 300 bits the cheer is on the roll, whose printer prints plain.
+  assert.ok(!(await copyPayload(page)).includes("<"));
+  await cards(page).first().locator(".sel-render").selectOption("big");
+  await page.waitForFunction(() => document.getElementById("bitsAmount").value === "500");
+  assert.match(await cards(page).first().locator(".raise-note").textContent(), /At 500 bits it prints on the Letter printer\./);
+  await settled(page);
+  assert.match(await copyPayload(page), /^Cheer500 <div style="\\66ont:700 \d+px/);
+  assert.match(await page.locator("#parts .part .part-info").first().textContent(), /High Roller · Letter page/);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.5.0 (2026-10-14). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.6.0 (2026-10-14). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -33,13 +33,21 @@ and prints it.
 - Printer Bot 3.0 adds a per-printer switch, "Allow High Roller prints", on by
   default. A printer with it off prints every cheer as plain text, so the tool has the same
   switch among the streamer's settings and builds every block in its plain form when it is off.
+- Printer Bot 3.0 can also print on Letter paper through an ordinary printer, and its rules can
+  send big cheers there. Since 1.6.0 the tool models one such Letter printer: cheers of the bits
+  its rule starts at are built for its page (7.5 inches wide, 400 CSS px at 53.3 px to the inch,
+  one page a cheer) in its layout, "Scaled like 80 mm" (about 6 cm for the message under the
+  profile picture) or "Large message" (about 16 cm, laid out from the left, so blocks centre
+  themselves), and every smaller cheer on the roll. Its Allow High Roller prints is taken as on.
 
-The streamer's settings (paper width, threshold, bits per inch, maximum length, and Printer
-Bot 3.0's Allow High Roller prints) are not visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
+The streamer's settings (paper width, threshold, bits per inch, maximum length, Printer
+Bot 3.0's Allow High Roller prints, and since 1.6.0 a Letter printer's bits, layout, image fit
+and print profile) are not visible from chat, so the tool asks the user to enter them, with SassyTP's defaults filled
 in. Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth
 shading, while the bits are below the threshold raises the bits to the threshold (or offers to,
 for a big jump), and the block says so, with an Undo after a raise. It never raises when the
-streamer's printer has Allow High Roller prints off, since no amount helps.
+streamer's roll printer has Allow High Roller prints off, since no amount helps, unless the
+threshold's cheer reaches the Letter printer, which the block then says.
 
 ## What it outputs
 
@@ -71,9 +79,13 @@ streamer's printer has Allow High Roller prints off, since no amount helps.
   15 characters per line on 80 mm paper (9 on 58 mm), with the cheer word at the end. Below
   the High Roller threshold, Big text and Sideways text print in this form automatically, and a
   glyph-art picture as a plain grid of Han characters.
+- Colour (since 1.6.0, a Letter printer in its colour profile only): a text colour and a
+  background colour for Big text and Sideways text, and a colour for Glyph-art's characters, as
+  `color:` and `background-color:` declarations. On the roll and in black and white no colour
+  goes out.
 - Two one-cheer tests: a High Roller test (one cheer at the threshold) and a Plain test (one
   bit under it, or 1 bit when High Roller is off or the printer doesn't allow High Roller
-  prints).
+  prints), each built for the paper its bits reach.
 
 The tool uses only the tags div and pre, with a style attribute: every line or grid row is
 its own div, because the same chat filter held a test message that carried a line-break tag
@@ -103,9 +115,11 @@ newest Printer Bot release's page (Printer Bot 3.0.1 since 1.4.1, layout 2026101
 3.0.0-beta.7's and beta.6's pages, layouts 202610122236 and 202610110524, print the tool's
 messages the same);
 Printer Bot 2.5.4's page (202610090056) prints the tool's messages the same on a receipt printer,
-apart from a smaller profile picture. The tool builds for one receipt printer: 3.0's several printers per
-cheer and Letter paper are not modeled. A thermal view
-shows the receipt at the printer's dot width with the bot's own dither methods. Each part's
+apart from a smaller profile picture. The tool builds for a receipt printer and, since 1.6.0, one
+Letter printer (3.0's further printers per cheer are not modelled); a cheer for the Letter printer
+is drawn on the bot's Letter page, in the layout picked. A thermal view
+shows the receipt at the printer's dot width with the bot's own dither methods; on a Letter page,
+at 300 dots to the inch, with only the pictures shaded in black and white, or as drawn in colour. Each part's
 preview is drawn when it scrolls near the screen, one at a time, so a long stack stays quick.
 The preview names the layout version it draws with (the renderer's own VERSION), so a viewer
 can compare it with the Renderer version the streamer's dock shows. The circle where the bot puts

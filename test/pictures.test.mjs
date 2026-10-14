@@ -154,3 +154,21 @@ test("realPictureForm: the picture in a High Roller cheer when its site is on, t
   eq(f(u, "plain", []), { form: "grid" });
   eq(f("https://example.com/x.png", "plain", ["imgur"]), { form: "grid" });
 });
+
+test("previewEvent sends the sites the streamer switched on, as 3.0.1's action does (OptionsFor)", () => {
+  const ev = (o) => C.previewEvent({ payload: "x", bits: 100, cheer: true, hrThreshold: 25, ...o }).options.imageSites;
+  eq(ev({ imageSites: ["imgbb", "imgur", "junk"] }), ["imgur", "imgbb"]);
+  eq(ev({}), []);
+  // A printer that prints this High Roller cheer as an ordinary one (Allow High Roller prints off)
+  // gets no site; a cheer that can't be High Roller gets the list, and the page shows no picture
+  // in it anyway (only a High Roller message has pictures).
+  eq(ev({ imageSites: ["imgur"], allowHighRoller: false }), []);
+  eq(ev({ imageSites: ["imgur"], bits: 10 }), ["imgur"]);
+  // A free test is drawn as the High Roller cheer it tests.
+  eq(ev({ imageSites: ["catbox"], cheer: false, allowHighRoller: false }), ["catbox"]);
+});
+
+test("stackContext carries the sites to the builders", () => {
+  eq(C.stackContext({ cheer: true, imageSites: ["imgbb", "imgur"] }).imageSites, ["imgur", "imgbb"]);
+  eq(C.stackContext({ cheer: true }).imageSites, []);
+});

@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.4.1](https://img.shields.io/badge/version-1.4.1-blue)](docs/CHANGELOG.md)
+[![Version 1.5.0](https://img.shields.io/badge/version-1.5.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -281,12 +281,33 @@ In a plain cheer the bot prints text, so a Glyph-art block prints as a plain gri
 characters (13 a row on 80 mm, with a light column each side) whatever characters you picked,
 and the card says so.
 
-### Real picture: can't print on this bot
+### Real picture: from an Imgur, Catbox or ImgBB link (since 1.5.0)
 
-SassyTP's bot only prints pictures from emote servers, and this channel's chat filter blocks
-the picture tag, so an upload can't print as a picture. The Real picture kind is still there
-(you can upload, see, rotate and adjust a picture), but it sends nothing, and its card offers
-**Switch to Glyph-art**, which prints it as characters.
+Printer Bot 3.0 can print a picture from a link: a direct link to a picture on **Imgur**,
+**Catbox** or **ImgBB**, in a High Roller cheer, once the streamer has switched that site on in
+the bot's dock (*Advanced → Images in messages*; every site starts off) and the printer allows
+images (its default). Tick the same sites under **Pictures from links** in the streamer's
+settings here.
+
+Upload the picture to one of those sites yourself, then paste its direct link: the address of
+the picture itself, ending in `.png`, `.jpg`, `.gif` or `.webp` (Imgur's start
+`https://i.imgur.com/`, ImgBB's `https://i.ibb.co/`, Catbox's `https://files.catbox.moe/`).
+Anyone with the link can see the picture. The cheer carries the link as text, and the bot
+prints the picture in its place:
+
+```text
+Cheer100 <div>https://i.imgur.com/AbC1234.png</div>
+```
+
+It prints as wide as the paper at most and never larger than it is, up to 4 inches tall, three
+pictures to a cheer. The card says how big it prints and how many cheers it takes, and the
+preview shows it as the bot draws it. Below the High Roller threshold the bot prints a link as
+text, so the block prints the picture as a plain grid of Han characters instead, as Glyph-art
+does. The bot waits 2.5 seconds for a picture: a big file that loads slower prints `[image]`.
+
+A link to any other site, or a page of the site rather than the picture, prints nothing, and
+the card says why and offers **Switch to Glyph-art**. Upload, rotate and brightness/contrast on
+the card change only the picture shown there; the printer prints the linked picture as it is.
 
 ---
 
@@ -390,8 +411,10 @@ respacing, no swapped tags, no look-alike characters. If a channel blocks the bi
 markup, Han tiling, which is plain text, is the fallback. If chat held the message for its
 words, don't send those words again in another form, Han tiling included: that is the
 moderators saying no to the words. On the channel this was built for,
-the chat filter blocks the picture tag (checked again on 2026-10-10), which is why pictures
-print only as glyph-art.
+the chat filter blocks the picture tag (checked again on 2026-10-10), so the app never sends
+one: a picture prints as glyph-art, or from an image-site link on Printer Bot 3.0, which is
+text. If chat holds a picture link, don't shorten or disguise it: print the picture as
+Glyph-art.
 
 ---
 
@@ -439,6 +462,7 @@ preview runs with no network access at all. No analytics, no accounts, no third 
 | Paste a picture link into an Image block | The picture is fetched through `/px`, because a browser can't read another site's pixels directly. |
 | Pick a file on a **Real picture** card | It is shrunk to a PNG and uploaded to `/upload`, kept in Cloudflare KV and deleted after **15 minutes**. |
 | Rotate or adjust brightness/contrast on a Real picture card | The picture is re-fetched through `/px`, adjusted and re-uploaded. |
+| Paste an Imgur, Catbox or ImgBB link on a Real picture card | The picture is read through `/px` for its size (and its Han grid below the threshold). The link itself goes into the cheer, so the streamer's Printer Bot fetches the picture from that site. |
 
 Pasting a link and dragging a slider send data without a separate button, so "I never clicked
 upload" is not the same as "nothing left the device".

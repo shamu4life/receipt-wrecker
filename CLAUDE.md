@@ -25,6 +25,10 @@ The bot prints a cheer in one of two ways, and the whole app follows from that:
   text: Big text and Sideways text as Han tiling (the words drawn out of Han characters), a
   picture as a grid of Han characters, and Han text as typed as itself (1.2.0).
 
+Since 1.5.0 a Real picture prints as itself on Printer Bot 3.0, from a direct Imgur, Catbox or
+ImgBB link in a High Roller cheer, once the streamer switches that site on in the dock (see
+"Picture links" and the field record).
+
 The user copies each part and pastes it into chat as a cheer. The literal `Cheer<N>` word in
 the message is what Twitch charges.
 
@@ -188,7 +192,12 @@ through. What is known about the channel this was built for:
 
 - **The older record (nutty.gg era).** The blocked-terms list ate `<object`, then `<image`,
   then `<img`, one after another, as the old app offered each as a way to carry a picture. The
-  `<img` block was confirmed on 2026-09-15 with a control message.
+  `<img` block was confirmed on 2026-09-15 with a control message. It did not take every
+  picture tag: `<embed>`, the old app's default carrier from 0.3.1 (2026-08-06), and `<input
+  type=image>` went through chat and printed until nutty.gg's printer-bot added its HTML
+  sanitizer (0.9.0, confirmed live 2026-09-15), which stripped every carrier but `<img
+  class="emote">`, the one tag chat holds. The sanitizer is what ended pictures then, not the
+  channel (the owner, 2026-10-14; the CHANGELOG's 0.3.1 and 0.9.0 entries agree).
 - **2026-10-10, the channel owner's report.** That blocked-terms list is unchanged, and a
   paste test whose message carried an `<img` tag (an emote picture after a styled div) was
   held by AutoMod. So `<img` is still blocked, and `<object` and `<image` are presumed still
@@ -218,6 +227,15 @@ through. What is known about the channel this was built for:
   Confirmed on 2026-10-10: a free Cheer-ready-off chat test of the escape passed this
   channel's AutoMod, and the plain-`font` control was held as expected. The escape is proven
   for this channel; don't re-flag the free chat test for this exception.
+- **2026-10-14: pictures from links (1.5.0).** Printer Bot 3.0 prints a direct Imgur, Catbox
+  or ImgBB picture link in a High Roller message as the picture, once the streamer switches the
+  site on in its dock. **By the owner's decision, a Real picture prints that way.** No tag
+  carries it: the link is text inside the `<div>` every line already is, and the picture tag
+  stays out (`<img` is still held). The channel blocked three picture tags, not pictures as such
+  (above), and the streamer opts in on their own printer. Whether this channel's chat lets a
+  link through is not known yet: the free chat test is how to find out. If chat holds a message
+  for its link, that is the channel's moderation working: no shortened, re-hosted or disguised
+  link, and the card offers Glyph-art.
 - **Not known.** Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`).
   Nobody has said so. Don't change the design on a guess: the free chat test (Cheer-ready
   off) is how a user finds out.
@@ -230,9 +248,11 @@ What follows from that, as rules:
   input, and checks the positive side too: the only tags sent are `div` and `pre`, the only
   attribute is `style`, and the backstop counts the escape's appearances to catch a silent
   regression where a builder drops the escape and starts shipping `font` literally.
-- There is no emote or data: picture feature. An uploaded picture prints only as glyph-art.
-  The Real picture card says so plainly ("SassyTP's bot only prints pictures from emote
-  servers, and this channel's chat filter blocks the picture tag…") and offers Glyph-art.
+- There is no emote, data: or picture-tag feature. A picture prints as glyph-art, or (1.5.0)
+  as itself from a direct Imgur, Catbox or ImgBB link on Printer Bot 3.0, in a High Roller
+  cheer, when the streamer switched that site on. The Real picture card says what its link
+  needs (an upload to this app's own server never prints as a picture) and offers Glyph-art.
+  A link holding the word `font` is refused: the filter holds it.
 - No example, probe or doc snippet contains an `<img` tag. The exceptions: naming the blocked
   token in this record; the CHANGELOG's history (its older entries describe the state at their
   release, picture tags included, and are kept as written); the unit tests' HOSTILE INPUTS
@@ -253,6 +273,10 @@ A channel blocking a form is the moderators saying no.
   property name `font` is written `\66ont` so the chat filter's wildcard doesn't match it,
   while the browser's CSS parser resolves it back. Don't extend either, don't add a third
   without explicit owner direction, and keep every other token literal.)
+- **Picture links are not a third exception** (1.5.0, owner's decision of 2026-10-14). They
+  send no blocked token and no stand-in for one: a link is plain text, and the picture is a
+  feature of the streamer's own bot that they switch on. A link the card refuses stays refused:
+  never rewrite one (case, shortener, another host, a re-encoded name) to make it pass.
 - **The words, too.** Stack (one letter a line) splits a word and Han tiling draws it as a
   picture, so a word filter never sees it as typed. (Sideways text sends each line's words
   whole: a long line is cut at a space, and only a word too long for one part is split.) That is a side effect of fitting the paper, not
@@ -285,7 +309,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.4.1. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.5.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -332,7 +356,7 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **163 keys**. Regenerate the list instead of trusting this one:
+test harness **170 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
@@ -345,7 +369,8 @@ test harness **163 keys**. Regenerate the list instead of trusting this one:
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `FONT_PROP`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
 `bigFitPx`, `BIG_EDGE`, `bigEdge`, `bigEdgeEm`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
-`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `FACE_PROBE`, `faceMatches`, `SIDE_DIRS`,
+`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `FACE_PROBE`, `faceMatches`, `PICTURE_SITES`, `PICTURES_PER_CHEER`,
+`imageSitesOf`, `pictureLink`, `picturePrint`, `buildPictureBodies`, `realPictureForm`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sidePad`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
 `glyphForm`, `GLYPH_ASPECT`, `CJK_COLS_MIN`, `CJK_COLS_MAX`, `glyphCols`, `gridRows`,
@@ -401,12 +426,16 @@ contentW, limit, room, heightPx, budget, trail, cheer, bits, noNonce}`. `room` (
 is the box less the lead's 21.6px line; `budget` is 500 less the lead. `o.mode` overrides the
 mode (the probes and the card labels use it). It can be handed to `packStackBodies` as is.
 
-**`packStackBodies(bodies, opts)`**: Body = `{html, chars, heightPx, joinPx?, joinHtml?, alone?}`.
+**`packStackBodies(bodies, opts)`**: Body = `{html, chars, heightPx, joinPx?, joinHtml?, alone?, marginTop?, marginBottom?, picture?}`.
 Greedy: keep adding to the current part while the characters (500 less the lead) and the
 height (`opts.heightPx`, default 1600 − 21.6) both hold; a single body always gets at least a
 part of its own (over-budget is warned, never truncated). Each part gets one lead (and one
 nonce, from `opts.nonceFn` when the repeat number is on). `joinPx` is height a body adds only
-when it follows another body in the same part. A body with `alone: true` (Design T) becomes a
+when it follows another body in the same part. A body's `marginTop` / `marginBottom` (only a
+picture link's have any, 1.5.0: the bot's 0.4em above and below, counted in its `heightPx`) collapse
+with the body before it as CSS collapses two blocks' margins, by the smaller of the two, so two
+pictures in a row are 6.4px apart, not 12.8; and a part holds at most `PICTURES_PER_CHEER` (3)
+bodies with `picture` (the bot prints a fourth link as text). A body with `alone: true` (Design T) becomes a
 plain part: no lead, `payload = html + trail`, never shared. Empty bodies (a block of only
 invisible characters) never open or close a part, so no part is ever the lead alone. Parts
 report `{payload, lead, trail, chars, heightPx, leadPx, contentPx, bodies, nonce, alone?}`;
@@ -885,6 +914,39 @@ the same way at any cheer (its plain form is itself), and it is not a High Rolle
 Hangul through the vendored renderer on both papers, above and below the threshold, and reads
 every printed line back against the grid's rows.
 
+**Picture links (1.5.0).** A Real picture prints on Printer Bot 3.0 from a direct link to a
+picture on Imgur, Catbox or ImgBB, in a High Roller cheer, when the streamer ticked that site
+under Advanced, Images in messages in the dock (all off by default) and the printer has Allow
+images on (also its default). See the field record for why this is allowed here.
+- `PICTURE_SITES` mirrors the bot's `IMAGE_SITES` and `IMAGE_PATHS` (renderer lines 848-856): ids,
+  names, hosts and path shapes, plus each site's own `pages` (imgur.com, ibb.co, catbox.moe) so
+  the card can say a page is not the picture. `test/pictures.test.mjs` reads the bot's lists off
+  the vendored block and fails when they differ.
+- `pictureLink(raw)` is the bot's `imageSiteLink` (875-888): typed as `https://`, parsed by the
+  browser's `URL` (the harness lends it to the sandbox), no user, password or port, the exact
+  host (no look-alike or sub-domain), a direct link's path shape ending in png, jpg, jpeg, gif or
+  webp, rebuilt as `https://` + host + path (no query or fragment), 400 characters at most. It
+  returns `{url, site}` or `{why}`: `empty`, `https`, `invalid`, `userport`, `page`, `direct`,
+  `site`, `long`, or `font` (this channel's filter holds the word in any case, so such a link is
+  refused rather than sent). Whether the site is switched on is not its question.
+- `picturePrint(natW, natH, contentW)`: how `img.msg-image` prints on a roll (renderer line 322:
+  `display: block; max-width: 100%; width/height: auto; margin: 0.4em auto`, and a max-height of
+  4 inches, 384px): never enlarged, scaled down to the message width, then to 4 inches tall,
+  its shape kept. `heightPx` adds both margins (12.8px); `tooBig` past the bot's 32 Mi pixels
+  (it prints "[image]"). A 400 × 200 picture prints 244 × 122 on 80 mm.
+- `buildPictureBodies(link, natW, natH, opts)`: one body, the link escaped inside a bare `<div>`
+  (no attribute, the only tag the bot needs), with its margins and a `picture` record (`url`,
+  `site`, the natural and printed sizes, `tall` when taller than the room). Nothing for no link,
+  no size or `tooBig`.
+- `realPictureForm({url, mode, imageSites})`: `picture` (with `link`) in a High Roller cheer when
+  the link is a direct link of a ticked site, `grid` in a plain cheer (the bot prints a link as
+  text there, so the block prints the plain Han grid of the picture, wherever it is), else
+  `none` with `why` (`site-off` and `site` when the site isn't ticked).
+- `imageSitesOf(v)`: the ticked ids, each once, in `PICTURE_SITES`' order. `normalizeControls`
+  keeps them as `imageSites`, `stackContext` carries them to the builders, and `previewEvent`
+  sends them as 3.0.1's `OptionsFor` does (the list, or `[]` to a printer that prints this High
+  Roller cheer as an ordinary one).
+
 **Probes.** The app cannot see the streamer's threshold, so two one-cheer tests answer it on
 paper. Each returns `{bits, mode, bodies, note}` and goes through the normal packer as a
 one-part stack.
@@ -957,7 +1019,7 @@ imported JSON and form controls (as strings), so everything reads them through t
 `normalizeControls` (the `rw_controls_v1` fields: `cheer` (default on), `bits` (100),
 `hrThreshold` (25), `bitsPerInch` (0), `maxInches` (0), `paperMm` (80), `nonce` (off; only an
 explicit `true`), `thermalView` (off), `thermalDither` (`floyd`), `allowHighRoller` (on; only an
-explicit `false` turns it off, 1.2.0); unknown fields are ignored, so
+explicit `false` turns it off, 1.2.0), `imageSites` (none; 1.5.0); unknown fields are ignored, so
 the next save drops them), `blockRender` (`big` | `sideways` | `hanzi` | `typed`, junk → `big`),
 `bigOpts`, `sideOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700). `modeNotice` is the notice
 above the parts (a free test, or why the stack prints plain and how to change it).
@@ -1006,7 +1068,12 @@ generations; `presetImageUrls` walks a stack's picture links.
   measured from its real ink box and scaled uniformly; `textColumnsLuma` stacks the lines down
   the feed; `rasterizeImage`; `computeGrid(kind, tier, o)` samples with `o.cellAspect` (text)
   or `o.charAspect` (images) so the cells keep the picture's shape.
-- **Blocks to bodies.** `renderBlockBodies(block, ctx)`: a Real picture → nothing; a Glyph-art
+- **Blocks to bodies.** `renderBlockBodies(block, ctx)`: a Real picture → `realPictureBodies`
+  (1.5.0: `realPictureForm` decides; the picture is read like a Glyph-art one, through
+  `decodeGlyphImage` into `block._img`, then its picture link sized from `_img`'s natural size, or
+  in a plain cheer the Design T grid of `_img` itself: `glyphGrid` takes a Real picture as it is,
+  with no rotation and default glyph options, since the card's Rotate, Brightness and Contrast
+  are for viewing only; nothing for `none`); a Glyph-art
   picture → `glyphImageBodies` (decoded once into `block._img` by `decodeGlyphImage`, turned by
   `block.rotate` on a canvas by `glyphSource`; `glyphGrid` samples it for the tier's form, or
   for Design T in plain mode). Runtime-only decode state: `_decoding`, `_decodeKey` (a slow
@@ -1029,6 +1096,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   probes and `copyPart` read it): the tests, real cheers either way, used to carry the digits
   while the page showed the option as off.
   `saveControls` writes exactly `normalizeControls`' fields; `restoreControls` reads them back.
+  **Pictures from links** (1.5.0): three checkboxes (`.image-site`, `#imageSite-imgur`, `-catbox`,
+  `-imgbb`) under the streamer's settings, all off, mirroring the dock's Images in messages, read
+  into `imageSites` and passed on by `stackOpts`.
 - **Allow High Roller prints (1.2.0).** The checkbox `#allowHighRoller` under the streamer's
   settings mirrors Printer Bot 3.0's per-printer switch (on by default; 2.5 has none, so it says to
   leave it on). Off: `printMode` builds plain, so every block prints its plain form, as with
@@ -1122,18 +1192,25 @@ generations; `presetImageUrls` walks a stack's picture links.
   printed in halves with the bot's header between them), **Darkness** (the stored `contrast`,
   0..255 with 128 as is, shown centred as −128..127: it is a tone shift, not a contrast) and
   **Smooth shading (photos)** (the `dither` field: error diffusion over the characters, not the
-  thermal view's dither); for a Real picture the red can't-print note, "Switch to Glyph-art", a
-  thumbnail and brightness/contrast (baked and re-uploaded; they change the card's picture
-  only, and the card says so). The file input is emptied once its file is taken and on a change
+  thermal view's dither); for a Real picture (1.5.0, label "Real picture (prints from an Imgur,
+  Catbox or ImgBB link)") its note (`.pic-note`, `syncReal`): "Prints as the picture, about W × H
+  mm · N cheers" with a cut warning and the bot's 2.5-second wait and Allow images in grey; the
+  plain grid's size below the threshold, and that it prints the picture at the threshold; or, in
+  red, why it prints nothing (`REAL_WHY`, one sentence per `pictureLink` reason; for a site that
+  isn't ticked, what the streamer has to switch on, with a "Go to Pictures from links" button to
+  that site's checkbox). Then "Switch to Glyph-art", a thumbnail, Rotate and brightness/contrast
+  (baked and re-uploaded; they change the card's picture only, and the card says the printer
+  prints the linked picture as it is). Picking Real picture below the threshold, with a site
+  ticked, raises Bits per cheer (`pickedHighRoller(block, "the picture", kind)`). The file input is emptied once its file is taken and on a change
   of kind, so picking the same file again always fires (it didn't after a switch to Real); the
   line under it (`.file-use`) names the picked file in use ("Using “smiley.png”, read on this
   device (not uploaded)"), and on a Real picture card says that file was never uploaded, so
   there is nothing to show.
 - **Parts.** `composeParts` packs the stack. A stack with nothing printable, or only a Real
-  picture, gives one non-copyable notice, drawn as wrapped prose (`.rcpt-placeholder`; it was
+  picture that prints nothing (`realPrints`), gives one non-copyable notice, drawn as wrapped prose (`.rcpt-placeholder`; it was
   receipt text in a fixed-width box, cut off mid-word); a part with nothing printable in it yet
   (a picture still decoding) is shown but not copyable. `missingPictures` lists every Glyph-art
-  block with a source (a link or a picked file's name) that is not in the parts (still loading,
+  block, and every Real picture that prints (`realPrints`), with a source (a link or a picked file's name) that is not in the parts (still loading,
   a link or file that can't be read, an expired upload, a file to pick again), and the parts
   show it in a red notice under the mode notice (`#pictureNote`, `pictureAlert`, one line each,
   "The picture in block 2 from the top …"): as long as another block printed, such a picture
@@ -1297,9 +1374,16 @@ unchanged: a 50-line stack redrew 50 canvas lines on every refresh.
 `TwitchCheer` carrying the bits and the message untouched) and the way the bench does:
 `{__source: "TwitchCheer", bits, user: "viewer", message: <the part's exact payload>}` with
 what 3.0's `OptionsFor` sends a roll printer: `{highRollerBits, highRollerBitsPerInch,
-highRollerMaxInches, hideLinks: false, allowHighRoller, pxPerInch: 96}` (the switch as
+highRollerMaxInches, hideLinks: false, allowHighRoller, pxPerInch: 96, imageSites}` (the switch as
 `PrintEventBody` sends it: the printer's own value for a cheer that could be High Roller, `true`
-otherwise), never a `pageHeightPx` (a roll has no pages). No
+otherwise; the ticked sites, or none to a printer that prints this High Roller cheer as an
+ordinary one), never a `pageHeightPx` (a roll has no pages). A picture link's picture can't load
+in the frame (no network), so `previewPart` hands the frame a data: copy of each picture in the
+part (`partPictures`, `pictureCopy`: drawn from `block._img` on a canvas, at most 1200px on its
+longer side, which prints at the same size, kept on the block as `_copy`), and `previewGlue`
+wraps `Element.prototype.setAttribute` so the bot's own `<img class="msg-image">` gets the copy
+where it sets the link's address; the bot then waits for it, sizes it and fits the receipt as
+on the rig, and the Thermal view copies it with the rest. No
 `userName`, so no avatar lookup starts and the bot draws none. A real cheer's receipt has the
 viewer's picture whenever the lookup answers, so `previewGlue` puts a stand-in in the bot's
 circle (`standIn`: a grey silhouette as an inline SVG, which the frame's `img-src data:` allows;
@@ -1559,7 +1643,8 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 - **Zero runtime dependencies.** Dev tooling (Wrangler, Playwright, the tools) does not ship.
 - **Network calls go only to our own Worker, and there are no new ones.** The app's script has
   **four** `fetch` call sites, all same-origin: two `/px` (`decodeGlyphImage`, which reads a
-  pasted picture link for glyph-art; `processImage`, which reads it for the adjustment bake)
+  pasted picture link for glyph-art and, since 1.5.0, a Real picture's link for its size and its
+  plain grid; `processImage`, which reads it for the adjustment bake)
   and two `/upload` (`processImage`'s bake; `uploadPngForUrl`, a picked file on a Real
   picture card). Two fire without a dedicated click: typing a picture link and dragging an
   adjustment slider. The preview and the Thermal preview fetch nothing. The vendored renderer
@@ -1568,7 +1653,9 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   The expiry check loads links with `new Image()` on purpose: turning it into a `fetch` would
   add a fifth call site and a CORS problem. The Real picture card's picture is an `<img>` too,
   loaded only while the card is a Real picture: a pasted link through `/px`, our own minted
-  upload links as they are. The browser never asks a pasted link's own host for anything.
+  upload links as they are. The browser never asks a pasted link's own host for anything. (A
+  Real picture's link goes out in the cheer, and the streamer's Printer Bot then fetches it from
+  the image site itself: the picture is public by the viewer's choice of host.)
 - **Storage: exactly four `localStorage` keys**, all in `try/catch`: `rw_controls_v1` (the
   settings: the `normalizeControls` fields), `rw_nonce_seq` (the repeat-number counter, which
   only moves while that option is on), `rw_blocks_v1` (the stack), `rw_presets_v1` (presets).
@@ -1578,6 +1665,7 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 - **Privacy, stated accurately.** Text in every mode and a picture picked from disk for
   glyph-art never leave the device. Pasting a picture link sends it through `/px`; on a Real
   picture card, picking a file uploads it, and rotating or adjusting re-fetches and re-uploads.
+  A Real picture's link is sent in the cheer, so the card says the link is public.
   No analytics, accounts or third parties. Never let the docs drift back to "nothing is ever
   sent".
 
@@ -1636,6 +1724,12 @@ lives in `test-browser/` and is not in the default matcher.
   `drawnPart` scrolls its card into view first. One test builds 80 parts and holds the lazy
   path to its promises (Copy before any frame, at most 20 frames, a far part waiting at its
   height, a fast keystroke, the last part drawn when scrolled to).
+- **Picture links.** A Real picture's link is read through `/px`, which needs the Worker, so the
+  tests hand the page a data: stand-in for each link (`window.__rwPictureStub`, a map from link
+  to data: URL, read by `proxied()`; `picStub(map)` writes it as a string init script). The
+  contract for pictures is its own tests: the bot's own `<img class="msg-image">` drawn from the
+  copy at the predicted size, three pictures and big text in one cheer within 1px of the
+  predicted height (pictures in a row share a margin), a fourth in the next cheer.
 - **Pin defaults.** A browser test that depends on a default (bits, threshold, paper, nonce)
   must set the value it needs, or a later default change makes it pass while testing nothing.
 - **Playwright init scripts also run inside the sandboxed preview frames**, which have no

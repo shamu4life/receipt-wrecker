@@ -12,6 +12,52 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.5.0] - 2026-10-14
+
+### Added
+
+- **Real pictures print, on Printer Bot 3.0, from an Imgur, Catbox or ImgBB link.** Printer Bot
+  3.0 prints a direct link to a picture on one of those sites as the picture, in a High Roller
+  cheer, once the streamer switches the site on in the bot's dock (Advanced, Images in messages;
+  every site starts off). A Real picture block now sends its link that way: as text in a bare
+  `<div>`, so no picture tag goes out (this channel's chat filter holds `<img`). The picture
+  prints as wide as the paper at most, never larger than it is, up to 4 inches tall, three to a
+  cheer. Below the High Roller threshold the bot prints a link as text, so the block prints the
+  picture as the plain Han grid instead, as Glyph-art does.
+- **Pictures from links**, three checkboxes under the streamer's settings (Imgur, Catbox, ImgBB),
+  all off, mirroring the dock. Saved with the other settings.
+- **The Real picture card** says how big the picture prints and how many cheers it takes, or why
+  it prints nothing: a page of the site rather than the picture, a link that isn't a direct
+  picture link, another site, the word "font" in the link (this channel's filter holds it), or a
+  site the streamer hasn't switched on, with a button to the setting. Picking Real picture below
+  the threshold, with a site ticked, raises Bits per cheer as the other High Roller picks do.
+- **The preview draws the picture** as the bot does: the frame still loads nothing from the
+  network, so the bot's own page is handed a copy of the picture where it would load the link,
+  and lays it out, cuts it and fits the receipt as it would on the rig.
+
+### Changed
+
+- **The record of the picture tags is corrected.** The channel blocked `<object`, `<image` and
+  `<img`, not pictures as such: `<embed>` and `<input type=image>` went through chat and printed
+  until nutty.gg's printer-bot added its sanitizer (0.9.0), which is what ended pictures then.
+  By the owner's decision, pictures from links are allowed; a link chat holds is not to be
+  shortened or disguised.
+- Upload, rotate and brightness/contrast on a Real picture card still change only the picture
+  shown there; the card now says the printer prints the linked picture as it is.
+- The packer gives two pictures in a row one shared margin, as the page's CSS does, and starts a
+  new cheer for a fourth picture (the bot prints a fourth link as text).
+
+### How sure
+
+- **Tests**: 258 unit tests (11 new) and 88 browser tests (6 new). The link rules are read off the vendored bot's
+  own lists, so a Printer Bot that changes them fails a test. Through the bot's own page, a
+  picture prints at the predicted size, and three pictures with big text in one cheer come out
+  within a pixel of the predicted height.
+- **Not printed yet.** The streamer has to switch a site on in Printer Bot's dock, and whether
+  this channel's chat lets a link through is the free chat test's to find out.
+
+---
+
 ## [1.4.1] - 2026-10-14
 
 ### Changed

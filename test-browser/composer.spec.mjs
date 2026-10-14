@@ -32,7 +32,7 @@ import { serve } from "./_serve.mjs";
 import { loadCore } from "../test/_harness.mjs";
 
 const C = loadCore();
-let server, browser, PIC;
+let server, browser, PIC, PIC_WIDE;
 
 test.before(async () => {
   server = await serve();
@@ -51,6 +51,17 @@ test.before(async () => {
     x.fillStyle = g; x.fillRect(0, 27, 48, 9);
     x.fillStyle = "#000"; x.beginPath(); x.arc(24, 13, 11, 0, 7); x.fill();
     x.fillStyle = "#fff"; x.fillRect(20, 9, 8, 8);
+    return c.toDataURL("image/png");
+  });
+  // 1.5.0: a 400 x 200 picture for picture links (wider than the paper, so it prints scaled):
+  // black on the left, white on the right, a grey band along the bottom.
+  PIC_WIDE = await p.evaluate(() => {
+    const c = document.createElement("canvas");
+    c.width = 400; c.height = 200;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, 400, 200);
+    x.fillStyle = "#000"; x.fillRect(0, 0, 200, 160);
+    x.fillStyle = "#888"; x.fillRect(0, 160, 400, 40);
     return c.toDataURL("image/png");
   });
   await ctx.close();
@@ -74,7 +85,7 @@ function installClipboardStub() {
 // fails the one test that checks the defaults rather than quietly changing what the others
 // test. (This is SassyTP's own defaults: threshold 25, no length limits, 80 mm.)
 const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [] };
 // `blocks`, `presets` and `controls` seed rw_blocks_v1, rw_presets_v1 and rw_controls_v1
 // before the app's first load, the way a returning user's saved state is there before the
 // page runs; `controls` defaults to SETTINGS, and `controls: null` seeds nothing (a first
@@ -138,7 +149,7 @@ const len = (s) => Array.from(s).length;     // payloadLength's rule: code point
 // stackContext's options for a settings object (normalizeControls' fields).
 const stackOptsOf = (s) => ({ cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
                               bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm,
-                              allowHighRoller: s.allowHighRoller });
+                              allowHighRoller: s.allowHighRoller, imageSites: s.imageSites });
 // What a stack of big and sideways blocks sends, per the core, computed here in Node.
 function nodeBodies(block, ctx) {
   if (C.blockRender(block) === "typed") {
@@ -160,7 +171,9 @@ function expectNode(blocks, s = SETTINGS) {
 // What ANY stack sends, per the core, computed in the page (Han tiling and glyph-art need a
 // real canvas). The decisions are written out here on purpose, from the spec rather than from
 // renderBlockBodies: below the threshold every block prints its plain form; a Real picture
-// sends nothing; otherwise the block's render or tier. `digits`: the repeat digits each part
+// sends its picture link when its site is on (realPictureForm), else nothing; otherwise the
+// block's render or tier. A picture link's picture is read through the app's test hook
+// (window.__rwPictureStub), as the app reads it. `digits`: the repeat digits each part
 // carried, when the repeat number is on.
 async function expectParts(page, blocks, s = SETTINGS, digits = null) {
   return page.evaluate(async ([blocks, so, digits]) => {
@@ -169,10 +182,15 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
     for (const b of blocks) {
       let bodies;
       if (b.type === "image") {
-        if (b.imgKind !== "glyph") continue;
+        const real = b.imgKind !== "glyph", f = real ? K.realPictureForm({ url: b.url, mode: ctx.mode, imageSites: ctx.imageSites }) : null;
+        if (real && f.form === "none") continue;
         const img = new Image();
-        img.src = b.url;
+        img.src = (window.__rwPictureStub && window.__rwPictureStub[b.url]) || b.url;
         await img.decode();
+        if (real && f.form === "picture") {
+          for (const x of K.buildPictureBodies(f.link, img.naturalWidth, img.naturalHeight, { contentW: ctx.contentW, heightPx: ctx.room })) all.push(x);
+          continue;
+        }
         const grid = K.glyphGrid(b, img, ctx);
         bodies = ctx.mode === "plain" ? K.buildDesignTPicture(grid, plainOpts("plain"))
           : K.buildGlyphBodies(K.glyphOpts(b).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm });
@@ -486,19 +504,20 @@ test("old saved blocks and settings migrate, and print what the core builds for 
   await ctx.close();
 });
 
-test("a Real picture sends nothing, says so plainly, and switches to Glyph-art in one click", async () => {
-  // SassyTP's bot draws a picture only from an emote server, and this channel's chat filter
-  // blocks the picture tag, so a Real picture can never arrive as one. A stack whose only
-  // block is one must not offer a cheer at all (it would be the lead and nothing else).
+test("a Real picture on a link from another site sends nothing, says why, and switches to Glyph-art in one click", async () => {
+  // Printer Bot prints a picture only from an Imgur, Catbox or ImgBB link (1.5.0), and this
+  // channel's chat filter holds the picture tag, so a Real picture anywhere else can't arrive as
+  // one. A stack whose only block is one must not offer a cheer at all (it would be the lead and
+  // nothing else).
   const real = { id: 1, type: "image", imgKind: "real", url: "https://example.invalid/p.png", width: 70,
                  rotate: 0, adjBright: 0, adjContrast: 0, tier: "cjk", cols: 20, dither: true, contrast: 128, invert: false };
-  const { page, ctx, errors, requests } = await freshPage({ blocks: [real] });
+  const { page, ctx, errors, requests } = await freshPage({ blocks: [real], controls: { ...SETTINGS, imageSites: ["imgur", "catbox", "imgbb"] } });
   const card = cards(page).first();
   assert.equal(await page.locator("#parts .part button").count(), 0, "a Real-picture-only stack offered a Copy");
-  assert.match(await page.textContent("#parts"), /a Real picture can't print on SassyTP's bot/);
-  const note = card.locator(".over-note");
+  assert.match(await page.textContent("#parts"), /Nothing to print yet: a Real picture prints from an Imgur, Catbox or ImgBB link/);
+  const note = card.locator(".pic-note");
   assert.match(await note.textContent(),
-    /SassyTP's bot only prints pictures from emote servers, and this channel's chat filter blocks the picture tag, so an upload can't print as a picture\. Switch to Glyph-art to print it as characters\./);
+    /^Printer Bot prints pictures only from Imgur, Catbox and ImgBB links, so this one can't print as a picture\. Switch to Glyph-art to print it as characters\./);
   // The picture is still shown, on the card, through our own Worker: a pasted third-party
   // link is never loaded from its own host (only a minted upload link loads as it is).
   assert.equal(await card.locator("img.img-thumb").getAttribute("src"), "/px?u=" + encodeURIComponent(real.url));
@@ -510,6 +529,7 @@ test("a Real picture sends nothing, says so plainly, and switches to Glyph-art i
   const payloads = await copyAll(page);
   assert.equal(payloads.length, 1);
   for (const p of payloads) assertTags(p);
+  assert.ok(!payloads[0].includes("example.invalid"));
 
   // One click: the block is Glyph-art, saved, and the note is gone.
   await card.getByRole("button", { name: "Switch to Glyph-art" }).click();
@@ -518,7 +538,7 @@ test("a Real picture sends nothing, says so plainly, and switches to Glyph-art i
   const saved = await stored(page, "rw_blocks_v1");
   assert.equal(saved[0].imgKind, "glyph");
   assert.ok(!("renderAs" in saved[0]) && !("embedV" in saved[0]));
-  // And a NEW Image block starts as Glyph-art, the kind that prints.
+  // And a NEW Image block starts as Glyph-art.
   await page.click("#addImageBtn");
   const glyphCard = cards(page).last();
   assert.equal(await glyphCard.locator(".sel-kind").inputValue(), "glyph");
@@ -3388,6 +3408,137 @@ test("1.4.0 review: a one-column sideways block too big for the paper is labelle
   assert.match(one, / · letters cut off/, one);
   assert.doesNotMatch(one, /lines cut off/, one);
   assert.match(two, / · first lines cut off/, two);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── 1.5.0: a Real picture prints from an Imgur, Catbox or ImgBB link (Printer Bot 3.0) ──
+// The link's picture is reached through the app's test hook, window.__rwPictureStub (a link's data:
+// stand-in for /px, which needs the Worker), so no request leaves; a string init script, since an
+// init function can't close over the picture.
+const IMGUR = "https://i.imgur.com/AbC1234.png";
+const REAL = (o) => ({ type: "image", imgKind: "real", url: IMGUR, rotate: 0, adjBright: 0, adjContrast: 0, ...o });
+const picStub = (map) => "window.__rwPictureStub = " + JSON.stringify(map) + ";";
+
+test("1.5.0: a Real picture on an Imgur link, with Imgur ticked, sends the link in a bare div and the bot draws the picture at the size predicted", async () => {
+  const s = { ...SETTINGS, imageSites: ["imgur"] };
+  const blocks = [REAL({ id: 1 })];
+  const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true, init: picStub({ [IMGUR]: PIC_WIDE }) });
+  await settled(page);
+  const sent = await copyAll(page);
+  assert.deepEqual(sent, ["Cheer100 <div>" + IMGUR + "</div>"]);
+  const want = await expectParts(page, blocks, s);
+  assert.deepEqual(sent, want.map((p) => p.payload));
+  assertTags(sent[0]);
+  // 400 x 200 prints 244 x 122 CSS px on 80 mm: about 65 x 32 mm.
+  const note = cards(page).first().locator(".pic-note");
+  assert.match(await note.textContent(), /^Prints as the picture, about 65 × 32 mm · 1 cheer/);
+  // The bot's own page draws it: its own <img class="msg-image">, holding the picture's copy (the
+  // frame loads nothing from the network), at the predicted size and height, nothing taken out.
+  const { frame, last } = await drawnPart(page, 0, sent[0]);
+  const img = await frame.evaluate(() => {
+    const i = document.querySelector("#receipt-content img.msg-image");
+    return i && { src: i.getAttribute("src").slice(0, 22), w: i.getBoundingClientRect().width, h: i.getBoundingClientRect().height };
+  });
+  assert.ok(img, "the bot drew no picture");
+  assert.equal(img.src, "data:image/png;base64,");
+  assert.equal(Math.round(img.w), 244);
+  assert.equal(Math.round(img.h), 122);
+  assert.deepEqual(last.result.security, []);
+  assert.deepEqual(last.options.imageSites, ["imgur"]);
+  assert.ok(Math.abs(last.measure.fullPx - want[0].contentPx) <= 1, last.measure.fullPx + " vs " + want[0].contentPx);
+  assert.ok(!requests.some((u) => /imgur\.com/.test(u)), "the browser asked the picture's own host");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.5.0: with Imgur not ticked the Real picture prints nothing, says what the streamer has to switch on, and the tick is saved", async () => {
+  const blocks = [REAL({ id: 1 })];
+  const { page, ctx, errors } = await freshPage({ blocks, init: picStub({ [IMGUR]: PIC_WIDE }) });
+  const card = cards(page).first();
+  assert.equal(await page.locator("#parts .part button").count(), 0);
+  assert.match(await card.locator(".pic-note").textContent(),
+    /^The streamer's Printer Bot has to have Imgur switched on for this to print \(in its dock: Advanced, Images in messages\)\. Once it has, tick Imgur under Pictures from links\./);
+  // The note's button goes to the setting (on a phone it is far below the cards).
+  await card.getByRole("button", { name: "Go to Pictures from links" }).click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), "imageSite-imgur");
+  await page.check("#imageSite-imgur");
+  await settled(page);
+  assert.deepEqual(await copyAll(page), ["Cheer100 <div>" + IMGUR + "</div>"]);
+  assert.deepEqual((await stored(page, "rw_controls_v1")).imageSites, ["imgur"]);
+  await page.reload();
+  assert.equal(await page.isChecked("#imageSite-imgur"), true);
+  assert.equal(await page.isChecked("#imageSite-catbox"), false);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.5.0: below the threshold a Real picture prints the plain Han grid, and its card says it prints the picture at the threshold", async () => {
+  const s = { ...SETTINGS, bits: 10, imageSites: ["imgur"] };
+  // Its rotation and adjustments are only for the card: the grid is the linked picture as it is.
+  const blocks = [REAL({ id: 1, rotate: 90, adjBright: 40 })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE }) });
+  await settled(page);
+  const sent = await copyAll(page);
+  assert.deepEqual(sent, await expectPage(page, [REAL({ id: 1 })], s));
+  assert.ok(!sent.some((p) => p.includes("imgur")), "a plain cheer sent the link");
+  const note = await cards(page).first().locator(".pic-note").textContent();
+  assert.match(note, /This cheer is below the streamer's High Roller threshold, so this prints as a plain grid of Han characters, 13 a row\. At 25 bits or more it prints as the picture\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.5.0: a link that isn't a direct picture link says why on the card, and sends nothing", async () => {
+  const s = { ...SETTINGS, imageSites: ["imgur", "catbox", "imgbb"] };
+  const cases = [
+    ["https://imgur.com/AbC1234", /^That's a page of the site, not the picture itself\. Open the picture and copy its own address/],
+    ["https://i.imgur.com/a/AbC1234", /^That isn't a direct link to a picture: it has to end in \.png, \.jpg, \.gif or \.webp/],
+    ["https://i.imgur.com/Font123.png", /^This link has the word “font” in it, which this channel's chat filter holds, so it can't go out\./],
+    ["", /^Paste a direct link to the picture on Imgur, Catbox or ImgBB/],
+  ];
+  const blocks = cases.map(([url], i) => REAL({ id: i + 1, url }));
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s });
+  for (let i = 0; i < cases.length; i++) assert.match(await cards(page).nth(i).locator(".pic-note").textContent(), cases[i][1], cases[i][0]);
+  assert.equal(await page.locator("#parts .part button").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.5.0: picking Real picture below the threshold, with a site ticked, raises Bits per cheer as other High Roller picks do", async () => {
+  const s = { ...SETTINGS, bits: 10, imageSites: ["imgur"] };
+  const blocks = [{ id: 1, type: "image", imgKind: "glyph", url: IMGUR, tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, rotate: 0 }];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, init: picStub({ [IMGUR]: PIC_WIDE }) });
+  await settled(page);
+  await cards(page).first().locator(".sel-kind").selectOption("real");
+  await page.waitForFunction(() => document.getElementById("bitsAmount").value === "25");
+  await settled(page);
+  assert.deepEqual(await copyAll(page), ["Cheer25 <div>" + IMGUR + "</div>"]);
+  assert.match(await cards(page).first().locator(".raise-note").textContent(), /25 bits/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.5.0: three pictures and big text share a cheer as tall as predicted (two pictures in a row share a margin); a fourth goes to the next cheer", async () => {
+  const s = { ...SETTINGS, imageSites: ["imgur", "catbox", "imgbb"] };
+  const links = ["https://i.imgur.com/One1234.png", "https://files.catbox.moe/two_2.png", "https://i.ibb.co/Thr33/three.png", "https://i.imgur.com/Four123.png"];
+  const blocks = [REAL({ id: 1, url: links[0] }), REAL({ id: 2, url: links[1] }), BIG({ id: 3, text: "HI", bigLayout: "lines", bigSize: 48 }),
+                  REAL({ id: 4, url: links[2] }), REAL({ id: 5, url: links[3] })];
+  const stub = {};
+  links.forEach((u, i) => { stub[u] = i % 2 ? PIC : PIC_WIDE; });
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true, init: picStub(stub) });
+  await settled(page);
+  const sent = await copyAll(page);
+  const want = await expectParts(page, blocks, s);
+  assert.deepEqual(sent, want.map((p) => p.payload));
+  assert.equal(sent.length, 2);
+  assert.equal((sent[0].match(/<div>https:/g) || []).length, 3);
+  assert.equal(sent[1], "Cheer100 <div>" + links[3] + "</div>");
+  for (let i = 0; i < sent.length; i++) {
+    const { frame, last } = await drawnPart(page, i, sent[i]);
+    assert.equal(await frame.evaluate(() => document.querySelectorAll("#receipt-content img.msg-image").length), i ? 1 : 3);
+    assert.ok(Math.abs(last.measure.fullPx - want[i].contentPx) <= 1, "part " + (i + 1) + ": " + last.measure.fullPx + " vs " + want[i].contentPx);
+    assert.deepEqual(last.result.security, []);
+  }
   assert.deepEqual(errors, []);
   await ctx.close();
 });

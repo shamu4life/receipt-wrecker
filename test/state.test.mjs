@@ -163,18 +163,21 @@ test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's se
   // Letter paper is about 53.3 and also sends a pageHeightPx, which the preview never does).
   eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
     event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
-    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true, pxPerInch: 96 } });
+    options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true, pxPerInch: 96,
+               imageSites: [] } });
   // No userName (the renderer would start an avatar lookup), and the message is never touched.
   const e = C.previewEvent({ payload: "  " + payload + "  ", bits: "7", cheer: true, hrThreshold: "0" });
   assert.ok(!("userName" in e.event));
   assert.equal(e.event.message, "  " + payload + "  ");
-  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true, pxPerInch: 96 });
+  eq(e.options, { highRollerBits: 0, highRollerBitsPerInch: 0, highRollerMaxInches: 0, hideLinks: false, allowHighRoller: true, pxPerInch: 96,
+                  imageSites: [] });
   assert.equal(e.event.bits, 7);
   // A free test never prints; it is drawn as the High Roller cheer whose markup it tests.
   assert.equal(C.previewEvent({ payload, bits: 100, cheer: false, hrThreshold: 500 }).options.highRollerBits, 1);
   // Junk settings read through the same sanitizers as the panel.
   eq(C.previewEvent({ payload: null, bits: "x", hrThreshold: -5, bitsPerInch: "y", maxInches: 99 }).options,
-     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false, allowHighRoller: true, pxPerInch: 96 });
+     { highRollerBits: C.hrThresholdOf(-5), highRollerBitsPerInch: 0, highRollerMaxInches: 40, hideLinks: false, allowHighRoller: true, pxPerInch: 96,
+       imageSites: [] });
   // No page height: a roll has no pages, so the bot never cuts at a page's end ("page").
   assert.ok(!("pageHeightPx" in e.options));
 });

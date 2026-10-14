@@ -14,7 +14,7 @@ import { loadCore, eq } from "./_harness.mjs";
 
 const C = loadCore();
 const DEFAULTS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [] };
 
 test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold 25, no limits, 80 mm)", () => {
   for (const s of [null, undefined, {}, "junk", 7, []]) eq(C.normalizeControls(s), DEFAULTS, JSON.stringify(s));
@@ -22,9 +22,10 @@ test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold
 
 test("normalizeControls: every field validated, strings from the form read as numbers", () => {
   eq(C.normalizeControls({ cheer: false, bits: "25", hrThreshold: "0", bitsPerInch: "12.5", maxInches: "10",
-                           paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false }),
+                           paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false,
+                           imageSites: ["imgbb", "imgur"] }),
      { cheer: false, bits: 25, hrThreshold: 0, bitsPerInch: 12.5, maxInches: 10, paperMm: 58,
-       nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false });
+       nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false, imageSites: ["imgur", "imgbb"] });
   const n = (o) => C.normalizeControls(o);
   // Bits: any whole number from 1 (the old >= 100 floor is gone); junk is 100.
   assert.equal(n({ bits: 1 }).bits, 1);

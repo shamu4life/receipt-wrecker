@@ -568,7 +568,9 @@
     // a high bits-per-inch) is NO room, not "unset": every body is then too tall.
     var hb = bigRoom(opts.heightPx);
     var leadPx = typeof opts.leadPx === "number" && isFinite(opts.leadPx) && opts.leadPx >= 0 ? opts.leadPx : LEAD_LINE_PX;
-    var parts = [], cur = [], curChars = 0, curH = 0, curInk = false;
+    // curPics: the pictures in the part (PICTURES_PER_CHEER at most); prevB: its last printable
+    // body, whose bottom margin a picture right after it shares (1.5.0).
+    var parts = [], cur = [], curChars = 0, curH = 0, curInk = false, curPics = 0, prevB = null;
     function partNonce() {
       return opts.cheer && !opts.noNonce
         ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
@@ -580,7 +582,7 @@
       var h = b.heightPx || 0;
       parts.push({ payload: payload, lead: "", trail: trail, chars: payloadLength(payload), heightPx: h,
                    leadPx: 0, contentPx: h, bodies: cur.concat([b]), nonce: nonce, alone: true });
-      cur = []; curChars = 0; curH = 0; curInk = false;
+      cur = []; curChars = 0; curH = 0; curInk = false; curPics = 0; prevB = null;
     }
     function flush() {
       if (!cur.length) return;
@@ -598,7 +600,7 @@
       var payload = lead + html;
       parts.push({ payload: payload, lead: lead, trail: "", chars: payloadLength(payload), heightPx: curH,
                    leadPx: leadPx, contentPx: leadPx + curH, bodies: cur.slice(), nonce: nonce });
-      cur = []; curChars = 0; curH = 0; curInk = false;
+      cur = []; curChars = 0; curH = 0; curInk = false; curPics = 0; prevB = null;
     }
     for (var i = 0; i < bodies.length; i++) {
       var b = bodies[i];
@@ -619,11 +621,17 @@
         continue;
       }
       var join = curInk && b.joinPx ? b.joinPx : 0, jc = join && b.joinHtml ? payloadLength(b.joinHtml) : 0;
-      var fits = !curInk || empty || ((curChars + jc + bChars <= maxBody) && (curH + join + bH <= hb + 1e-6));
-      if (!fits) { flush(); join = 0; jc = 0; }
+      // A body's margins (only a picture has any: 0.4em above and below, in its heightPx) collapse
+      // with the body before it in the part, as CSS collapses two blocks' margins into the larger:
+      // two pictures one after another are 6.4px apart, not 12.8 (1.5.0). And the bot prints a
+      // fourth picture link in one message as text, so a part holds three.
+      var share = curInk && prevB ? Math.min(prevB.marginBottom || 0, b.marginTop || 0) : 0, pic = b.picture ? 1 : 0;
+      var fits = !curInk || empty || ((curChars + jc + bChars <= maxBody) && (curH + join + bH - share <= hb + 1e-6)
+                                      && curPics + pic <= PICTURES_PER_CHEER);
+      if (!fits) { flush(); join = 0; jc = 0; share = 0; }
       cur.push(jc ? Object.assign({}, b, { html: b.joinHtml + b.html, chars: jc + bChars }) : b);
-      curChars += jc + bChars; curH += join + bH;
-      if (!empty) curInk = true;
+      curChars += jc + bChars; curH += join + bH - share; curPics += pic;
+      if (!empty) { curInk = true; prevB = b; }
     }
     // Empty bodies left over after the last printable part ride along in it rather than
     // becoming a lead-only cheer of their own. (With nothing printable at all, the one
@@ -641,6 +649,98 @@
   // For a value going into a double-quoted HTML attribute (the image URL): also
   // neutralize the quote so a crafted URL can't break out of the attribute/tag.
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+  // ── PICTURE LINKS (1.5.0): a Real picture, printed by Printer Bot 3.0 from a link ──────────
+  // Printer Bot 3.0 (3.0.0-beta.9; only in High Roller messages since 3.0.1) prints a direct link
+  // to a picture on Imgur, Catbox or ImgBB as that picture, when the streamer ticked the site under
+  // Advanced -> Images in messages in the dock (every site starts off) and the printer has Allow
+  // images on (also on by default). The link goes out as text in a bare <div>, as every line
+  // already does: no picture tag, which this channel's chat filter holds (see the field record).
+  // These mirror the bot's IMAGE_SITES and IMAGE_PATHS (renderer lines 848-856) and imageSiteLink
+  // (875-888): typed as https://, no user, password or port, the host exactly one of the site's
+  // (no look-alike, no sub-domain), the path of a direct link ending in png, jpg, jpeg, gif or
+  // webp, and the address rebuilt from the parts that were checked (no query, no fragment). The
+  // `pages` are the sites' own pages, named so the card can say a page is not the picture.
+  var PICTURE_SITES = [
+    { id: "imgur", name: "Imgur", hosts: ["i.imgur.com"], pages: ["imgur.com", "www.imgur.com", "m.imgur.com"],
+      path: /^\/[A-Za-z0-9]{3,16}\.(?:png|jpe?g|gif|webp)$/i },
+    { id: "catbox", name: "Catbox", hosts: ["files.catbox.moe"], pages: ["catbox.moe", "www.catbox.moe"],
+      path: /^\/[A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp)$/i },
+    { id: "imgbb", name: "ImgBB", hosts: ["i.ibb.co"], pages: ["ibb.co", "imgbb.com", "www.imgbb.com"],
+      path: /^\/[A-Za-z0-9]{3,16}\/(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2}){1,120}\.(?:png|jpe?g|gif|webp)$/i }
+  ];
+  var PICTURES_PER_CHEER = 3;                  // MAX_MESSAGE_IMAGES: the bot prints a fourth link as text
+  var PICTURE_MAX_IN = 4;                      // MAX_MESSAGE_IMAGE_INCHES: the tallest a picture prints
+  var PICTURE_MAX_URL = 400;                   // MAX_MESSAGE_IMAGE_URL
+  var PICTURE_MAX_PIXELS = 32 * 1024 * 1024;   // MAX_MESSAGE_IMAGE_PIXELS: more, and the bot prints "[image]"
+  var PICTURE_MARGIN_PX = 0.4 * BASE_PX;       // img.msg-image's margin, 0.4em above and below at the receipt's 16px
+  // The sites the streamer switched on (a setting): ids of PICTURE_SITES, each once, in its order.
+  function imageSitesOf(v) {
+    var list = Array.isArray(v) ? v : [];
+    return PICTURE_SITES.map(function (s) { return s.id; }).filter(function (id) { return list.indexOf(id) >= 0; });
+  }
+  // The link a Real picture sends: {url, site} for a direct picture link of one of the sites, else
+  // {why}: "empty", "https" (not typed as https://), "invalid", "userport", "page" (a page of the
+  // site, not the picture), "direct" (the site's host, but not a direct link's shape), "site"
+  // (another host), "long", or "font" (this channel's chat filter holds the word, in any case).
+  // Whether the streamer switched the site on is realPictureForm's question.
+  function pictureLink(raw) {
+    var text = String(raw == null ? "" : raw).trim(), u, i, s, url;
+    if (!text) return { why: "empty" };
+    if (!/^https:\/\//i.test(text)) return { why: "https" };
+    try { u = new URL(text); } catch (e) { return { why: "invalid" }; }
+    if (u.protocol !== "https:" || u.username || u.password || u.port) return { why: "userport" };
+    for (i = 0; i < PICTURE_SITES.length; i++) {
+      s = PICTURE_SITES[i];
+      if (s.pages.indexOf(u.hostname) >= 0) return { why: "page" };
+      if (s.hosts.indexOf(u.hostname) < 0) continue;
+      if (!s.path.test(u.pathname)) return { why: "direct" };
+      url = "https://" + u.hostname + u.pathname;
+      if (url.length > PICTURE_MAX_URL) return { why: "long" };
+      if (/font/i.test(url)) return { why: "font" };
+      return { url: url, site: s.id };
+    }
+    return { why: "site" };
+  }
+  // How a picture prints on a roll (img.msg-image: display block, max-width 100%, width and height
+  // auto, margin 0.4em auto, max-height 4 inches of paper; renderer line 322 and
+  // messageImageElement): never enlarged, scaled down to the message's width, then to 4 inches
+  // tall, its shape kept. heightPx is what it takes in the message box, both margins included;
+  // tooBig: more pixels than the bot shows. null without a size.
+  function picturePrint(natW, natH, contentW) {
+    if (!(natW > 0) || !(natH > 0) || !(contentW > 0)) return null;
+    var maxH = Math.round(PICTURE_MAX_IN * PX_PER_INCH), w = natW, h = natH;
+    if (w > contentW) { h = natH * contentW / natW; w = contentW; }
+    if (h > maxH) { w = w * maxH / h; h = maxH; }
+    return { w: w, h: h, scale: w / natW, heightPx: h + 2 * PICTURE_MARGIN_PX, tooBig: natW * natH > PICTURE_MAX_PIXELS };
+  }
+  // A picture link as a body: the link in a bare <div>, as tall as the picture prints, with its
+  // margins declared so the packer can collapse two pictures' (marginTop / marginBottom) and
+  // count three to a part (`picture`). opts: contentW, heightPx (the room after the Cheer line).
+  // Nothing when there is no link or no size, or the bot would not show the picture.
+  function buildPictureBodies(link, natW, natH, opts) {
+    opts = opts || {};
+    if (!link || !link.url) return [];
+    var p = picturePrint(natW, natH, bigContentW(opts));
+    if (!p || p.tooBig) return [];
+    var html = LINE_OPEN + escapeHtml(link.url) + LINE_CLOSE;
+    return [{ html: html, chars: payloadLength(html), heightPx: p.heightPx,
+              marginTop: PICTURE_MARGIN_PX, marginBottom: PICTURE_MARGIN_PX,
+              picture: { url: link.url, site: link.site, natW: natW, natH: natH, w: p.w, h: p.h,
+                         tall: p.heightPx > bigRoom(opts.heightPx) + PX_EPS } }];
+  }
+  // What a Real picture block prints: in a High Roller cheer its picture ("picture") when the link
+  // is a direct picture link of a site the streamer switched on, else nothing ("none", and why:
+  // pictureLink's reason, or "site-off" with the site). In a plain cheer the bot prints a link as
+  // text, so the block prints the plain Han grid of its picture ("grid"), read as a Glyph-art
+  // picture is read, wherever it is. o: {url, mode, imageSites}.
+  function realPictureForm(o) {
+    o = o || {};
+    if (o.mode === "plain") return { form: "grid" };
+    var link = pictureLink(o.url);
+    if (!link.url) return { form: "none", why: link.why };
+    return imageSitesOf(o.imageSites).indexOf(link.site) >= 0
+      ? { form: "picture", link: link } : { form: "none", why: "site-off", site: link.site };
+  }
   // ── PRESETS ───────────────────────────────────────────────────────────────
   // Customisation is worthless if it has to be rebuilt every stream, so a preset saves
   // the WHOLE block stack under a name.
@@ -3070,7 +3170,7 @@
              bitsPerInch: bitsPerInchOf(s.bitsPerInch), maxInches: maxInchesOf(s.maxInches),
              paperMm: paperSpec(s.paperMm).mm, nonce: s.nonce === true, thermalView: s.thermalView === true,
              thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd",
-             allowHighRoller: s.allowHighRoller !== false };
+             allowHighRoller: s.allowHighRoller !== false, imageSites: imageSitesOf(s.imageSites) };
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
@@ -6647,6 +6747,9 @@
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
       // Faces (1.4.0).
       FACE_IDS: FACE_IDS, faceOf: faceOf, faceIdOf: faceIdOf, FACE_PROBE: FACE_PROBE, faceMatches: faceMatches,
+      // Picture links (1.5.0).
+      PICTURE_SITES: PICTURE_SITES, PICTURES_PER_CHEER: PICTURES_PER_CHEER, imageSitesOf: imageSitesOf, pictureLink: pictureLink,
+      picturePrint: picturePrint, buildPictureBodies: buildPictureBodies, realPictureForm: realPictureForm,
       // Sideways (High Roller).
       SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen, sidePad: sidePad,
       sideWidthPx: sideWidthPx, sideLines: sideLines, sideSizeOf: sideSizeOf, sideOpts: sideOpts,

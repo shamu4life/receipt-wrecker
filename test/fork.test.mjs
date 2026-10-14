@@ -15,8 +15,8 @@ const body = (chars, heightPx, html, extra) =>
   Object.assign({ chars, heightPx, html: html == null ? "x".repeat(chars) : html }, extra || {});
 
 test("paper: the page is 272 / 181 CSS px, the message 28px narrower, the raster 576 / 384 dots", () => {
-  assert.deepEqual({ ...C.paperSpec(80) }, { mm: 80, cssWidth: 272, contentW: 244, dots: 576 });
-  assert.deepEqual({ ...C.paperSpec(58) }, { mm: 58, cssWidth: 181, contentW: 153, dots: 384 });
+  assert.deepEqual({ ...C.paperSpec(80) }, { mm: 80, cssWidth: 272, contentW: 244, dots: 576, pxPerInch: 96, pagePx: 0 });
+  assert.deepEqual({ ...C.paperSpec(58) }, { mm: 58, cssWidth: 181, contentW: 153, dots: 384, pxPerInch: 96, pagePx: 0 });
   for (const mm of [80, 58]) {
     const p = C.paperSpec(mm);
     assert.equal(p.contentW, p.cssWidth - 28, mm + " mm: the receipt pads 14px each side");

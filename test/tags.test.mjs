@@ -24,8 +24,11 @@ function everyPayload(mm) {
   const out = [];
   for (const k of [C.stackContext({ cheer: true, bits: 100, noNonce: true, paperMm: mm }),
                    C.stackContext({ cheer: true, bits: 100, bitsPerInch: 25, paperMm: mm }),
-                   C.stackContext({ cheer: false, paperMm: mm })]) {
-    const o = { budget: k.budget, heightPx: k.room, contentW: k.contentW };
+                   C.stackContext({ cheer: false, paperMm: mm }),
+                   // 1.6.0: a cheer on the Letter printer, in Large message (centred) and in colour.
+                   C.stackContext({ cheer: true, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", paperMm: mm })]) {
+    const o = { budget: k.budget, heightPx: k.room, contentW: k.contentW,
+                ...(k.colour ? { center: k.center, color: "#C00000", bg: "#ffff00" } : {}) };
     const add = (what, bodies) => {
       bodies.forEach((b) => out.push([what + " body", b.html]));
       C.packStackBodies(bodies, k).forEach((p) => out.push([what + " payload", p.payload]));
@@ -45,7 +48,8 @@ function everyPayload(mm) {
     const grid = (cols, rows, ramp) => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => ramp[(r * 7 + c * 3) % ramp.length]));
     for (const tier of ["cjk", "ascii", "asciifull", "safe", "braille"]) {
       const ramp = tier === "braille" ? ["\u2800", "⠁", "⣿"] : tier === "cjk" ? cjk : C.getTier(tier).ramp.concat(["<", ">", "&"]);
-      add("glyph " + tier, C.buildGlyphBodies(tier, grid(tier === "cjk" ? 16 : 24, 30, ramp), { paperMm: mm, budget: k.budget, heightPx: k.room }));
+      add("glyph " + tier, C.buildGlyphBodies(tier, grid(tier === "cjk" ? 16 : 24, 30, ramp), { paperMm: k.paperMm, budget: k.budget, heightPx: k.room,
+        ...(k.colour ? { center: k.center, color: "#C00000" } : {}) }));
     }
     const cols = C.hanziCols(k.contentW);
     add("plain Han tiling", C.buildDesignT(grid(cols, 40, cjk), { mode: k.mode, paperMm: mm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));

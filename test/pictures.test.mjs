@@ -104,7 +104,7 @@ test("buildPictureBodies: one bare <div> holding the link, as tall as it prints,
   assert.equal(b.chars, 42);
   assert.equal(r2(b.heightPx), 134.8);
   assert.equal(b.marginTop, 6.4); assert.equal(b.marginBottom, 6.4);
-  eq(b.picture, { url: "https://i.imgur.com/abc1234.png", site: "imgur", natW: 1000, natH: 500, w: 244, h: 122, tall: false });
+  eq(b.picture, { url: "https://i.imgur.com/abc1234.png", site: "imgur", natW: 1000, natH: 500, w: 244, h: 122, tall: false, shrinks: false });
   // Taller than the box the cheer buys: the bot's box cuts it, and the body says so.
   const [t] = C.buildPictureBodies(link, 500, 2000, { contentW: 244, heightPx: 100 });
   assert.equal(t.picture.tall, true);

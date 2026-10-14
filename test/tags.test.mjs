@@ -24,8 +24,11 @@ function everyPayload(mm) {
   const out = [];
   for (const k of [C.stackContext({ cheer: true, bits: 100, noNonce: true, paperMm: mm }),
                    C.stackContext({ cheer: true, bits: 100, bitsPerInch: 25, paperMm: mm }),
-                   C.stackContext({ cheer: false, paperMm: mm })]) {
-    const o = { budget: k.budget, heightPx: k.room, contentW: k.contentW };
+                   C.stackContext({ cheer: false, paperMm: mm }),
+                   // 1.6.0: a cheer on the Letter printer, in Large message (centred) and in colour.
+                   C.stackContext({ cheer: true, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", paperMm: mm })]) {
+    const o = { budget: k.budget, heightPx: k.room, contentW: k.contentW,
+                ...(k.colour ? { center: k.center, color: "#C00000", bg: "#ffff00" } : {}) };
     const add = (what, bodies) => {
       bodies.forEach((b) => out.push([what + " body", b.html]));
       C.packStackBodies(bodies, k).forEach((p) => out.push([what + " payload", p.payload]));
@@ -45,16 +48,17 @@ function everyPayload(mm) {
     const grid = (cols, rows, ramp) => Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => ramp[(r * 7 + c * 3) % ramp.length]));
     for (const tier of ["cjk", "ascii", "asciifull", "safe", "braille"]) {
       const ramp = tier === "braille" ? ["\u2800", "⠁", "⣿"] : tier === "cjk" ? cjk : C.getTier(tier).ramp.concat(["<", ">", "&"]);
-      add("glyph " + tier, C.buildGlyphBodies(tier, grid(tier === "cjk" ? 16 : 24, 30, ramp), { paperMm: mm, budget: k.budget, heightPx: k.room }));
+      add("glyph " + tier, C.buildGlyphBodies(tier, grid(tier === "cjk" ? 16 : 24, 30, ramp), { paperMm: k.paperMm, budget: k.budget, heightPx: k.room,
+        ...(k.colour ? { center: k.center, color: "#C00000" } : {}) }));
     }
     const cols = C.hanziCols(k.contentW);
-    add("plain Han tiling", C.buildDesignT(grid(cols, 40, cjk), { mode: k.mode, paperMm: mm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
+    add("plain Han tiling", C.buildDesignT(grid(cols, 40, cjk), { mode: k.mode, paperMm: k.paperMm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
     // 1.2.0: Han text as typed carries the viewer's own characters, but only Han-width ones, so a
     // typed tag or the word "font" never goes out, in either mode.
     for (const t of TEXTS.concat(["你好，世界！\n「東京」", "font <b>字</b> <br> 한국어 カタカナ"])) {
-      for (const mode of ["raw", "plain"]) add("typed " + mode, C.buildHanTyped(t, { mode, paperMm: mm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
+      for (const mode of ["raw", "plain"]) add("typed " + mode, C.buildHanTyped(t, { mode, paperMm: k.paperMm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
     }
-    add("plain picture", C.buildDesignTPicture(grid(cols - 2, 20, cjk), { mode: "plain", paperMm: mm, cheer: true, bits: 10, limitPx: 1600 }));
+    add("plain picture", C.buildDesignTPicture(grid(cols - 2, 20, cjk), { mode: "plain", paperMm: k.paperMm, cheer: true, bits: 10, limitPx: 1600 }));
     // 1.5.0: picture links, alone and among other bodies: a bare <div> holding the link as text. A
     // link that is no direct picture link (or holds the word "font") never becomes a body.
     const links = ["https://i.imgur.com/AbC1234.png", "https://files.catbox.moe/a1_b-2.jpg", "https://i.ibb.co/AbC123/my-pic%20x.png",
@@ -68,6 +72,15 @@ function everyPayload(mm) {
     for (const probe of [C.buildHighRollerProbe({ hrThreshold: t, paperMm: mm }), C.buildPlainProbe({ hrThreshold: t, paperMm: mm })]) {
       probe.bodies.forEach((b) => out.push(["probe body", b.html]));
       C.packStackBodies(probe.bodies, { cheer: true, bits: probe.bits }).forEach((p) => out.push(["probe payload", p.payload]));
+    }
+  }
+  // 1.6.0: both probes on the Letter printer, in both layouts (Large message centres the big shapes).
+  for (const letterLayout of ["scaled", "message"]) {
+    for (const probe of [C.buildHighRollerProbe({ hrThreshold: 600, paperMm: mm, letterBits: 500, letterLayout }),
+                         C.buildPlainProbe({ hrThreshold: 1000, paperMm: mm, letterBits: 500, letterLayout })]) {
+      assert.equal(probe.paperMm, "letter");
+      probe.bodies.forEach((b) => out.push(["Letter probe body", b.html]));
+      C.packStackBodies(probe.bodies, { cheer: true, bits: probe.bits }).forEach((p) => out.push(["Letter probe payload", p.payload]));
     }
   }
   return out;

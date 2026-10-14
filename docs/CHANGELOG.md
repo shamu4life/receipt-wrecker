@@ -12,6 +12,60 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.6.0] - 2026-10-14
+
+### Added
+
+- **A Letter printer.** Printer Bot 3.0 can print on Letter paper through an ordinary printer, and
+  its rules can send big cheers there and the rest to the roll. A new group under the streamer's
+  settings mirrors that printer's card in the dock: the bits its rule starts at ("Cheers of N bits
+  or more print on Letter paper"; 0, the default, means no Letter printer), its layout (Scaled like
+  80 mm, or Large message), its image fit (Large message only) and its print profile (black and
+  white, or colour). They are fields of the existing settings key, and wait, disabled, until the
+  bits are set.
+- **A cheer of the Letter printer's bits is built for its page**: 372 CSS px of width, 17.7 cm on
+  paper against 80 mm's 6.5 cm (Big text up to about 2.7 times as large; Han tiling 23 cells a row), 53.3 px to the
+  inch for the streamer's bits per inch and maximum length, and one page a cheer. The page leaves
+  a message about 6 cm in Scaled like 80 mm, under the large profile picture, and about 16 cm in
+  Large message; a message too tall for it goes into more cheers, as on a roll. Sizes in cm, the
+  notes, both test cheers and the Bits raise follow the paper the cheer prints on, and the parts
+  say "Letter page".
+- **Large message is laid out from the left**, so a Big text or Glyph-art block centres itself
+  there (`text-align:center`, 18 characters). Sideways text already centres itself.
+- **Colour**, for a Letter printer in its colour profile: a text colour and a background colour
+  for Big text and Sideways text, and a colour for Glyph-art's characters (`color:` and
+  `background-color:`, literal and on the bot's style list). The pickers show while the streamer
+  has a Letter printer in colour, and say whether this cheer prints them. On the roll and in black
+  and white no colour goes out; the block keeps its colours for a cheer that prints them.
+- **The preview draws the Letter page**: 400 CSS px wide and one page tall, in the layout picked.
+  On a page the bot draws the profile picture's stand-in itself, through its own avatar cache (the
+  frame still loads nothing), so its cut at the end of the page counts the picture. The Thermal
+  preview shows the page at the printer's 300 dots to the inch: in black and white the bot prints
+  text sharp and shades only the pictures (its Letter profile), and in colour it prints the page
+  as drawn.
+
+### Changed
+
+- **Allow High Roller prints is the roll printer's switch.** A Letter printer's is taken as on, its
+  default, as is its Allow images. A cheer that reaches the Letter printer prints High Roller
+  whatever the roll printer's switch says, and a Bits raise that moves a cheer onto the Letter
+  printer says so.
+- CLAUDE.md's note on picture links, left from 1.4.1, now says what 1.5.0 does.
+
+### How sure
+
+- **Tests**: 281 unit tests (23 new) and 94 browser tests (6 new). The contract test now also runs
+  every mode through the vendored page on Letter: Scaled like 80 mm, Large message in colour (the
+  colours and the centring kept by the bot's sanitizer), Large message under a bits-per-inch
+  length, a plain cheer of 23-cell rows, and both test cheers. The tag test scans Letter's grids
+  and test cheers too, and `tools/upstream-watch.mjs` now compares the parts of the bot's page the
+  Letter model reads. The page's header and footer were measured on the bot's own page, with its profile
+  picture and without.
+- **Not printed yet.** Nothing has been printed on a Letter printer. Whether this channel's chat
+  filter lets `color` through is the free chat test's to find out.
+
+---
+
 ## [1.5.0] - 2026-10-14
 
 ### Added

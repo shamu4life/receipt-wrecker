@@ -14,7 +14,8 @@ import { loadCore, eq } from "./_harness.mjs";
 
 const C = loadCore();
 const DEFAULTS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
-                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [] };
+                   nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [],
+                   letterBits: 0, letterLayout: "scaled", letterFit: "fit", letterProfile: "bw" };
 
 test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold 25, no limits, 80 mm)", () => {
   for (const s of [null, undefined, {}, "junk", 7, []]) eq(C.normalizeControls(s), DEFAULTS, JSON.stringify(s));
@@ -23,9 +24,10 @@ test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold
 test("normalizeControls: every field validated, strings from the form read as numbers", () => {
   eq(C.normalizeControls({ cheer: false, bits: "25", hrThreshold: "0", bitsPerInch: "12.5", maxInches: "10",
                            paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false,
-                           imageSites: ["imgbb", "imgur"] }),
+                           imageSites: ["imgbb", "imgur"], letterBits: "500", letterLayout: "message", letterFit: "stretch", letterProfile: "color" }),
      { cheer: false, bits: 25, hrThreshold: 0, bitsPerInch: 12.5, maxInches: 10, paperMm: 58,
-       nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false, imageSites: ["imgur", "imgbb"] });
+       nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false, imageSites: ["imgur", "imgbb"],
+       letterBits: 500, letterLayout: "message", letterFit: "stretch", letterProfile: "color" });
   const n = (o) => C.normalizeControls(o);
   // Bits: any whole number from 1 (the old >= 100 floor is gone); junk is 100.
   assert.equal(n({ bits: 1 }).bits, 1);
@@ -160,7 +162,7 @@ test("previewEvent: the part's exact payload as a TwitchCheer, the streamer's se
   // The options a 3.0 printer's action sends (OptionsFor): the streamer's threshold, bits per inch
   // and maximum length, the printer's Allow High Roller prints (as the action sends it: its own
   // value for a cheer that can be High Roller, true otherwise), and its px per inch (96 on a roll;
-  // Letter paper is about 53.3 and also sends a pageHeightPx, which the preview never does).
+  // a Letter printer's options are letter.test.mjs's).
   eq(C.previewEvent({ payload, bits: 25, cheer: true, hrThreshold: 25, bitsPerInch: 12.5, maxInches: 3 }), {
     event: { __source: "TwitchCheer", bits: 25, user: "viewer", message: payload },
     options: { highRollerBits: 25, highRollerBitsPerInch: 12.5, highRollerMaxInches: 3, hideLinks: false, allowHighRoller: true, pxPerInch: 96,

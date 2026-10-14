@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.5.0](https://img.shields.io/badge/version-1.5.0-blue)](docs/CHANGELOG.md)
+[![Version 1.6.0](https://img.shields.io/badge/version-1.6.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -73,7 +73,9 @@ A viewer can't see these from chat. Ask the streamer, or leave the defaults (Sas
 | **High Roller threshold** | 25 bits | Decides whether your cheer prints styled (High Roller) or as plain text. 0 = High Roller off. |
 | **Bits per inch** | 0 (off) | When set, a High Roller cheer gets one inch of tape per that many bits, and the bot fades out the rest. |
 | **Maximum length** | 0 (off) | When set (up to 40 inches), it caps how long a High Roller message prints. |
-| **Allow High Roller prints** (Printer Bot 3.0) | on | Printer Bot 3.0 has this switch for each printer. Off, that printer prints every cheer as plain text, however many bits, so every block prints in its plain form. Printer Bot 2.5 has no such switch: leave it on. |
+| **Allow High Roller prints** (Printer Bot 3.0) | on | Printer Bot 3.0 has this switch for each printer. Off, that printer prints every cheer as plain text, however many bits, so every block prints in its plain form. Printer Bot 2.5 has no such switch: leave it on. With a Letter printer, this is the roll printer's switch. |
+| **Pictures from links** (Printer Bot 3.0) | none | The image sites the streamer switched on in the dock. See [Real picture](#real-picture-from-an-imgur-catbox-or-imgbb-link-since-150). |
+| **A Letter printer** (Printer Bot 3.0) | none (0) | The bits a second printer's rule starts at, for a streamer who prints big cheers on Letter paper, with that printer's layout, image fit and print profile. See [Letter paper and colour](#letter-paper-and-colour-since-160). |
 
 With both length settings at 0, a message gets the bot's 1600 px box, about 42 cm, and
 anything taller is cut off with no warning. The app splits a tall stack into more cheers so
@@ -91,6 +93,33 @@ when the streamer's printer has Allow High Roller prints off, or when the stream
 inch or maximum length would leave nothing to print after the Cheer line at that amount (the
 card says why). After an Undo, or if you lower the amount again
 yourself, it only offers.
+
+### Letter paper and colour (since 1.6.0)
+
+Printer Bot 3.0 can print on **Letter paper** through an ordinary printer, and the streamer's
+rules can send big cheers there and the rest to the roll (a rule like *Twitch: Cheer where
+Bits ≥ 500*). Set **Cheers of N bits or more print on Letter paper** to the amount that rule
+starts at, and the Letter printer's card as it is in the dock:
+
+- **Letter layout.** *Scaled like 80 mm* prints the roll's receipt on the page, larger: under
+  its big profile picture a message gets about 6 cm of the page. *Large message* puts a small
+  picture beside the name and gives the message most of the page, about 16 cm. It lays the
+  message out from the left, so a Big text or Glyph-art block centres itself there.
+- **Image fit** (Large message only): how a picture from a link fills the space the words leave
+  it. Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the
+  space.
+- **Print profile.** *Black and white* prints text sharp and shades only pictures. *Colour*
+  prints the page as it looks, and lets Big text and Sideways text have a **text colour** and a
+  **background colour**, and Glyph-art's characters a colour (the pickers are on their cards).
+
+A cheer of that many bits or more is built for the Letter page: 7.5 inches wide (Big text up to
+about 2.7 times as large on paper as on 80 mm, Han tiling 23 characters a row), one page a
+cheer, with the streamer's bits per inch and maximum length measured in inches of the page. A
+message too tall for the page goes into more cheers, as on the roll. The cards' sizes and the
+parts say which paper a cheer prints on, and the preview draws the Letter page. Colours go out
+only on a Letter printer in colour; on the roll and in black and white a block keeps its colours
+for a cheer that prints them, and sends none. The app takes the Letter printer's Allow High
+Roller prints and Allow images as on, their defaults.
 
 ---
 
@@ -206,7 +235,7 @@ threshold. Read it like sideways text: turn the receipt anticlockwise.
 ```
 
 That is `HI` as a 24-bit cheer (below a threshold of 25). The bot prints plain text 15 Han
-characters to a line on 80 mm paper (9 on 58 mm), so the app makes every row exactly that
+characters to a line on 80 mm paper (9 on 58 mm, 23 on a Letter page), so the app makes every row exactly that
 long, starts with a light header row (so the opening quote mark gets a line of its own) and
 puts the `Cheer24` word at the **end**. Each plain part is its own cheer. Stroke weight is
 Bold or Regular. Han tiling needs a CJK font on the streamer's PC; Windows has one.
@@ -214,7 +243,7 @@ Bold or Regular. Han tiling needs a CJK font on the streamer's PC; Windows has o
 ### Han text as typed (plain text, any cheer)
 
 The Han characters you type or paste, printed as themselves at the receipt's own size: 15 a
-row on 80 mm paper (9 on 58 mm), whatever the cheer size, and up to about 480 a cheer with the
+row on 80 mm paper (9 on 58 mm, 23 on a Letter page), whatever the cheer size, and up to about 480 a cheer with the
 streamer's length settings at 0. Each line you type starts a new row, and the rest of that row
 fills with light 丶 cells (a chat message can't carry a line break). Below the threshold a light
 first row takes the opening quote mark, as in Han tiling.
@@ -332,10 +361,11 @@ the code (before 3.0 the code itself printed). Set the threshold and that switch
 streamer has them, and the app builds the plain form for those cheers itself.
 
 The app follows the newest Printer Bot release, beta or stable, as SassyTP ships it. Printer Bot
-3.0 can also print one cheer on
-several printers, each with its own paper and its own Allow High Roller prints, and print on
-Letter paper through an ordinary printer. The app builds for one receipt printer and doesn't
-model either.
+3.0 can also print one cheer on several printers, each with its own paper and its own Allow High
+Roller prints. The app builds for a receipt printer and, since 1.6.0, one Letter printer for
+cheers of the bits its rule starts at; it doesn't model more. A cheer for the Letter printer is
+drawn on the bot's Letter page, 400 CSS px wide and one page tall, in the layout picked, and the
+profile picture's stand-in is drawn by the bot itself there, so the page's cut counts it.
 
 The big circle at the top is where the bot puts the viewer's profile picture. The preview never
 asks Twitch for it, so it draws a grey stand-in there, and the receipt's length counts it. (3.0
@@ -356,7 +386,9 @@ dot or two: this computer's fonts may differ from the streamer's, and the header
 or sideways lines land a dot or two off where the bot puts them. Small character grids on
 58 mm, and Braille, are the exception: their thin strokes and texture can come out
 differently there than on the print (in Crisp a stroke can vanish in the thermal view and
-still print), so judge those with the thermal view off.
+still print), so judge those with the thermal view off. A cheer for a Letter printer shows its
+page at the printer's 300 dots to the inch, scaled to the column: in black and white the bot
+prints text sharp and shades only pictures, and in colour it prints the page as drawn.
 
 ---
 

@@ -28,6 +28,8 @@
   .controls, .preview { min-width: 0; }
   .preview { max-width: 100%; }
   .controls label { display: block; margin-bottom: .75rem; }
+.pic-sites { margin-bottom: .75rem; }
+.controls .pic-sites label { display: inline-block; margin: .3rem 1.25em 0 0; }
   .controls input[type="range"] { width: 100%; }
   .controls input[type="text"], .controls input[type="number"], .controls textarea { width: 100%; box-sizing: border-box; font: inherit; }
   .preview { display: flex; flex-direction: column; }
@@ -222,6 +224,13 @@
         <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's longest message, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
         <label><input type="checkbox" id="allowHighRoller" checked> The streamer's printer allows High Roller prints (Printer Bot 3.0)</label>
         <div class="hint">Printer Bot 3.0 has this switch for each printer, on by default. When it is off, that printer prints every cheer as plain text, however many bits, so every block here prints in its plain form. Printer Bot 2.5 has no such switch: leave it on.</div>
+        <div class="pic-sites" role="group" aria-labelledby="imageSitesLabel">
+          <div id="imageSitesLabel">Pictures from links (Printer Bot 3.0):</div>
+          <label><input type="checkbox" class="image-site" id="imageSite-imgur" value="imgur"> Imgur</label>
+          <label><input type="checkbox" class="image-site" id="imageSite-catbox" value="catbox"> Catbox</label>
+          <label><input type="checkbox" class="image-site" id="imageSite-imgbb" value="imgbb"> ImgBB</label>
+        </div>
+        <div class="hint">The sites the streamer switched on in Printer Bot's dock, under Advanced, Images in messages (every site starts off). A Real picture then prints from a direct link on one of them, in a High Roller cheer, if the printer also has Allow images on (its default). Printer Bot 2.5 prints no pictures from links.</div>
       </div>
     </section>
   </div>
@@ -529,7 +538,7 @@
     return { mode: mode, paper: paper, paperMm: paper.mm, contentW: paper.contentW, limit: limit,
              room: limit.px - LEAD_LINE_PX, heightPx: limit.px - LEAD_LINE_PX,
              budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
-             cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce };
+             cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce, imageSites: imageSitesOf(o.imageSites) };
   }
   // Pack an ordered list of Body objects into parts, one cheer each. Body = {html, chars,
   // heightPx}. Greedy: keep adding to the current part while BOTH the char budget (minus the
@@ -568,7 +577,9 @@
     // a high bits-per-inch) is NO room, not "unset": every body is then too tall.
     var hb = bigRoom(opts.heightPx);
     var leadPx = typeof opts.leadPx === "number" && isFinite(opts.leadPx) && opts.leadPx >= 0 ? opts.leadPx : LEAD_LINE_PX;
-    var parts = [], cur = [], curChars = 0, curH = 0, curInk = false;
+    // curPics: the pictures in the part (PICTURES_PER_CHEER at most); prevB: its last printable
+    // body, whose bottom margin a picture right after it shares (1.5.0).
+    var parts = [], cur = [], curChars = 0, curH = 0, curInk = false, curPics = 0, prevB = null;
     function partNonce() {
       return opts.cheer && !opts.noNonce
         ? (opts.nonceFn ? opts.nonceFn(parts.length) : makeNonce(parts.length)) : "";
@@ -580,7 +591,7 @@
       var h = b.heightPx || 0;
       parts.push({ payload: payload, lead: "", trail: trail, chars: payloadLength(payload), heightPx: h,
                    leadPx: 0, contentPx: h, bodies: cur.concat([b]), nonce: nonce, alone: true });
-      cur = []; curChars = 0; curH = 0; curInk = false;
+      cur = []; curChars = 0; curH = 0; curInk = false; curPics = 0; prevB = null;
     }
     function flush() {
       if (!cur.length) return;
@@ -598,7 +609,7 @@
       var payload = lead + html;
       parts.push({ payload: payload, lead: lead, trail: "", chars: payloadLength(payload), heightPx: curH,
                    leadPx: leadPx, contentPx: leadPx + curH, bodies: cur.slice(), nonce: nonce });
-      cur = []; curChars = 0; curH = 0; curInk = false;
+      cur = []; curChars = 0; curH = 0; curInk = false; curPics = 0; prevB = null;
     }
     for (var i = 0; i < bodies.length; i++) {
       var b = bodies[i];
@@ -619,11 +630,17 @@
         continue;
       }
       var join = curInk && b.joinPx ? b.joinPx : 0, jc = join && b.joinHtml ? payloadLength(b.joinHtml) : 0;
-      var fits = !curInk || empty || ((curChars + jc + bChars <= maxBody) && (curH + join + bH <= hb + 1e-6));
-      if (!fits) { flush(); join = 0; jc = 0; }
+      // A body's margins (only a picture has any: 0.4em above and below, in its heightPx) collapse
+      // with the body before it in the part, as CSS collapses two blocks' margins into the larger:
+      // two pictures one after another are 6.4px apart, not 12.8 (1.5.0). And the bot prints a
+      // fourth picture link in one message as text, so a part holds three.
+      var share = curInk && prevB ? Math.min(prevB.marginBottom || 0, b.marginTop || 0) : 0, pic = b.picture ? 1 : 0;
+      var fits = !curInk || empty || ((curChars + jc + bChars <= maxBody) && (curH + join + bH - share <= hb + 1e-6)
+                                      && curPics + pic <= PICTURES_PER_CHEER);
+      if (!fits) { flush(); join = 0; jc = 0; share = 0; }
       cur.push(jc ? Object.assign({}, b, { html: b.joinHtml + b.html, chars: jc + bChars }) : b);
-      curChars += jc + bChars; curH += join + bH;
-      if (!empty) curInk = true;
+      curChars += jc + bChars; curH += join + bH - share; curPics += pic;
+      if (!empty) { curInk = true; prevB = b; }
     }
     // Empty bodies left over after the last printable part ride along in it rather than
     // becoming a lead-only cheer of their own. (With nothing printable at all, the one
@@ -641,6 +658,98 @@
   // For a value going into a double-quoted HTML attribute (the image URL): also
   // neutralize the quote so a crafted URL can't break out of the attribute/tag.
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+  // ── PICTURE LINKS (1.5.0): a Real picture, printed by Printer Bot 3.0 from a link ──────────
+  // Printer Bot 3.0 (3.0.0-beta.9; only in High Roller messages since 3.0.1) prints a direct link
+  // to a picture on Imgur, Catbox or ImgBB as that picture, when the streamer ticked the site under
+  // Advanced -> Images in messages in the dock (every site starts off) and the printer has Allow
+  // images on (also on by default). The link goes out as text in a bare <div>, as every line
+  // already does: no picture tag, which this channel's chat filter holds (see the field record).
+  // These mirror the bot's IMAGE_SITES and IMAGE_PATHS (renderer lines 848-856) and imageSiteLink
+  // (875-888): typed as https://, no user, password or port, the host exactly one of the site's
+  // (no look-alike, no sub-domain), the path of a direct link ending in png, jpg, jpeg, gif or
+  // webp, and the address rebuilt from the parts that were checked (no query, no fragment). The
+  // `pages` are the sites' own pages, named so the card can say a page is not the picture.
+  var PICTURE_SITES = [
+    { id: "imgur", name: "Imgur", hosts: ["i.imgur.com"], pages: ["imgur.com", "www.imgur.com", "m.imgur.com"],
+      path: /^\/[A-Za-z0-9]{3,16}\.(?:png|jpe?g|gif|webp)$/i },
+    { id: "catbox", name: "Catbox", hosts: ["files.catbox.moe"], pages: ["catbox.moe", "www.catbox.moe"],
+      path: /^\/[A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp)$/i },
+    { id: "imgbb", name: "ImgBB", hosts: ["i.ibb.co"], pages: ["ibb.co", "imgbb.com", "www.imgbb.com"],
+      path: /^\/[A-Za-z0-9]{3,16}\/(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2}){1,120}\.(?:png|jpe?g|gif|webp)$/i }
+  ];
+  var PICTURES_PER_CHEER = 3;                  // MAX_MESSAGE_IMAGES: the bot prints a fourth link as text
+  var PICTURE_MAX_IN = 4;                      // MAX_MESSAGE_IMAGE_INCHES: the tallest a picture prints
+  var PICTURE_MAX_URL = 400;                   // MAX_MESSAGE_IMAGE_URL
+  var PICTURE_MAX_PIXELS = 32 * 1024 * 1024;   // MAX_MESSAGE_IMAGE_PIXELS: more, and the bot prints "[image]"
+  var PICTURE_MARGIN_PX = 0.4 * BASE_PX;       // img.msg-image's margin, 0.4em above and below at the receipt's 16px
+  // The sites the streamer switched on (a setting): ids of PICTURE_SITES, each once, in its order.
+  function imageSitesOf(v) {
+    var list = Array.isArray(v) ? v : [];
+    return PICTURE_SITES.map(function (s) { return s.id; }).filter(function (id) { return list.indexOf(id) >= 0; });
+  }
+  // The link a Real picture sends: {url, site} for a direct picture link of one of the sites, else
+  // {why}: "empty", "https" (not typed as https://), "invalid", "userport", "page" (a page of the
+  // site, not the picture), "direct" (the site's host, but not a direct link's shape), "site"
+  // (another host), "long", or "font" (this channel's chat filter holds the word, in any case).
+  // Whether the streamer switched the site on is realPictureForm's question.
+  function pictureLink(raw) {
+    var text = String(raw == null ? "" : raw).trim(), u, i, s, url;
+    if (!text) return { why: "empty" };
+    if (!/^https:\/\//i.test(text)) return { why: "https" };
+    try { u = new URL(text); } catch (e) { return { why: "invalid" }; }
+    if (u.protocol !== "https:" || u.username || u.password || u.port) return { why: "userport" };
+    for (i = 0; i < PICTURE_SITES.length; i++) {
+      s = PICTURE_SITES[i];
+      if (s.pages.indexOf(u.hostname) >= 0) return { why: "page" };
+      if (s.hosts.indexOf(u.hostname) < 0) continue;
+      if (!s.path.test(u.pathname)) return { why: "direct" };
+      url = "https://" + u.hostname + u.pathname;
+      if (url.length > PICTURE_MAX_URL) return { why: "long" };
+      if (/font/i.test(url)) return { why: "font" };
+      return { url: url, site: s.id };
+    }
+    return { why: "site" };
+  }
+  // How a picture prints on a roll (img.msg-image: display block, max-width 100%, width and height
+  // auto, margin 0.4em auto, max-height 4 inches of paper; renderer line 322 and
+  // messageImageElement): never enlarged, scaled down to the message's width, then to 4 inches
+  // tall, its shape kept. heightPx is what it takes in the message box, both margins included;
+  // tooBig: more pixels than the bot shows. null without a size.
+  function picturePrint(natW, natH, contentW) {
+    if (!(natW > 0) || !(natH > 0) || !(contentW > 0)) return null;
+    var maxH = Math.round(PICTURE_MAX_IN * PX_PER_INCH), w = natW, h = natH;
+    if (w > contentW) { h = natH * contentW / natW; w = contentW; }
+    if (h > maxH) { w = w * maxH / h; h = maxH; }
+    return { w: w, h: h, scale: w / natW, heightPx: h + 2 * PICTURE_MARGIN_PX, tooBig: natW * natH > PICTURE_MAX_PIXELS };
+  }
+  // A picture link as a body: the link in a bare <div>, as tall as the picture prints, with its
+  // margins declared so the packer can collapse two pictures' (marginTop / marginBottom) and
+  // count three to a part (`picture`). opts: contentW, heightPx (the room after the Cheer line).
+  // Nothing when there is no link or no size, or the bot would not show the picture.
+  function buildPictureBodies(link, natW, natH, opts) {
+    opts = opts || {};
+    if (!link || !link.url) return [];
+    var p = picturePrint(natW, natH, bigContentW(opts));
+    if (!p || p.tooBig) return [];
+    var html = LINE_OPEN + escapeHtml(link.url) + LINE_CLOSE;
+    return [{ html: html, chars: payloadLength(html), heightPx: p.heightPx,
+              marginTop: PICTURE_MARGIN_PX, marginBottom: PICTURE_MARGIN_PX,
+              picture: { url: link.url, site: link.site, natW: natW, natH: natH, w: p.w, h: p.h,
+                         tall: p.heightPx > bigRoom(opts.heightPx) + PX_EPS } }];
+  }
+  // What a Real picture block prints: in a High Roller cheer its picture ("picture") when the link
+  // is a direct picture link of a site the streamer switched on, else nothing ("none", and why:
+  // pictureLink's reason, or "site-off" with the site). In a plain cheer the bot prints a link as
+  // text, so the block prints the plain Han grid of its picture ("grid"), read as a Glyph-art
+  // picture is read, wherever it is. o: {url, mode, imageSites}.
+  function realPictureForm(o) {
+    o = o || {};
+    if (o.mode === "plain") return { form: "grid" };
+    var link = pictureLink(o.url);
+    if (!link.url) return { form: "none", why: link.why };
+    return imageSitesOf(o.imageSites).indexOf(link.site) >= 0
+      ? { form: "picture", link: link } : { form: "none", why: "site-off", site: link.site };
+  }
   // ── PRESETS ───────────────────────────────────────────────────────────────
   // Customisation is worthless if it has to be rebuilt every stream, so a preset saves
   // the WHOLE block stack under a name.
@@ -856,10 +965,10 @@
   //    `fmt` or `size` costs nothing). A block of any other shape becomes a text block.
   //    Han tiling ("hanzi") keeps its render; only those old fields go from it.
   //  - An IMAGE block loses `renderAs` and `embedV`: the carrier-tag pick (which HTML tag
-  //    carried a real picture) and its migration stamp. There is no carrier any more
-  //    (SassyTP's bot loads pictures only from emote servers, and this channel's chat
-  //    filter blocks the picture tag), so a Real picture block sends nothing at all.
-  //    Everything else on it is kept, the upload link included.
+  //    carried a real picture) and its migration stamp. There is no carrier tag any more
+  //    (this channel's chat filter holds <img>); since 1.5.0 a Real picture prints from a
+  //    picture link on Printer Bot 3.0 (PICTURE LINKS). Everything else on it is kept, the
+  //    upload link included.
   function migrateBlocks(blocks) {
     var src = Array.isArray(blocks) ? blocks : [], out = [], maxId = 0, i, b;
     for (i = 0; i < src.length; i++) {
@@ -3070,7 +3179,7 @@
              bitsPerInch: bitsPerInchOf(s.bitsPerInch), maxInches: maxInchesOf(s.maxInches),
              paperMm: paperSpec(s.paperMm).mm, nonce: s.nonce === true, thermalView: s.thermalView === true,
              thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd",
-             allowHighRoller: s.allowHighRoller !== false };
+             allowHighRoller: s.allowHighRoller !== false, imageSites: imageSitesOf(s.imageSites) };
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
@@ -3410,11 +3519,16 @@
   function previewEvent(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
+    var hr = o.cheer === false || !(t > 0 && bits >= t) || o.allowHighRoller !== false;
+    // The image sites (1.5.0) go out as 3.0.1's OptionsFor sends them: the streamer's list, or none
+    // to a printer that prints this High Roller cheer as an ordinary one. (Its per-printer Allow
+    // images, on by default, isn't modelled.) The page itself shows pictures in High Roller
+    // messages only.
     return {
       event: { __source: "TwitchCheer", bits: bits, user: "viewer", message: String(o.payload == null ? "" : o.payload) },
       options: { highRollerBits: o.cheer === false ? 1 : t,
                  highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false,
-                 allowHighRoller: o.cheer === false || !(t > 0 && bits >= t) || o.allowHighRoller !== false, pxPerInch: PX_PER_INCH }
+                 allowHighRoller: hr, pxPerInch: PX_PER_INCH, imageSites: hr ? imageSitesOf(o.imageSites) : [] }
     };
   }
   // previewVerdict: what the renderer said about one part, in plain words, for the line under
@@ -3646,8 +3760,8 @@
 
     // The picture a Real picture block shows: the rotated/adjusted re-upload once it is
     // ready, else the original. Processing always starts FROM block.url so it never
-    // compounds; block.outUrl holds the result. Shown on the card only: SassyTP's bot
-    // loads pictures from emote servers alone, so a Real picture block sends nothing.
+    // compounds; block.outUrl holds the result. Shown on the card only: the printer prints
+    // the linked picture as it is (1.5.0), never this copy.
     function embedUrl(block) { return ((block.rotate || block.adjBright || block.adjContrast) && block.outUrl) ? block.outUrl : block.url; }
     // ── BLOCKS -> BODIES (1.0.0) ─────────────────────────────────────────────
     // Every block is built against ONE stack context (stackContext: the print mode, the
@@ -3732,10 +3846,13 @@
     // cell is the only one the frame and the header can share). A `var`, not a declaration,
     // so module.exports can carry it to the browser tests; it needs a real canvas.
     var glyphGrid = function (block, img, ctx) {
-      var g = glyphOpts(block), plain = ctx.mode === "plain";
+      // A Real picture's plain grid (1.5.0) is the linked picture as it is: its card's rotation and
+      // adjustments are only for looking at it, and it has no Characters or Darkness of its own.
+      var real = block.imgKind !== "glyph";
+      var g = glyphOpts(real ? {} : block), plain = ctx.mode === "plain";
       var tierId = plain ? "cjk" : g.tier, form = plain ? "plain" : glyphForm(tierId);
       var cols = plain ? designTPictureCols(ctx.paperMm) : glyphCols(form, block.cols, ctx.paperMm);
-      var aspect = glyphAspect(form, cols, ctx.paperMm), src = glyphSource(block, img);
+      var aspect = glyphAspect(form, cols, ctx.paperMm), src = real ? img : glyphSource(block, img);
       return computeGrid("image", getTier(tierId), { cols: cols, charAspect: aspect,
         rows: gridRows(cols, src.naturalWidth || src.width, src.naturalHeight || src.height, aspect),
         threshold: g.contrast, invert: g.invert, dither: plain ? false : g.dither, img: src });
@@ -3754,6 +3871,24 @@
       }
       return buildGlyphBodies(glyphOpts(block).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm });
     }
+    // A Real picture (1.5.0): in a High Roller cheer, its link as a picture link (realPictureForm:
+    // a direct link of a site the streamer switched on), sized from the picture itself; in a plain
+    // cheer, where the bot prints a link as text, the plain Han grid of the picture. Both read the
+    // picture as a Glyph-art picture is read (decodeGlyphImage, through our own Worker), once.
+    function realPictureBodies(block, ctx) {
+      var f = realPictureForm({ url: block.url, mode: ctx.mode, imageSites: ctx.imageSites });
+      if (f.form === "none" || (!block._img && !block.url)) return [];
+      if (!block._img) {
+        if (!block._decoding && block._decodeFailed !== block.url) decodeGlyphImage(block);
+        return [{ html: "", chars: 0, heightPx: 0, waiting: true, preview: { kind: "grid", grid: "(decoding image…)" } }];
+      }
+      if (f.form === "grid") {
+        return buildDesignTPicture(glyphGrid(block, block._img, ctx), { mode: "plain", paperMm: ctx.paperMm, cheer: ctx.cheer,
+                                   bits: ctx.bits, noNonce: ctx.noNonce, limitPx: ctx.limit.px });
+      }
+      var im = block._img;
+      return buildPictureBodies(f.link, im.naturalWidth || im.width, im.naturalHeight || im.height, { contentW: ctx.contentW, heightPx: ctx.room });
+    }
     // Turn one composer block into its ordered BODIES for the stack context `ctx`.
     //  - Below the streamer's High Roller threshold (ctx.mode "plain") the bot prints the
     //    message as plain text, markup and all, so EVERY block prints its plain form: text as
@@ -3762,11 +3897,11 @@
     //    High Roller form so it can check the markup against chat): big text, sideways text or
     //    Han tiling as the block says (blockRender, the card's select reads it too), and the
     //    glyph grid in its tier's form.
-    //  - A Real picture sends NOTHING. SassyTP's bot draws a picture only from an emote
-    //    server, and this channel's chat filter blocks the picture tag.
+    //  - A Real picture (1.5.0): in a High Roller cheer its picture link when its site is switched
+    //    on (realPictureBodies), the plain Han grid of it below the threshold, else nothing.
     function renderBlockBodies(block, ctx) {
       ctx = ctx || stackContext({ cheer: true });
-      if (block.type === "image") return block.imgKind === "glyph" ? glyphImageBodies(block, ctx) : [];
+      if (block.type === "image") return block.imgKind === "glyph" ? glyphImageBodies(block, ctx) : realPictureBodies(block, ctx);
       var text = block.text || "", r = blockRender(block);
       if (r === "typed") {
         return buildHanTyped(text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
@@ -3823,7 +3958,8 @@
         cheer: !!els.cheer.checked, bits: okBits || lastBits == null ? rawBits : lastBits, hrThreshold: sv("hrThreshold"),
         bitsPerInch: sv("bitsPerInch"), maxInches: sv("maxInches"), paperMm: v(els.paperMm),
         nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
-        thermalDither: v(els.thermalDither), allowHighRoller: !(els.allowHighRoller && !els.allowHighRoller.checked)
+        thermalDither: v(els.thermalDither), allowHighRoller: !(els.allowHighRoller && !els.allowHighRoller.checked),
+        imageSites: (els.imageSites || []).filter(function (el) { return el.checked; }).map(function (el) { return el.value; })
       });
       if (okBits) lastBits = s.bits;
       STREAMER_FIELDS.forEach(function (id) { if (els[id] && streamerEntryOk(els[id].value)) lastStreamer[id] = s[id]; });
@@ -3860,7 +3996,8 @@
     // `extra` (a probe's bits and mode).
     function stackOpts(extra) {
       var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !getNonce(), hrThreshold: s.hrThreshold,
-        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm, allowHighRoller: s.allowHighRoller }, k;
+        bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm, allowHighRoller: s.allowHighRoller,
+        imageSites: s.imageSites }, k;
       for (k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -3962,6 +4099,7 @@
       els.thermalView.checked = s.thermalView;
       if (els.thermalDither) els.thermalDither.value = s.thermalDither;
       if (els.allowHighRoller) els.allowHighRoller.checked = s.allowHighRoller;
+      (els.imageSites || []).forEach(function (el) { el.checked = s.imageSites.indexOf(el.value) >= 0; });
     }
 
     // ── THE PREVIEW: SassyTP's own receipt page ─────────────────────────────
@@ -3990,6 +4128,15 @@
     function previewGlue() {
       "use strict";
       var host = window.parent, chain = Promise.resolve(), X = new XMLSerializer();
+      // A picture link's picture (1.5.0). The frame loads nothing from the network (its policy
+      // allows data: pictures only), so the app hands each one over as a data: copy, and the bot's
+      // own <img> gets the copy where the bot sets the link's address on it (messageImageElement).
+      // The bot then waits for it, sizes it and fits the receipt as it would on the rig.
+      var pictures = {}, setAttr = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function (name, value) {
+        if (this.tagName === "IMG" && String(name).toLowerCase() === "src" && Object.prototype.hasOwnProperty.call(pictures, value)) value = pictures[value];
+        return setAttr.call(this, name, value);
+      };
       function measure() {
         var box = document.getElementById("receipt-content"), part = box ? box.firstElementChild : null;
         var shown = box ? box.getBoundingClientRect().height : 0, full = shown;
@@ -4094,6 +4241,10 @@
         var m = ev.data;
         if (!m || m.rw !== "render") return;
         chain = chain.then(function () {
+          pictures = {};
+          Object.keys(m.pictures && typeof m.pictures === "object" ? m.pictures : {}).forEach(function (k) {
+            if (/^data:image\//.test(String(m.pictures[k]))) pictures[k] = String(m.pictures[k]);
+          });
           return window.PrinterBot.render(m.event, m.options).then(standIn).then(function (result) {
             var ok = !!(result && result.ok);
             var out = { rw: "result", seq: m.seq, result: result, measure: ok ? measure() : null,
@@ -4222,6 +4373,35 @@
       pc.el.removeAttribute("data-thermal");
       if (previewBusy === pc) { previewBusy = null; pumpPreviews(); }
     }
+    // A part's pictures (1.5.0), for its frame: the frame loads nothing from the network, so the
+    // bot's own page is handed each picture link's picture as a data: copy (previewGlue puts it
+    // where the bot sets the link's address), made from the copy this page read through our own
+    // Worker. Kept on the block (_copy) while its picture is the same; at most 1200 px on its
+    // longer side, which prints at the same size as the picture (both are scaled down to it).
+    function pictureCopy(block) {
+      var im = block && block._img;
+      if (!im) return "";
+      if (block._copy && block._copy.img === im) return block._copy.url;
+      var w = im.naturalWidth || im.width, h = im.naturalHeight || im.height, k = Math.min(1, 1200 / Math.max(w, h));
+      var cv = document.createElement("canvas"), url = "";
+      cv.width = Math.max(1, Math.round(w * k)); cv.height = Math.max(1, Math.round(h * k));
+      try { cv.getContext("2d").drawImage(im, 0, 0, cv.width, cv.height); url = cv.toDataURL("image/png"); } catch (e) { url = ""; }
+      block._copy = { img: im, url: url };
+      return url;
+    }
+    function partPictures(item) {
+      var out = {};
+      (item.bodies || []).forEach(function (b) {
+        if (!b.picture) return;
+        for (var i = 0; i < blocks.length; i++) {
+          if (blocks[i].id !== b.blockId) continue;
+          var url = pictureCopy(blocks[i]);
+          if (url) out[b.picture.url] = url;
+          break;
+        }
+      });
+      return out;
+    }
     // Ask for this part's drawing (when the request changed since the last one). Until the part
     // has a frame, a box of the predicted receipt height holds its place.
     function previewPart(pc, item) {
@@ -4230,13 +4410,15 @@
       // bits to the header and the bot's High Roller test, and makes a free test a real cheer.
       var pcheer = partCheer(item);
       var pe = previewEvent({ payload: item.payload, bits: pcheer.bits, cheer: pcheer.cheer, hrThreshold: s.hrThreshold,
-                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller });
+                              bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller,
+                              imageSites: s.imageSites });
+      var pictures = partPictures(item);
       if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
-      var key = JSON.stringify([pe, p.mm]);
+      var key = JSON.stringify([pe, p.mm, Object.keys(pictures)]);
       if (key !== pc.key) {
         pc.key = key; pc.seq++; pc.resent = 0; pc.retried = 0;
         pc.want = { seq: pc.seq, pe: pe, pageW: p.cssWidth, paperMm: p.mm, cheer: pcheer.cheer, bits: pcheer.bits, warned: !!item.warned,
-                    up: /writing-mode:\s*sideways-lr/.test(item.payload) };
+                    up: /writing-mode:\s*sideways-lr/.test(item.payload), pictures: pictures };
         pc.el.setAttribute("data-render", "pending");
         if (!pc.frame) {
           var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[p.mm] || 230 + avatarExtraPx(p.mm))));
@@ -4252,7 +4434,8 @@
     function postPreview(pc) {
       if (!pc.frame || !pc.frame.contentWindow || !pc.want) return;
       void pc.frame.offsetWidth;   // lay this page out first, so the frame has its new width before it draws
-      pc.frame.contentWindow.postMessage({ rw: "render", seq: pc.want.seq, event: pc.want.pe.event, options: pc.want.pe.options }, "*");
+      pc.frame.contentWindow.postMessage({ rw: "render", seq: pc.want.seq, event: pc.want.pe.event, options: pc.want.pe.options,
+                                           pictures: pc.want.pictures || {} }, "*");
     }
     function onPreviewMessage(ev) {
       var d = ev.data;
@@ -4380,6 +4563,8 @@
     // shows a pasted link through it too, so no request ever goes to the link's own host.
     function proxied(url) {
       if (/^data:/i.test(url)) return url;
+      // The browser tests' hook (1.5.0): a link's data: stand-in, since /px needs the Worker.
+      if (window.__rwPictureStub && Object.prototype.hasOwnProperty.call(window.__rwPictureStub, url)) return window.__rwPictureStub[url];
       try { if (new URL(url, location.href).origin === location.origin) return url; } catch (e) {}
       return "/px?u=" + encodeURIComponent(url);
     }
@@ -4648,8 +4833,9 @@
     // the saved stack; initPresets writes it once the user's own presets are loaded.
     var pendingBackup = null;
     function newBlock(type) {
-      // A new Image block is Glyph-art: the picture tiled into characters, which is the
-      // only way a picture prints (a Real picture sends nothing; see imageCard). Han
+      // A new Image block is Glyph-art: the picture tiled into characters, which prints on any
+      // rig (a Real picture needs Printer Bot 3.0 and an image site the streamer switched on;
+      // see imageCard). Han
       // characters by default: uniform-width cells line up at any column count. 16 columns:
       // a square picture (a face, an avatar) is then 16 rows, 489 characters with the Cheer
       // word, one cheer, every row its own <div> (no <br>: this channel's chat filter blocks
@@ -4662,12 +4848,18 @@
       // one letter a line), at the biggest size that fits ONE cheer.
       return { id: blockIdSeq++, type: "text", render: "big", bigLayout: "auto", bigSize: "fit1", text: "" };
     }
+    // Whether a Real picture prints anything in this stack (1.5.0): its picture link in a High
+    // Roller cheer when its site is on, the plain grid below the threshold (realPictureForm).
+    function realPrints(b) {
+      var st = getSettings();
+      return realPictureForm({ url: b.url, mode: buildMode(st), imageSites: st.imageSites }).form !== "none";
+    }
     function blockHasContent(b) {
-      // A Real picture prints nothing (SassyTP's bot, this channel's chat filter: see
-      // imageCard), so it is never content. Counting it would pack a stack whose only
-      // picture is a Real one into a copyable cheer carrying the lead and nothing else.
+      // A Real picture that prints nothing (no link of a site the streamer switched on, in a High
+      // Roller cheer) is never content. Counting it would pack a stack whose only picture is such
+      // a one into a copyable cheer carrying the lead and nothing else.
       if (b.type === "image") {
-        if (b.imgKind !== "glyph") return false;
+        if (b.imgKind !== "glyph" && !realPrints(b)) return false;
         return !!((b.url && String(b.url).trim()) || b._img);
       }
       // bigClean drops what prints nothing (zero-width characters, control codes), so a text
@@ -5452,8 +5644,9 @@
     // Bake pixel adjustments (rotation + brightness + contrast) into a real image: fetch via
     // /px (so a cross-origin image isn't canvas-tainted), apply on a canvas, re-encode PNG,
     // upload → block.outUrl. Always processes FROM block.url so repeats never compound. Only
-    // the Real picture card's thumbnail shows the result: a Real picture sends nothing, and
-    // glyph-art decodes block.url itself (decodeGlyphImage), never outUrl.
+    // the Real picture card's thumbnail shows the result: the printer prints the linked picture
+    // as it is, and glyph-art and a Real picture's grid decode block.url itself
+    // (decodeGlyphImage), never outUrl.
     function processImage(block, setStatus) {
       var deg = block.rotate || 0, br = block.adjBright || 0, ct = block.adjContrast || 0;
       if (!block.url || (!deg && !br && !ct)) { block.outUrl = null; block.aspect = null; return; }
@@ -5552,13 +5745,12 @@
     function imageCard(block, at, count) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block, at, count));
-      // Kind: glyph-art (the picture tiled into characters: the way a picture prints) or
-      // the real picture, which is kept so an upload can be seen, rotated and adjusted, but
-      // sends nothing (see the note below).
+      // Kind: glyph-art (the picture tiled into characters) or the real picture (1.5.0: printed by
+      // Printer Bot 3.0 from an Imgur, Catbox or ImgBB link, see the note below).
       card.appendChild(mkEl("label", null, "Kind"));
       var kind = mkEl("select", { "class": "sel-kind" });
       kind.appendChild(opt("glyph", "Glyph-art (prints as characters)", block.imgKind === "glyph"));
-      kind.appendChild(opt("real", "Real picture (can't print)", block.imgKind !== "glyph"));
+      kind.appendChild(opt("real", "Real picture (prints from an Imgur, Catbox or ImgBB link)", block.imgKind !== "glyph"));
       card.appendChild(kind);
       // Shared source: a URL or a picked file.
       card.appendChild(mkEl("label", null, "Image URL"));
@@ -5595,16 +5787,15 @@
       card.appendChild(rot);
 
       // --- Real-picture controls ---
-      // Said plainly, first, and in red: a Real picture sends NOTHING. SassyTP's bot loads a
-      // picture only from an emote server, and this channel's chat filter blocks the picture
-      // tag (the channel owner's report, 2026-10-10), so no upload can arrive as a picture.
-      // That is the mods' and the bot's call, and the card offers the one thing that prints
-      // instead.
+      // First, what it prints (syncReal): Printer Bot 3.0 prints a direct Imgur, Catbox or ImgBB
+      // link in a High Roller cheer as the picture, once the streamer has that site switched on
+      // (1.5.0; the picture tag itself stays out: this channel's chat filter holds <img). Said in
+      // red when it prints nothing, with the button to the setting that fixes it, and the one
+      // thing that prints from anywhere else, Glyph-art.
       var realWrap = mkEl("div");
-      realWrap.appendChild(mkEl("div", { "class": "over-note" },
-        "This won't print as a picture. SassyTP's bot only prints pictures from emote servers, "
-        + "and this channel's chat filter blocks the picture tag, so an upload can't print as a "
-        + "picture. Switch to Glyph-art to print it as characters."));
+      var picNote = mkEl("div", { "class": "pic-note" }), picText = mkEl("div"), picFix = mkEl("div");
+      picNote.appendChild(picText); picNote.appendChild(picFix);
+      realWrap.appendChild(picNote);
       var toGlyph = mkEl("button", { type: "button" }, "Switch to Glyph-art");
       realWrap.appendChild(toGlyph);
       // The picture itself, on the card: the receipt preview shows only what prints, and
@@ -5639,8 +5830,8 @@
       };
       costSyncs.push(syncThumb);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
-        "Brightness and contrast change only the picture on this card (an adjusted copy is uploaded to show it): "
-        + "a Real picture prints nothing either way. Glyph-art has its own Darkness setting."));
+        "Rotate, Brightness and Contrast change only the picture on this card (an adjusted copy is uploaded to show it): "
+        + "the printer prints the linked picture as it is. Glyph-art has its own Darkness setting."));
       // Brightness / contrast are baked into the pixels (debounced) and re-uploaded.
       // block.outUrl is cleared while adjusting; the picture above shows a CSS-filter
       // approximation until the baked version lands.
@@ -5723,14 +5914,15 @@
         if (status.textContent !== (block._status || "")) status.textContent = block._status || "";
         fileHint.textContent = block.imgKind === "glyph"
           ? "A picked file is read on this device and never uploaded, so it isn't kept after a reload or saved in a preset: pick it again then. A link is kept."
-          : "A picked file is uploaded to this site's server for a link that lasts 15 minutes.";
+          : "A picked file is uploaded to this site's server for a link that lasts 15 minutes, to show it on this card. It can't print "
+            + "as a picture from there: upload it to Imgur, Catbox or ImgBB and paste that link.";
         var picked = !block.url && block.fileName ? "“" + block.fileName + "”" : "";
         fileUse.textContent = !picked ? ""
           : block.imgKind !== "glyph"
           ? picked + " was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it."
           : block._img ? "Using " + picked + ", read on this device (not uploaded)." : "";
         fileUse.hidden = !fileUse.textContent;
-        if (block.imgKind !== "glyph") return;
+        if (block.imgKind !== "glyph") { syncReal(parts); return; }
         showCols();
         var so = stackOpts(), ctx = stackContext(so), t = hrThresholdOf(so.hrThreshold), where = blockParts(block, parts), lines = [];
         var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
@@ -5776,6 +5968,82 @@
         var pl = partLines(where, parts, noRoom);
         writeNote(gnote, lines.concat(pl.warn), pl.fine.concat(fine), where.over);
       };
+      // What a Real picture prints (1.5.0), read off the packed parts like the other cards: the
+      // picture and its size in a High Roller cheer, the plain grid below the threshold, or why it
+      // prints nothing (realPictureForm's reasons), with a button to the setting that fixes it.
+      var REAL_WHY = {
+        empty: "Paste a direct link to the picture on Imgur, Catbox or ImgBB: the address of the picture itself, ending in .png, "
+          + ".jpg, .gif or .webp. Upload it to one of them first; anyone with the link can see the picture.",
+        https: "This prints only from a link that starts with https://.",
+        invalid: "That isn't a web address.",
+        userport: "A link with a user name or a port number doesn't print as a picture.",
+        page: "That's a page of the site, not the picture itself. Open the picture and copy its own address: Imgur's start "
+          + "https://i.imgur.com/, ImgBB's https://i.ibb.co/ and Catbox's https://files.catbox.moe/.",
+        direct: "That isn't a direct link to a picture: it has to end in .png, .jpg, .gif or .webp (an album, a video or an SVG "
+          + "doesn't print).",
+        site: "Printer Bot prints pictures only from Imgur, Catbox and ImgBB links, so this one can't print as a picture. "
+          + "Switch to Glyph-art to print it as characters.",
+        long: "That link is longer than Printer Bot takes (400 characters).",
+        font: "This link has the word “font” in it, which this channel's chat filter holds, so it can't go out. "
+          + "Switch to Glyph-art to print it as characters."
+      };
+      var siteName = function (id) {
+        for (var i = 0; i < PICTURE_SITES.length; i++) if (PICTURE_SITES[i].id === id) return PICTURE_SITES[i].name;
+        return id;
+      };
+      var picFixKey = "";
+      var syncReal = function (parts) {
+        var so = stackOpts(), ctx = stackContext(so), st = getSettings(), t = hrThresholdOf(so.hrThreshold);
+        var where = blockParts(block, parts), lines = [], fine = [], fix = null, link = pictureLink(block.url);
+        var f = realPictureForm({ url: block.url, mode: ctx.mode, imageSites: ctx.imageSites });
+        var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
+        var pic = where.own.filter(function (b) { return b.picture; })[0];
+        var grid = where.own.filter(function (b) { return b.hanzi || b.glyph; });
+        var n = where.inParts.length || 1;
+        var count = noRoom ? "prints nothing (see below)" : ctx.cheer ? cheersOf(n) : n === 1 ? "1 message" : n + " messages";
+        if (f.form === "none") {
+          if (f.why === "site-off") {
+            var nm = siteName(f.site);
+            lines.push("The streamer's Printer Bot has to have " + nm + " switched on for this to print (in its dock: Advanced, "
+              + "Images in messages). Once it has, tick " + nm + " under Pictures from links.");
+            fix = { id: "imageSite-" + f.site, label: "Go to Pictures from links" };
+          } else lines.push(REAL_WHY[f.why] || REAL_WHY.site);
+        } else if (pic) {
+          lines.push("Prints as the picture, about " + Math.round(pic.picture.w * MM_PER_PX) + " × " + Math.round(pic.picture.h * MM_PER_PX)
+            + " mm · " + count);
+          if (noRoom) lines.push(tallWords("", ctx.limit));
+          else if (pic.picture.tall) {
+            lines.push("It is taller than " + boxWords(ctx.limit) + ", so the bot cuts it"
+              + (ctx.limit.by === "bits" ? ": set Bits per cheer higher for more room." : "."));
+          }
+          fine.push("Printer Bot waits 2.5 seconds for a picture: one that takes longer to load on the streamer's PC (a big file) "
+            + "prints [image] instead. It prints only if their printer has Allow images on (Printer Bot 3.0, on by default).");
+        } else if (grid.length) {
+          var rows = grid.reduce(function (k, b) { return k + (b.hanzi ? b.hanzi.rows : b.glyph.rows); }, 0);
+          lines.push(designTPictureCols(ctx.paperMm) + " columns × " + rows + (rows === 1 ? " row" : " rows") + " · " + count);
+        } else if (block._decoding) {
+          lines.push("Reading the picture…");
+        } else if (block._decodeFailed) {
+          lines.push("The picture couldn't be read. Check the link. Until then this block prints nothing.");
+        } else if (block._img && f.form === "picture") {
+          lines.push("This picture has more pixels than Printer Bot shows (32 million), so it would print [image]. Use a smaller picture.");
+        } else if (!block.url && !block._img) {
+          lines.push(REAL_WHY.empty);
+        }
+        if (ctx.mode === "plain") {
+          var hrOff = t > 0 && st.allowHighRoller === false;
+          fine.push((hrOff ? "The streamer's printer has Allow High Roller prints off, so "
+                     : t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
+            + "this prints as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row."
+            + (t > 0 && !hrOff ? " At " + bitsWord(t) + " or more it prints as the picture"
+               + (link.url && st.imageSites.indexOf(link.site) < 0 ? ", once the streamer's Printer Bot has " + siteName(link.site) + " switched on" : "") + "." : "")
+            + (t > 0 && !hrOff && st.imageSites.length && raiseOffered() ? " Picking Real picture raises Bits per cheer to " + bitsWord(t) + ", or offers to." : ""));
+        }
+        var pl = partLines(where, parts, noRoom);
+        writeNote(picText, lines.concat(pl.warn), pl.fine.concat(fine), where.over || f.form === "none");
+        var fk = fix ? fix.id : "";
+        if (fk !== picFixKey) { picFixKey = fk; picFix.textContent = ""; if (fix) picFix.appendChild(fixButton(fix)); }
+      };
       costSyncs.push(syncGlyph);
 
       var applyKind = function () {
@@ -5815,7 +6083,11 @@
       kind.addEventListener("change", function () {
         // The decoded picture is kept: it is the same source (a picked file could not be read
         // back, and a link needn't be read twice). The rotation carries over (one field).
-        block.imgKind = kind.value; block.outUrl = null; block.aspect = null; applyKind(); dropRaiseOffer(block);
+        block.imgKind = kind.value; block.outUrl = null; block.aspect = null; applyKind();
+        // A Real picture prints as the picture only in a High Roller cheer (1.5.0): picking it, with
+        // a site switched on, raises Bits per cheer as the other High Roller picks do.
+        if (block.imgKind === "real" && getSettings().imageSites.length) pickedHighRoller(block, "the picture", kind);
+        else dropRaiseOffer(block);
         file.value = "";
         setStatus("");
         if (block.imgKind === "glyph" && block.url && !block._img && !block._decoding) { delete block._decodeFailed; decodeGlyphImage(block); }
@@ -5868,8 +6140,8 @@
         // bits are spent, and blank paper comes out. Loud and on the block itself, not
         // in a status line somewhere else on the page.
         // Worded per kind: a Glyph-art block reads a picked file on this device (no upload), so
-        // "re-upload" was wrong there; a Real picture prints nothing whatever its link does, so
-        // its note is quiet and only says why the picture is missing from the card.
+        // "re-upload" was wrong there; a Real picture's upload link never prints as a picture (only
+        // an image site's link does, 1.5.0), so its note only says why the picture is missing.
         // A Glyph-art block whose picture was read before the link died still prints from that
         // copy (block._img) until a reload or a preset load, so its note says that, in grey: the
         // red "prints nothing" sat over parts that held the picture and charged for it (polish
@@ -5882,7 +6154,8 @@
             ? "This uploaded link has expired (uploads last 15 minutes). The block still prints from the copy read earlier, until you reload or load a preset; to keep it after that, pick the file again or paste another link."
             : glyph
             ? "This uploaded link has expired (uploads last 15 minutes), so this block prints nothing. Pick the file again (it stays on this device) or paste another link."
-            : "This picture's uploaded link has expired (uploads last 15 minutes), so it can't be shown here. A Real picture can't print either way.";
+            : "This picture's uploaded link has expired (uploads last 15 minutes), so it can't be shown here. An upload doesn't print as a "
+              + "picture anyway: for that, paste a direct Imgur, Catbox or ImgBB link.";
           card.insertBefore(note, card.firstChild);
         }
         if (removedBlock && removedBlock.index === i) list.appendChild(undoNote());
@@ -5905,7 +6178,7 @@
         return o;
       }));
     }
-    // The user's WORK, not what prints: a Real picture prints nothing (blockHasContent), but its
+    // The user's WORK, not what prints: a Real picture may print nothing (blockHasContent), but its
     // uploaded link, rotation and adjustments are lost all the same when Load replaces it, and
     // Load has no Undo (final review 2).
     function blockHasWork(b) {
@@ -6188,8 +6461,8 @@
         // Counted on the stack as LOADED (converted): a preset from before 1.0.0 keeps its
         // uploaded picture inside a Takeover, which presetImageUrls no longer walks, and the
         // conversion turns it into a Glyph-art block that the expiry check does see. Only
-        // Glyph-art blocks count: a Real picture prints nothing whatever its link does, so
-        // "pick the file again" would be wrong advice for one (its card says why it is blank).
+        // Glyph-art blocks count: a Real picture's upload link never prints as a picture (only an
+        // image site's link does), so "pick the file again" would be wrong advice for one.
         var minted = presetImageUrls(blocks.filter(isGlyphBlock)).filter(isMintedImageUrl).length;
         var base = "Loaded \"" + name + "\"." + (old ? " " + migrationNote(p.blocks, name, true) : "") + pictureFileNote(blocks);
         els.presetName.value = name;
@@ -6297,7 +6570,7 @@
     function missingPictures() {
       var out = [];
       blocks.forEach(function (b, i) {
-        if (b.type !== "image" || b.imgKind !== "glyph" || b._img) return;
+        if (b.type !== "image" || b._img || (b.imgKind !== "glyph" && !realPrints(b))) return;
         var link = !!(b.url && String(b.url).trim());
         if (!link && !b.fileName) return;
         var why = b._decoding ? "loading"
@@ -6328,12 +6601,13 @@
         // that a reload (or a preset) didn't keep; a Real picture, with or without its picture
         // yet; or nothing typed at all.
         var repick = blocks.some(function (b) { return b.type === "image" && b.imgKind === "glyph" && b.fileName && !b.url && !b._img; });
-        var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph"; });
+        var realOnly = blocks.some(function (b) { return b.type === "image" && b.imgKind !== "glyph"; });   // that prints nothing
         var typedNone = blocks.some(function (b) { return b.type === "text" && blockRender(b) === "typed" && /\S/.test(bigClean(b.text).text); });
         return [{ payload: repick
           ? "Nothing to print yet: pick the picture's file again on its Image card. A picked file isn't kept after a reload or in a preset."
           : realOnly
-          ? "Nothing to print: a Real picture can't print on SassyTP's bot. Switch it to Glyph-art, or add some text."
+          ? "Nothing to print yet: a Real picture prints from an Imgur, Catbox or ImgBB link, once the streamer has that site "
+            + "switched on (its card says what this one needs). Or switch it to Glyph-art, or add some text."
           : typedNone
           ? "Nothing to print: Han text as typed prints only Han characters, and its text has none (its card says what was left out). Big text prints other writing."
           : "Nothing to print yet: add a block, or type into one.", chars: 0, copyable: false, showHead: false }];
@@ -6504,6 +6778,7 @@
         cheerNonceHint: document.getElementById("cheerNonceHint"),
         bitsAmount: document.getElementById("bitsAmount"),
         allowHighRoller: document.getElementById("allowHighRoller"),
+        imageSites: [].slice.call(document.querySelectorAll(".image-site")),
         bitsHint: document.getElementById("bitsHint"),
         hrThreshold: document.getElementById("hrThreshold"),
         bitsPerInch: document.getElementById("bitsPerInch"),
@@ -6555,6 +6830,11 @@
         // the stack prints its High Roller or its plain forms.
         el.addEventListener(el.tagName === "SELECT" ? "change" : "input", settingsTouched);
         el.addEventListener(el.tagName === "SELECT" ? "change" : "input", update);
+      });
+      // The image sites the streamer switched on (1.5.0): they decide whether a Real picture prints.
+      els.imageSites.forEach(function (el) {
+        el.addEventListener("change", settingsTouched);
+        el.addEventListener("change", update);
       });
       // A number field shows the value the app uses once it is committed (change: Enter, or
       // leaving the field): 0 or nothing in Bits goes back to the last amount it held (a cheer is
@@ -6647,6 +6927,9 @@
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
       // Faces (1.4.0).
       FACE_IDS: FACE_IDS, faceOf: faceOf, faceIdOf: faceIdOf, FACE_PROBE: FACE_PROBE, faceMatches: faceMatches,
+      // Picture links (1.5.0).
+      PICTURE_SITES: PICTURE_SITES, PICTURES_PER_CHEER: PICTURES_PER_CHEER, imageSitesOf: imageSitesOf, pictureLink: pictureLink,
+      picturePrint: picturePrint, buildPictureBodies: buildPictureBodies, realPictureForm: realPictureForm,
       // Sideways (High Roller).
       SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen, sidePad: sidePad,
       sideWidthPx: sideWidthPx, sideLines: sideLines, sideSizeOf: sideSizeOf, sideOpts: sideOpts,

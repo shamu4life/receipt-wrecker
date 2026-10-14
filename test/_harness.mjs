@@ -43,6 +43,8 @@ export function loadCore() {
   const sandbox = {
     document, navigator: {}, location: { href: "" },
     setTimeout: () => 0, console, module: { exports: {} },
+    // The browser's URL parser: the core checks a picture link with it, as the bot does (1.5.0).
+    URL,
   };
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox, { filename: "index.html#inline" });

@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.4.1 (2026-10-14). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.5.0 (2026-10-14). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -81,9 +81,12 @@ its own div, because the same chat filter held a test message that carried a lin
 attribute, since the filter blocks the literal word "font" too; the browser's CSS parser
 resolves it back to "font" with no change to what prints. These are two owner-chosen
 exceptions for THIS CHANNEL ONLY, documented in the project's CLAUDE.md. It never sends a
-picture tag either: the bot prints pictures only from emote servers, and the chat filter
-of the channel it was built for blocks the picture tag. An uploaded picture prints only
-as glyph-art.
+picture tag either: the chat filter of the channel it was built for holds the picture tag.
+A picture prints as glyph-art, or (since 1.5.0, on Printer Bot 3.0) as itself from a direct
+Imgur, Catbox or ImgBB link sent as text in a High Roller cheer, once the streamer switched
+that site on in the bot's dock (Advanced, Images in messages); the tool's settings mirror
+that choice under "Pictures from links". Below the High Roller threshold such a picture prints
+as a plain grid of Han characters.
 
 If a channel blocks the markup, the tool's fallback is plain Han tiling. If chat holds a
 message for its words, that is the moderators saying no to the words: the tool's guidance is
@@ -127,7 +130,11 @@ operations call this project's own Cloudflare Worker and nothing else:
 - Pasting a picture link fetches the picture through an image proxy, because a browser canvas
   cannot read another site's pixels directly.
 - On a "Real picture" card, picking a file uploads it to Cloudflare KV behind an unguessable
-  link that is deleted after 15 minutes, and rotating or adjusting it re-uploads it.
+  link that is deleted after 15 minutes, and rotating or adjusting it re-uploads it. That copy
+  is only shown on the card: it never prints as a picture.
+- A Real picture's Imgur, Catbox or ImgBB link is read through the proxy for its size, and the
+  link itself goes into the cheer, so the streamer's Printer Bot fetches the picture from that
+  site.
 
 Settings, the block stack and saved presets are kept in the browser's localStorage.
 

@@ -55,6 +55,14 @@ function everyPayload(mm) {
       for (const mode of ["raw", "plain"]) add("typed " + mode, C.buildHanTyped(t, { mode, paperMm: mm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));
     }
     add("plain picture", C.buildDesignTPicture(grid(cols - 2, 20, cjk), { mode: "plain", paperMm: mm, cheer: true, bits: 10, limitPx: 1600 }));
+    // 1.5.0: picture links, alone and among other bodies: a bare <div> holding the link as text. A
+    // link that is no direct picture link (or holds the word "font") never becomes a body.
+    const links = ["https://i.imgur.com/AbC1234.png", "https://files.catbox.moe/a1_b-2.jpg", "https://i.ibb.co/AbC123/my-pic%20x.png",
+                   "https://i.imgur.com/Font123.png", 'https://i.imgur.com/x.png"><img src=x>', "javascript:alert(1)"];
+    const pics = links.flatMap((u) => C.buildPictureBodies(C.pictureLink(u), 640, 480, o));
+    assert.equal(pics.length, 3, "only the three direct links build bodies");
+    add("pictures", pics);
+    add("pictures and big text", pics.concat(C.buildBigBodies("HELLO", { ...o, layout: "lines" }), pics));
   }
   for (const t of [0, 1, 25]) {
     for (const probe of [C.buildHighRollerProbe({ hrThreshold: t, paperMm: mm }), C.buildPlainProbe({ hrThreshold: t, paperMm: mm })]) {

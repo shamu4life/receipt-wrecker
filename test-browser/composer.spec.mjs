@@ -2970,13 +2970,14 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // 1.3.0: the page is Printer Bot 3.0's beta (3.0.0-beta.7 since 1.3.1). A 2.5.4 dock's Renderer
-  // (202610090056) prints the app's messages the same on a roll (measured: 19 of 19), and so does
-  // beta.6's (202610110524: beta.7's page in every region the app reads), so the line names both
-  // rather than telling those streamers "it may not match".
-  assert.equal(v, "202610122236");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0-beta\.7's layout v202610122236, in this computer's fonts, which may differ from the streamer's\. /);
-  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match, except 3\.0\.0-beta\.6's 202610110524 \(the same\) and 2\.5\.4's 202610090056 \(a smaller profile picture\)\.$/);
+  // 1.4.1: the page is Printer Bot 3.0.1's (it uses 3.0.0's layout folder, so the line says 3.0.0).
+  // A dock on 3.0.0-beta.7's Renderer (202610122236) or 2.5.4's (202610090056) prints the app's
+  // messages the same on a roll (measured against 3.0.1's page: 42 of 44 dot for dot, the other two
+  // a settings mismatch the app doesn't send), so the line names both rather than telling those
+  // streamers "it may not match". (Beta.6's prints the same too; the line has room for two.)
+  assert.equal(v, "202610140456");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610140456, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match, except 3\.0\.0-beta\.7's 202610122236 \(the same\) and 2\.5\.4's 202610090056 \(a smaller profile picture\)\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
   // made the gap 414px in CI's fonts.

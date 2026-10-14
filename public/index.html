@@ -378,10 +378,11 @@
     return a[Math.floor(n / a.length)] + a[n % a.length];
   }
 
-  // ── THE TARGET: SassyTP's printer-bot (1.0.0; the 3.0.0 beta since 1.3.0, beta.7 since 1.3.1) ────
-  // Facts read from the bot's receipt page (v/3.0.0-beta.7/renderer.html at commit 64afbfc since
-  // 1.3.1, the same as 1.3.0's 3.0.0-beta.6 at b7f9991 in every region the app reads; 2.5.4's
-  // v/2.5.0/renderer.html at b9f12b0 before, which prints the same on a roll; MIT,
+  // ── THE TARGET: SassyTP's printer-bot (1.0.0; Printer Bot 3.0 since 1.3.0, 3.0.1 since 1.4.1) ────
+  // Facts read from the bot's receipt page (Printer Bot 3.0.1's v/3.0.0/renderer.html at commit
+  // 1049292 since 1.4.1; 3.0.0-beta.7's at 64afbfc in 1.3.1 and beta.6's at b7f9991 in 1.3.0,
+  // which print the app's messages the same; 2.5.4's v/2.5.0/renderer.html at b9f12b0 before,
+  // which prints them the same on a roll; MIT,
   // Copyright (c) 2026 SassyTP) and measured through it with tools/forkbench.mjs. The bot
   // opens that page in headless Edge with a viewport exactly one page wide, renders the
   // cheer, screenshots it at the printer's dot width and dithers the screenshot. So the
@@ -405,7 +406,9 @@
   var MAX_CAP_INCHES = 40;       // the dock's maximum length goes up to 40 inches
   // High Roller: a cheer of at least `highRollerBits` (the dock's setting, default 25,
   // 0 = never) is printed as styled HTML through the bot's sanitizer; anything smaller is
-  // printed as plain text in quote marks, markup and all.
+  // printed as plain text in quote marks (since Printer Bot 3.0.0 a message's tags are left out
+  // and its words printed; before, the markup printed as text). The app's plain parts carry no
+  // tags, so they print the same on both.
   var HR_DEFAULT = 25, HR_MAX = 1000000;
   // The streamer's settings, which the viewer cannot see and has to type in. Each reader
   // goes through these, because the values arrive from inputs and saved JSON as strings.
@@ -3396,7 +3399,10 @@
   // The options are the ones Printer Bot 3.0's action sends a roll printer (OptionsFor): the
   // streamer's threshold, bits per inch and maximum length, the printer's Allow High Roller
   // prints, and pxPerInch 96 (a roll; Letter paper is about 53.3 and also sends a pageHeightPx,
-  // which this never does). The switch goes out as the action sends it (PrintEventBody, PrintEventCore in
+  // which this never does, and its own layout options). The image sites a streamer may switch on
+  // (3.0.0-beta.9: a link to a picture on Imgur, Catbox or ImgBB in a High Roller message prints as
+  // that picture) are never sent: the frame loads nothing, and such a link draws as its text.
+  // The switch goes out as the action sends it (PrintEventBody, PrintEventCore in
   // beta.6: HighRoller = !CouldBeHighRoller || the printer's switch): its own value for a cheer at or above the
   // threshold, true for one that can't be High Roller (below it, or threshold 0), where the page
   // never reads it. A free test is drawn High Roller whatever the switch says. (1.2.0 drew the
@@ -6524,12 +6530,14 @@
       syncModeUi();
       // The layout the preview draws with, read off the vendored block itself, so it can't drift from
       // it. SassyTP's bot can download a newer layout to the streamer's dock by itself. Since 1.3.0 the
-      // block is Printer Bot 3.0's beta. Layouts that print the app's messages the same on a roll are
-      // named as such, each with what differs: 2.5.4's (measured, 19 of 19, all but the profile
-      // picture's size) and, since 1.3.1, 3.0.0-beta.6's (beta.7's page in every region the app reads).
+      // block is Printer Bot 3.0's (3.0.1's since 1.4.1). Layouts that print the app's messages the
+      // same on a roll are named as such, each with what differs: 3.0.0-beta.7's and 2.5.4's (each
+      // measured against 3.0.1's page, 42 of 44 dot for dot, the other two a settings mismatch the app
+      // doesn't send; 2.5.4 also draws a smaller profile picture). Beta.6's prints the same too, but
+      // the line has room for two.
       // On a phone the line sits between the blocks and the parts, so it stays short (1.2.0's was 360
       // characters; at 493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).
-      var SAME_PRINTS = [["202610110524", "3.0.0-beta.6", "the same"], ["202610090056", "2.5.4", "a smaller profile picture"]];
+      var SAME_PRINTS = [["202610122236", "3.0.0-beta.7", "the same"], ["202610090056", "2.5.4", "a smaller profile picture"]];
       var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
       var rpath = /^v\/([0-9][0-9A-Za-z.-]*)\/renderer\.html$/.exec((rblock && rblock.getAttribute("data-path")) || "");
       if (rver && /^\d+$/.test(rver)) {
@@ -6677,8 +6685,8 @@
 <!--
   The receipt preview is drawn by SassyTP's printer-bot renderer (MIT): the receipt page the bot
   itself prints from, kept here as inert text and loaded into one sandboxed frame per part.
-  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0-beta.7/renderer.html  commit 64afbfc5cfaf1e2dda3cec11efc241f797f02ebf
-  (renderer version 202610122236, upstream file sha256 1d662debb2f7ebb843562efc0fd3c4e463f55caa7db0914449eafbc7e954eae5)
+  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0/renderer.html  commit 104929270ded1c63f111c414fd3f0c99cdb740fc
+  (renderer version 202610140456, upstream file sha256 6604dffcbf8252dd2b2c70ef2a44cb4e65806244cd699a1bbfe65809aaf9b6fe)
 
   MIT License
 
@@ -6707,7 +6715,7 @@
   logo; (2) the page's Content-Security-Policy is a no-network policy; (3) every closing script tag
   is written with a backslash before its slash, undone when the app reads the block.
 -->
-<script type="text/plain" id="sassytp-renderer" data-commit="64afbfc5cfaf1e2dda3cec11efc241f797f02ebf" data-path="v/3.0.0-beta.7/renderer.html" data-version="202610122236">
+<script type="text/plain" id="sassytp-renderer" data-commit="104929270ded1c63f111c414fd3f0c99cdb740fc" data-path="v/3.0.0/renderer.html" data-version="202610140456">
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6717,7 +6725,7 @@
 <!-- RW-EDIT 2 (Receipt Wrecker): this policy replaces the page's own. Nothing loads from the network (no connections, images only from data: URLs) and no frame, form or object; inline scripts are allowed instead of the renderer script's hash, so the preview's glue script can run next to it. -->
 <!-- RW-EDIT 3 (Receipt Wrecker): every closing script tag in this copy is written with a backslash before its slash, so the page can sit inside Receipt Wrecker's own page as inert text. The app takes the backslash out again before it loads the page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
-<meta name="printer-bot-renderer" content="202610122236">
+<meta name="printer-bot-renderer" content="202610140456">
 <style>
 /*
  * Printer Bot receipt
@@ -6897,6 +6905,25 @@ html, body {
 	max-height: none;
 }
 
+/* A list of names on a page of Letter paper (a gift list, the items of an order) is set in columns and a smaller type, as many as it takes to fit the page (fitNames in
+   renderer.js sets the three variables on each page of the list). A roll has no such part: its list is one column. The plain step is the one column a roll has. */
+.part.names {
+	display: flow-root;
+}
+
+.part.names .names-page {
+	column-count: var(--pb-cols, 1);
+	column-gap: 0.6em;
+	font-size: calc(1em * var(--pb-name-scale, 1));
+	line-height: var(--pb-name-lh, inherit);
+}
+
+.part.names .nm {
+	display: block;
+	break-inside: avoid;
+	overflow-wrap: anywhere;
+}
+
 /* What a buyer wrote with an order keeps the limit of a viewer's message, whatever the list above it holds. */
 #receipt-content.roomy .part.message {
 	max-height: 1600px;
@@ -7010,6 +7037,23 @@ img.bits {
 	vertical-align: -0.28em;
 }
 
+/* A picture in a viewer's message (3.0.0-beta.9: a link to an image site that the streamer switched on in the dock). It is a block of its own, centered, and never wider than the
+   paper. The tallest it prints is set on the element in px of paper (MAX_MESSAGE_IMAGE_INCHES), where the page knows the paper. */
+img.msg-image {
+	display: block;
+	max-width: 100%;
+	width: auto;
+	height: auto;
+	margin: 0.4em auto;
+	object-fit: contain;
+}
+
+/* a message with a picture has no quotation marks around it: they would stand alone above and below the picture */
+.part.message.pictures::before,
+.part.message.pictures::after {
+	content: none;
+}
+
 
 /* ---- footer: platform mark and date ----------------------------------------------- */
 
@@ -7034,6 +7078,154 @@ img.bits {
 	font-weight: 400;
 	letter-spacing: 0.1em;
 	text-transform: uppercase;
+}
+
+
+/* ---- the layout "large message" of a page of Letter paper (3.0.0-beta.10) ---------------------------------------------------------------------------------------- */
+
+/* renderer.js gives the receipt the class letter-message when the printer has this layout and the paper is Letter, and sets two variables on it: --pb-in (CSS px to the inch of the
+   paper, about 53.3 on Letter) and --pb-page-h (the height of a page in CSS px). Sizes below are in inches of paper, so theme.css can change one of them without a calculation.
+   The receipt is one page tall at least. The header is a small round picture at the top left (2.3 inches, the size it has on an 80 mm roll) with the amount, the name and the time
+   beside it. The platform logo is at the bottom of the page, smaller than in the other layout. All the space between belongs to the message and its pictures. */
+#receipt-container.letter-message {
+	display: flex;
+	flex-direction: column;
+	min-height: var(--pb-page-h, 533px);
+	text-align: left;
+}
+
+.letter-message .rule {
+	display: none;
+}
+
+.letter-message #receipt-banner {
+	align-self: stretch;
+}
+
+.letter-message #receipt-header {
+	display: grid;
+	grid-template-columns: calc(2.3 * var(--pb-in, 53.333px)) minmax(0, 1fr);
+	grid-template-rows: 1fr auto auto auto 1fr;      /* the lines of text sit in the middle rows, so they are centered beside the picture */
+	column-gap: calc(0.25 * var(--pb-in, 53.333px));
+}
+
+.letter-message #receipt-avatar {
+	grid-column: 1;
+	grid-row: 1 / -1;
+	width: 100%;
+	margin: 0;
+}
+
+/* a receipt with no picture: the text starts at the left edge */
+.letter-message.no-avatar #receipt-header {
+	grid-template-columns: 0 minmax(0, 1fr);
+	column-gap: 0;
+}
+
+.letter-message #receipt-title,
+.letter-message #receipt-subtitle,
+.letter-message #receipt-date {
+	grid-column: 2;
+	text-align: left;
+}
+
+.letter-message #receipt-title {
+	grid-row: 2;
+	font-size: 1em;
+}
+
+.letter-message #receipt-title.big {
+	font-size: 1.6em;
+}
+
+.letter-message #receipt-subtitle {
+	grid-row: 3;
+	margin-top: 3px;
+	font-size: 0.95em;
+}
+
+.letter-message #receipt-date {
+	grid-row: 4;
+	margin-top: 4px;
+	font-size: 0.7em;
+}
+
+.letter-message #receipt-content {
+	flex: 1 1 auto;
+	margin-top: calc(0.2 * var(--pb-in, 53.333px));
+}
+
+.letter-message #receipt-footer {
+	margin: auto 0 0;
+	padding-top: calc(0.3 * var(--pb-in, 53.333px));
+}
+
+.letter-message #receipt-icon {
+	height: calc(0.5 * var(--pb-in, 53.333px));
+	margin: 0 auto;
+}
+
+/* The conductor's cap of a Hype Train receipt sits on the picture, so with a picture it goes to the left with it: as wide as two thirds of the picture, in the middle of it, and the picture
+   goes up under it by the same share it does on a roll. Without a picture the cap stays in the middle of the page, as in the other layout. */
+.letter-message:not(.no-avatar) #receipt-banner.cap {
+	width: calc(1.5 * var(--pb-in, 53.333px));
+	margin: 4px 0 0 calc(0.4 * var(--pb-in, 53.333px));
+}
+
+.letter-message:not(.no-avatar) #receipt-banner.cap + #receipt-header #receipt-avatar {
+	margin-top: calc(-0.27 * var(--pb-in, 53.333px));
+}
+
+/* Pictures of a message in the large layout (3.0.0). A message with a picture gives the space the text leaves to the pictures: the box of the message and its part with pictures are
+   flex columns, the text keeps its own height and each picture takes an equal share of the rest, at least three quarters of an inch tall and as wide as the page. What the picture does inside
+   that space is the choice of the printer (renderer.js puts one of the classes fit-fill, fit-fit and fit-stretch on the receipt): fill covers the space and crops what sticks out,
+   fit shows all of the picture with margins where its shape does not match, and stretch draws it to the size of the space. */
+.letter-message #receipt-content:has(> .part.pictures) {
+	display: flex;
+	flex-direction: column;
+}
+
+.letter-message #receipt-content > .part.pictures {
+	flex: 1 0 auto;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Giant words (a High Roller message in a font of 300 px) take room from the pictures first and then give way: while the box has pictures, the parts of words may shrink below their
+   height and are clipped, so the pictures keep their least size (three quarters of an inch each) and it is the words that are cut. renderer.js marks a part that was clipped (clipped) and
+   it fades out at its bottom edge, in place of the fade of the whole box that would land on a picture. */
+.letter-message #receipt-content:has(> .part.pictures) > .part:not(.pictures) {
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.letter-message #receipt-content .part.clipped {
+	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - min(40px, 35%)), transparent);
+	mask-image: linear-gradient(to bottom, #000 calc(100% - min(40px, 35%)), transparent);
+}
+
+.letter-message img.msg-image {
+	flex: 1 1 0;
+	align-self: stretch;
+	width: 100%;
+	min-height: calc(0.75 * var(--pb-in, 53.333px));
+	max-width: 100%;
+	max-height: none;
+	margin: 0.4em 0;
+	object-position: center;
+}
+
+.letter-message.fit-fill img.msg-image {
+	object-fit: cover;
+}
+
+.letter-message.fit-fit img.msg-image {
+	object-fit: contain;
+}
+
+.letter-message.fit-stretch img.msg-image {
+	object-fit: fill;
 }
 
 </style>
@@ -7085,6 +7277,15 @@ img.bits {
 //                                    hideLinks              boolean, default false. true = URL-looking text in normal (plain) messages
 //                                                           (http://, https://, www., domain.tld/path, bare domains on common endings)
 //                                                           prints as "[link]". Does not apply to High Roller messages (their links are always removed).
+//                                    imageSites             list of site ids, default none (3.0.0-beta.9). The sites of IMAGE_SITES (allowed-hosts.json) that the streamer switched on in the
+//                                                           dock. A link in a High Roller message to a picture on one of them prints as that picture (3.0.1: only there, a message that is not
+//                                                           a High Roller message has no picture and no styling). See "Images in messages" below.
+//                                    layout                 'message' or nothing (3.0.0-beta.10). 'message' = the layout "large message" of a page of Letter paper: a small picture at the top left
+//                                                           with the amount, the name and the time beside it, the platform logo at the bottom, and everything between for the message.
+//                                                           Any other value, and any paper without a page height (pageHeightPx), gives the receipt as it always was.
+//                                    imageFit               'fill', 'fit' or 'stretch' (3.0.0): how a picture of a message is set in the space that the layout 'message' gives it. Only read with that layout.
+//                                                           fill covers the space and keeps its proportions (what sticks out is cropped), fit shows the whole picture and keeps its proportions
+//                                                           (the space can have empty margins), stretch draws it to the size of the space. Any other value is 'fit' (3.0.1; it was 'fill' in 3.0.0).
 //                                    allowHighRoller        boolean, default true (3.0.0-beta.5). false = this printer prints a High Roller cheer as an ordinary
 //                                                           cheer: its message is plain text, with no styling and no length limit of its own. The receipt is the same
 //                                                           event, so a Hype Train tally counts it once whichever printers allow High Roller.
@@ -7101,7 +7302,7 @@ img.bits {
 window.PrinterBot = (function () {
     'use strict';
 
-    const VERSION = '202610122236';
+    const VERSION = '202610140456';
     // RW-EDIT 1 (Receipt Wrecker): the Twitch, YouTube and Kick logos (trademarks of their owners, outside the MIT licence) are replaced by one plain grey box the size of the Twitch logo (336 x 112 px), so the footer keeps its size.
     const ICONS = {"twitch":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","youtube":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","kick":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII="};
 
@@ -7158,7 +7359,7 @@ window.PrinterBot = (function () {
     // Safety: nothing a viewer writes may ever run code, load anything, or break the layout.
     //
     //   plainText(s)       normal messages: used as TEXT (textContent) and never parsed as HTML. There is
-    //                      nothing to sanitize, and no formatting from the viewer survives.
+    //                      nothing to sanitize, and no formatting from the viewer survives. (3.0.1: no picture either. Only a High Roller message has pictures, see "Images in messages".)
     //   displayName(s)     names, amounts and other short labels (title, subtitle, "<b>name</b> gifted ..."): cleaned, one line,
     //                      at most MAX_NAME_CHARS characters, no invisible direction/formatting characters.
     //   sanitizeRich(html) High Roller messages: HTML styling is kept, code is dropped. The input is parsed in an inert
@@ -7176,6 +7377,9 @@ window.PrinterBot = (function () {
     const MAX_STYLE_PROPS = 40;
     const MAX_NAME_CHARS = 48;         // a viewer / donor / reward / level name. Longer is cut and ends in "…". (Twitch logins are at most 25 characters. Display names and tip names are free text)
     const MAX_VARIANTS = 50;           // line items of one Fourthwall order that are printed
+    const NAMES_PER_PAGE = 100;        // gift recipients on one page of Letter paper (set in columns, see fitNames): more names go on to the next page, this many to a page
+    const MIN_PAGE_FIT = 0.3;          // a receipt on Letter paper that is still taller than its page after every cut is made smaller as a whole, down to this share of its size (Hype Train receipts need 0.45 to 0.6)
+    const MAX_NAME_PAGES = 10;         // ... on at most this many pages (the action prints 10 in black and white and 5 in color). Names beyond them are counted in the last line
     const MAX_VIEWER_IMAGE_PX = 64;   // a viewer's image in a High Roller message can't be shown larger than this (about 17 mm on paper)
     const MAX_DATA_IMAGE_CHARS = 2000; // base64 characters allowed in an inline (data:) image, enough for a tiny icon
 
@@ -7340,11 +7544,205 @@ window.PrinterBot = (function () {
     function vetImage(value) {
         const v = String(value ?? '').trim();
         if (/^data:/i.test(v)) return DATA_IMAGE.test(v) ? { url: v, inline: true } : { url: '', why: 'inline image not allowed' };
-        return vetUrl(v, TRUSTED_IMAGE_HOSTS);
+        const r = vetUrl(v, TRUSTED_IMAGE_HOSTS);
+        if (r.url || !activeImageSites.size) return r;
+        const hit = imageSiteLink(v, activeImageSites);                 // not an emote host: a picture of a site that is switched on for this receipt
+        return hit ? { url: hit.url, site: hit.site } : r;
     }
     const trustedImageUrl = (value) => vetImage(value).url;
 
     const hostNote = (what, v) => v.host ? what + ' host not allowed: ' + v.host.slice(0, 60) : what + ' URL rejected (' + v.why + ')';
+
+    // ---- images in messages (3.0.0-beta.9) ----------------------------------------------------------------------------------------------
+    // A High Roller message may carry a link to a picture on a site that the streamer switched on in the dock (opts.imageSites, ids from IMAGE_SITES). The link is replaced by the
+    // picture. 3.0.1: a message that is not a High Roller message (a cheer below the threshold, a printer that does not allow High Roller prints, any other kind of message) has no picture,
+    // as it has no styling: its links stay text, and its HTML is printed as the words it says (flattenMarkup). The picture is an <img> that this code makes, never markup from the viewer,
+    // and a site that was not switched on does nothing at all. What counts as a picture:
+    //   * the address is https, with no user name, no password and no port; its host is one of the hosts of that site (exactly: no look-alike, no sub-domain); and its path has the
+    //     shape of a DIRECT link of that site (IMAGE_PATHS) and ends in png, jpg, jpeg, gif or webp. A page of the site (an album, a viewer page), a video and an SVG are no picture
+    //     here and stay text. A picture here is a raster picture inside an <img>, which cannot run a script and cannot load anything else.
+    //   * the address that is fetched is built again from the parts that were checked (https, host, path). A query or a fragment is dropped, so a link carries nothing along with it.
+    //   * at most MAX_MESSAGE_IMAGES pictures to a message (the later links stay text), each at most as wide as the paper and MAX_MESSAGE_IMAGE_INCHES of paper tall.
+    //   * a picture that does not load within EMOTE_WAIT_MS, is not a picture, or has more than MAX_MESSAGE_IMAGE_PIXELS pixels is taken off the page ("[image]" stands in its place),
+    //     and the download is stopped. The page's policy (img-src) and Edge's host rules list the hosts of every site, so even a mistake in this code cannot reach another host.
+    // The same addresses are accepted in the <img> of a High Roller message when the site is switched on (and held to MAX_VIEWER_IMAGE_PX like any viewer image).
+    const IMAGE_SITES = [{"id":"imgur","name":"Imgur","hosts":["i.imgur.com"]},{"id":"catbox","name":"Catbox","hosts":["files.catbox.moe"]},{"id":"imgbb","name":"ImgBB","hosts":["i.ibb.co"]}];             // [{ id, name, hosts }]: the sites a streamer may switch on (the dock lists them)
+    // The shape of a direct link to a picture of each site, as the path of the address. A site that is in IMAGE_SITES and has no rule here is never used.
+    const IMAGE_PATHS = {
+        imgur: /^\/[A-Za-z0-9]{3,16}\.(?:png|jpe?g|gif|webp)$/i,                                                                    // i.imgur.com/<id>.<ext>
+        catbox: /^\/[A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp)$/i,                                                                 // files.catbox.moe/<name>.<ext>
+        imgbb: /^\/[A-Za-z0-9]{3,16}\/(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2}){1,120}\.(?:png|jpe?g|gif|webp)$/i,                       // i.ibb.co/<id>/<name>.<ext>
+    };
+    const MAX_MESSAGE_IMAGES = 3;                        // pictures in one message
+    const MAX_MESSAGE_IMAGE_INCHES = 4;                  // the tallest a picture in a message prints, in inches of paper
+    const MAX_MESSAGE_IMAGE_PIXELS = 32 * 1024 * 1024;   // a picture with more pixels than this is not shown (a 12 or 24 megapixel photo is far below, a receipt prints 576 dots across at most, and 32 million pixels are 134 MB once decoded)
+    const MAX_MESSAGE_IMAGE_URL = 400;                   // characters of an address
+    let activeImageSites = new Set();                    // the sites that are on for the receipt that is being built (see show). Empty between receipts
+    const sitePictures = new WeakSet();                  // the <img> elements of a High Roller message whose address is a picture of an image site (set by copyAttributes, never by the viewer)
+    let pictureShown = false;                            // a picture of an image site was put on the page since it was last put at rest: rest() says so, and the action then empties the browser's cache
+
+    // The ids of opts.imageSites that this page knows (it has the site and a rule for it). Anything else in the list is ignored.
+    function enabledImageSites(opts) {
+        const out = new Set();
+        const list = opts && Array.isArray(opts.imageSites) ? opts.imageSites : [];
+        for (const id of list.slice(0, 16))
+            if (typeof id === 'string' && own(IMAGE_PATHS, id) && IMAGE_SITES.some(s => s.id === id)) out.add(id);
+        return out;
+    }
+
+    // { url, site } for an address that is a direct picture link of one of the sites in `enabled` (a Set of ids), else null. `url` is the rebuilt address.
+    function imageSiteLink(raw, enabled) {
+        if (!enabled || !enabled.size) return null;
+        const text = String(raw ?? '').trim();
+        if (!/^https:\/\//i.test(text)) return null;                    // typed as https:// (the address parser also takes https:/host and https:\\host, which no viewer writes)
+        let u;
+        try { u = new URL(text); } catch { return null; }
+        if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
+        for (const site of IMAGE_SITES) {
+            if (!enabled.has(site.id) || !own(IMAGE_PATHS, site.id) || !site.hosts.includes(u.hostname)) continue;
+            if (!IMAGE_PATHS[site.id].test(u.pathname)) return null;
+            const url = 'https://' + u.hostname + u.pathname;
+            return url.length <= MAX_MESSAGE_IMAGE_URL ? { url, site: site.id } : null;
+        }
+        return null;
+    }
+
+    // A cleaned message as a list of pieces: { text } and { image: url }. A link to a picture of a switched-on site is a picture piece (with at most MAX_MESSAGE_IMAGES to a message,
+    // and the punctuation that ends a sentence after it is dropped); every other link stays text, or "[link]" when the dock hides links. The text pieces are the message
+    // without those links, in order.
+    function messagePieces(text, opts, enabled, limit) {
+        const most = limit === undefined ? MAX_MESSAGE_IMAGES : limit;
+        const hide = !!(opts && opts.hideLinks === true);
+        const pieces = [];
+        const add = (s) => { if (!s) return; const last = pieces[pieces.length - 1]; if (last && last.text !== undefined) last.text += s; else pieces.push({ text: s }); };
+        const re = new RegExp(LINK_PATTERN.source, 'gi');
+        let from = 0, images = 0, m;
+        while ((m = re.exec(text)) !== null) {
+            const token = m[0];
+            const trail = /[.,;:!?)\]}>'"]+$/.exec(token);
+            const hit = images < most ? imageSiteLink(trail ? token.slice(0, token.length - trail[0].length) : token, enabled) : null;
+            add(text.slice(from, m.index));
+            if (hit) { images++; pieces.push({ image: hit.url }); }
+            else add(hide ? '[link]' : token);
+            from = m.index + token.length;
+        }
+        add(text.slice(from));
+        return pieces;
+    }
+
+    // A viewer's message that holds HTML tags and is printed as an ordinary message (a High Roller message on a printer that does not allow High Roller prints, or a cheer below the threshold) is printed
+    // as the words it says: the tags are not printed as words (3.0.0; before it, "<img src=" and "</a><span style=..." came out on the paper, with the picture in the middle of them). An <img> goes
+    // with its address (3.0.1: a message that is not a High Roller message has no picture and no styling, only its words), the tags that break a line become line breaks, a script or a style goes with
+    // what is inside it, a comment goes (with the decoding), and the entities are decoded (they were written for HTML). A message with no tag in it is not touched, and the result is only ever
+    // text: it is set as text nodes.
+    const TAG_LIKE = /<\/?[a-z][^>]*>|<!--/i;
+    function flattenMarkup(value) {
+        let s = String(value ?? '');
+        if (!TAG_LIKE.test(s)) return s;
+        s = s.slice(0, MAX_RICH_CHARS);
+        s = s.replace(/<(script|style)\b[\s\S]*?(?:<\/\1\s*>|$)/gi, ' ');
+        s = s.replace(/<img\b[^>]*>/gi, ' ');
+        s = s.replace(/<\/?(?:br|p|div|li|ul|ol|tr|h[1-6]|blockquote|pre|hr|table|tbody|thead|tfoot|caption|center)\b[^>]*>/gi, '\n');
+        s = s.replace(/<\/?[a-z][^>]*>/gi, '');
+        return decodeEntities(s);
+    }
+
+    // The part of a receipt for a viewer's message that is not a High Roller message: its words, as text. 3.0.1: no picture and no styling in it, whatever sites are switched on (a link to a picture
+    // is a link, printed as text or as "[link]"). Pictures belong to the High Roller messages, which are built from rich content (see pictureLinksInRich).
+    function messagePart(value, opts) {
+        return { kind: 'message', text: plainText(flattenMarkup(value), opts) };
+    }
+
+    // Builds the pieces of a message into `div`: text as text nodes, a picture as an <img> that is a block of its own. An address that failed a moment ago is "[image]" at once.
+    // The element for one picture of a message: an <img> made here (never markup of the viewer), or the text "[image]" when this address failed a moment ago.
+    function messageImageElement(url, opts) {
+        if (isBadImage(url)) return document.createTextNode('[image]');
+        const large = largeLayoutPx(opts) !== null;                    // in the large layout a picture is as tall as the space the message has left (receipt.css), so it gets no height of its own
+        const img = document.createElement('img');
+        img.className = 'msg-image';
+        img.setAttribute('alt', '[image]');
+        img.referrerPolicy = 'no-referrer';
+        img.decoding = 'async';
+        if (!large) img.style.setProperty('max-height', Math.round(MAX_MESSAGE_IMAGE_INCHES * pxPerInch(opts)) + 'px');
+        img.setAttribute('src', url);                                  // checked by imageSiteLink: https, a host of a switched-on site, the path of a direct picture link
+        pictureShown = true;
+        return img;
+    }
+
+    function fillMessage(div, pieces, opts) {
+        for (const p of pieces) {
+            if (p.image === undefined) { if (p.text.trim()) div.appendChild(document.createTextNode(p.text)); continue; }
+            div.appendChild(messageImageElement(p.image, opts));
+        }
+    }
+
+    // 3.0.0: a link to a picture of a switched-on site in the text of a High Roller message is a picture, as it is in an ordinary message, and the styling around it stays: the message is
+    // sanitized first (so every node here is one the allow-list made), and only the text nodes are looked at. The link itself is replaced by the picture, an address that is no picture stays
+    // text. Together with the <img> tags of the message (see sitePictures) there are at most MAX_MESSAGE_IMAGES pictures.
+    function pictureLinksInRich(root, opts) {
+        if (!activeImageSites.size) return;
+        let room = MAX_MESSAGE_IMAGES;
+        for (const img of Array.from(root.querySelectorAll('img'))) if (sitePictures.has(img)) room--;
+        const nodes = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) nodes.push(walker.currentNode);
+        for (const node of nodes) {
+            if (room <= 0) break;
+            const pieces = messagePieces(node.data, null, activeImageSites, room);
+            const found = pieces.filter(p => p.image !== undefined).length;
+            if (!found) continue;
+            room -= found;
+            const frag = document.createDocumentFragment();
+            for (const p of pieces) frag.appendChild(p.image === undefined ? document.createTextNode(p.text) : messageImageElement(p.image, opts));
+            node.parentNode.replaceChild(frag, node);
+        }
+    }
+
+    // 3.0.0: in the large layout a picture of an image site in a High Roller message is not left inside the styled text, where it would be a thumbnail of 64 px at the place the viewer put it.
+    // It is taken out and set after the message like the picture of a plain message (at most MAX_MESSAGE_IMAGES, in the order they came): a frame that takes the space the words leave, and the
+    // choice of the printer (fill, fit or stretch) says what the picture does inside it. The styled text keeps everything else it had. Pictures of another kind (emotes) stay where they are.
+    function hoistSitePictures(content, opts) {
+        const urls = [];
+        let first = null;                                                                                   // the styled part that held the first picture, and whether words came before it
+        for (const img of Array.from(content.querySelectorAll('.part.raw img'))) {
+            if (!sitePictures.has(img) && !img.classList.contains('msg-image')) continue;                  // a picture of a site (an <img> tag, or a link that became one): not an emote
+            if (first === null) {
+                const part = img.closest('.part.raw');
+                const before = document.createRange();
+                before.setStart(part, 0); before.setEndBefore(img);
+                first = { part, wordsFirst: before.toString().trim().length > 0 };
+            }
+            const src = img.getAttribute('src');
+            img.remove();
+            if (src && urls.length < MAX_MESSAGE_IMAGES) urls.push(src);
+        }
+        if (!urls.length) return;
+        const div = document.createElement('div');
+        div.className = 'part message pictures';
+        fillMessage(div, urls.map(u => ({ image: u })), opts);
+        // 3.0.1: the pictures keep the side of the words the viewer gave them: a message that starts with its picture (before any word) prints the picture first, as the HTML reads. A picture that
+        // comes after words, or in the middle of them, is set after the message (the styled text is one box and cannot be cut around a frame).
+        if (first && !first.wordsFirst && first.part.parentNode === content) content.insertBefore(div, first.part);
+        else content.appendChild(div);
+    }
+
+    // 3.0.0: a message with pictures must not take a second page. In the layout of a roll scaled to the page a picture is as tall as its own shape asks (4 inches at most), so before any word is cut
+    // the excess is taken off the pictures, equally, down to three quarters of an inch. (In the large layout the pictures are frames that already take only what the words leave.) Returns
+    // whether there was a picture to shrink.
+    function shrinkPictures(over, opts) {
+        const imgs = Array.from($('receipt-content').querySelectorAll('img.msg-image')).filter(i => i.getAttribute('src'));
+        if (!imgs.length || !(over > 0)) return false;
+        const floor = Math.round(pxPerInch(opts) * 0.75), share = over / imgs.length;
+        for (const img of imgs) img.style.setProperty('max-height', Math.max(floor, Math.floor(img.getBoundingClientRect().height - share)) + 'px');
+        return true;
+    }
+
+    // A picture of a message that did not come (or is not usable) leaves the page, and its download stops. The text "[image]" stands in its place.
+    function dropMessageImage(img, why) {
+        if (why) securityNotes.add(why);
+        img.removeAttribute('src');
+        if (img.parentNode) img.parentNode.replaceChild(document.createTextNode('[image]'), img);
+    }
 
     // Avatars come from the platforms and are held to the allow-list too. A refusal names the host in the log.
     function safeAvatarUrl(value) {
@@ -7394,7 +7792,11 @@ window.PrinterBot = (function () {
                 const v = vetImage(value);
                 if (!v.url) securityNotes.add(v.host ? hostNote('image', v) : 'untrusted image');
                 else if (v.inline) { el.setAttribute('src', v.url); securityNotes.add('inline image'); }          // tiny inline picture: allowed, and unusual enough to log
-                else if (!isBadImage(v.url)) { el.setAttribute('src', v.url); pinImage(v.url); }              // (an emote that already failed or hung is left out)
+                else if (!isBadImage(v.url)) {                                                                // (an emote that already failed or hung is left out)
+                    el.setAttribute('src', v.url);
+                    if (v.site) { el.referrerPolicy = 'no-referrer'; pictureShown = true; sitePictures.add(el); }       // a picture of an image site is fetched once, as it is, and not kept alive
+                    else pinImage(v.url);
+                }
             }
             else if (tag === 'img' && name === 'alt') el.setAttribute('alt', value.slice(0, 100));
             else if (tag === 'img' && name === 'class') { const c = value.split(/\s+/).filter(x => x === 'emote' || x === 'bits'); if (c.length) el.className = c.join(' '); }
@@ -7492,6 +7894,19 @@ window.PrinterBot = (function () {
         const v = opts ? opts.pageHeightPx : NaN;
         return Number.isFinite(v) && v >= 100 ? v : null;
     }
+    // 3.0.0-beta.10: the layout "large message" of a page of Letter paper. The action sends opts.layout === 'message' for a printer that has it, and only for Letter paper, which is also the
+    // only paper that has a page height. This returns the page height in CSS px for such a receipt and null for every other: only the exact text 'message' counts, and a page with no height
+    // is no page. Nothing a viewer writes ever reaches this.
+    const LARGE_LAYOUT_MAX_PAGE_PX = 4000;           // a page of Letter paper is 533 CSS px; a height beyond this cannot be a page of any paper the action sends, so the layout is not used for it
+    function largeLayoutPx(opts) {
+        const page = opts && opts.layout === 'message' ? pageHeightPx(opts) : null;
+        return page !== null && page <= LARGE_LAYOUT_MAX_PAGE_PX ? page : null;
+    }
+    // 3.0.0: how a picture of a message is set in the large layout. Only these three texts count, anything else is the default, fill. The choice reaches the stylesheet as a class of the receipt
+    // (fit-fill, fit-fit, fit-stretch) and nothing else: the pictures get their size from the space the message has, and `object-fit` does the rest.
+    const IMAGE_FITS = ['fill', 'fit', 'stretch'];
+    function imageFitOf(opts) { const v = opts ? opts.imageFit : undefined; return IMAGE_FITS.indexOf(v) >= 0 ? v : 'fit'; }
+
     function highRollerMaxHeight(bits, opts) {
         const perInch = opts ? Number(opts.highRollerBitsPerInch) : 0;
         const pxIn = pxPerInch(opts);
@@ -8317,14 +8732,15 @@ window.PrinterBot = (function () {
             const gifts = Number(d.gifts);
             // Names that were counted but never sent (the bomb says 50 gifts but only 30 names came with it)
             const unlisted = keys.length && Number.isFinite(gifts) && gifts > keys.length ? gifts - keys.length : 0;
-            if (unlisted > 0) recipients.push(`…and ${nm(unlisted, 12)} more`);
+            const listed = recipients.slice(), tail = unlisted > 0 ? `…and ${nm(unlisted, 12)} more` : null;
+            if (tail) recipients.push(tail);
             return {
                 avatar: await getAvatar(d.userName, 'twitch'),
                 titleHtml: `${nm(d.gifts, 12)} × Gifted Subs`,
                 subtitle: d.anonymous ? 'A mysterious admirer' : displayName(d.user),
                 content: [lead(nm(cap(d.tier), 24)),
                           d.totalGifts > 1 ? text(`They've gifted <b>${nm(d.totalGifts, 12)} subs</b> in total!`) : null,
-                          recipients.length ? { kind: 'text', html: recipients.join('<br>'), roomy: true } : null],
+                          recipients.length ? { kind: 'text', html: recipients.join('<br>'), roomy: true, list: { items: listed, tail, more: unlisted, perPage: NAMES_PER_PAGE } } : null],
                 icon: 'twitch',
             };
         },
@@ -8478,11 +8894,12 @@ window.PrinterBot = (function () {
             const declared = Number(d.count);
             const total = Number.isFinite(declared) && declared > count ? declared : count;
             const unlisted = count > 0 && total > count ? total - count : 0;
-            if (unlisted > 0) names.push(`…and ${nm(unlisted, 12)} more`);
+            const listed = names.slice(), tail = unlisted > 0 ? `…and ${nm(unlisted, 12)} more` : null;
+            if (tail) names.push(tail);
             return {
                 avatar: await getAvatar(d.user, 'kick'),
                 titleHtml: `${nm(total, 12)} × Gifted Subs`, subtitle: displayName(d.user),
-                content: { kind: 'text', html: names.join('<br>'), roomy: true }, icon: 'kick',
+                content: { kind: 'text', html: names.join('<br>'), roomy: true, list: { items: listed, tail, more: unlisted, perPage: NAMES_PER_PAGE } }, icon: 'kick',
             };
         },
 
@@ -8523,6 +8940,7 @@ window.PrinterBot = (function () {
                 if (v) v[m[2]] = d[key]; else more = true;
             }
             const lines = Object.keys(variants).sort(byNumber).map(k => `${nm(variants[k].quantity, 12)} × ${nm(variants[k].name, 80)}`);
+            const listed = lines.slice();
             if (more) lines.push('…');
             let note = null;
             if (d['fw.statmessageus']) note = message(decodeEntities(d['fw.statmessageus']));     // arrives HTML-entity encoded
@@ -8530,7 +8948,7 @@ window.PrinterBot = (function () {
             return {
                 avatar, title: formatCurrency(d['fw.total'], d['fw.currency']), titleBig: true,
                 subtitle: displayName(d['fw.username'] || '') || 'Anonymous supporter',     // the buyer's e-mail address is never shown: a receipt can be on camera
-                content: [{ kind: 'text', left: true, html: lines.join('<br>'), roomy: true },
+                content: [{ kind: 'text', left: true, html: lines.join('<br>'), roomy: true, list: { items: listed, tail: more ? '…' : null, more: 0, perPage: 0 } },
                           note, lead('Thank you for your purchase!')],
             };
         },
@@ -8676,6 +9094,21 @@ window.PrinterBot = (function () {
         return { content: model.content, maxPx: model.contentMaxHeight != null ? model.contentMaxHeight : null, by: model.contentLimitBy, ignoreCeiling: !!model.contentIgnoreCeiling };
     }
 
+    // The layout of this receipt (3.0.0-beta.10). In the large layout of a Letter page the receipt gets the class letter-message and two variables that receipt.css reads: --pb-in (CSS px to the
+    // inch of this paper) and --pb-page-h (the height of a page in CSS px), both from numbers that were checked above. The date line moves from the footer into the header. Every receipt
+    // starts from the layout it had before this one: nothing is left over.
+    function applyLayout(opts) {
+        const container = $('receipt-container'), page = largeLayoutPx(opts);
+        container.classList.toggle('letter-message', page !== null);
+        container.style.minHeight = '';                                 // fitNames may have given the receipt of a long list a floor of its own
+        container.style.transform = ''; container.style.transformOrigin = '';       // and present() may have made the last receipt smaller to fit its page
+        for (const f of IMAGE_FITS) container.classList.toggle('fit-' + f, page !== null && imageFitOf(opts) === f);
+        if (page !== null) { container.style.setProperty('--pb-in', pxPerInch(opts) + 'px'); container.style.setProperty('--pb-page-h', Math.floor(page) + 'px'); }
+        else { container.style.removeProperty('--pb-in'); container.style.removeProperty('--pb-page-h'); }
+        const date = $('receipt-date'), home = page !== null ? $('receipt-header') : $('receipt-footer');
+        if (date.parentNode !== home) home.appendChild(date);
+    }
+
     // Builds the receipt from the model. Returns the avatar URL that is on the page ('' = none).
     function show(model, opts) {
         const avatar = $('receipt-avatar'), title = $('receipt-title'), subtitle = $('receipt-subtitle');
@@ -8684,6 +9117,7 @@ window.PrinterBot = (function () {
         // reset everything a previous receipt may have left behind
         avatar.removeAttribute('src'); avatar.style.display = ''; avatar.style.borderRadius = '';
         $('receipt-container').classList.remove('no-avatar');
+        applyLayout(opts);
         title.className = ''; title.textContent = ''; subtitle.textContent = ''; content.textContent = '';
         const banner = $('receipt-banner'), tail = $('receipt-tail');
         banner.className = ''; banner.textContent = ''; tail.className = ''; tail.textContent = '';
@@ -8709,7 +9143,7 @@ window.PrinterBot = (function () {
         const view = viewOf(model, opts);
         const parts = [].concat(view.content || []).filter(Boolean)
             .map(p => typeof p === 'string' ? { html: p } : p)
-            .map(p => p.kind === 'message' && p.value != null ? { kind: 'message', text: plainText(p.value, opts) } : p)
+            .map(p => p.kind === 'message' && p.value != null ? messagePart(p.value, opts) : p)
             .filter(p => p.html || p.text || p.rich);
         $('receipt-rule-top').style.display = parts.length ? '' : 'none';
         content.style.display = parts.length ? '' : 'none';
@@ -8729,20 +9163,144 @@ window.PrinterBot = (function () {
             content.style.setProperty('max-height', Math.min(view.maxPx, view.ignoreCeiling ? Infinity : ceilingScaled) + 'px', 'important');
         }
         else if (ceilingScale !== 1 && Number.isFinite(ceilingScaled)) content.style.setProperty('max-height', ceilingScaled + 'px', 'important');
-        for (const p of parts) {
-            const div = document.createElement('div');
-            div.className = 'part ' + (p.kind || 'text') + (p.left ? ' left' : '');
-            if (p.rich != null) div.appendChild(sanitizeRich(p.rich));     // High Roller: the allow-listed copy goes in, the original markup stays out
-            else if (p.text != null) div.textContent = p.text;             // viewer text: text only
-            else div.innerHTML = p.html;                                   // our own templates (viewer values already cleaned and esc()'d)
-            content.appendChild(div);
-        }
+        const sites = enabledImageSites(opts);                             // 3.0.1: a picture comes only from a High Roller message (a part with rich content), and only while that part is built
+        try {
+            for (const p of parts) {
+                const div = document.createElement('div');
+                div.className = 'part ' + (p.kind || 'text') + (p.left ? ' left' : '');
+                if (p.rich != null) { activeImageSites = sites; const rich = sanitizeRich(p.rich); pictureLinksInRich(rich, opts); activeImageSites = new Set(); div.appendChild(rich); }     // High Roller: the allow-listed copy goes in, the original markup stays out
+                else if (p.list && (pageHeightPx(opts) !== null || p.list.perPage > 0)) fillList(div, p.list, pageHeightPx(opts) !== null, p.html);     // a gift list or an order on Letter paper, a gift list on a roll: names that present() sets in columns (fitNames, rollColumns)
+                else if (p.text != null) div.textContent = p.text;             // viewer text: text only
+                else div.innerHTML = p.html;                                   // our own templates (viewer values already cleaned and esc()'d)
+                content.appendChild(div);
+            }
+        } finally { activeImageSites = new Set(); }
+        if (largeLayoutPx(opts) !== null) hoistSitePictures(content, opts);
 
         const hasIcon = !!(model.icon && ICONS[model.icon]);
         if (hasIcon) icon.src = ICONS[model.icon]; else icon.removeAttribute('src');
         $('receipt-date').textContent = formatDate(new Date());
         if (avatarUrl) tightenGaps(parts.length > 0, hasIcon); else clearGaps();       // the larger picture takes its height out of the gaps (see above)
         return avatarUrl;
+    }
+
+    // ---- a list of names on a page of Letter paper (3.0.0) ----------------------------------------------------------------------------------
+    // A gift list or the items of an order is a list of names. On a roll it is one column, as long as it comes. On a page of Letter paper (one page, always) it is set in columns and a
+    // smaller type, as many as it takes to fit: up to NAMES_PER_PAGE gift names fit one page, more go on to the next page, 100 to a page, and the footer is on the last page. An order
+    // is held to one page and cut at its end (the page cut of present()) if the densest step still does not fit it. The names are our own, cleaned and escaped by the handlers; the list a
+    // handler gives is the only way in, so event data cannot ask for columns or pages.
+    // The steps go from the largest type to the smallest, and for one size from the fewest columns to the most, so the first step that fits is the largest type that does (0.42 is about 9 pt on paper).
+    const NAME_SIZES = [1, 0.9, 0.8, 0.72, 0.65, 0.58, 0.52, 0.47, 0.42], NAME_MAX_COLUMNS = 6;
+    const NAME_STEPS = [];
+    for (const size of NAME_SIZES) for (let cols = 1; cols <= NAME_MAX_COLUMNS; cols++) NAME_STEPS.push([cols, size, size === 1 ? 'inherit' : '1.2']);
+    const NAME_PAGE_PAD = 6, NAME_PAGE_RESERVE = 6;         // blank CSS px at the top of a page that a list goes on at, and at the bottom of a page that it goes on from
+    const nameLists = new WeakMap();                         // the part of a list -> its names per page (0: one page)
+
+    const listHtml = new WeakMap();                          // the part of a list on a roll -> its names as they were before the columns (one name to a line)
+
+    // paged is true on a page of Letter paper. A roll gets the names as boxes too, for a gift list (perPage > 0): rollColumns sets them in two columns when every name fits half the width,
+    // and puts the plain list back when one does not (so a roll with long names prints what it printed before).
+    function fillList(div, list, paged, html) {
+        div.classList.add('names');
+        const perPage = list.perPage > 0 ? list.perPage : 0;
+        if (!paged) listHtml.set(div, String(html ?? ''));
+        const limit = paged && perPage ? perPage * MAX_NAME_PAGES : Infinity;
+        let items = list.items.slice(), tail = list.tail || null;
+        if (items.length + (tail ? 1 : 0) > limit) {
+            const hidden = items.length - (limit - 1);
+            items = items.slice(0, limit - 1);
+            tail = '…and ' + esc(String(Math.min(hidden + (Number(list.more) > 0 ? Math.floor(Number(list.more)) : 0), 1000000000))) + ' more';
+        }
+        const page = document.createElement('div');
+        page.className = 'names-page';
+        const add = (html, cls) => { const s = document.createElement('span'); s.className = cls; s.innerHTML = html; page.appendChild(s); };
+        for (const item of items) add(item, 'nm');
+        if (tail) add(tail, 'nm tail');
+        div.appendChild(page);
+        nameLists.set(div, perPage);
+    }
+
+    // A gift list on a roll (80 mm or 58 mm): two columns when every name fits in half the width on one line, else the plain list of one name to a line, as it always was. Names are
+    // the handler's own, cleaned and escaped; the width test is made on the page, with the fonts of the receipt.
+    function rollColumns(div) {
+        const page = div.firstElementChild, names = page ? Array.from(page.children) : [];
+        const plain = () => { div.classList.remove('names'); div.innerHTML = listHtml.get(div) || ''; };
+        if (names.length < 2) { plain(); return; }
+        page.style.setProperty('--pb-cols', '2');
+        const probe = document.createElement('span');
+        probe.className = 'nm'; probe.textContent = 'x';
+        page.appendChild(probe);
+        const line = probe.getBoundingClientRect().height;
+        page.removeChild(probe);
+        for (const n of names) if (n.getBoundingClientRect().height > line * 1.5) { plain(); return; }
+    }
+
+    // Sets the list in the plainest columns that fit and returns the number of pages it takes. The first page holds what fits under the header (at most the names for a page, fewer when
+    // the header leaves little room), the next pages are the full page and start at the top of their page (a spacer above each), the last page has to hold the footer as well.
+    function fitNames(div, opts) {
+        const pageH = pageHeightPx(opts);
+        const container = $('receipt-container');
+        const first = div.firstElementChild;
+        const all = Array.from(first.children);
+        const perPage = nameLists.get(div) || 0;
+        const large = largeLayoutPx(opts) !== null;
+        const top = (el) => el.getBoundingClientRect().top + window.scrollY;
+        const bottom = (el) => el.getBoundingClientRect().bottom + window.scrollY;
+        const docHeight = () => Math.ceil(document.documentElement.getBoundingClientRect().height);
+        const applyStep = (wrap, step) => {
+            wrap.style.setProperty('--pb-cols', String(step[0]));
+            wrap.style.setProperty('--pb-name-scale', String(step[1]));
+            wrap.style.setProperty('--pb-name-lh', step[2]);
+        };
+        let lastStep = 0;                                 // the step the last trial left on
+        // `count` names from `from` on page k, in `wrap`, tried from step number `startAt` on: the index of the first step that fits (the largest type that does), or -1 when none does (the
+        // densest step is left on). With onlyDensest only the densest step is tried: a cheap question, "can this many names fit at all?"
+        const trial = (wrap, from, count, k, onlyDensest, startAt) => {
+            wrap.replaceChildren(...all.slice(from, from + count));
+            const last = from + count === all.length;
+            if (k > 1) { wrap.style.marginTop = '0px'; wrap.style.marginTop = Math.max(0, (k - 1) * pageH + NAME_PAGE_PAD - top(wrap)) + 'px'; }
+            if (large) container.style.minHeight = last ? (k * pageH) + 'px' : '';
+            for (let i = onlyDensest ? NAME_STEPS.length - 1 : (startAt || 0); i < NAME_STEPS.length; i++) {
+                applyStep(wrap, NAME_STEPS[i]);
+                lastStep = i;
+                if (last ? docHeight() <= k * pageH : bottom(wrap) <= k * pageH - NAME_PAGE_RESERVE) return i;
+            }
+            return -1;
+        };
+        // the most names (of `want`) that fit on page k, with the layout of that answer left on
+        const largest = (wrap, from, want, k) => {
+            if (trial(wrap, from, want, k) >= 0) return want;
+            let lo = 0, hi = want - 1;
+            while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (trial(wrap, from, mid, k, true) >= 0) lo = mid; else hi = mid - 1; }
+            lo = Math.max(1, lo);
+            trial(wrap, from, lo, k);
+            return lo;
+        };
+        const placed = [];                                // every page of the list: its box, its names, its page number and the step it was given
+        let used, pages = 1;
+        if (perPage) used = largest(first, 0, Math.min(all.length, perPage), 1);
+        else { trial(first, 0, all.length, 1); used = all.length; }
+        placed.push({ wrap: first, from: 0, count: used, k: 1, step: lastStep });
+        while (used < all.length) {
+            pages++;
+            const wrap = document.createElement('div');
+            wrap.className = 'names-page';
+            div.appendChild(wrap);
+            const from = used, n = largest(wrap, from, Math.min(perPage, all.length - from), pages);
+            used += n;
+            placed.push({ wrap, from, count: n, k: pages, step: lastStep });
+        }
+        // One type size for the whole list: the pages that had room for more get the size of the one that had the least (its columns still fit each page). Every page is laid out again in order,
+        // because a page that got smaller moves the start of the next one.
+        if (placed.length > 1) {
+            const size = Math.min(...placed.map(p => NAME_STEPS[p.step][1]));
+            const firstOfSize = NAME_STEPS.findIndex(s => s[1] <= size);
+            for (const p of placed) {
+                const own = NAME_STEPS[p.step][1] <= size ? p.step : firstOfSize;
+                if (trial(p.wrap, p.from, p.count, p.k, false, own) < 0) { applyStep(p.wrap, NAME_STEPS[p.step]); trial(p.wrap, p.from, p.count, p.k, false, p.step); }
+            }
+        }
+        return pages;
     }
 
     // true when the image has loaded and decoded, false when it failed or `ms` ran out first
@@ -8781,9 +9339,16 @@ window.PrinterBot = (function () {
                 clearGaps();                                                     // with no picture the gaps are what they always were
             }));
         }
-        for (const img of document.images) {
+        for (const img of Array.from(document.images)) {
             const src = img.getAttribute('src');
             if (img === avatar || !src) continue;
+            if (img.classList.contains('msg-image')) {                          // a picture of a viewer's message (an image site): not on time, not a picture or far too big = off the page
+                jobs.push(waitImage(img, EMOTE_WAIT_MS).then((ok) => {
+                    if (!ok) { markBad(src); dropMessageImage(img); }
+                    else if (img.naturalWidth * img.naturalHeight > MAX_MESSAGE_IMAGE_PIXELS) { markBad(src); dropMessageImage(img, 'image too large'); }
+                }));
+                continue;
+            }
             jobs.push(waitImage(img, EMOTE_WAIT_MS).then((ok) => { if (!ok && /^https:/i.test(src)) markBad(src); }));
         }
         jobs.push(withTimeout(document.fonts.ready, EMOTE_WAIT_MS));
@@ -8797,9 +9362,25 @@ window.PrinterBot = (function () {
         if (!images.length) return;
         const limit = MAX_VIEWER_IMAGE_PX * 1.6;
         for (const img of images) {
+            if (img.classList.contains('msg-image')) continue;                  // a picture of a message has its own limits (the width of the paper, MAX_MESSAGE_IMAGE_INCHES), set where it is made
             const r = img.getBoundingClientRect();
             if (r.width > limit || r.height > limit) { img.style.setProperty('display', 'none', 'important'); securityNotes.add('image too large'); }
         }
+    }
+
+    // Puts the page at rest between receipts (the C# side asks for it once the receipts of an event are delivered): the pictures lose their sources and the text slots
+    // are emptied, so nothing an event brought, an animated emote say, keeps the hidden browser drawing while nothing prints. The model stays, so again() can show the
+    // receipt once more, and show() rebuilds every slot from it.
+    // Returns true, or 2 when a picture of an image site was on the page since the last rest: a viewer chose that picture, so the action also empties the browser's cache
+    // (Edge keeps the files it loads in its profile folder, like any browser) and nothing of it stays on the disk.
+    function rest() {
+        const hadPicture = pictureShown;
+        pictureShown = false;
+        const avatar = $('receipt-avatar'), icon = $('receipt-icon');
+        if (avatar) avatar.removeAttribute('src');
+        if (icon) icon.removeAttribute('src');
+        for (const id of ['receipt-title', 'receipt-subtitle', 'receipt-content', 'receipt-banner', 'receipt-tail']) { const el = $(id); if (el) el.textContent = ''; }
+        return hadPicture ? 2 : true;
     }
 
     async function render(data, options) {
@@ -8851,15 +9432,24 @@ window.PrinterBot = (function () {
         let trimmed = null;
         const view = viewOf(model, opts);
         let limitBy = view.by;
-        // A High Roller message on a page of Letter paper stays on that page. Where a roll prints a message as long as its limits allow, a sheet has an end: when the receipt reaches past the
-        // page, the excess is taken off the message box (which keeps at least an inch), and a longer message fades out there like at any other limit. This is measured now, after the pictures
-        // have loaded, so the picture and the lines around the message count at the size they have. A receipt of a viewer's own words and a list are no High Roller message and go on to the
-        // next page as before.
-        const pagePx = view.styled ? pageHeightPx(opts) : null;
+        // A receipt on a page of Letter paper is one page, always (3.0.0): no message, no list (gifted subs, the items of an order) and no theme makes a second sheet. Where a roll prints a
+        // message or a list as long as it comes, a sheet has an end: when the receipt reaches past the page, the excess is taken off the content box (which keeps at least an inch), and a
+        // longer text fades out there like at any other limit. This is measured now, after the pictures have loaded, so the picture and the lines around the box count at the size they have.
+        // In the layout of a roll scaled to the page the pictures give back what they can first (shrinkPictures), in the large layout they already have. The action holds a picture of a page to
+        // one page as well (PbLetter), which is the wall for what this cannot reach, such as a theme that makes the header taller than the page.
+        const box = $('receipt-content');
+        const pagePx = pageHeightPx(opts);
+        // A gift list is the one receipt that takes more than one page: names set in columns, up to NAMES_PER_PAGE to a page (fitNames). Its pages are the page limit below.
+        const nameBox = box.querySelector(':scope > .part.names');
+        const pages = nameBox && pagePx !== null ? fitNames(nameBox, opts) : 1;
+        if (nameBox && pagePx === null) rollColumns(nameBox);
         let limited = view.maxPx != null;
-        if (pagePx !== null) {
-            const box = $('receipt-content');
-            const over = Math.ceil(document.documentElement.getBoundingClientRect().height) - pagePx;
+        // Only what a viewer wrote (a message, a list of names) is cut at the end of the page: its words are the part that can go. Every other receipt (a Hype Train, a subscription) has nothing
+        // that may be cut, and is made smaller as a whole below if it is still too tall.
+        const cuttable = view.styled || box.querySelector(':scope > .part.message') !== null || nameBox !== null;
+        if (pagePx !== null && cuttable) {
+            let over = Math.ceil(document.documentElement.getBoundingClientRect().height) - pagePx * pages;
+            if (over > 0 && largeLayoutPx(opts) === null && shrinkPictures(over, opts)) over = Math.ceil(document.documentElement.getBoundingClientRect().height) - pagePx * pages;
             if (over > 0) {
                 const cs = getComputedStyle(box);
                 // max-height does not count the padding and the border of a box that is not border-box (receipt.css has none, a theme can add them)
@@ -8886,8 +9476,29 @@ window.PrinterBot = (function () {
             }
             if (full > shown + 1) {
                 box.classList.add('cut');
+                // 3.0.0: in the large layout a box with pictures is cut in its words (receipt.css lets them shrink): the parts that are clipped fade at their own bottom edge, and the box does not,
+                // because the fade of the box would land on the last picture. When no part of words is clipped (the pictures themselves are what does not fit) the fade of the box stays.
+                if (largeLayoutPx(opts) !== null && box.querySelector(':scope > .part.pictures')) {
+                    let clipped = false;
+                    for (const part of Array.from(box.children)) if (!part.classList.contains('pictures') && part.scrollHeight > part.clientHeight + 1) { part.classList.add('clipped'); clipped = true; }
+                    if (clipped) box.classList.remove('cut');
+                }
                 const inches = (px) => Math.round(px / pxPerInch(opts) * 100) / 100;
                 trimmed = { limitIn: inches(shown), fullIn: inches(full), by: limitBy === 'cap' || limitBy === 'page' ? limitBy : 'bits' };
+            }
+        }
+
+        // What no cut can reach (a Hype Train receipt: its drawing, its picture and its lists are all there is) is made smaller as a whole, to the same proportions, until it is the
+        // pages it has: a receipt on Letter paper is one page and is never chopped in the middle of a picture. Only the picture changes, nothing of the receipt is left out.
+        let fitted = 0, fitHeight = 0;
+        if (pagePx !== null) {
+            const want = pagePx * pages, have = Math.ceil(document.documentElement.getBoundingClientRect().height);
+            if (have > want) {
+                const share = Math.max(MIN_PAGE_FIT, want / have), container = $('receipt-container');
+                container.style.transformOrigin = 'top center';
+                container.style.transform = 'scale(' + share + ')';
+                fitted = Math.round(share * 100);
+                fitHeight = share > want / have ? have * share : want;          // (below MIN_PAGE_FIT the receipt is still taller than its page: the action cuts what is left)
             }
         }
 
@@ -8895,11 +9506,13 @@ window.PrinterBot = (function () {
         for (const k of Object.keys(avatarFresh)) { fresh[k] = avatarFresh[k]; delete avatarFresh[k]; }
         // A gift list or an order's item list reports the real page height. The action photographs a page taller than its window in tiles.
         // Every other receipt is cut at MAX_RECEIPT_HEIGHT.
-        const pageHeight = Math.ceil(document.documentElement.getBoundingClientRect().height);
+        const pageHeight = fitted ? Math.ceil(fitHeight) : Math.ceil(document.documentElement.getBoundingClientRect().height);
         const longList = $('receipt-content').classList.contains('roomy');
         return {
             ok: true, avatars: fresh, trimmed,
             height: longList ? pageHeight : Math.min(MAX_RECEIPT_HEIGHT, pageHeight),
+            fit: fitted || undefined,                                  // the share of its size a receipt was made smaller to (percent), when it was
+            pages, pageBreaks: Array.from({ length: pages - 1 }, (_, i) => pagePx * (i + 1)),       // a page of Letter paper that goes on (a long gift list): where the next page starts, in CSS px
             security: Array.from(securityNotes).slice(0, 10),      // what was removed from this receipt (the log reports it)
             photos: photoRects(),
         };
@@ -8935,7 +9548,14 @@ window.PrinterBot = (function () {
         checkImageUrl: trustedImageUrl,
         avatarHosts: () => AVATAR_HOSTS.slice(),
         emoteHosts: () => TRUSTED_IMAGE_HOSTS.slice(),
-        displayName, replaceLinks, formatDate,
+        largeLayoutPx: (opts) => largeLayoutPx(opts),
+        imageFitOf: (opts) => imageFitOf(opts),
+        imageSites: () => JSON.parse(JSON.stringify(IMAGE_SITES)),
+        imagePathIds: () => Object.keys(IMAGE_PATHS),
+        imageSiteLink: (raw, ids) => imageSiteLink(raw, new Set(Array.isArray(ids) ? ids : [])),
+        messagePieces: (text, opts) => { const e = enabledImageSites(opts); return e.size ? messagePieces(plainText(text, null), opts, e) : [{ text: plainText(text, opts) }]; },
+        enabledImageSites: (opts) => Array.from(enabledImageSites(opts)),
+        displayName, replaceLinks, formatDate, flattenMarkup,
         shareCuts, gapRooms: () => Object.assign({}, GAP_ROOM),
         largerAvatarUrl, variants: () => ({ misses: Array.from(variantMisses.entries()), lull: Array.from(variantLull.entries()) }),
         allowedCss: () => Array.from(ALLOWED_CSS),
@@ -8950,10 +9570,10 @@ window.PrinterBot = (function () {
         hypeStepEvents: () => HYPE_STEPS.map(x => ({ name: x.name, source: HYPE_SOURCES[x.kind], level: x.level })),
         fmtNum, fmtElapsed,
         limits: () => ({ AVATAR_LOOKUP_BUDGET_MS, AVATAR_BACKGROUND_TIMEOUT_MS, AVATAR_TTL_MS, AVATAR_STALE_MS, NEGATIVE_TTL_MS, NOT_FOUND_TTL_MS, AVATAR_IMAGE_WAIT_MS, EMOTE_WAIT_MS,
-                         MAX_PINNED_IMAGES, MAX_NAME_CHARS, MAX_VARIANTS, MAX_VIEWER_IMAGE_PX, MAX_DATA_IMAGE_CHARS, VARIANT_PX, VARIANT_WAIT_MS, VARIANT_MIN_PX, VARIANT_LULL_AFTER, VARIANT_LULL_MS }),
+                         MAX_PINNED_IMAGES, MAX_NAME_CHARS, MAX_VARIANTS, MAX_VIEWER_IMAGE_PX, MAX_DATA_IMAGE_CHARS, MAX_MESSAGE_IMAGES, MAX_MESSAGE_IMAGE_INCHES, MAX_MESSAGE_IMAGE_PIXELS, MAX_MESSAGE_IMAGE_URL, VARIANT_PX, VARIANT_WAIT_MS, VARIANT_MIN_PX, VARIANT_LULL_AFTER, VARIANT_LULL_MS }),
     };
 
-    return { version: VERSION, render, again, setTheme, loadAvatarCache, clearAvatarCache, ready: true, violations: () => violationCount, violationLog: () => violationLog.slice(),
+    return { version: VERSION, render, again, rest, setTheme, loadAvatarCache, clearAvatarCache, ready: true, violations: () => violationCount, violationLog: () => violationLog.slice(),
              eventTypes: Object.keys(HANDLERS), sampleNames: Object.keys(SAMPLES).concat(HYPE_STEPS.map(x => x.name)), internals };
 })();
 <\/script>

@@ -68,11 +68,23 @@ test("the vendored renderer is inert text: one block, after the app, closed only
   // A raw-text element ends at the first closing script tag, so the page's own must be escaped.
   assert.ok(!/<\/script/i.test(block[2]), "an unescaped closing script tag inside the block would end it early");
   assert.equal((block[2].match(/<\\\/script>/g) || []).length, 1, "the renderer's one closing script tag, escaped");
-  // The HTML tokenizer's script-data states: an unclosed <!-- followed by a <script would
-  // make the block's real end tag not end it (tools/vendor-renderer.mjs refuses to write that).
-  let open = 0;
-  for (const m of block[2].matchAll(/<!--|-->/g)) open = m[0] === "<!--" ? 1 : 0;
-  assert.equal(open, 0, "the block ends inside an HTML comment");
+  // The HTML tokenizer's script-data states (WHATWG "script data", "escaped", "double escaped"),
+  // walked as tools/vendor-renderer.mjs walks them: an unclosed <!-- followed by a <script tag
+  // would make the block's real end tag not end it. An unclosed <!-- alone is harmless (the end
+  // tag closes the element from the escaped state too): Printer Bot 3.0.0's renderer has one in a
+  // regular expression (TAG_LIKE), and the block ends there.
+  const text = block[2];
+  let state = "data";
+  for (let i = 0; i < text.length; i++) {
+    if (text.startsWith("<!--", i) && state === "data") { state = "escaped"; i += 3; continue; }
+    if (text.startsWith("-->", i) && state !== "data") { state = "data"; i += 2; continue; }
+    if (state === "escaped" && /^<script[\s/>]/i.test(text.slice(i, i + 8))) { state = "double"; continue; }
+    if (/^<\/script[\s/>]/i.test(text.slice(i, i + 9))) {
+      assert.equal(state, "double", "a closing script tag at character " + i + " would end the block early");
+      state = "escaped";
+    }
+  }
+  assert.notEqual(state, "double", "the block ends inside an unclosed <!-- ... <script: its end tag would not end it");
   assert.ok(/window\.PrinterBot = \(function \(\) \{/.test(page) && /PrinterBot\.render\(eventData, options\)/.test(page), "not SassyTP's renderer");
   assert.ok(/^<!DOCTYPE html>\n<html lang="en">/.test(page) && /<\/script>\n<\/body>\n<\/html>\n$/.test(page), "the page is not whole");
   assert.equal(attr("data-version"), (page.match(/<meta name="printer-bot-renderer" content="(\d+)">/) || [])[1]);

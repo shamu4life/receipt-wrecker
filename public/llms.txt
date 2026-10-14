@@ -13,7 +13,7 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.4.0 (2026-10-13). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.4.1 (2026-10-14). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
 - No accounts, no analytics, no third-party services.
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -28,8 +28,9 @@ and prints it.
 - A cheer of at least the streamer's High Roller threshold (default 25 bits; 0 turns it off)
   is a High Roller cheer: the message is read as HTML and passed through an allow-list
   sanitizer, so inline styles print.
-- A smaller cheer prints as plain 16px text inside quote marks, markup included.
-- Printer Bot 3.0 (in beta) adds a per-printer switch, "Allow High Roller prints", on by
+- A smaller cheer prints as plain 16px text inside quote marks (since Printer Bot 3.0.0 its tags
+  are left out and its words printed; before, the markup was printed too).
+- Printer Bot 3.0 adds a per-printer switch, "Allow High Roller prints", on by
   default. A printer with it off prints every cheer as plain text, so the tool has the same
   switch among the streamer's settings and builds every block in its plain form when it is off.
 
@@ -95,10 +96,11 @@ a real cheer that Twitch charges for; the tool counts it in the cost it shows.
 
 The preview is drawn by SassyTP's printer-bot renderer (MIT), the bot's own receipt page,
 embedded in the tool and run in a sandboxed frame with no network access. Since 1.3.0 it is the
-newest Printer Bot beta's page (3.0.0-beta.7, layout 202610122236, since 1.3.1; 3.0.0-beta.6's
-page, layout 202610110524, is the same in everything the tool's messages use); Printer Bot
-2.5.4's page (202610090056) prints the tool's messages the same on a receipt printer, apart from
-a smaller profile picture. The tool builds for one receipt printer: 3.0's several printers per
+newest Printer Bot release's page (Printer Bot 3.0.1 since 1.4.1, layout 202610140456;
+3.0.0-beta.7's and beta.6's pages, layouts 202610122236 and 202610110524, print the tool's
+messages the same);
+Printer Bot 2.5.4's page (202610090056) prints the tool's messages the same on a receipt printer,
+apart from a smaller profile picture. The tool builds for one receipt printer: 3.0's several printers per
 cheer and Letter paper are not modeled. A thermal view
 shows the receipt at the printer's dot width with the bot's own dither methods. Each part's
 preview is drawn when it scrolls near the screen, one at a time, so a long stack stays quick.

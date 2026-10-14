@@ -12,6 +12,53 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.4.1] - 2026-10-14
+
+### Changed
+
+- **The preview draws with Printer Bot 3.0.1's receipt page.** SassyTP shipped Printer Bot 3.0.0
+  as a stable release on 2026-10-14 and 3.0.1 the same day; 3.0.1 uses 3.0.0's layout (Renderer
+  version 202610140456). The line above the parts names it, and names 3.0.0-beta.7's layout
+  (202610122236) as printing the same, beside 2.5.4's (202610090056, with a smaller profile
+  picture).
+
+### What 3.0 changes for a cheer, and what it doesn't
+
+- **Nothing the app sends prints differently.** Through the bench, 22 kinds of message on both
+  papers (every Big layout and upside down, two other fonts, Sideways both ways, the four
+  Glyph-art kinds, plain Han tiling, both tests, a free test, a cut by bits per inch) printed
+  through beta.7's page and through 2.5.4's exactly as through 3.0.1's: the same height, the same
+  cut and the same dots. The bot's own code draws, greys and dithers a cheer on a roll as
+  beta.7's did.
+- **A wrong setting looks different.** A message that prints plain now shows its words, not its
+  code: a High Roller message sent below the streamer's real threshold, or to a printer with
+  Allow High Roller prints off, prints BIG, UP and the rest small in quote marks, where beta.7
+  printed the markup. The High Roller test's note still fits ("If it all prints small inside
+  quote marks"). With the threshold and that switch set in the app as the streamer has them, the
+  app builds the plain form for those cheers itself.
+- **Pictures from links.** 3.0 prints a picture from a direct Imgur, Catbox or ImgBB link in a
+  High Roller message, when the streamer ticks that site under Images in messages in the dock
+  (every site is off until ticked) and the printer has Allow images on. The app sends no links
+  and doesn't use this to carry pictures. On a rig with a site ticked, such a link typed into a
+  Big or Sideways text block prints as the picture, though the card counts it as text.
+- Letter paper gets a "large message" layout and is always one page. The app still builds for a
+  receipt printer.
+
+### How sure
+
+- **Tests**: 247 unit tests and 82 browser tests; the contract test runs every mode and every
+  font through 3.0.1's page. The vendor test now walks the HTML tokenizer's states the way the
+  vendoring tool does: 3.0.1's page holds a literal `<!--` inside a regular expression, which is
+  harmless where it sits, and the old, rougher check refused it.
+- **Not printed** on a 3.0.1 rig yet.
+
+### Tools
+
+- `tools/vendor-renderer.mjs` and `tools/forkbench.mjs` pin 3.0.1's page (commit 1049292). A
+  stable release is vendored with `--ref` and `--path`, since there is no prerelease to follow.
+
+---
+
 ## [1.4.0] - 2026-10-13
 
 ### Added

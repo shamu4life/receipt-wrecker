@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.4.0](https://img.shields.io/badge/version-1.4.0-blue)](docs/CHANGELOG.md)
+[![Version 1.4.1](https://img.shields.io/badge/version-1.4.1-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -18,8 +18,9 @@ prints it as big as the paper allows on a printer driven by
 Receipt Wrecker is a single HTML file with no dependencies. You build a stack of blocks
 (text and pictures), it packs them into as few chat messages as it can, and you paste each
 one into Twitch chat as a cheer. The preview shows each message drawn by the bot's own
-receipt code: the newest Printer Bot beta, 3.0.0-beta.7. A streamer still on Printer Bot 2.5.4
-prints these messages the same on a receipt printer; only the profile picture is smaller.
+receipt code: the newest Printer Bot release, 3.0.1. A streamer still on 3.0.0-beta.7 or
+beta.6, or on Printer Bot 2.5.4, prints these messages the same on a receipt printer (2.5.4 draws
+a smaller profile picture).
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
 > different printer bot (nutty.gg's). Everything made for that one is gone, and saved work
@@ -297,14 +298,20 @@ access. It is not an imitation of the receipt. Whether a cheer prints High Rolle
 where the bot's box cuts it off and any fade come from the bot's own code. The Twitch logo in
 the footer is a grey box here.
 
-The line above the parts names the layout the preview draws with: *Printer Bot
-3.0.0-beta.7's layout v202610122236*. SassyTP's bot can download a newer layout to the streamer's
-dock by itself, so if their dock shows another **Renderer** version under **Updates**, the
-preview may not match their printer. The exceptions are 3.0.0-beta.6's 202610110524, which prints
-this app's messages exactly as beta.7 does, and Printer Bot 2.5.4's 202610090056, which prints them
-the same with a smaller profile picture.
+The line above the parts names the layout the preview draws with: *Printer Bot 3.0.0's layout
+v202610140456* (Printer Bot 3.0.1 uses 3.0.0's layout). SassyTP's bot can download a newer layout
+to the streamer's dock by itself, so if their dock shows another **Renderer** version under
+**Updates**, the preview may not match their printer. The exceptions are 3.0.0-beta.7's
+202610122236 (and beta.6's 202610110524), which print this app's messages exactly as 3.0.1 does,
+and Printer Bot 2.5.4's 202610090056, which prints them the same with a smaller profile picture.
 
-The app follows the newest beta as SassyTP ships it. Printer Bot 3.0 can also print one cheer on
+If a High Roller message reaches a printer below the streamer's real threshold, or one with
+**Allow High Roller prints** off, Printer Bot 3.0 prints its words small in quote marks, without
+the code (before 3.0 the code itself printed). Set the threshold and that switch in the app as the
+streamer has them, and the app builds the plain form for those cheers itself.
+
+The app follows the newest Printer Bot release, beta or stable, as SassyTP ships it. Printer Bot
+3.0 can also print one cheer on
 several printers, each with its own paper and its own Allow High Roller prints, and print on
 Letter paper through an ordinary printer. The app builds for one receipt printer and doesn't
 model either.

@@ -442,6 +442,24 @@ function internalsGapsRegion(L) {
     return r.length ? r : null;
 }
 
+// Letter's page (3.0.0): pageHeightPx, largeLayoutPx and imageFitOf, from pageHeightPx's paragraph to
+// imageFitOf's end.
+function pageLayoutRegion(L) {
+    const i = fnStart(L, "pageHeightPx"), j = i >= 0 ? fnStart(L, "imageFitOf", i) : -1, e = j >= 0 ? blockEnd(L, j) : -1;
+    return e < 0 ? null : span(L, paragraphStart(L, i), e);
+}
+
+// Several regions as one, a blank line between them; null when none is there.
+function joinRegions(...rs) {
+    const out = [];
+    for (const r of rs) {
+        if (!r) continue;
+        if (out.length) out.push({ no: null, text: "" });
+        out.push(...r);
+    }
+    return out.length ? out : null;
+}
+
 // The page's notes on render(): from "PrinterBot.render(" to the line before "PrinterBot.setTheme(".
 function apiNotesRegion(L) {
     const i = findLine(L, /^\s*\/\/\s*PrinterBot\.render\(/);
@@ -466,6 +484,16 @@ const REGIONS = [
     { id: "present", label: "present()", optional: true, get: (p) => fnRegion(p.lines, "present") },
     { id: "api-notes", label: "render()'s API notes", get: (p) => apiNotesRegion(p.lines) },
     { id: "internals-gaps", label: "internals.shareCuts / gapRooms", optional: true, get: (p) => internalsGapsRegion(p.lines) },
+    // 1.6.0: what the app's Letter printer reads: the large layout's CSS (LETTER_CHROME_PX was measured
+    // on it), the page's options, the pictures giving back height before a page cut, the picture
+    // rectangles its black and white shading reads, and the avatar cache its preview's stand-in uses.
+    { id: "css-letter", label: "CSS .letter-message (Letter's Large message)", optional: true, get: (p) => cssRegion(p, ".letter-message") },
+    { id: "page-layout", label: "pageHeightPx() / largeLayoutPx() / imageFitOf()", optional: true, get: (p) => pageLayoutRegion(p.lines) },
+    { id: "shrinkPictures", label: "shrinkPictures()", optional: true, get: (p) => fnRegion(p.lines, "shrinkPictures") },
+    { id: "photoRects", label: "photoRects()", optional: true, get: (p) => fnRegion(p.lines, "photoRects") },
+    { id: "avatar-cache", label: "loadAvatarCache() and getAvatar()", optional: true,
+      get: (p) => joinRegions(fnRegion(p.lines, "loadAvatarCache"), fnRegion(p.lines, "getAvatar")) },
+    { id: "largerAvatarUrl", label: "largerAvatarUrl()", optional: true, get: (p) => fnRegion(p.lines, "largerAvatarUrl") },
 ];
 
 // identical | changed | new (only upstream has it) | gone (only the vendored copy has it) |

@@ -182,7 +182,9 @@ What the page decides:
   That runs only for the bot's own pictures; the preview repeats it for its stand-in.
 - **The page's own policy** (CSP, line 7) runs only the renderer's script, connects only to
   two avatar lookups and loads pictures only from the emote CDNs, the avatar hosts and (3.0) the
-  three image sites. A `userName` in the event starts an avatar lookup; the app never sends one.
+  three image sites. A `userName` in the event starts an avatar lookup unless the bot's avatar cache
+  already holds that viewer; the app's own event never carries one, and on a Letter page the
+  preview frame adds one only together with a cached entry (1.6.0, "Driven like the bot").
 
 The app mirrors these in `PAPERS` / `paperSpec`, `BASE_PX` / `BASE_LH` / `LEAD_LINE_PX`,
 `CONTENT_CEILING_PX`, `contentLimitPx` (a line-for-line mirror of `highRollerMaxHeight` plus
@@ -407,14 +409,14 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **178 keys**. Regenerate the list instead of trusting this one:
+test harness **180 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`,
 `cheerBits`, `bitsWord`, `PAPERS`, `paperSpec`, `BASE_PX`, `BASE_LH`, `LEAD_LINE_PX`,
 `mmPerPx`, `targetPaper`, `LETTER_CHROME_PX`, `letterBitsOf`, `colourOf`, `letterDither`, `blockLook`,
-`allowsHighRoller`, `CONTENT_CEILING_PX`, `PX_PER_INCH`, `MAX_CAP_INCHES`, `HR_DEFAULT`, `HR_MAX`,
+`allowsHighRoller`, `boxWords`, `tallWords`, `CONTENT_CEILING_PX`, `PX_PER_INCH`, `MAX_CAP_INCHES`, `HR_DEFAULT`, `HR_MAX`,
 `hrThresholdOf`, `bitsPerInchOf`, `maxInchesOf`, `printMode`, `buildMode`, `contentLimitPx`, `bitsRaiseFor`, `partsTally`, `raiseNote`,
 `LEAD_GUARD`, `buildLead`, `leadLength`, `buildTrail`, `trailLength`, `stackContext`,
 `packStackBodies`, `BIG_MIN_PX`, `BIG_MAX_PX`, `BIG_LH_CAPS`, `BIG_LH_TEXT`, `BIG_CAPS_SAFE`,
@@ -487,7 +489,9 @@ a leading `<`) don't apply to plain text, which starts with a Han glyph.
 
 **`stackContext(o)`**: everything a stack is built against, in one object, so the body
 builders, the packer and the card labels read the same numbers: `{mode, paper, paperMm,
-contentW, limit, room, heightPx, budget, trail, cheer, bits, noNonce}`. `room` (= `heightPx`)
+contentW, limit, room, heightPx, budget, trail, cheer, bits, noNonce, imageSites, letter, center,
+colour}` (the last three 1.6.0's: the Letter printer's card or null, its Large message's centring
+and its colour profile; `paper` is the one the cheer's bits reach, `targetPaper`). `room` (= `heightPx`)
 is the box less the lead's 21.6px line; `budget` is 500 less the lead. `o.mode` overrides the
 mode (the probes and the card labels use it). It can be handed to `packStackBodies` as is.
 
@@ -658,7 +662,9 @@ security notes (the resets it drops change nothing that prints).
   prints (`cheerWordNotes(…, free)`). The parts read the same words off each packed part
   (`extraCheers(bodies)`: `sure` words with a global prefix and their bits, every occurrence
   counted; `maybe` the rest): the part says what it really costs, or that a free test isn't
-  free (`extraCheerLines`, red when certain, a grey hedge otherwise), the total adds the bits in
+  free (`extraCheerLines`, red when certain, a grey hedge otherwise; with a Letter printer, also when
+the word's bits carry a part built for the roll onto it, 1.6.0, since Printer Bot picks the printer
+by the bits Twitch sends), the total adds the bits in
   (`partsCostWords`), a free test's notice becomes a red "Not a free test" (`paidTestNotice`),
   and the preview draws the cheer Twitch would send (`partCheer`: a free test with such a word is
   a real cheer of its bits, through the streamer's threshold; a cheer adds them to its own, so
@@ -919,17 +925,19 @@ The tier picks the form (`GLYPH_FORMS`):
 
 **Plain: Design T (Han tiling).** Below the threshold the bot prints text: 16px, a line every
 21.6px, centred, in quotes, wrapping anywhere. A Han glyph is exactly 1em, so a line holds
-C = floor(contentW / 16) = **15 on 80 mm, 9 on 58 mm** (`hanziCols`). `buildDesignT(grid,
+C = floor(contentW / 16) = **15 on 80 mm, 9 on 58 mm, 23 on a Letter page** (`hanziCols`). `buildDesignT(grid,
 opts)` makes that a grid with no markup at all: `<header of 丶><row 1>…<row R> Cheer<bits>[ NN]`.
 - Every row is exactly C cells (padded with 丶 or cut), so the paper's own wrapping makes the
   rows. Never a space, Latin letter or U+3000 inside the grid.
 - The header puts the opening quote on a line of its own: on 80 mm the quote plus 15 glyphs is
   wider than 244px, so the plain header is 14 cells; on 58 mm the quote plus 9 fits, so it is
-  9. In a High Roller cheer or a free test (no quotes) it is a full C (bench-checked).
+  9; on Letter the quote plus 23 is wider than 372px, so it is 22 (a picture's frame there is
+  `designTPictureCols("letter")` = 21 cells). In a High Roller cheer or a free test (no quotes) it is a full C (bench-checked).
 - The token goes last, after a space. Each part rides **alone** (any text before the grid
   shifts every row) and repeats the header and the token. Rows per cheer =
   min(floor((500 − trail − header) / C), floor(limit / 21.6) − lines for header and token):
-  at most 31 on 80 mm, 53 on 58 mm. The rows are spread evenly over the cheers that takes
+  at most 31 on 80 mm, 53 on 58 mm; on Letter the page's room decides (3 rows in Scaled like
+  80 mm under the profile picture, 13 in Large message). The rows are spread evenly over the cheers that takes
   (ceil(R / parts) each), so no cheer carries a lone row. Height = (header + rows + token
   line) × 21.6. A High Roller box too short for even header + one row + token (a small cheer
   under bits per inch) still gets one row a part, and those bodies carry `tall` so the card
@@ -966,7 +974,8 @@ place, and a typed line that starts with one gets a light cell before it. Each t
 a new row of exactly C cells, its last row filled with 丶, and leading and trailing light rows
 are trimmed. `buildHanTyped(text, opts)` packs those rows with `buildDesignT` and its
 `headerless` option: a High Roller cheer has no quote marks, so no light first row (rows per
-cheer (500 − trail) / C: 32 on 80 mm, up to 480 characters); a plain cheer keeps Design T's
+cheer (500 − trail) / C: 32 on 80 mm, up to 480 characters; on Letter the page's room decides);
+a plain cheer keeps Design T's
 header. `buildDesignT` sizes a cheer by its LONGEST row's characters (`payloadLength`), since a
 cell may be several code points (a variation sequence). Every body carries `typed: {dropped,
 invisible, rows}`; the card says how many rows and cheers (messages in a free test), names what
@@ -994,7 +1003,8 @@ images on (also its default). See the field record for why this is allowed here.
   returns `{url, site}` or `{why}`: `empty`, `https`, `invalid`, `userport`, `page`, `direct`,
   `site`, `long`, or `font` (this channel's filter holds the word in any case, so such a link is
   refused rather than sent). Whether the site is switched on is not its question.
-- `picturePrint(natW, natH, contentW)`: how `img.msg-image` prints on a roll (renderer line 322:
+- `picturePrint(natW, natH, contentW, pxPerInch)`: how `img.msg-image` prints (at the paper's
+  `pxPerInch`, 96 on a roll, 53.3 on Letter, where 4 inches is 213 px; renderer line 322:
   `display: block; max-width: 100%; width/height: auto; margin: 0.4em auto`, and a max-height of
   4 inches, 384px): never enlarged, scaled down to the message width, then to 4 inches tall,
   its shape kept. `heightPx` adds both margins (12.8px); `tooBig` past the bot's 32 Mi pixels
@@ -1013,8 +1023,10 @@ images on (also its default). See the field record for why this is allowed here.
   Roller cheer as an ordinary one).
 
 **Probes.** The app cannot see the streamer's threshold, so two one-cheer tests answer it on
-paper. Each returns `{bits, mode, bodies, note}` and goes through the normal packer as a
-one-part stack.
+paper. Each returns `{bits, mode, bodies, note, paperMm}` and goes through the normal packer as a
+one-part stack. Each is built for the paper its bits reach (1.6.0: `letterBits`, `letterLayout`
+among its inputs): on Letter, MMMMM fills 372px, the box is what the page leaves, the big shapes
+centre themselves in Large message, and the note says "which prints on the Letter printer".
 - `buildHighRollerProbe`: exactly the threshold. BIG at 60px, MMMMM sized to the width rule
   (does the right edge survive?), "jog" at LH 1.15 (descenders), BIG upside down, and UP in
   `sideways-lr` (does the streamer's Edge draw it?), about 250px in all. It is built against
@@ -1024,11 +1036,14 @@ one-part stack.
   note asks only about the ones kept and names the ones left out (`left`). It returns `works`:
   false with High Roller off, or when not even BIG fits (the note says the test can't show
   anything at these settings: "the Cheer line fills it" when it does, else how many mm are left
-  after the Cheer line, too short for BIG's 13 mm), and the glue then offers no Copy.
-- `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off, or the
+  after the Cheer line, too short for BIG's 13 mm), and the glue then offers no Copy. On Letter
+  in Scaled like 80 mm the page leaves 103.6px after the Cheer line, so BIG and the upside-down
+  BIG are kept and MMMMM, jog and UP left out (UP misses by a pixel); Large message keeps all five.
+- `buildPlainProbe`: one bit under the threshold (1 bit when High Roller is off, or the roll
   printer has Allow High Roller prints off): a Design T
   grid with HI in block letters and a row of the ramp's tones. When the threshold is 1, every
-  cheer is High Roller and it says there is no plain test.
+  cheer is High Roller and it says there is no plain test. On a Letter page with fewer rows than
+  HI needs (Scaled like 80 mm: 3) it sends the row of tones alone, so it stays one cheer, and says so.
 
 **Migration (saved work from before 1.0.0).** `migrateBlocks(blocks)` is pure, idempotent and
 decided by shape, not a version stamp; it never mutates its input and never drops the user's
@@ -1075,9 +1090,12 @@ to, by}` when `contentLimitPx` at the threshold leaves no room after the Cheer l
 always gets the full 1600px box and a High Roller one gets the streamer's bits-per-inch or
 maximum-length box, so a raise there would print nothing); `"ask"` past `RAISE_MAX_FACTOR` (4)
 times the amount, over `RAISE_MAX_BITS` (500), or with `noAuto`; else `"raise"`, to exactly the
-threshold. `partsTally(items)` is `{cheers, bits}` for the copyable parts (a cheer word in the
-text added the way `partsCostWords` adds it), and `raiseNote(r, what, was, now)` is the card's
-sentence.
+threshold. It is judged at the threshold's own printer and box (1.6.0): a roll printer with Allow
+High Roller prints off gives `null`, but a threshold the Letter printer takes is a raise, and one
+that moves the cheer onto the Letter printer carries `letter: true`, which the note says ("At N
+bits it prints on the Letter printer"). `partsTally(items)` is `{cheers, bits}` for the copyable
+parts (a cheer word in the text added the way `partsCostWords` adds it), and
+`raiseNote(r, what, was, now)` is the card's sentence.
 
 **App state, read through sanitizers.** Settings and block fields arrive from storage, presets,
 imported JSON and form controls (as strings), so everything reads them through these:
@@ -1518,7 +1536,10 @@ in Letter cm, how much shorter the header is without one, `avatarExtraPx("letter
 cm in Scaled like 80 mm and 2.3 cm in Large message, room a long message can use); a
 `trimmed` cut (bits or cap, or on Letter `page`, said as the end of the page and never blamed on
 the fonts) with its lengths; a hard cut by the 1600px box (measured in the
-frame with the box's limit lifted, because `render()` reports only the streamer's limits);
+frame with the box's limit lifted, because `render()` reports only the streamer's limits; in
+Letter's Large message the box grows to fill the page, so `render()` reports a cut under any
+length limit shorter than the page's free space even when the fade falls below the message: there
+a cut is the message's own, `measure.partsPx` over the box, and its whole length is `partsPx`);
 "this app expected it to fit" when the app had not warned; any `security` notes (the bot's
 sanitizer would remove something: should never happen for our payloads, please report it);
 page-policy violations; and, under an `up` sideways part, that this browser can't draw
@@ -1565,7 +1586,10 @@ in colour as drawn, no dots (`data-profile` on the canvas says which).
    it, `show()`, `MAX_RECEIPT_HEIGHT`, the larger picture's gap trimming (`OLD_AVATAR_PX` to the end
    of `tightenGaps`, which the preview's stand-in repeats), the lines of `internals` that export
    `shareCuts` and `gapRooms` (which the stand-in calls), the `TwitchCheer` handler, `present()`
-   and render()'s API notes. Each region is identical or changed (a changed one with a unified diff;
+   and render()'s API notes, and (1.6.0) what the Letter printer reads: the `.letter-message` CSS
+   (`LETTER_CHROME_PX` was measured on it), `pageHeightPx` to `imageFitOf`, `shrinkPictures`,
+   `photoRects` (the print view's shading), and `loadAvatarCache`, `getAvatar` and
+   `largerAvatarUrl` (the Letter preview's stand-in). Each region is identical or changed (a changed one with a unified diff;
    a reworded comment counts). Exit 0: nothing new; 10: a new renderer, every region identical;
    20: a region changed (or appeared, or lost its markers). It keeps what it saw in
    `.render/upstream/last.json` and says what changed since the previous run. A renderer built
@@ -1750,7 +1774,9 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   picture card). Two fire without a dedicated click: typing a picture link and dragging an
   adjustment slider. The preview and the Thermal preview fetch nothing. The vendored renderer
   contains a `fetch` of its own (the avatar lookup): it is inert text in the page and runs only
-  inside the no-network frame, and only with a `userName`, which the preview never sends.
+  inside the no-network frame, and only for a `userName` the bot's avatar cache doesn't hold: the
+  preview's own event never carries one, and on a Letter page the frame adds one together with a
+  cached entry, so no lookup starts (were one to start, the frame's policy would block it).
   The expiry check loads links with `new Image()` on purpose: turning it into a `fetch` would
   add a fifth call site and a CORS problem. The Real picture card's picture is an `<img>` too,
   loaded only while the card is a Real picture: a pasted link through `/px`, our own minted
@@ -1804,7 +1830,9 @@ lives in `test-browser/` and is not in the default matcher.
   Roller prints off at 100 bits (read by the vendored 3.0 page itself), and (1.6.0) on a Letter
   printer in Scaled like 80 mm, in Large message in colour (every block coloured, centred where
   it should be) and plain at 23 cells a row, plus both probes on Letter in both layouts (in Large
-  message the parts' own height, `partsPx`, is compared, since the box fills the page), goes through the app's own vendored
+  message the parts' own height, `partsPx`, is compared, since the box fills the page, and a cut
+  there is `partsPx` over the box; one config puts Large message under a bits-per-inch length),
+  goes through the app's own vendored
   `PrinterBot.render` in the frame. It asserts: `ok`; no `security` notes; the renderer agrees
   on raw vs plain; cut only where the app warned; for raw parts the sanitised DOM keeps every
   tag, every attribute and every style declaration the app sent, compared after CSSOM

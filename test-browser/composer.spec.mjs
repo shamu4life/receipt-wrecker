@@ -854,6 +854,9 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, bits: 600, letterBits: 500 },
     { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", coloured: true },
     { ...SETTINGS, bits: 600, letterBits: 500, hrThreshold: 1000, letterLayout: "message" },
+    // Large message under a length limit (3 inches): the bot's box fills the page, so it reports a
+    // cut even where the fade falls below the message; only the message's own height counts.
+    { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", bitsPerInch: 200 },
   ];
   const heights = [];
   let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0;
@@ -879,7 +882,8 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     // Cut only where the app itself said it would be. (Not for a face this browser can't draw: it
     // draws another font there, whose lines run longer, wrap and spill; only the markup is held.)
     if (want.markupOnly) return;
-    const cut = !!r.trimmed || last.measure.fullPx > last.measure.contentPx + 1;
+    const cut = last.options.layout === "message" ? last.measure.partsPx > last.measure.contentPx + 1
+      : !!r.trimmed || last.measure.fullPx > last.measure.contentPx + 1;
     if (cut) { trimmedSeen++; assert.ok(want.warned, label + ": the bot cuts a part the app expected to fit: " + JSON.stringify(r.trimmed)); }
     assert.ok(!/expected it to fit/.test(verdict), label + ": " + verdict);
     // As tall as the core predicted. (In Letter's Large message the box grows to fill the page,
@@ -3761,6 +3765,32 @@ test("1.6.0: the Letter printer prints High Roller whatever the roll printer's s
   await settled(page);
   assert.match(await copyPayload(page), /^Cheer500 <div style="\\66ont:700 \d+px/);
   assert.match(await page.locator("#parts .part .part-info").first().textContent(), /High Roller · Letter page/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.6.0 review: Letter's lengths in the parts' notes, a cheer word that carries a part to the Letter printer, and Glyph-art's columns on Letter", async () => {
+  // One letter at 400 px is taller than what the Letter page leaves (Scaled like 80 mm): said in Letter cm.
+  let { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "I", bigLayout: "lines", bigSize: 400 })], controls: LETTER });
+  await settled(page);
+  assert.match(await page.textContent("#partsCut"), /This part is taller than what the Letter page leaves the message \(about 6\.0 cm\), where the bot fades it out, so the bot cuts it\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // 450 bits and a Cheer50 in the text: Twitch sends 500, which the Letter printer takes.
+  ({ page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HAPPY Cheer50 DAY", bigLayout: "lines" })], controls: { ...SETTINGS, bits: 450, letterBits: 500 } }));
+  await settled(page);
+  assert.match(await page.locator("#parts .part").first().textContent(), /Twitch sends a 500-bit cheer, which the streamer's Letter printer takes: this part was built for the roll\./);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+  // Braille at 40 columns on a 58 mm roll is 29 at most, on a Letter page 40: the field shows the paper's.
+  const braille = { id: 1, type: "image", imgKind: "glyph", url: "PIC", tier: "braille", cols: 40, dither: true, contrast: 128, invert: false, rotate: 0 };
+  ({ page, ctx, errors } = await freshPage({ blocks: withPic([braille]), controls: { ...LETTER, paperMm: 58 } }));
+  await settled(page);
+  assert.equal(await cards(page).first().locator("input.num-cols").inputValue(), "40");
+  await commit(page, "#bitsAmount", "100");
+  await settled(page);
+  assert.equal(await cards(page).first().locator("input.num-cols").inputValue(), "29");
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].cols, 40, "showing the roll's clamp rewrote the block");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

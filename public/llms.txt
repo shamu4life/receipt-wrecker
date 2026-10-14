@@ -68,7 +68,7 @@ threshold's cheer reaches the Letter printer, which the block then says.
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
   grid, ASCII letters or block characters in Courier New rows, or Braille.
 - Han text as typed (plain text, any cheer): the Han characters the user types or pastes,
-  printed as themselves in rows of exactly 15 (9 on 58 mm), at any cheer size, up to about 480 a
+  printed as themselves in rows of exactly 15 (9 on 58 mm, 23 on a Letter page), at any cheer size, up to about 480 a
   cheer with the streamer's length settings at 0. Only Han characters go in, the only ones a full cell
   wide in every CJK font: kana, Hangul, CJK punctuation, Latin letters and the rest are left out
   and named, since they would push the rows out of line.
@@ -76,7 +76,7 @@ threshold's cheer reaches the Letter printer, which the block then says.
   before a closing mark or after an opening one; Latin words never break, full-width ones
   included.
 - Han tiling (plain): words or a picture drawn out of Han characters as plain text, exactly
-  15 characters per line on 80 mm paper (9 on 58 mm), with the cheer word at the end. Below
+  15 characters per line on 80 mm paper (9 on 58 mm, 23 on a Letter page), with the cheer word at the end. Below
   the High Roller threshold, Big text and Sideways text print in this form automatically, and a
   glyph-art picture as a plain grid of Han characters.
 - Colour (since 1.6.0, a Letter printer in its colour profile only): a text colour and a

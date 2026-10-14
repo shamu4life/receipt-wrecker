@@ -113,7 +113,7 @@ starts at, and the Letter printer's card as it is in the dock:
   **background colour**, and Glyph-art's characters a colour (the pickers are on their cards).
 
 A cheer of that many bits or more is built for the Letter page: 7.5 inches wide (Big text up to
-about one and a half times larger than on 80 mm, Han tiling 23 characters a row), one page a
+about 2.7 times as large on paper as on 80 mm, Han tiling 23 characters a row), one page a
 cheer, with the streamer's bits per inch and maximum length measured in inches of the page. A
 message too tall for the page goes into more cheers, as on the roll. The cards' sizes and the
 parts say which paper a cheer prints on, and the preview draws the Letter page. Colours go out

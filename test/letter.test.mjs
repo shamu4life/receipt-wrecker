@@ -263,3 +263,49 @@ test("blockLook: a block is centred in Large message and keeps its colours only 
   eq(C.blockLook({ color: "red", bg: "url(x)" }, ctx({ letterProfile: "color" })), { center: false, color: "", bg: "" });
   eq(C.blockLook(null, null), { center: false, color: "", bg: "" });
 });
+
+test("review: the box in words at the paper's own scale, wherever it is said (the cards' and the parts' notes)", () => {
+  const page = C.contentLimitPx({ bits: 600, letterBits: 500 });
+  assert.match(C.boxWords(page, "letter"), /^what the Letter page leaves the message \(about 6\.0 cm\), where the bot fades it out$/);
+  // 600 bits at 600 bits per inch: 1 inch, 53 px on Letter: 2.5 cm (on a roll's scale it read 1.4 cm).
+  const inch = C.contentLimitPx({ bits: 600, letterBits: 500, bitsPerInch: 600 });
+  assert.match(C.boxWords(inch, "letter"), /about 2\.5 cm, from the streamer’s bits-per-inch setting/);
+  assert.match(C.tallWords("", page, 0, "letter"), /is taller than what the Letter page leaves the message \(about 6\.0 cm\)/);
+  // The roll is as before, with or without its paper named.
+  const roll = C.contentLimitPx({ bits: 100, bitsPerInch: 100 });
+  assert.equal(C.boxWords(roll, 80), C.boxWords(roll));
+  assert.match(C.boxWords(roll), /about 2\.5 cm/);
+});
+
+test("review: in Large message the bot's box fills the page, so a cut it reports is real only when the message itself is taller than the box", () => {
+  const v = (partsPx) => C.previewVerdict({ result: { ok: true, height: 533, standIn: true, security: [],
+                                                       trimmed: { limitIn: 3, fullIn: 6.43, by: "bits" } },
+                                             measure: { contentPx: 160, fullPx: 343, partsPx } },
+                                           { paperMm: "letter", letterLayout: "message", bits: 600 }).map((x) => x.text).join(" | ");
+  // The message (100 px) sits above the fade at the box's end: nothing of it is cut.
+  assert.doesNotMatch(v(100), /cuts this message/);
+  // Taller than the box: cut, and the whole message is the message's own length, not the page's free space.
+  assert.match(v(200), /The bot cuts this message at 7\.6 cm, all that 600 bits buy at the streamer's bits-per-inch setting\. The whole message is 9\.5 cm, so its end fades out\./);
+  // Scaled like 80 mm and the roll are as before: the bot's own report.
+  const s = C.previewVerdict({ result: { ok: true, height: 533, standIn: true, security: [], trimmed: { limitIn: 3, fullIn: 4, by: "bits" } },
+                               measure: { contentPx: 160, fullPx: 213, partsPx: 213 } }, { paperMm: "letter", letterLayout: "scaled", bits: 600, warned: true });
+  assert.match(s.map((x) => x.text).join(" | "), /The whole message is 10\.2 cm/);
+});
+
+test("review: a cheer word that carries a part's bits to the Letter printer says so under the part", () => {
+  const ex = { sure: ["Cheer50"], maybe: [], bits: 50 };
+  const lines = C.extraCheerLines({ cheer: true, bits: 450, extra: ex, letterBits: 500, paperMm: 80 }).map((x) => x.text);
+  assert.ok(lines.some((t) => /Twitch sends a 500-bit cheer, which the streamer's Letter printer takes: this part was built for the roll/.test(t)), lines.join(" | "));
+  // Already on Letter, or no Letter printer: nothing more to say.
+  for (const o of [{ bits: 600, paperMm: "letter" }, { bits: 450, letterBits: 0, paperMm: 80 }]) {
+    assert.ok(!C.extraCheerLines({ cheer: true, extra: ex, letterBits: 500, ...o }).some((x) => /Letter printer takes/.test(x.text)));
+  }
+});
+
+test("review: with a Letter printer, the notices name the roll printer as the one whose Allow High Roller prints is off", () => {
+  const o = { cheer: true, bits: 100, hrThreshold: 25, allowHighRoller: false };
+  assert.match(C.modeNotice({ ...o, letterBits: 500 }), /^The streamer's roll printer has Allow High Roller prints off/);
+  assert.match(C.modeNotice(o), /^The streamer's printer has Allow High Roller prints off/);
+  assert.match(C.modeNotice({ ...o, cheer: false, letterBits: 500 }), /The streamer's roll printer has Allow High Roller prints off, so a real cheer prints/);
+  assert.match(C.buildHighRollerProbe({ hrThreshold: 25, letterBits: 500, allowHighRoller: false }).note, /^The streamer's roll printer has Allow High Roller prints off/);
+});

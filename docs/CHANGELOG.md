@@ -23,8 +23,8 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   80 mm, or Large message), its image fit (Large message only) and its print profile (black and
   white, or colour). They are fields of the existing settings key, and wait, disabled, until the
   bits are set.
-- **A cheer of the Letter printer's bits is built for its page**: 372 CSS px of width (Big text up
-  to about one and a half times larger than on 80 mm, Han tiling 23 cells a row), 53.3 px to the
+- **A cheer of the Letter printer's bits is built for its page**: 372 CSS px of width, 17.7 cm on
+  paper against 80 mm's 6.5 cm (Big text up to about 2.7 times as large; Han tiling 23 cells a row), 53.3 px to the
   inch for the streamer's bits per inch and maximum length, and one page a cheer. The page leaves
   a message about 6 cm in Scaled like 80 mm, under the large profile picture, and about 16 cm in
   Large message; a message too tall for it goes into more cheers, as on a roll. Sizes in cm, the
@@ -54,10 +54,12 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ### How sure
 
-- **Tests**: 277 unit tests (19 new) and 93 browser tests (5 new). The contract test now also runs
+- **Tests**: 281 unit tests (23 new) and 94 browser tests (6 new). The contract test now also runs
   every mode through the vendored page on Letter: Scaled like 80 mm, Large message in colour (the
-  colours and the centring kept by the bot's sanitizer), a plain cheer of 23-cell rows, and both
-  test cheers. The page's header and footer were measured on the bot's own page, with its profile
+  colours and the centring kept by the bot's sanitizer), Large message under a bits-per-inch
+  length, a plain cheer of 23-cell rows, and both test cheers. The tag test scans Letter's grids
+  and test cheers too, and `tools/upstream-watch.mjs` now compares the parts of the bot's page the
+  Letter model reads. The page's header and footer were measured on the bot's own page, with its profile
   picture and without.
 - **Not printed yet.** Nothing has been printed on a Letter printer. Whether this channel's chat
   filter lets `color` through is the free chat test's to find out.

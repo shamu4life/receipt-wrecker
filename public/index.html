@@ -229,7 +229,7 @@
         <div class="hint field-note" id="maxInchesNote" role="status" hidden></div>
         <div class="hint">How long a High Roller message may print. With both at 0 (the default) it gets the bot's longest message, about 42 cm. Bits per inch gives a cheer one inch of tape per that many bits; a maximum length caps it (up to 40 inches). The bot fades out whatever runs past either limit, and this app splits a tall stack into more cheers so nothing is cut.</div>
         <label><input type="checkbox" id="allowHighRoller" checked> The streamer's printer allows High Roller prints (Printer Bot 3.0)</label>
-        <div class="hint">Printer Bot 3.0 has this switch for each printer, on by default. When it is off, that printer prints every cheer as plain text, however many bits, so every block here prints in its plain form. Printer Bot 2.5 has no such switch: leave it on.</div>
+        <div class="hint">Printer Bot 3.0 has this switch for each printer, on by default. When it is off, that printer prints every cheer as plain text, however many bits, so every block here prints in its plain form. Printer Bot 2.5 has no such switch: leave it on. With a Letter printer (below), this is the roll printer's switch; the app takes the Letter printer's as on.</div>
         <div class="pic-sites" role="group" aria-labelledby="imageSitesLabel">
           <div id="imageSitesLabel">Pictures from links (Printer Bot 3.0):</div>
           <label><input type="checkbox" class="image-site" id="imageSite-imgur" value="imgur"> Imgur</label>
@@ -477,6 +477,8 @@
   }
   // Whether the printer a cheer of these bits reaches prints High Roller cheers at all (1.6.0).
   function allowsHighRoller(o) { return targetPaper(o) === "letter" || !o || o.allowHighRoller !== false; }
+  // Whose switch it is, in words: the roll printer's, when the streamer has a Letter printer too.
+  function hrPrinterWords(o) { return "The streamer's " + (letterBitsOf(o && o.letterBits) > 0 ? "roll printer" : "printer"); }
   // Which form the app BUILDS a stack in. A cheer builds what the bot will print
   // (printMode). Cheer-ready off is a free chat test (it never reaches the printer, but it
   // does go through the channel's chat filter), and it builds the High Roller form after
@@ -2302,13 +2304,15 @@
   // The message box, in words, for a "taller than the box" warning. limit = contentLimitPx().
   // A length in px as words: one decimal of a cm, like the part's verdict beside it ("2.5 cm",
   // where this said "3 cm"), or whole mm under a centimetre.
-  function lenWords(px) {
-    var mm = px * curMm;
+  // `paperMm` (1.6.0): the paper the length is on, for a caller outside a block's withFace (the
+  // cards' and the parts' notes); else the current block's scale (curMm).
+  function lenWords(px, paperMm) {
+    var mm = px * (paperMm != null ? mmPerPx(paperMm) : curMm);
     return mm < 10 ? Math.max(1, Math.round(mm)) + " mm" : (Math.round(mm) / 10).toFixed(1) + " cm";
   }
-  function boxWords(limit) {
+  function boxWords(limit, paperMm) {
     var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
-    var cm = lenWords(l.px);
+    var cm = lenWords(l.px, paperMm);
     if (l.by === "bits") return "this cheer’s part of the receipt (about " + cm + ", from the streamer’s bits-per-inch setting), where the bot fades it out";
     if (l.by === "cap") return "the streamer’s maximum length (about " + cm + "), where the bot fades it out";
     if (l.by === "page") return "what the Letter page leaves the message (about " + cm + "), where the bot fades it out";
@@ -2321,19 +2325,19 @@
   // the SMALLEST size. When even that is taller than the room after the Cheer line, no size
   // prints whole, so "Pick a smaller size" was wrong advice, given even at 20px: only more room
   // helps (polish review 3; the Glyph-art and Han tiling notes already said so).
-  function tallWords(what, limit, minPx) {
+  function tallWords(what, limit, minPx, paperMm) {
     if (boxNoRoom(limit)) return "Nothing after the Cheer line prints: that line fills this cheer’s whole part of the receipt. See the note above the parts.";
     var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
     if (minPx > l.px - LEAD_LINE_PX + PX_EPS && l.by !== "ceiling") {
       return "Even the smallest letters are too tall for what is left after the Cheer line ("
-        + (l.by === "cap" ? "the streamer’s maximum length is about " + lenWords(l.px)
-           : l.by === "page" ? "the Letter page leaves the message about " + lenWords(l.px)
-           : "this cheer gets about " + lenWords(l.px) + " of receipt from the streamer’s bits-per-inch setting")
+        + (l.by === "cap" ? "the streamer’s maximum length is about " + lenWords(l.px, paperMm)
+           : l.by === "page" ? "the Letter page leaves the message about " + lenWords(l.px, paperMm)
+           : "this cheer gets about " + lenWords(l.px, paperMm) + " of receipt from the streamer’s bits-per-inch setting")
         + "), so the bot cuts them off at any size. "
         + (l.by === "cap" ? "Only a longer maximum length would let them print whole."
            : l.by === "page" ? "Only the Large message layout leaves more of the page." : "Set Bits per cheer higher for more room.");
     }
-    return what + " is taller than " + boxWords(limit) + ". Pick a smaller size.";
+    return what + " is taller than " + boxWords(limit, paperMm) + ". Pick a smaller size.";
   }
   // What a block costs, for a card's summary line: "fits 1 cheer", or "needs 3 cheers (300
   // bits); ..." In a free test (Cheer-ready off) nothing is spent and nothing prints, so it
@@ -2999,13 +3003,14 @@
   // Below the streamer's High Roller threshold the bot prints the message as text: 16px,
   // line-height 1.35 (a row every 21.6px), centred, inside quote marks, wrapping anywhere.
   // A Han glyph is exactly 1em, so a line holds C = floor(contentW / 16) of them: 15 on
-  // 80 mm, 9 on 58 mm. Design T makes that a grid with no markup at all:
+  // 80 mm, 9 on 58 mm, 23 on a Letter page (1.6.0). Design T makes that a grid with no markup at all:
   //   <header of light cells><row 1>...<row R> Cheer<bits>[ <repeat digits>]
   //   - every row exactly C cells, so the paper's own wrapping makes the rows;
   //   - the header puts the opening quote on a line of its own: on 80 mm quote + 15 glyphs
   //     is wider than 244px, so the header is 14 cells (and line 1 is the quote and 14); on
-  //     58 mm quote + 9 fits, so it is a full 9. Cheer-ready off, or a plain grid in a High
-  //     Roller cheer (no quotes there), it is a full C;
+  //     58 mm quote + 9 fits, so it is a full 9; on Letter quote + 23 is wider than 372px, so
+  //     it is 22. Cheer-ready off, or a plain grid in a High Roller cheer (no quotes there), it
+  //     is a full C;
   //   - the cheer token goes LAST, after a space, so the closing quote rides on the token's
   //     own line (a closing quote cannot start a line; it would drag the last cell down).
   // Never a space, Latin letter or U+3000 inside the grid, and the light cell is 丶. A plain
@@ -3032,8 +3037,8 @@
   function designTPictureCols(paperMm) { return hanziCols(paperSpec(paperMm).contentW) - 2; }
   // grid: rows of exactly C cells (a row of another length is padded with light cells or cut,
   // so it cannot shear the rows after it). opts = {mode ("plain" | "raw"), paperMm, cheer,
-  // bits, noNonce, limitPx (the message box: 1600 for a plain part; a High Roller part may
-  // have the streamer's bits-per-inch limit)}.
+  // bits, noNonce, limitPx (the message box: 1600 for a plain part on a roll, what the page
+  // leaves on Letter; a High Roller part may have the streamer's bits-per-inch limit)}.
   function buildDesignT(grid, opts) {
     opts = opts || {};
     var p = paperSpec(opts.paperMm), C = hanziCols(p.contentW), mode = opts.mode === "raw" ? "raw" : "plain";
@@ -3207,7 +3212,7 @@
     var list = function (xs) { return xs.length < 2 ? xs.join("") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1]; };
     var note;
     if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
-    else if (!hrOn) note = "The streamer's printer has Allow High Roller prints off, so this prints as plain text, tags and all. "
+    else if (!hrOn) note = hrPrinterWords(o) + " has Allow High Roller prints off, so this prints as plain text, tags and all. "
       + "It is a Printer Bot 3.0 setting, on by default, for each printer: ask the streamer to turn it on for the printer that prints cheers.";
     // Not working because the box is too short: either the Cheer line fills it (nothing after it
     // prints at all), or a little is left after it, too little for BIG, the smallest shape. That
@@ -3366,7 +3371,7 @@
         + "before you spend bits."
         + (ft <= 0 ? " The streamer's High Roller is off (threshold 0), so a real cheer prints" + instead + ": "
                      + "this tests the High Roller form, which needs the streamer to set a threshold."
-         : !allowsHighRoller(o) ? " The streamer's printer has Allow High Roller prints off, so a real cheer prints" + instead
+         : !allowsHighRoller(o) ? " " + hrPrinterWords(o) + " has Allow High Roller prints off, so a real cheer prints" + instead
                      + ": this tests the High Roller form, which needs that setting on."
          : fb < ft ? " Your " + fb + "-bit cheer will print" + instead + ": this tests the High Roller form, "
                      + "which needs " + bitsWord(ft) + " or more."
@@ -3396,7 +3401,7 @@
     }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
     if (t > 0 && !allowsHighRoller(o)) {
-      return "The streamer's printer has Allow High Roller prints off (a Printer Bot 3.0 setting), so the bot prints every cheer as plain text. "
+      return hrPrinterWords(o) + " has Allow High Roller prints off (a Printer Bot 3.0 setting), so the bot prints every cheer as plain text. "
         + PLAIN_FORMS + "Big text, sideways text and glyph-art in the characters you picked need that setting on.";
     }
     return (t > 0
@@ -3617,8 +3622,9 @@
   function cheerNames(words) {
     return words.slice(0, 2).map(quoteCut).join(" and ") + (words.length > 2 ? " and " + (words.length - 2) + " more" : "");
   }
-  // The lines under one part. o = {cheer, bits, extra (extraCheers)}. Returns [{text, warn}]:
-  // warn for a certain charge (a global prefix), a plain hedge for any other cheer-shaped word.
+  // The lines under one part. o = {cheer, bits, extra (extraCheers), letterBits, paperMm (the paper
+  // the part was built for)}. Returns [{text, warn}]: warn for a certain charge (a global prefix),
+  // a plain hedge for any other cheer-shaped word.
   function extraCheerLines(o) {
     o = o || {};
     var ex = o.extra || {}, sure = ex.sure || [], maybe = ex.maybe || [], out = [], b = cheerBits(o.bits);
@@ -3628,6 +3634,13 @@
         + " in it as another cheer. Take " + it + " out to spend " + b + " (the block's card says how)."
       : "Not free: Twitch reads " + cheerNames(sure) + " in it as a cheer, so sending it spends " + bitsWord(ex.bits || 0)
         + " and the bot prints it. Take " + it + " out for a free test (the block's card says how)." });
+    // Printer Bot picks the printer by the bits Twitch sends (1.6.0): the word's can carry a part
+    // built for the roll onto the Letter printer.
+    var sent = (o.cheer ? b : 0) + (ex.bits || 0);
+    if (sure.length && o.paperMm !== "letter" && targetPaper({ bits: sent, letterBits: o.letterBits }) === "letter") {
+      out.push({ warn: true, text: "With " + it + ", Twitch sends a " + sent + "-bit cheer, which the streamer's Letter printer takes: "
+        + "this part was built for the roll." });
+    }
     if (maybe.length) out.push({ warn: false, text: "If " + maybe.slice(0, 2).map(quoteCut).join(" or ")
       + " is a cheer name on this channel, Twitch charges it as " + (o.cheer ? "another cheer too." : "a cheer, and this message prints.") });
     return out;
@@ -3711,16 +3724,18 @@
   // routine (and tools/forkbench.mjs) builds them: a TwitchCheer with the part's bits and its
   // EXACT payload as the message (the literal "Cheer<N>" word included), and the streamer's
   // High Roller settings. No userName, so the renderer never starts an avatar lookup, and the
-  // header's sender is "viewer". The renderer, not this app, then decides High Roller or plain,
+  // header's sender is "viewer" (on a Letter page the frame adds the login itself, for a cached
+  // stand-in picture that is never looked up: previewGlue's pageEvent). The renderer, not this app, then decides High Roller or plain,
   // the length limit and the fade. o: payload, bits, cheer, hrThreshold, bitsPerInch, maxInches.
   // A free test (cheer false) never reaches the printer; it is drawn as the High Roller cheer
   // whose markup it tests (threshold 1), and previewVerdict says so.
   // The options are the ones Printer Bot 3.0's action sends a roll printer (OptionsFor): the
   // streamer's threshold, bits per inch and maximum length, the printer's Allow High Roller
-  // prints, and pxPerInch 96 (a roll; Letter paper is about 53.3 and also sends a pageHeightPx,
-  // which this never does, and its own layout options). The image sites a streamer may switch on
+  // prints, and pxPerInch 96 on a roll (a Letter printer, 1.6.0: 53.3, its pageHeightPx and, in the
+  // Large message layout, its layout and imageFit; see below). The image sites a streamer may switch on
   // (3.0.0-beta.9: a link to a picture on Imgur, Catbox or ImgBB in a High Roller message prints as
-  // that picture) are never sent: the frame loads nothing, and such a link draws as its text.
+  // that picture) go out as OptionsFor sends them (1.5.0, below); the frame still loads nothing:
+  // the app hands it a copy of each picture (previewGlue).
   // The switch goes out as the action sends it (PrintEventBody, PrintEventCore in
   // beta.6: HighRoller = !CouldBeHighRoller || the printer's switch): its own value for a cheer at or above the
   // threshold, true for one that can't be High Roller (below it, or threshold 0), where the page
@@ -3790,7 +3805,14 @@
         : letter ? ", with a header about " + extra + " cm taller if the bot finds the viewer's profile picture."
         : ", plus about " + extra + " cm if the bot finds the viewer's profile picture."), warn: false });
     var cut = "", byPage = false;
-    if (r.trimmed) {
+    // In Letter's Large message the bot's box grows to fill the page (1.6.0), so render() reports a
+    // cut whenever a length limit is shorter than the page's free space, though the fade at the
+    // box's end may fall below the message: there the message's own height (measure.partsPx) says
+    // whether anything of it is cut, and how long it is.
+    var big = letter && letterLayoutOf(o.letterLayout) === "message" && d.measure && isFinite(Number(d.measure.partsPx));
+    var whole = big && Number(d.measure.partsPx) > Number(d.measure.contentPx) + 1 ? Number(d.measure.partsPx) : null;
+    if (r.trimmed && big && whole === null) { /* the fade falls below the message: nothing of it is cut */ }
+    else if (r.trimmed) {
       // In cm like every other length here; the inches only where they echo a streamer setting
       // that is set in inches (the maximum length). "page" (printer-bot 3.0): on Letter paper the
       // bot keeps a High Roller message on its page. A roll has no pages and the preview sends no
@@ -3801,8 +3823,8 @@
         ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, the streamer's maximum length (" + t.limitIn + " in)"
         : byPage ? "The bot cuts this message at " + inCm(t.limitIn) + " cm, at the end of the Letter page it prints on"
         : "The bot cuts this message at " + inCm(t.limitIn) + " cm, all that " + bitsWord(cheerBits(o.bits)) + (cheerBits(o.bits) === 1 ? " buys" : " buy") + " at the streamer's bits-per-inch setting")
-        + ". The whole message is " + inCm(t.fullIn) + " cm, so its end fades out.";
-    } else if (d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
+        + ". The whole message is " + (whole !== null ? cm(whole) : inCm(t.fullIn)) + " cm, so its end fades out.";
+    } else if (!big && d.measure && Number(d.measure.fullPx) > Number(d.measure.contentPx) + 1) {
       cut = "The bot's message box cuts this message off at " + cm(d.measure.contentPx) + " cm, with no fade. The whole message is " + cm(d.measure.fullPx) + " cm.";
     }
     if (cut) out.push({ text: cut + (o.warned || byPage ? "" : " This app expected it to fit: this computer's fonts may differ from the streamer's."), warn: true });
@@ -4280,7 +4302,8 @@
         + "How many bits each cheer spends (1 or more). Each taped part is its own cheer, "
         + "so a run of parts costs bits × parts; the total is under the preview. "
         + (t <= 0 ? "The streamer's High Roller threshold is 0 (off), so every cheer prints as plain text."
-           : !allowsHighRoller(s) ? "The streamer's printer has Allow High Roller prints off (a Printer Bot 3.0 setting), so every cheer prints as plain text."
+           : !allowsHighRoller(s) ? hrPrinterWords(s) + " has Allow High Roller prints off (a Printer Bot 3.0 setting), so every cheer"
+             + (s.letterBits > 0 ? " on the roll" : "") + " prints as plain text."
            : s.bits >= t ? "At " + bitsWord(s.bits) + " the bot prints big, sideways and glyph-art (the streamer's High Roller threshold is " + t + ")."
            : "Below the streamer's High Roller threshold (" + bitsWord(t) + ") the bot prints plain text, so every block prints in its plain form, big and sideways text as Han tiling."
              + (raiseOffered() ? " Changing a Big text or Sideways text setting, or Glyph-art's Characters, Detail or Smooth shading, raises it to "
@@ -5012,7 +5035,7 @@
       if (cutAll) {
         var lim0 = copyable[0].limit, one = copyable.length === 1;
         container.appendChild(mkEl("p", { "class": "parts-note too-long", id: "partsCut" },
-          (one ? "This part is" : "Every part is") + " taller than " + boxWords(lim0) + ", so the bot cuts "
+          (one ? "This part is" : "Every part is") + " taller than " + boxWords(lim0, copyable[0].paperMm) + ", so the bot cuts "
           + (one ? "it" : "every one") + "."
           + (lim0.by === "bits" ? " Set Bits per cheer higher first: the streamer gives 1 inch (2.5 cm) of receipt per "
                + bitsWord(bitsPerInchOf(getSettings().bitsPerInch)) + "."
@@ -5118,7 +5141,7 @@
       if ((item.wide || []).length && !item.noRoom) before.push(mkEl("div", { "class": "over-note" }, wideLine(item.wide)));
       // A word in the text Twitch charges as a cheer: the part's real cost, or why a free test
       // isn't free (extraCheerLines).
-      extraCheerLines(item).forEach(function (l) {
+      extraCheerLines({ cheer: item.cheer, bits: item.bits, extra: item.extra, letterBits: getSettings().letterBits, paperMm: item.paperMm }).forEach(function (l) {
         before.push(mkEl("div", { "class": l.warn ? "over-note" : "parts-note part-note" }, l.text));
       });
       // The preview: a part with something to print is drawn by the bot's renderer; anything
@@ -5908,7 +5931,7 @@
                 ? "prints only part of its first row, fading out: the streamer's settings leave no room for the rest (see the note above the parts)"
                 : countOf(where.inParts.length || ts.length)));
             if (!noRoom && ts.some(function (b) { return b.tall; })) {
-              lines.push("Even one row a part (with the Cheer line) is taller than " + boxWords(ctx.limit) + ", so the bot cuts every part."
+              lines.push("Even one row a part (with the Cheer line) is taller than " + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts every part."
                 + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
             }
           } else if (/\S/.test(bigClean(text).text)) {
@@ -5940,7 +5963,7 @@
             }
             if (!noRoom && hs.some(function (b) { return b.tall; })) {
               lines.push("Even one row a part (with its light first row and the Cheer line, 3 lines) is taller than "
-                + boxWords(ctx.limit) + ", so the bot cuts every part."
+                + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts every part."
                 + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
             }
           } else if (!/\S/.test(bigClean(text).text)) {
@@ -5949,10 +5972,11 @@
           if (plainNow && r !== "hanzi") {
             // Under a bits-per-inch setting a bigger cheer buys a taller box, so the sizes worked
             // out for a threshold cheer are not the sizes of every bigger one (review of the fixes).
-            var orMore = contentLimitPx({ bits: t0, bitsPerInch: so0.bitsPerInch, maxInches: so0.maxInches }).by === "bits"
+            var orMore = contentLimitPx({ bits: t0, bitsPerInch: so0.bitsPerInch, maxInches: so0.maxInches, letterBits: so0.letterBits,
+                                          letterLayout: so0.letterLayout, paperMm: so0.paperMm }).by === "bits"
               ? " (more bits buy more receipt, so a bigger cheer can print bigger)." : " or more.";
             fine.push(t0 > 0 && !allowsHighRoller(so0)
-              ? "The streamer's printer has Allow High Roller prints off, so this block prints as Han tiling (plain text). "
+              ? hrPrinterWords(so0) + " has Allow High Roller prints off, so this block prints as Han tiling (plain text). "
                 + "The sizes above are what it prints with that setting on" + (below0 ? ", at " + bitsWord(t0) + orMore : ".")
               : t0 > 0
               ? "This cheer is below the streamer's High Roller threshold (" + bitsWord(t0) + "), so this block prints as "
@@ -6254,7 +6278,7 @@
       // 8 to 48 otherwise, fewer for Braille on 58 mm), never a raw value the grid clamps: a block
       // saved before 1.0.0 with 40 columns of Han characters prints 30, and said 40. Not while
       // it is being typed in; committing a value (change) writes the clamped one back.
-      var effCols = function () { return glyphCols(glyphForm(glyphOpts(block).tier), block.cols, getSettings().paperMm); };
+      var effCols = function () { return glyphCols(glyphForm(glyphOpts(block).tier), block.cols, stackContext(stackOpts()).paperMm); };
       var showCols = function (force) {
         if (!force && document.activeElement === gcols) return;
         var v = String(effCols());
@@ -6337,17 +6361,17 @@
           // be read or has expired): it sat under the red "prints nothing" saying the picture
           // prints (final review 1). Information, so quiet.
           var hrOff = t > 0 && !allowsHighRoller(so);
-          fine.push((hrOff ? "The streamer's printer has Allow High Roller prints off, so "
+          fine.push((hrOff ? hrPrinterWords(so) + " has Allow High Roller prints off, so "
                      : t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
             + (!gs.length ? "once this block has a picture it prints" : t > 0 ? "the picture prints" : "every picture prints")
             + " as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row, whatever Characters and Detail (columns) say above."
             + (t > 0 && raiseOffered() ? " Changing Characters, Detail or Smooth shading raises Bits per cheer to " + bitsWord(t) + ", or offers to." : ""));
         } else if (noRoom) {
-          lines.push(tallWords("", ctx.limit));
+          lines.push(tallWords("", ctx.limit, 0, ctx.paperMm));
         } else if (gs.some(function (b) { return b.tall; })) {
           // A box with room, but less than one row: every part is cut, so say what makes rows
           // shorter (more columns: smaller characters) or the box taller.
-          lines.push("One row is taller than " + boxWords(ctx.limit) + ", so the bot cuts every part. Raise Detail (columns), "
+          lines.push("One row is taller than " + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts every part. Raise Detail (columns), "
             + "which makes the rows shorter" + (ctx.limit.by === "bits" ? ", or set Bits per cheer higher for more room." : "."));
         }
         var pl = partLines(where, parts, noRoom);
@@ -6400,9 +6424,9 @@
               + fitName[ctx.letter.fit] + ") sets it · " + count
             : "Prints as the picture, about " + Math.round(pic.picture.w * pmm) + " × " + Math.round(pic.picture.h * pmm)
               + " mm" + (pic.picture.shrinks ? ", smaller (down to 0.75 inch tall) when the Letter page has less room" : "") + " · " + count);
-          if (noRoom) lines.push(tallWords("", ctx.limit));
+          if (noRoom) lines.push(tallWords("", ctx.limit, 0, ctx.paperMm));
           else if (pic.picture.tall) {
-            lines.push("It is taller than " + boxWords(ctx.limit) + ", so the bot cuts it"
+            lines.push("It is taller than " + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts it"
               + (ctx.limit.by === "bits" ? ": set Bits per cheer higher for more room." : "."));
           }
           fine.push("Printer Bot waits 2.5 seconds for a picture: one that takes longer to load on the streamer's PC (a big file) "
@@ -6421,7 +6445,7 @@
         }
         if (ctx.mode === "plain") {
           var hrOff = t > 0 && !allowsHighRoller(so);
-          fine.push((hrOff ? "The streamer's printer has Allow High Roller prints off, so "
+          fine.push((hrOff ? hrPrinterWords(so) + " has Allow High Roller prints off, so "
                      : t > 0 ? "This cheer is below the streamer's High Roller threshold, so " : "The streamer's High Roller is off (threshold 0), so ")
             + "this prints as a plain grid of Han characters, " + designTPictureCols(ctx.paperMm) + " a row."
             + (t > 0 && !hrOff ? " At " + bitsWord(t) + " or more it prints as the picture"
@@ -7309,6 +7333,7 @@
       // Letter (1.6.0).
       mmPerPx: mmPerPx, targetPaper: targetPaper, LETTER_CHROME_PX: LETTER_CHROME_PX, letterBitsOf: letterBitsOf,
       colourOf: colourOf, letterDither: letterDither, blockLook: blockLook, allowsHighRoller: allowsHighRoller,
+      boxWords: boxWords, tallWords: tallWords,
       CONTENT_CEILING_PX: CONTENT_CEILING_PX, PX_PER_INCH: PX_PER_INCH, MAX_CAP_INCHES: MAX_CAP_INCHES,
       HR_DEFAULT: HR_DEFAULT, HR_MAX: HR_MAX, hrThresholdOf: hrThresholdOf, bitsPerInchOf: bitsPerInchOf,
       maxInchesOf: maxInchesOf, printMode: printMode, buildMode: buildMode, contentLimitPx: contentLimitPx,

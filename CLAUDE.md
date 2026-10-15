@@ -1782,11 +1782,13 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 > 20 uploads an hour per viewer (an IPv6 viewer counted by the first 64 bits of the address) and 100
 > an hour from everyone together, counted in `RW_IMG` under a hash of the network (never the
 > address), each counter expiring by itself (KV is eventually consistent: a brake, not a wall),
-> counted before the upload and handed back when Catbox didn't take it, so only accepted uploads
-> use up an hour, and no upload at all without the counter store; Catbox's answer passed on only
-> when it is exactly a `files.catbox.moe` picture link. (The structure check, the IPv6 counting,
-> the site-wide cap, the hand-back and the refusal without KV came from two security reviews of the
-> first pushes.) The site-wide cap is a tradeoff: someone spread over five or more networks can use
+> counted before the upload and, when Catbox didn't take it, handed back as that upload's own one
+> count taken from the count as it is now (never by restoring the count as it stood when the upload
+> began, which wiped out the uploads made meanwhile), so only accepted uploads use up an hour; no
+> upload at all without the counter store; Catbox's answer passed on only when it is exactly a
+> `files.catbox.moe` picture link. KV's read-then-write isn't atomic, so requests in flight together
+> can overshoot a cap by their number. (The structure check, the IPv6 counting, the site-wide cap,
+> the hand-back and the refusal without KV came from three security reviews of the first pushes.) The site-wide cap is a tradeoff: someone spread over five or more networks can use
 > up the hour's uploads, and viewers paste a link meanwhile; without it, abuse spread over many
 > networks has no bound. Uploads are anonymous (no userhash),
 > so nobody can delete one, and they stay until two years after their last view; Catbox sees every

@@ -418,14 +418,19 @@ async function handleCatbox(request, env, url) {
   // The upload is counted before it goes (so a burst can't all slip in while the first ones are on
   // their way) and handed back if Catbox didn't take it: only uploads Catbox took use up anybody's
   // hour, so failures, and junk Catbox refuses, can't lock everyone out (security review of the
-  // hardening). The caps still mean someone spread over many networks can use up the site's hour;
-  // viewers can paste a link meanwhile, and the card says so.
+  // hardening). The hand-back takes away this upload's own count from the count as it is now, never
+  // restoring the count as it stood when the upload began: that wiped out every upload made
+  // meanwhile, and a slow failure reset a viewer's hour (security review of the second round).
+  // KV's read-then-write is not atomic, so requests in flight together can still overshoot a cap by
+  // their number: the caps are a brake, not a wall. Someone spread over many networks can use up
+  // the site's hour; viewers can paste a link meanwhile, and the card says so.
   await env.RW_IMG.put(slots.viewer, String(mine + 1), { expirationTtl: 7200 });
   await env.RW_IMG.put(slots.site, String(all + 1), { expirationTtl: 7200 });
-  const refund = async function () {
-    await env.RW_IMG.put(slots.viewer, String(mine), { expirationTtl: 7200 });
-    await env.RW_IMG.put(slots.site, String(all), { expirationTtl: 7200 });
+  const giveBack = async function (key) {
+    const now = parseInt(await env.RW_IMG.get(key), 10) || 0;
+    await env.RW_IMG.put(key, String(Math.max(0, now - 1)), { expirationTtl: 7200 });
   };
+  const refund = async function () { await giveBack(slots.viewer); await giveBack(slots.site); };
 
   const form = new FormData();
   form.append("reqtype", "fileupload");

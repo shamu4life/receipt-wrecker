@@ -145,6 +145,31 @@ test("/catbox counts only uploads Catbox took: a failure uses up nobody's hour",
   assert.equal(site[1].value, "20", "the site counted the 20 uploads Catbox took, not the 30 failures");
 });
 
+test("/catbox hands back only a failed upload's own count: uploads made while it was on its way still count", async () => {
+  // Security review of the second round: the hand-back restored the count as it stood when the
+  // upload began, wiping out every upload made meanwhile, so a slow failure reset a viewer's hour.
+  const kv = fakeKv(), env = { RW_IMG: kv, ASSETS: { fetch: () => new Response("asset") } };
+  let release, n = 0;
+  const gate = new Promise((r) => { release = r; });
+  const saved = globalThis.fetch;
+  globalThis.fetch = async () => {
+    n++;
+    if (n === 1) { await gate; return new Response("nope", { status: 500 }); }
+    return new Response("https://files.catbox.moe/abc123.jpg");
+  };
+  const req = () => new Request(ORIGIN + "/catbox", { method: "POST", body: JPEG,
+    headers: { origin: ORIGIN, "content-type": "image/jpeg", "cf-connecting-ip": "203.0.113.7" } });
+  try {
+    const slow = worker.fetch(req(), env);                     // counted, on its way, will fail
+    while (n < 1) await new Promise((r) => setTimeout(r, 1));
+    for (let i = 0; i < 19; i++) assert.equal((await worker.fetch(req(), env)).status, 200, "upload " + (i + 1));
+    release();
+    assert.equal((await slow).status, 502);
+    assert.equal((await worker.fetch(req(), env)).status, 200, "the 20th upload");
+    assert.equal((await worker.fetch(req(), env)).status, 429, "and no more: the failure didn't wipe out the 19");
+  } finally { globalThis.fetch = saved; }
+});
+
 test("/catbox counts an IPv6 viewer by their network (the first 64 bits), not by each address", async () => {
   // Security review of 1.7.0: one IPv6 network holds billions of addresses, so counting each one
   // let a single viewer pass the hourly limit by changing address.

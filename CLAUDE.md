@@ -2093,11 +2093,16 @@ lives in `test-browser/` and is not in the default matcher.
 - Workers Builds is connected. `src/worker.js` serves `public/` as
   [static assets](https://developers.cloudflare.com/workers/static-assets/) and handles `/px`
   and `/imgbb`.
-- **One custom domain, declared in `wrangler.jsonc` `routes`:** `receipt.uwutoowo.com`. Once
-  routes are in config, config is the source of truth: a deploy reconciles the Worker's routes to
-  the list, so anything that must stay reachable has to be listed. (`i.uwutoowo.com`, the short
-  host of `/upload`'s links, was listed until 1.8.1, which removed it with `/upload` and the
-  `RW_IMG_HOST` var on the owner's request; its deploy detaches the domain.)
+- **One custom domain, declared in `wrangler.jsonc` `routes`:** `receipt.uwutoowo.com`. Anything
+  that must stay reachable has to be listed: a deploy attaches the custom domains the config lists
+  (after 1.8.1's, which stopped listing `i.uwutoowo.com`, the Worker had no custom domain for it).
+  A deploy does **not** remove a zone route set elsewhere (the dashboard or the API), which keeps
+  sending its hostname to the Worker: check the zone's Workers Routes too. (`i.uwutoowo.com`, the short host of `/upload`'s links, was listed until 1.8.1,
+  which removed it with `/upload` and the `RW_IMG_HOST` var on the owner's request. After 1.8.1's
+  deploy the Worker had no custom domain for it, but a zone route, `i.uwutoowo.com/*` →
+  `receipt-wrecker`, set outside the config, still served the app there until it was deleted
+  through Cloudflare's API the same day. The zone's wildcard DNS record, `*.uwutoowo.com` →
+  192.0.2.1, proxied, carries the owner's other Workers' routes; the short host now answers 522.)
 - `kv_namespaces`: `RW_IMG` holds `/imgbb`'s hourly counts (`upload-rate/…`). The ImgBB API key is
   the Worker secret `IMGBB_KEY` (set in the dashboard or with `wrangler secret put`, never in
   config); without it `/imgbb` answers "uploads are off right now".

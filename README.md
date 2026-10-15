@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.6.0](https://img.shields.io/badge/version-1.6.0-blue)](docs/CHANGELOG.md)
+[![Version 1.7.0](https://img.shields.io/badge/version-1.7.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -318,7 +318,14 @@ the bot's dock (*Advanced → Images in messages*; every site starts off) and th
 images (its default). Tick the same sites under **Pictures from links** in the streamer's
 settings here.
 
-Upload the picture to one of those sites yourself, then paste its direct link: the address of
+The easiest way (since 1.7.0): **pick a file on the card**. It goes to Catbox through this site,
+and its `https://files.catbox.moe/` link fills the card's Image URL field by itself. The card
+says it first, beside the file picker: the picture becomes public to anyone with the link, stays
+up until two years after it was last viewed, and can't be deleted. (It has to go through this
+site's server: Catbox doesn't let a web page see the link it sends back. The server takes 20
+uploads an hour from one person at most, and only from this page.)
+
+Or upload the picture to one of those sites yourself and paste its direct link: the address of
 the picture itself, ending in `.png`, `.jpg`, `.gif` or `.webp` (Imgur's start
 `https://i.imgur.com/`, ImgBB's `https://i.ibb.co/`, Catbox's `https://files.catbox.moe/`).
 Anyone with the link can see the picture. The cheer carries the link as text, and the bot
@@ -335,8 +342,8 @@ text, so the block prints the picture as a plain grid of Han characters instead,
 does. The bot waits 2.5 seconds for a picture: a big file that loads slower prints `[image]`.
 
 A link to any other site, or a page of the site rather than the picture, prints nothing, and
-the card says why and offers **Switch to Glyph-art**. Upload, rotate and brightness/contrast on
-the card change only the picture shown there; the printer prints the linked picture as it is.
+the card says why and offers **Switch to Glyph-art**. Rotate and brightness/contrast on the card
+change only the picture shown there; the printer prints the linked picture as it is.
 
 ---
 
@@ -485,14 +492,15 @@ Work saved by an older version is converted the first time you open 1.0.0:
 
 **Stays on your device:** text in every mode; a picture you pick from disk for glyph-art
 (decoded in the browser); your settings, block stack and presets (in `localStorage`). The
-preview runs with no network access at all. No analytics, no accounts, no third parties.
+preview runs with no network access at all. No analytics, no accounts.
 
-**Goes to this project's own Worker** (and nowhere else):
+**Goes to this project's own Worker** (and, for a file picked on a Real picture card, on to
+Catbox):
 
 | What you do | What happens |
 |---|---|
 | Paste a picture link into an Image block | The picture is fetched through `/px`, because a browser can't read another site's pixels directly. |
-| Pick a file on a **Real picture** card | It is shrunk to a PNG and uploaded to `/upload`, kept in Cloudflare KV and deleted after **15 minutes**. |
+| Pick a file on a **Real picture** card | It is redrawn on your device (at most 1600 px on its longer side, a JPEG on white, without the photo's hidden details such as where it was taken) and sent to `/catbox`, which uploads it to **Catbox**. The picture is then **public** to anyone with its link, stays up until two years after it was last viewed, and **can't be deleted**. Its link fills the card's Image URL field. |
 | Rotate or adjust brightness/contrast on a Real picture card | The picture is re-fetched through `/px`, adjusted and re-uploaded. |
 | Paste an Imgur, Catbox or ImgBB link on a Real picture card | The picture is read through `/px` for its size (and its Han grid below the threshold). The link itself goes into the cheer, so the streamer's Printer Bot fetches the picture from that site. |
 

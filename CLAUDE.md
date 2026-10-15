@@ -360,9 +360,9 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/` | The deployed site. Cloudflare serves only this directory. |
 | `public/index.html` | The app, plus the vendored renderer block. |
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
-| `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, and the `/px` image proxy. **Byte-identical since before 1.0.0, by the owner's decision.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. |
-| `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Also byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.6.0. No runtime deps. |
+| `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, the `/px` image proxy, and (1.7.0) `POST /catbox`. **Unchanged from before 1.0.0 until 1.7.0, by the owner's decision; 1.7.0 added `/catbox` on the owner's request and changed nothing else.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. `test/catbox.test.mjs` holds `/catbox` to its guards with a fake Catbox. |
+| `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Byte-identical. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.7.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -1341,7 +1341,11 @@ generations; `presetImageUrls` walks a stack's picture links.
   with `update()` a read landing under the High Roller test swapped the stack's parts in, and
   the next Copy sent the stack's part 1. The expiry check's card rebuild keeps the focused
   control, its caret and scroll (`keepFocus`), since it lands 700 ms after a keystroke. An upload
-  on a Real picture card writes the minted link into the card's Image URL field; the link and
+  on a Real picture card (1.7.0: to Catbox through `/catbox`, `uploadToCatbox`; status
+  "Uploading to Catbox…", then "Uploaded to Catbox ✓", or "Upload failed: " and the route's
+  reason, the link field left as it was) writes the files.catbox.moe link into the card's Image
+  URL field, under a note beside the file picker that says the picture becomes public, stays
+  until two years after its last view and can't be deleted; the link and
   the status line are the BLOCK's (`block.url`, the runtime `block._status`) and the image
   card's `syncGlyph` shows them on every refresh, so an upload that lands after the cards were
   redrawn (add, move, ×, Undo, the expiry check) shows on the card on screen, not a detached
@@ -1761,7 +1765,23 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 > `isPublicHttpUrl()` (public http(s) only, no loopback/private/link-local hosts, every
 > redirect hop re-validated; covered by `test/proxy.test.mjs`). **Without that guard `/px` is
 > an open relay / SSRF gadget. Do not loosen it.** `src/worker.js` and `wrangler.jsonc` stay
-> byte-identical unless the owner asks otherwise.
+> as they are unless the owner asks otherwise.
+>
+> **Second exception (1.7.0, the owner's request, 2026-10-14):** `POST /catbox`. A Real picture
+> card's picked file goes to Catbox (files.catbox.moe) through this route, and the link comes back
+> into the card's link field in one step. It has to be the Worker: Catbox sends no CORS headers, so
+> a page can send it a file but can't see the link it answers with (proven in a browser, with a
+> request that carried no file). Its guards, each held by `test/catbox.test.mjs` against a fake
+> Catbox and each mutation-checked: only this site's own page (the Origin must be this origin, and
+> the answer carries no CORS header); png, jpeg, gif or webp only, 5 MB at most; 20 uploads an hour
+> per viewer, counted in `RW_IMG` under a hash of the address (never the address), each counter
+> expiring by itself (KV is eventually consistent: a brake, not a wall); Catbox's answer passed on
+> only when it is exactly a `files.catbox.moe` picture link. Uploads are anonymous (no userhash),
+> so nobody can delete one, and they stay until two years after their last view; Catbox sees every
+> one as this Worker's (Cloudflare names the site on a Worker's requests), so a bad upload by
+> anyone is on the site's record. The owner accepted that, and the card says the rest plainly
+> before anything is picked. **Do not loosen these guards, and never upload to the real Catbox
+> from a test or a tool.**
 
 - **One file.** No build step, no framework, no external resources: system font stacks, no web
   fonts, no CDN, no external images. Don't split the file for tooling.
@@ -1769,9 +1789,11 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 - **Network calls go only to our own Worker, and there are no new ones.** The app's script has
   **four** `fetch` call sites, all same-origin: two `/px` (`decodeGlyphImage`, which reads a
   pasted picture link for glyph-art and, since 1.5.0, a Real picture's link for its size and its
-  plain grid; `processImage`, which reads it for the adjustment bake)
-  and two `/upload` (`processImage`'s bake; `uploadPngForUrl`, a picked file on a Real
-  picture card). Two fire without a dedicated click: typing a picture link and dragging an
+  plain grid; `processImage`, which reads it for the adjustment bake), one `/upload`
+  (`processImage`'s bake, for the card's view only) and one `/catbox` (`uploadToCatbox`, 1.7.0: a
+  file picked on a Real picture card, redrawn on the device at most 1600 px on its longer side as
+  a JPEG on white, which the Worker uploads to Catbox; before 1.7.0 this call site sent it to
+  `/upload` for a 15-minute link). Two fire without a dedicated click: typing a picture link and dragging an
   adjustment slider. The preview and the Thermal preview fetch nothing. The vendored renderer
   contains a `fetch` of its own (the avatar lookup): it is inert text in the page and runs only
   inside the no-network frame, and only for a `userName` the bot's avatar cache doesn't hold: the
@@ -1791,10 +1813,13 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   surrounding code. (The tools and tests are modern ES modules; that is fine, they don't ship.)
 - **Privacy, stated accurately.** Text in every mode and a picture picked from disk for
   glyph-art never leave the device. Pasting a picture link sends it through `/px`; on a Real
-  picture card, picking a file uploads it, and rotating or adjusting re-fetches and re-uploads.
-  A Real picture's link is sent in the cheer, so the card says the link is public.
-  No analytics, accounts or third parties. Never let the docs drift back to "nothing is ever
-  sent".
+  picture card, picking a file uploads it to Catbox through `/catbox` (1.7.0: public to anyone
+  with the link, kept until two years after its last view, not deletable; the card says so
+  beside the file picker, before anything is picked), and rotating or adjusting re-fetches and
+  re-uploads a copy for the card's view (`/upload`, 15 minutes). A Real picture's link is sent in
+  the cheer, so the card says the link is public. No analytics or accounts; the one third party
+  the site sends anything to is Catbox, and only a file a viewer picks on a Real picture card.
+  Never let the docs drift back to "nothing is ever sent".
 
 ## Testing
 
@@ -1868,7 +1893,10 @@ lives in `test-browser/` and is not in the default matcher.
   `localStorage`: wrap storage access in try/catch and guard page-only patches with
   `window.parent === window`.
 - Anything needing the Worker (`/px`, `/upload`) is not faked; the browser tests use data: URLs
-  for pictures. Check those flows against `wrangler dev` by hand.
+  for pictures. Check those flows against `wrangler dev` by hand. `/catbox` (1.7.0) is stood in
+  for by a Playwright route in the browser tests, and the route itself is driven in
+  `test/catbox.test.mjs` with a stubbed `fetch` as Catbox: **no test, tool or hand check uploads to
+  the real Catbox**, where an upload is public and can't be deleted.
 
 ## Deployment (Cloudflare Workers)
 

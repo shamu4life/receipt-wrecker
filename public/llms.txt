@@ -13,9 +13,10 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.6.0 (2026-10-14). Before 1.0.0 the tool targeted a different printer
+- Current version: 1.7.0 (2026-10-14). Before 1.0.0 the tool targeted a different printer
   bot (nutty.gg's); that support was removed.
-- No accounts, no analytics, no third-party services.
+- No accounts, no analytics. The one third party it sends anything to is Catbox, and only a file a
+  viewer picks on a Real picture card (see Privacy).
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
   several cheers rather than truncated.
 
@@ -139,13 +140,18 @@ viewer has no picture is about 4.8 cm shorter on 80 mm paper, 4.0 cm on 58 mm.
 ## Privacy
 
 Text in every mode, and a picture picked from disk for glyph-art, never leave the device. Some picture
-operations call this project's own Cloudflare Worker and nothing else:
+operations call this project's own Cloudflare Worker, and one goes on to Catbox:
 
 - Pasting a picture link fetches the picture through an image proxy, because a browser canvas
   cannot read another site's pixels directly.
-- On a "Real picture" card, picking a file uploads it to Cloudflare KV behind an unguessable
-  link that is deleted after 15 minutes, and rotating or adjusting it re-uploads it. That copy
-  is only shown on the card: it never prints as a picture.
+- On a "Real picture" card, picking a file (since 1.7.0) redraws it on the device (at most 1600 px,
+  a JPEG, without the photo's hidden details) and sends it through the Worker to Catbox
+  (files.catbox.moe), whose link then fills the card's link field. The picture is public to anyone
+  with the link, stays up until two years after it was last viewed, and can't be deleted; the card
+  says so before a file is picked. The Worker does the upload because Catbox doesn't let a web page
+  see the link it sends back; it takes uploads only from the tool's own page, 20 an hour per person.
+- Rotating or adjusting a Real picture uploads a copy to Cloudflare KV for 15 minutes, only to show
+  it on the card: it never prints.
 - A Real picture's Imgur, Catbox or ImgBB link is read through the proxy for its size, and the
   link itself goes into the cheer, so the streamer's Printer Bot fetches the picture from that
   site.

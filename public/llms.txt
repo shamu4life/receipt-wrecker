@@ -150,7 +150,7 @@ operations call this project's own Cloudflare Worker, and one goes on to Catbox:
   with the link, stays up until two years after it was last viewed, and can't be deleted; the card
   says so before a file is picked. The Worker does the upload because Catbox doesn't let a web page
   see the link it sends back; it takes only JPEG pictures from the tool's own page, 20 an hour per
-  person and 100 an hour in all.
+  person.
 - Rotating or adjusting a Real picture uploads a copy to Cloudflare KV for 15 minutes, only to show
   it on the card: it never prints.
 - A Real picture's Imgur, Catbox or ImgBB link is read through the proxy for its size, and the

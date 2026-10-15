@@ -141,8 +141,8 @@ test("/catbox counts only uploads Catbox took: a failure uses up nobody's hour",
   const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
   for (let i = 0; i < 20; i++) assert.equal((await call({ env, catbox: cb })).res.status, 200, "upload " + (i + 1));
   assert.equal((await call({ env, catbox: cb })).res.status, 429);
-  const site = [...kv.m].find(([k]) => /^catbox-rate\/all\//.test(k));
-  assert.equal(site[1].value, "20", "the site counted the 20 uploads Catbox took, not the 30 failures");
+  const mine = [...kv.m].filter(([k]) => /^catbox-rate\//.test(k));
+  assert.deepEqual(mine.map(([, v]) => v.value), ["20"], "the viewer's count is the 20 uploads Catbox took, not the 30 failures");
 });
 
 test("/catbox hands back only a failed upload's own count: uploads made while it was on its way still count", async () => {
@@ -180,19 +180,19 @@ test("/catbox counts an IPv6 viewer by their network (the first 64 bits), not by
   assert.equal((await call({ env, ip: "2001:db8:1:3::1", catbox: cb })).res.status, 200, "the next network is not held up");
 });
 
-test("/catbox takes at most 100 uploads an hour from everyone together, and refuses outright with no counter store", async () => {
-  // Security review of 1.7.0: per viewer alone, many machines together had no bound.
-  const env = { RW_IMG: fakeKv(), ASSETS: { fetch: () => new Response("asset") } };
+test("/catbox has no site-wide limit (the owner's call), and refuses outright with no counter store", async () => {
+  // A site-wide cap would let someone spread over several networks lock everyone out for an hour;
+  // the owner chose no cap, accepting that uploads spread over many networks have no overall limit.
+  // Each viewer is still held to their own 20.
+  const kv = fakeKv(), env = { RW_IMG: kv, ASSETS: { fetch: () => new Response("asset") } };
   const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
-  for (let i = 1; i <= 100; i++) assert.equal((await call({ env, ip: "198.51." + (i >> 8) + "." + (i & 255), catbox: cb })).res.status, 200, "upload " + i);
-  const { res, json } = await call({ env, ip: "192.0.2.77", catbox: cb });
-  assert.equal(res.status, 429);
-  assert.match(json.error, /This site has taken all the uploads it takes in an hour/);
-  assert.equal(cb.calls.length, 100);
-  // No counter store (a misconfigured deploy): refuse, never upload without the limits.
+  for (let i = 1; i <= 150; i++) assert.equal((await call({ env, ip: "198.51." + (i >> 8) + "." + (i & 255), catbox: cb })).res.status, 200, "upload " + i);
+  assert.equal(cb.calls.length, 150);
+  assert.ok(![...kv.m.keys()].some((k) => /\/all\//.test(k)), "no site-wide counter is kept");
+  // No counter store (a misconfigured deploy): refuse, never upload without the per-viewer limit.
   const none = await call({ env: { ASSETS: { fetch: () => new Response("asset") } }, catbox: cb });
   assert.equal(none.res.status, 503);
-  assert.equal(cb.calls.length, 100);
+  assert.equal(cb.calls.length, 150);
 });
 
 test("/catbox passes on only a files.catbox.moe picture link: anything else Catbox says is an error", async () => {

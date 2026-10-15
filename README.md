@@ -323,7 +323,7 @@ and its `https://files.catbox.moe/` link fills the card's Image URL field by its
 says it first, beside the file picker: the picture becomes public to anyone with the link, stays
 up until two years after it was last viewed, and can't be deleted. (It has to go through this
 site's server: Catbox doesn't let a web page see the link it sends back. The server takes only
-JPEG pictures from this page, 20 uploads an hour from one person and 100 from everyone together.)
+JPEG pictures from this page, 20 uploads an hour from one person.)
 
 Or upload the picture to one of those sites yourself and paste its direct link: the address of
 the picture itself, ending in `.png`, `.jpg`, `.gif` or `.webp` (Imgur's start

@@ -1779,18 +1779,20 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 > (64 KB in all), DQT, SOF0/1/2, DHT and DRI, never a comment or anything else; scans after a frame
 > whose entropy-coded data holds only stuffing and restart markers; EOI as the last two bytes; the
 > page redraws every picture as one, and a Chromium canvas JPEG is a test fixture), 5 MB at most;
-> 20 uploads an hour per viewer (an IPv6 viewer counted by the first 64 bits of the address) and 100
-> an hour from everyone together, counted in `RW_IMG` under a hash of the network (never the
-> address), each counter expiring by itself (KV is eventually consistent: a brake, not a wall),
+> 20 uploads an hour per viewer (an IPv6 viewer counted by the first 64 bits of the address),
+> counted in `RW_IMG` under a hash of the network (never the address), each counter expiring by
+> itself (KV is eventually consistent: a brake, not a wall),
 > counted before the upload and, when Catbox didn't take it, handed back as that upload's own one
 > count taken from the count as it is now (never by restoring the count as it stood when the upload
 > began, which wiped out the uploads made meanwhile), so only accepted uploads use up an hour; no
 > upload at all without the counter store; Catbox's answer passed on only when it is exactly a
 > `files.catbox.moe` picture link. KV's read-then-write isn't atomic, so requests in flight together
-> can overshoot a cap by their number. (The structure check, the IPv6 counting, the site-wide cap,
-> the hand-back and the refusal without KV came from three security reviews of the first pushes.) The site-wide cap is a tradeoff: someone spread over five or more networks can use
-> up the hour's uploads, and viewers paste a link meanwhile; without it, abuse spread over many
-> networks has no bound. Uploads are anonymous (no userhash),
+> can overshoot the limit by their number. (The structure check, the IPv6 counting, the hand-back
+> and the refusal without KV came from three security reviews of the first pushes.) **There is no
+> site-wide limit, by the owner's decision (2026-10-14):** a review-driven cap of 100 an hour from
+> everyone together was built and then removed, because someone spread over five or more networks
+> could use it up and lock every viewer out for an hour. The owner preferred that risk gone,
+> accepting that uploads spread over many networks have no overall limit. Uploads are anonymous (no userhash),
 > so nobody can delete one, and they stay until two years after their last view; Catbox sees every
 > one as this Worker's (Cloudflare names the site on a Worker's requests), so a bad upload by
 > anyone is on the site's record. The owner accepted that, and the card says the rest plainly

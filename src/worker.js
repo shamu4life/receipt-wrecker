@@ -302,21 +302,23 @@ async function handleProxy(url, env) {
 //     one on a POST), and the answer carries no CORS header, so no other site's page can see it.
 //     A script outside a browser can claim any Origin, so this stops other sites' pages, not
 //     scripts: the limits below are what bound a script (security review of 1.7.0);
-//   * a real JPEG only, checked by its bytes (it starts FF D8 FF and ends FF D9, so nothing is
-//     glued after the picture), 5 MB at most. The page redraws every picture as a JPEG before it
-//     sends it, so nothing else is ever needed (the review: the declared type alone was trusted);
+//   * a real JPEG only, its structure walked the way a decoder walks it (isCleanJpeg), 5 MB at
+//     most. The page redraws every picture as a JPEG before it sends it, so nothing else is ever
+//     needed (the review: the declared type alone was trusted);
 //   * CATBOX_PER_HOUR uploads an hour per viewer, an IPv6 viewer counted by network (the first 64
-//     bits: one network holds billions of addresses), and CATBOX_SITE_PER_HOUR from everyone
-//     together, counted in KV under a hash of the network (never the address), each counter
-//     expiring by itself. KV is eventually consistent, so a burst can slip a few past: a brake, not
-//     a wall. With no KV the route refuses rather than upload without its limits;
+//     bits: one network holds billions of addresses), counted in KV under a hash of the network
+//     (never the address), each counter expiring by itself. KV is eventually consistent, so a burst
+//     can slip a few past: a brake, not a wall. With no KV the route refuses rather than upload
+//     without its limit. There is no site-wide limit, by the owner's decision (2026-10-14): one would
+//     let someone spread over several networks lock every viewer out for an hour, and the owner
+//     preferred that risk gone, accepting that uploads spread over many networks have no overall
+//     limit;
 //   * Catbox's answer passed on only when it is exactly a files.catbox.moe picture link.
 // Catbox sees every upload as this Worker's (Cloudflare names the site on a Worker's requests), so
 // a bad upload by anyone is on the site's record: the owner accepted that for the one-step upload.
 const CATBOX_API = "https://catbox.moe/user/api.php";
 const CATBOX_LINK = /^https:\/\/files\.catbox\.moe\/[a-z0-9]{6}\.(png|jpe?g|gif|webp)$/;
 const CATBOX_PER_HOUR = 20;
-const CATBOX_SITE_PER_HOUR = 100;
 const CATBOX_TIMEOUT_MS = 30000;
 
 // A JPEG whose structure a decoder walks cleanly, end to end: SOI first; then marker segments by
@@ -385,15 +387,13 @@ function sameSiteJson(obj, status) {
   });
 }
 
-// The KV keys counting uploads this hour: this viewer's (a hash of their network, never the
-// address) and everyone's together.
-async function rateSlots(request) {
+// The KV key counting this viewer's uploads this hour: a hash of their network, never the address.
+async function viewerSlot(request) {
   const net = networkOf(request.headers.get("cf-connecting-ip") || "");
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rw-catbox:" + net));
   var hex = "";
   new Uint8Array(digest).slice(0, 16).forEach(function (b) { hex += (b + 0x100).toString(16).slice(1); });
-  const hour = Math.floor(Date.now() / 3600000);
-  return { viewer: "catbox-rate/" + hex + "/" + hour, site: "catbox-rate/all/" + hour };
+  return "catbox-rate/" + hex + "/" + Math.floor(Date.now() / 3600000);
 }
 
 async function handleCatbox(request, env, url) {
@@ -408,29 +408,22 @@ async function handleCatbox(request, env, url) {
   if (!isCleanJpeg(buf)) return sameSiteJson({ error: "that isn't a JPEG picture" }, 415);
 
   if (!env || !env.RW_IMG) return sameSiteJson({ error: "uploads are off right now" }, 503);
-  const slots = await rateSlots(request);
-  const mine = parseInt(await env.RW_IMG.get(slots.viewer), 10) || 0;
+  const slot = await viewerSlot(request);
+  const mine = parseInt(await env.RW_IMG.get(slot), 10) || 0;
   if (mine >= CATBOX_PER_HOUR) return sameSiteJson({ error: CATBOX_PER_HOUR + " uploads an hour is the most: try again later" }, 429);
-  const all = parseInt(await env.RW_IMG.get(slots.site), 10) || 0;
-  if (all >= CATBOX_SITE_PER_HOUR) {
-    return sameSiteJson({ error: "This site has taken all the uploads it takes in an hour: try again later, or paste a link" }, 429);
-  }
   // The upload is counted before it goes (so a burst can't all slip in while the first ones are on
-  // their way) and handed back if Catbox didn't take it: only uploads Catbox took use up anybody's
-  // hour, so failures, and junk Catbox refuses, can't lock everyone out (security review of the
-  // hardening). The hand-back takes away this upload's own count from the count as it is now, never
-  // restoring the count as it stood when the upload began: that wiped out every upload made
-  // meanwhile, and a slow failure reset a viewer's hour (security review of the second round).
-  // KV's read-then-write is not atomic, so requests in flight together can still overshoot a cap by
-  // their number: the caps are a brake, not a wall. Someone spread over many networks can use up
-  // the site's hour; viewers can paste a link meanwhile, and the card says so.
-  await env.RW_IMG.put(slots.viewer, String(mine + 1), { expirationTtl: 7200 });
-  await env.RW_IMG.put(slots.site, String(all + 1), { expirationTtl: 7200 });
-  const giveBack = async function (key) {
-    const now = parseInt(await env.RW_IMG.get(key), 10) || 0;
-    await env.RW_IMG.put(key, String(Math.max(0, now - 1)), { expirationTtl: 7200 });
+  // their way) and handed back if Catbox didn't take it: only uploads Catbox took use up a viewer's
+  // hour, so failures, and junk Catbox refuses, lock nobody out (security review of the hardening).
+  // The hand-back takes away this upload's own count from the count as it is now, never restoring
+  // the count as it stood when the upload began: that wiped out every upload made meanwhile, and a
+  // slow failure reset a viewer's hour (security review of the second round). KV's read-then-write
+  // is not atomic, so requests in flight together can still overshoot the limit by their number:
+  // a brake, not a wall.
+  await env.RW_IMG.put(slot, String(mine + 1), { expirationTtl: 7200 });
+  const refund = async function () {
+    const now = parseInt(await env.RW_IMG.get(slot), 10) || 0;
+    await env.RW_IMG.put(slot, String(Math.max(0, now - 1)), { expirationTtl: 7200 });
   };
-  const refund = async function () { await giveBack(slots.viewer); await giveBack(slots.site); };
 
   const form = new FormData();
   form.append("reqtype", "fileupload");

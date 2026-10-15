@@ -79,7 +79,7 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ### How sure
 
-- 304 unit tests (`test/imgbb.test.mjs` drives the route against a fake ImgBB, 25 guards broken on
+- 305 unit tests (`test/imgbb.test.mjs` drives the route against a fake ImgBB, 25 guards broken on
   purpose and all caught; `test/bot304.test.mjs` holds the app's copy of the cheermote list to the
   vendored page's; `test/turn.test.mjs`) and 99 browser tests. The contract test runs every mode
   through 3.0.4's page. Nothing was uploaded to the real ImgBB. The 3.0.4 model pieces and the

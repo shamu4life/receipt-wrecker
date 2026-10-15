@@ -22,7 +22,7 @@
 - [ ] `npm run test:browser` passes (Playwright, the real page, including the MANDATORY contract test against the vendored SassyTP renderer; CI runs it too)
 - [ ] `npx wrangler deploy --dry-run` passes
 - [ ] Kept single-file: CSS and JS stay inline in `public/index.html`; no separate `.css`/`.js` assets, no dependencies, no bundler, no framework, no CDN, no web fonts
-- [ ] No **new** network call; the app's four `fetch` call sites stay limited to our own `/upload` and `/px`, and `/px`'s SSRF guard is untouched
+- [ ] No **new** network call; the app's two `fetch` call sites stay limited to our own `/px` and `/imgbb`, and `/px`'s SSRF guard is untouched
 - [ ] No new storage beyond `rw_controls_v1` / `rw_nonce_seq` / `rw_blocks_v1` / `rw_presets_v1` (new state goes in as a field of one of those) (or N/A)
 - [ ] Messages still use only `div` and `pre` with only `style`, never a picture tag or a `<br>` in any letter case, never carry the literal word `font` (property names use `FONT_PROP`'s `\66ont` escape), never start with `<`, and every user-supplied character in markup goes through `escapeHtml`/`escapeAttr` (`test/tags.test.mjs` covers new builders and the escape backstop) (or N/A)
 - [ ] Every High Roller mode still has its plain form (Han tiling) behind it, and nothing was added to get a form past a channel's filter: no obfuscated tokens, no swapped-in tag or structure (see THE RULE in `CLAUDE.md`) (or N/A)

@@ -246,7 +246,7 @@
           <label>Image fit: <select id="letterFit" style="width:auto"><option value="fit" selected>Fit</option><option value="fill">Fill</option><option value="stretch">Stretch</option></select> <span id="letterFitOff" class="letter-off">(Large message only)</span></label>
           <label>Print profile: <select id="letterProfile" style="width:auto"><option value="bw" selected>Black and white</option><option value="color">Colour</option></select></label>
           <div class="hint letter-off" id="letterOff">(set the bits above first)</div>
-          <details class="hint more"><summary>What's this?</summary><div>The Letter printer's card in the dock. Scaled like 80 mm prints the roll's receipt on the page, larger, which leaves a message about 6 cm under the profile picture. Large message gives the message most of the page, about 16 cm, and lays it out from the left, so a block here centres itself. Image fit is how a picture from a link fills the space the message leaves it in Large message: Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the space. In Colour, Big text, Sideways text and Glyph-art can have colours (their cards show the pickers); Black and white prints text sharp and shades only pictures. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
+          <details class="hint more"><summary>What's this?</summary><div>The Letter printer's card in the dock. Scaled like 80 mm prints the roll's receipt on the page, larger, which leaves a message about 6 cm under the profile picture. Large message gives the message most of the page, about 16 cm, and lays it out from the left, so a block here centres itself. Since Printer Bot 3.0.5 only a cheer of the High Roller threshold or more gets Large message: a smaller one prints Scaled like 80 mm. Image fit is how a picture from a link fills the space the message leaves it in Large message: Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the space. In Colour, Big text, Sideways text and Glyph-art can have colours (their cards show the pickers); Black and white prints text sharp and shades only pictures. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
         </div>
       </div>
     </section>
@@ -529,6 +529,19 @@
   function letterLayoutOf(v) { return LETTER_LAYOUTS.indexOf(v) >= 0 ? v : "scaled"; }
   function letterFitOf(v) { return LETTER_FITS.indexOf(v) >= 0 ? v : "fit"; }
   function letterProfileOf(v) { return LETTER_PROFILES.indexOf(v) >= 0 ? v : "bw"; }
+  // The layout a cheer really gets on the Letter printer. Printer Bot 3.0.5 (present()'s layoutFor,
+  // the bot's author's rule): a printer set to Large message gives its large page only to a cheer of
+  // at least the High Roller threshold (the TwitchCheer handler's largePage: isHighRoller). A smaller
+  // cheer, or every cheer while High Roller is off, prints as Scaled like 80 mm does. The amount
+  // decides, not the printer's Allow High Roller prints. A free test is drawn as the High Roller
+  // cheer whose markup it tests (previewEvent sends the page a threshold of 1), so it gets the large
+  // page too. o = {letterLayout, cheer, bits, hrThreshold}.
+  function letterLayoutFor(o) {
+    o = o || {};
+    if (letterLayoutOf(o.letterLayout) !== "message") return "scaled";
+    var t = hrThresholdOf(o.hrThreshold);
+    return o.cheer === false || (t > 0 && cheerBits(o.bits) >= t) ? "message" : "scaled";
+  }
   // The paper a cheer of these bits prints on: "letter", or the roll's 80 or 58. A free test is
   // built for the paper the real cheer would reach.
   function targetPaper(o) {
@@ -541,9 +554,10 @@
   // rest of the receipt takes, measured on the bot's own page (3.0.1, v202610140456) with its profile
   // picture in place, the worst case: a viewer with no picture leaves more room. Scaled like 80 mm is
   // the roll's receipt on a wider page (its header and footer are the roll's); Large message puts a
-  // 2.3-inch picture beside the name and a half-inch logo below.
+  // 2.3-inch picture beside the name and a half-inch logo below. The layout is the one this cheer
+  // gets (letterLayoutFor: since Printer Bot 3.0.5 a cheer below the threshold prints Scaled).
   var LETTER_CHROME_PX = { scaled: 407.8125, message: 189.96875 };
-  function letterRoomPx(o) { return PAPERS.letter.pagePx - LETTER_CHROME_PX[letterLayoutOf(o && o.letterLayout)]; }
+  function letterRoomPx(o) { return PAPERS.letter.pagePx - LETTER_CHROME_PX[letterLayoutFor(o)]; }
   function pageLimit(lim, o) {
     var room = Math.max(Math.floor(PAPERS.letter.pxPerInch), letterRoomPx(o));
     return room < lim.px ? { px: room, by: "page", fades: true } : lim;
@@ -647,15 +661,16 @@
     // ends it first, faded; the renderer cuts any viewer's message at the end of its page).
     var plainLim = { px: CONTENT_CEILING_PX * paper.pxPerInch / PX_PER_INCH, by: "ceiling", fades: false };
     var limit = mode === "raw" ? contentLimitPx(o) : letter ? pageLimit(plainLim, o) : plainLim;
-    var layout = letterLayoutOf(o.letterLayout), profile = letterProfileOf(o.letterProfile);
+    var layout = letterLayoutFor(o), profile = letterProfileOf(o.letterProfile);
     var leadPx = leadLinePx(lead);
     limit.leadPx = leadPx;
     return { mode: mode, paper: paper, paperMm: paper.mm, contentW: paper.contentW, limit: limit,
              room: limit.px - leadPx, heightPx: limit.px - leadPx, leadPx: leadPx,
              budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
              cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce, imageSites: imageSitesOf(o.imageSites),
-             // On Letter: its card's settings; Large message lays the message out from the left, so a
-             // block centres itself (`center`); the colour profile prints colours (`colour`).
+             // On Letter: its card's settings, with the layout this cheer gets (letterLayoutFor); Large
+             // message lays the message out from the left, so a block centres itself (`center`); the
+             // colour profile prints colours (`colour`).
              letter: letter ? { layout: layout, fit: letterFitOf(o.letterFit), profile: profile } : null,
              center: letter && layout === "message", colour: letter && profile === "color" };
   }
@@ -829,6 +844,29 @@
       return { url: url, site: s.id };
     }
     return { why: "site" };
+  }
+  // A picture whose site answers "not found" (1.8.1): the read through /px gets "upstream said 404"
+  // (or 410), and this says so. ImgBB deletes an upload a day after it was made, and its link then
+  // answers 404 with ImgBB's own "image not found" picture, which Chromium, the engine of the bot's
+  // Edge, draws as it would any picture: sent anyway, that is what would print. Catbox answers with a
+  // page, which the bot prints as [image] (renderer settle(): dropMessageImage). Imgur sends a
+  // deleted picture's link on to its own "removed" picture, which reads like any other, so it never
+  // gets here: the card's picture and the preview show it. kind: "real" (a Real picture's card, whose
+  // link itself would go out), "glyph" (a Glyph-art card) or "alert" (the parts' notice, after
+  // "isn't in these parts: ").
+  function goneWords(url, kind) {
+    var site = pictureLink(url).site, real = kind === "real";
+    var name = { imgbb: "ImgBB", catbox: "Catbox", imgur: "Imgur" }[site] || "";
+    if (kind === "alert") {
+      return site === "imgbb" ? "it's gone from ImgBB, which deletes an upload a day after it was made. Pick the file again or paste another link."
+        : "its link answers “not found”, so the picture is gone. Paste another link or pick the file instead.";
+    }
+    var why = site === "imgbb" ? "ImgBB deletes an upload a day after it was made" : (name || "its site") + " answers “not found”";
+    var would = !real ? "" : site === "imgbb" ? "Printer Bot would print ImgBB's “image not found” picture in its place"
+      : site === "catbox" ? "Printer Bot would print [image] in its place" : "";
+    var fix = site === "imgbb" ? (real ? "Pick the file again to upload a new copy, or paste another link." : "Pick the file instead, or paste another link.")
+      : real ? "Paste another link, or pick the file to upload it to ImgBB." : "Paste another link, or pick the file instead.";
+    return "This picture is gone: " + why + (would ? ". " + would : "") + ", so this block prints nothing. " + fix;
   }
   // How a picture prints on a roll (img.msg-image: display block, max-width 100%, width and height
   // auto, margin 0.4em auto, max-height 4 inches of paper; renderer line 322 and
@@ -3327,12 +3365,12 @@
   function buildHighRollerProbe(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), bits = t > 0 ? t : cheerBits(o.bits);
-    var at = { cheer: true, bits: bits, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches, letterBits: o.letterBits,
+    var at = { cheer: true, bits: bits, hrThreshold: t, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches, letterBits: o.letterBits,
                letterLayout: o.letterLayout, paperMm: o.paperMm, noNonce: o.noNonce, nonce: o.nonce };
     var paperMm = targetPaper(at), p = paperSpec(paperMm), letter = paperMm === "letter", mmPx = mmPerPx(paperMm);
     var mPx = Math.floor(bigFitPx(p.contentW, 5) / bigLineEm("MMMMM"));
     var lim = contentLimitPx(at), room = lim.px - lim.leadPx;
-    var center = blockStyle({ center: letter && letterLayoutOf(o.letterLayout) === "message" });
+    var center = blockStyle({ center: letter && letterLayoutFor(at) === "message" });
     var big = function (px, lh, flip, text) { return withFace(null, bigOpen, [px, lh, flip], center) + text + BIG_CLOSE; };
     var shapes = [
       { id: "big", rank: 0, html: big(60, BIG_LH_CAPS, false, "BIG"), h: 60 * 0.8 },
@@ -3585,7 +3623,7 @@
   function bitsRaiseFor(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), from = cheerBits(o.bits);
-    var at = { cheer: true, bits: t, allowHighRoller: o.allowHighRoller, letterBits: o.letterBits, letterLayout: o.letterLayout,
+    var at = { cheer: true, bits: t, hrThreshold: t, allowHighRoller: o.allowHighRoller, letterBits: o.letterBits, letterLayout: o.letterLayout,
                paperMm: o.paperMm, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches, noNonce: o.noNonce, nonce: o.nonce };
     if (!o.cheer || from >= t || !allowsHighRoller(at)) return null;
     var lim = contentLimitPx(at);
@@ -3900,7 +3938,9 @@
     // images, on by default, isn't modelled.) The page itself shows pictures in High Roller
     // messages only.
     // A Letter printer (1.6.0) is told its paper as OptionsFor tells one: 53.3 px to the inch, the
-    // height of a page, and with the Large message layout `layout` and `imageFit`.
+    // height of a page, and with the Large message layout `layout` and `imageFit`. The page itself
+    // gives the large page only to a cheer of the threshold or more (3.0.5's layoutFor), as the app's
+    // letterLayoutFor has it.
     var paper = paperSpec(targetPaper(o));
     var options = { highRollerBits: o.cheer === false ? 1 : t,
                     highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false,
@@ -4181,17 +4221,23 @@
     // device and never uploaded); the decoded Image is cached on block._img. Runtime-only
     // fields (`_`, stripped on save): _img, _decoding (a read is in flight), _decodeKey (which
     // read is the current one: a slow read of an older link must not land over a newer one)
-    // and _decodeFailed (the source that could not be read: the link, or "file:" + its name).
+    // and _decodeFailed (the source that could not be read: the link, or "file:" + its name), with
+    // _gone the same source when its site answered "not found" (1.8.1: goneWords).
     // A failure is remembered so the card can say so; without it every refresh (each keystroke
     // anywhere, twice per Copy) started the same read through /px again, and the card said
     // "Reading the picture…" for ever.
     var decodeSeq = 0;
     function decodeGlyphImage(block, file) {
       var key = ++decodeSeq, src = file ? "file:" + (file.name || "upload") : block.url;
-      block._decoding = true; block._decodeKey = key; delete block._decodeFailed;
+      block._decoding = true; block._decodeKey = key; delete block._decodeFailed; delete block._gone;
       var p = file
         ? Promise.resolve(URL.createObjectURL(file))
-        : fetch(proxied(block.url), { credentials: "omit" }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
+        : fetch(proxied(block.url), { credentials: "omit" }).then(function (r) {
+            if (r.ok) return r.blob();
+            // /px passes the picture's site answering 404 or 410 on as "upstream said 404": gone.
+            return r.json().then(function (j) { return !!j && /^upstream said (404|410)$/.test(j.error); }, function () { return false; })
+              .then(function (gone) { var e = new Error(String(r.status)); e.gone = gone; throw e; });
+          }).then(function (b) { return URL.createObjectURL(b); });
       p.then(function (objUrl) {
         return new Promise(function (res, rej) {
           var im = new Image();
@@ -4202,9 +4248,11 @@
       }).then(function (im) {
         if (block._decodeKey !== key) return;
         block._img = im; block._decoding = false; delete block._rot; saveBlocks(); refresh();
-      })["catch"](function () {
+      })["catch"](function (e) {
         if (block._decodeKey !== key) return;
-        block._decoding = false; block._decodeFailed = src; refresh();
+        block._decoding = false; block._decodeFailed = src;
+        if (e && e.gone) block._gone = src;
+        refresh();
       });
     }
     // The block's picture source changed without a new read starting (the link was emptied,
@@ -4918,7 +4966,8 @@
                               imageSites: s.imageSites, paperMm: s.paperMm, letterBits: s.letterBits,
                               letterLayout: s.letterLayout, letterFit: s.letterFit });
       var p = paperSpec(targetPaper({ bits: pcheer.bits, letterBits: s.letterBits, paperMm: s.paperMm }));
-      var layout = p.pagePx ? letterLayoutOf(s.letterLayout) : "", ck = p.mm + layout;
+      var layout = p.pagePx ? letterLayoutFor({ letterLayout: s.letterLayout, cheer: pcheer.cheer, bits: pcheer.bits, hrThreshold: s.hrThreshold }) : "";
+      var ck = p.mm + layout;
       var pictures = partPictures(item);
       if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
       pc.el.classList.toggle("on-page", !!p.pagePx);
@@ -6158,7 +6207,7 @@
           if (plainNow && r !== "hanzi") {
             // Under a bits-per-inch setting a bigger cheer buys a taller box, so the sizes worked
             // out for a threshold cheer are not the sizes of every bigger one (review of the fixes).
-            var orMore = contentLimitPx({ bits: t0, bitsPerInch: so0.bitsPerInch, maxInches: so0.maxInches, letterBits: so0.letterBits,
+            var orMore = contentLimitPx({ bits: t0, hrThreshold: t0, bitsPerInch: so0.bitsPerInch, maxInches: so0.maxInches, letterBits: so0.letterBits,
                                           letterLayout: so0.letterLayout, paperMm: so0.paperMm }).by === "bits"
               ? " (more bits buy more receipt, so a bigger cheer can print bigger)." : " or more.";
             fine.push(t0 > 0 && !allowsHighRoller(so0)
@@ -6422,12 +6471,17 @@
       // for a few seconds until it propagates. Turned or adjusted (1.8.0), it is drawn here from
       // the picture as read (turnedCanvas), as it prints.
       var thumb = mkEl("img", { alt: "", "class": "img-thumb" });
-      var thumbSrc = "", thumbKey = "", thumbTries = 0;
+      var thumbSrc = "", thumbKey = "", thumbTries = 0, thumbBroken = "";
       thumb.hidden = true;
       thumb.addEventListener("error", function () {
-        if (!thumbSrc || !isMintedImageUrl(thumbSrc) || thumbTries >= 4) return;
-        var u = thumbSrc, k = ++thumbTries;
-        setTimeout(function () { if (thumbSrc === u) thumb.src = u + (u.indexOf("?") < 0 ? "?" : "&") + "r=" + k; }, 1200);
+        if (thumbSrc && isMintedImageUrl(thumbSrc) && thumbTries < 4) {
+          var u = thumbSrc, k = ++thumbTries;
+          setTimeout(function () { if (thumbSrc === u) thumb.src = u + (u.indexOf("?") < 0 ? "?" : "&") + "r=" + k; }, 1200);
+          return;
+        }
+        // A picture that doesn't load (a link that's gone, 1.8.1) leaves no empty frame: the card's
+        // note says why. It shows again once the link changes.
+        thumbBroken = thumbSrc; thumb.hidden = true;
       });
       realWrap.appendChild(thumb);
       // Runs after every refresh (a costSyncs callback), because an upload, a setting or a read
@@ -6438,13 +6492,13 @@
         var u = block.imgKind === "real" ? (block.url || "") : "", t = realTurn(block), drawn = !!u && hasTurn(t) && !!block._img;
         var want = drawn ? "turn:" + turnKey(u, t) : u ? "url:" + u : "";
         thumb.style.filter = u && !drawn && (t.br || t.ct) ? "brightness(" + (100 + t.br) + "%) contrast(" + (100 + t.ct) + "%)" : "";
-        thumb.hidden = !u;
         if (want !== thumbKey) {
           thumbKey = want; thumbTries = 0;
           if (drawn) { thumbSrc = turnedCanvas(block._img, t, 440).toDataURL("image/jpeg", 0.85); thumb.src = thumbSrc; }
           else if (u) { thumbSrc = u; thumb.src = isMintedImageUrl(u) ? u : proxied(u); }
           else { thumbSrc = ""; thumb.removeAttribute("src"); }
         }
+        thumb.hidden = !u || thumbSrc === thumbBroken;
       };
       costSyncs.push(syncThumb);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
@@ -6539,8 +6593,8 @@
         fileHint.textContent = block.imgKind === "glyph"
           ? "A picked file is read on this device and never uploaded, so it isn't kept after a reload or saved in a preset: pick it again then. A link is kept."
           : "Picking a file uploads it to ImgBB (i.ibb.co) through this site, and its link fills in above. "
-            + "Anyone with the link can see the picture until ImgBB deletes it, a day later: after that the link prints nothing, "
-            + "in a saved preset too.";
+            + "Anyone with the link can see the picture until ImgBB deletes it, a day later. After that it's gone, and this card "
+            + "says so, in a saved preset too.";
         var picked = !block.url && block.fileName ? "“" + block.fileName + "”" : "";
         fileUse.textContent = !picked ? ""
           : block.imgKind !== "glyph"
@@ -6565,6 +6619,7 @@
           // (An expired upload link has its own note at the top of the card: one message, not two.)
           lines.push(/^file:/.test(block._decodeFailed)
             ? "That file couldn't be read as a picture. Pick another file."
+            : block._gone === block._decodeFailed ? goneWords(block.url, "glyph")
             : "The picture couldn't be read. Check the link, or pick the file instead. Until then this block prints nothing.");
         } else if (!block.url && !block._img && block.fileName) {
           lines.push("Pick “" + block.fileName + "” again: a picked file isn't kept after a reload or in a preset, so this "
@@ -6665,7 +6720,8 @@
         } else if (block._decoding) {
           lines.push("Reading the picture…");
         } else if (block._decodeFailed) {
-          lines.push("The picture couldn't be read. Check the link. Until then this block prints nothing.");
+          lines.push(block._gone === block._decodeFailed ? goneWords(block.url, "real")
+            : "The picture couldn't be read. Check the link. Until then this block prints nothing.");
         } else if (failed) {
           lines.push("The copy of it that prints couldn't be made (" + (block._turnError || "no reason given") + "). Until it is, this block prints nothing.");
         } else if (block._img && f.way === "copy") {
@@ -7212,8 +7268,8 @@
     // has expired, or a picked file a reload or a preset didn't keep. Such a block sends nothing,
     // and as long as another block prints, the parts looked complete: one live Copy and "One
     // 100-bit cheer. Paste it into chat and send it.", with the only word about it in grey on
-    // the Image card, often far from Copy (polish review 3). `why`: loading | link | file |
-    // expired | repick. Read after packStack, which starts the reads.
+    // the Image card, often far from Copy (polish review 3). `why`: loading | link | gone (its site
+    // answers "not found", 1.8.1) | file | expired | repick. Read after packStack, which starts the reads.
     function missingPictures() {
       var out = [];
       blocks.forEach(function (b, i) {
@@ -7225,20 +7281,21 @@
         if (!link && !b.fileName) return;
         var why = b._decoding ? "loading"
           : b._expired ? "expired"
-          : b._decodeFailed ? (/^file:/.test(b._decodeFailed) ? "file" : "link")
+          : b._decodeFailed ? (/^file:/.test(b._decodeFailed) ? "file" : b._gone === b._decodeFailed ? "gone" : "link")
           : link ? "loading" : "repick";
-        out.push({ at: i + 1, name: b.fileName || "", why: why });
+        out.push({ at: i + 1, name: b.fileName || "", why: why, url: b.url || "" });
       });
       return out;
     }
     // The red notice at the top of the parts, one line per missing picture.
     function pictureAlert(missing) {
       return missing.map(function (m) {
-        var who = "The picture in block " + m.at + " from the top" + (m.name && m.why !== "link" ? " (" + m.name + ")" : "");
+        var who = "The picture in block " + m.at + " from the top" + (m.name && m.why !== "link" && m.why !== "gone" ? " (" + m.name + ")" : "");
         return m.why === "loading"
           ? who + " is still loading, so these parts don't have it yet. Copy comes back once it has loaded."
           : who + " isn't in these parts: " + ({
               link: "its link can't be read. Check the link, or pick the file instead.",
+              gone: goneWords(m.url, "alert"),
               file: "that file couldn't be read as a picture. Pick another file.",
               expired: "its uploaded link has expired (uploads last 15 minutes). Pick the file again or paste another link.",
               repick: "a picked file isn't kept after a reload or in a preset. Pick it again on its card.",
@@ -7464,7 +7521,7 @@
       syncModeUi();
       // The layout the preview draws with, read off the vendored block itself, so it can't drift from
       // it. SassyTP's bot can download a newer layout to the streamer's dock by itself. Since 1.3.0 the
-      // block is Printer Bot 3.0's (3.0.1's since 1.4.1, 3.0.4's since 1.8.0). Layouts that print the
+      // block is Printer Bot 3.0's (3.0.1's since 1.4.1, 3.0.4's since 1.8.0, 3.0.5's since 1.8.1). Layouts that print the
       // app's messages the same on a roll are named as such, each with what differs (1.4.1 named
       // 3.0.0-beta.7's and 2.5.4's). Since 3.0.4 the bot leaves each cheer's Cheer word out, and every
       // older layout prints it (a line above each High Roller part), so none is named, and the line
@@ -7572,7 +7629,7 @@
       PAPERS: PAPERS, paperSpec: paperSpec, BASE_PX: BASE_PX, BASE_LH: BASE_LH, LEAD_LINE_PX: LEAD_LINE_PX,
       // Letter (1.6.0).
       mmPerPx: mmPerPx, targetPaper: targetPaper, LETTER_CHROME_PX: LETTER_CHROME_PX, letterBitsOf: letterBitsOf,
-      colourOf: colourOf, letterDither: letterDither, blockLook: blockLook, allowsHighRoller: allowsHighRoller,
+      letterLayoutFor: letterLayoutFor, goneWords: goneWords, colourOf: colourOf, letterDither: letterDither, blockLook: blockLook, allowsHighRoller: allowsHighRoller,
       boxWords: boxWords, tallWords: tallWords,
       CONTENT_CEILING_PX: CONTENT_CEILING_PX, PX_PER_INCH: PX_PER_INCH, MAX_CAP_INCHES: MAX_CAP_INCHES,
       HR_DEFAULT: HR_DEFAULT, HR_MAX: HR_MAX, hrThresholdOf: hrThresholdOf, bitsPerInchOf: bitsPerInchOf,
@@ -7638,8 +7695,8 @@
 <!--
   The receipt preview is drawn by SassyTP's printer-bot renderer (MIT): the receipt page the bot
   itself prints from, kept here as inert text and loaded into one sandboxed frame per part.
-  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0/renderer.html  commit fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2
-  (renderer version 202610150141, upstream file sha256 f4f4d5bbb25f352324261df90303ec3517617a49effd5610e644fd61734afa06)
+  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0/renderer.html  commit d4800f82d2074246bb1141def6ba72d713811e2c
+  (renderer version 202610150536, upstream file sha256 94704db2b114e7646bb3130f0ebcc1078fc3b6d7d3c637878528da9e18e270cf)
 
   MIT License
 
@@ -7668,7 +7725,7 @@
   logo; (2) the page's Content-Security-Policy is a no-network policy; (3) every closing script tag
   is written with a backslash before its slash, undone when the app reads the block.
 -->
-<script type="text/plain" id="sassytp-renderer" data-commit="fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2" data-path="v/3.0.0/renderer.html" data-version="202610150141">
+<script type="text/plain" id="sassytp-renderer" data-commit="d4800f82d2074246bb1141def6ba72d713811e2c" data-path="v/3.0.0/renderer.html" data-version="202610150536">
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7678,7 +7735,7 @@
 <!-- RW-EDIT 2 (Receipt Wrecker): this policy replaces the page's own. Nothing loads from the network (no connections, images only from data: URLs) and no frame, form or object; inline scripts are allowed instead of the renderer script's hash, so the preview's glue script can run next to it. -->
 <!-- RW-EDIT 3 (Receipt Wrecker): every closing script tag in this copy is written with a backslash before its slash, so the page can sit inside Receipt Wrecker's own page as inert text. The app takes the backslash out again before it loads the page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
-<meta name="printer-bot-renderer" content="202610150141">
+<meta name="printer-bot-renderer" content="202610150536">
 <style>
 /*
  * Printer Bot receipt
@@ -8281,9 +8338,14 @@ img.msg-image {
 window.PrinterBot = (function () {
     'use strict';
 
-    const VERSION = '202610150141';
+    const VERSION = '202610150536';
     // RW-EDIT 1 (Receipt Wrecker): the Twitch, YouTube and Kick logos (trademarks of their owners, outside the MIT licence) are replaced by one plain grey box the size of the Twitch logo (336 x 112 px), so the footer keeps its size.
     const ICONS = {"twitch":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","youtube":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","kick":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII="};
+    // 3.0.5: the picture of a YouTube receipt that has none (the samples, a typed test, a viewer with no picture): a grey person drawn here, so nothing is downloaded.
+    // Only a handler's avatarPlaceholder puts it on a receipt (see show).
+    const NO_PICTURE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="120" height="120" fill="#d6d6d6"/>' +
+        '<circle cx="60" cy="47" r="22" fill="#8d8d8d"/><path d="M18 120c2-27 20-41 42-41s40 14 42 41z" fill="#8d8d8d"/></svg>');
+    let avatarStandIn = false;                           // the receipt that is being built may fall back to NO_PICTURE (set by show, read by settle)
 
     // CSS px (~1.3 m of paper). The hard ceiling for every receipt except a gift list or the item list of an order. Such a list (the `roomy` flag, see show())
     // has no ceiling here, because every name or item that arrives has to print. The action holds it to a far larger sanity limit (see MaxReceiptCssHeight in the C# code).
@@ -9700,7 +9762,7 @@ window.PrinterBot = (function () {
             return {
                 avatar: await getAvatar(d.userName, 'twitch'),
                 title: `${displayName(d.bits, 12)} BITS`, subtitle: displayName(d.user), content, icon: 'twitch',
-                highRoller: raw ? { bits: d.bits } : null, contentPlain: raw ? message(said) : null,
+                highRoller: raw ? { bits: d.bits } : null, contentPlain: raw ? message(said) : null, largePage: isHighRoller(d.bits, opts),
             };
         },
         async TwitchRewardRedemption(d) {
@@ -9734,7 +9796,7 @@ window.PrinterBot = (function () {
                 avatar: await getAvatar(d.recipientUserName, 'twitch'),
                 title: 'Gifted Sub',
                 content: text(`<b>${gifter}</b><br>gifted a ${nm(d.tier, 24)} sub to<br><b>${nm(d.recipientUser)}</b>`),
-                icon: 'twitch',
+                icon: 'twitch', largePage: true,
             };
         },
         async TwitchGiftBomb(d) {
@@ -9756,7 +9818,7 @@ window.PrinterBot = (function () {
                 content: [lead(nm(cap(d.tier), 24)),
                           d.totalGifts > 1 ? text(`They've gifted <b>${nm(d.totalGifts, 12)} subs</b> in total!`) : null,
                           recipients.length ? { kind: 'text', html: recipients.join('<br>'), roomy: true, list: { items: listed, tail, more: unlisted, perPage: NAMES_PER_PAGE } } : null],
-                icon: 'twitch',
+                icon: 'twitch', largePage: true,
             };
         },
         async TwitchRaid(d) {
@@ -9839,45 +9901,45 @@ window.PrinterBot = (function () {
             // levelName is the membership level's own name. Streamer.bot's Test button sends it empty, so the title has to work without it.
             const level = displayName(d.levelName);
             return {
-                avatar: d.userProfileUrl || '', title: level || (d.isUpgrade ? 'Upgraded Member' : 'New Member'), subtitle: displayName(d.user),
+                avatar: d.userProfileUrl || '', avatarPlaceholder: true, title: level || (d.isUpgrade ? 'Upgraded Member' : 'New Member'), subtitle: displayName(d.user),
                 content: level ? lead(d.isUpgrade ? 'Upgraded membership!' : 'New member!') : null, icon: 'youtube',
             };
         },
         async YouTubeMemberMileStone(d) {
             const months = d.months ?? d.memberMonth;
             return {
-                avatar: d.userProfileUrl || '', title: displayName(d.levelName) || 'Member', subtitle: displayName(d.user),
+                avatar: d.userProfileUrl || '', avatarPlaceholder: true, title: displayName(d.levelName) || 'Member', subtitle: displayName(d.user),
                 content: [months ? lead(`${nm(months, 12)} month${Number(months) === 1 ? '' : 's'}`) : null, d.message ? message(d.message) : null], icon: 'youtube',
             };
         },
         async YouTubeMembershipGift(d) {
             return {
-                avatar: d.userProfileUrl || '', titleHtml: `${nm(d.count ?? 1, 12)} × Gifted Memberships`, subtitle: displayName(d.user),
-                content: d.tier ? lead(nm(d.tier, 24)) : null, icon: 'youtube',
+                avatar: d.userProfileUrl || '', avatarPlaceholder: true, titleHtml: `${nm(d.count ?? 1, 12)} × Gifted Memberships`, subtitle: displayName(d.user),
+                content: d.tier ? lead(nm(d.tier, 24)) : null, icon: 'youtube', largePage: true,
             };
         },
         async YouTubeGiftMembershipReceived(d) {
             return {
-                avatar: d.gifterProfileUrl || '', title: 'Gifted Membership',
-                content: text(`<b>${nm(d.gifterUser)}</b><br>gifted a membership to<br><b>${nm(d.user)}</b>!`), icon: 'youtube',
+                avatar: d.gifterProfileUrl || '', avatarPlaceholder: true, title: 'Gifted Membership',
+                content: text(`<b>${nm(d.gifterUser)}</b><br>gifted a membership to<br><b>${nm(d.user)}</b>!`), icon: 'youtube', largePage: true,
             };
         },
         // 3.0.2: YouTube High Roller. When the action says that this Super Chat is a High Roller one (options.youtubeHighRoller, its amount in the streamer's currency reached the
         // YouTube High Roller amount), its message is used as-is, under the same rules as a High Roller cheer, and the plain message is kept for a printer that does not allow it
         // (options.allowYouTubeHighRoller is not true, see viewOf).
+        // 3.0.5: the header of a cheer (picture, amount, "Name sent a Super Chat!", date), so the box holds only the viewer's message.
         async YouTubeSuperChat(d, opts) {
             const yt = d.message ? youtubeHighRollerOf(opts) : null;
-            const sent = text(`<b>${nm(d.user)}</b><br>sent a Super Chat!`);
             return {
-                avatar: d.userProfileUrl || '', title: displayName(d.amount, 24), titleBig: true, icon: 'youtube',
-                content: [sent, d.message ? (yt ? { kind: 'raw', rich: d.message } : message(d.message)) : null],
-                highRoller: yt ? { youtube: yt } : null, contentPlain: yt ? [sent, message(d.message)] : null,
+                avatar: d.userProfileUrl || '', avatarPlaceholder: true, title: displayName(d.amount, 24), subtitle: `${displayName(d.user)} sent a Super Chat!`.trim(),
+                content: d.message ? (yt ? { kind: 'raw', rich: d.message } : message(d.message)) : null, icon: 'youtube',
+                highRoller: yt ? { youtube: yt } : null, contentPlain: yt ? message(d.message) : null, largePage: youtubeHighRollerOf(opts) !== null,
             };
         },
         async YouTubeSuperSticker(d) {
             return {
-                avatar: d.stickerImageUrl || '', title: displayName(d.amount, 24), titleBig: true,
-                content: text(`<b>${nm(d.user)}</b><br>sent a Super Sticker!`), icon: 'youtube',
+                avatar: d.stickerImageUrl || '', avatarPlaceholder: true, title: displayName(d.amount, 24), subtitle: `${displayName(d.user)} sent a Super Sticker!`.trim(),
+                content: null, icon: 'youtube',
             };
         },
 
@@ -9894,7 +9956,7 @@ window.PrinterBot = (function () {
         async KickGiftSubscription(d) {
             return {
                 avatar: await getAvatar(d['recipient.userLogin'], 'kick'), title: 'Gifted Sub',
-                content: text(`<b>${nm(d.user)}</b><br>gifted a sub to<br><b>${nm(d['recipient.userName'])}</b>!`), icon: 'kick',
+                content: text(`<b>${nm(d.user)}</b><br>gifted a sub to<br><b>${nm(d['recipient.userName'])}</b>!`), icon: 'kick', largePage: true,
             };
         },
         async KickMassGiftSubscription(d) {
@@ -9920,7 +9982,7 @@ window.PrinterBot = (function () {
             return {
                 avatar: await getAvatar(d.user, 'kick'),
                 titleHtml: `${nm(total, 12)} × Gifted Subs`, subtitle: displayName(d.user),
-                content: { kind: 'text', html: names.join('<br>'), roomy: true, list: { items: listed, tail, more: unlisted, perPage: NAMES_PER_PAGE } }, icon: 'kick',
+                content: { kind: 'text', html: names.join('<br>'), roomy: true, list: { items: listed, tail, more: unlisted, perPage: NAMES_PER_PAGE } }, icon: 'kick', largePage: true,
             };
         },
 
@@ -10168,7 +10230,10 @@ window.PrinterBot = (function () {
 
         let avatarUrl = safeAvatarUrl(model.avatar);                         // (a refused URL is noted in the log, with its host)
         if (avatarUrl && isBadImage(avatarUrl)) avatarUrl = '';              // this picture failed (or didn't load in time) a moment ago: don't wait for it again
-        if (avatarUrl) { const shown = pickAvatarImage(avatarUrl); pinImage(shown); avatar.src = shown; if (model.avatarSquare) avatar.style.borderRadius = '0px'; }       // (the larger picture, see largerAvatarUrl)
+        avatarStandIn = model.avatarPlaceholder === true;                    // only a handler sets it (event data cannot)
+        if (!avatarUrl && avatarStandIn) avatarUrl = NO_PICTURE;
+        if (avatarUrl === NO_PICTURE) avatar.src = NO_PICTURE;
+        else if (avatarUrl) { const shown = pickAvatarImage(avatarUrl); pinImage(shown); avatar.src = shown; if (model.avatarSquare) avatar.style.borderRadius = '0px'; }       // (the larger picture, see largerAvatarUrl)
         else { avatar.style.display = 'none'; $('receipt-container').classList.add('no-avatar'); }
 
         if (model.titleBig) title.classList.add('big');
@@ -10443,9 +10508,14 @@ window.PrinterBot = (function () {
         const avatar = $('receipt-avatar');
         const jobs = [];
         if (avatarUrl) {
-            jobs.push(waitAvatar(avatarUrl).then((ok) => {
+            jobs.push(waitAvatar(avatarUrl).then(async (ok) => {
                 if (ok) return;
-                markBad(avatarUrl);
+                if (avatarUrl !== NO_PICTURE) markBad(avatarUrl);
+                if (avatarStandIn && avatarUrl !== NO_PICTURE) {                  // a YouTube picture that did not come: the stand-in, like a receipt with no picture
+                    avatar.style.borderRadius = '';
+                    avatar.src = NO_PICTURE;
+                    if (await waitImage(avatar, EMOTE_WAIT_MS)) return;
+                }
                 avatar.removeAttribute('src');
                 avatar.style.display = 'none';
                 $('receipt-container').classList.add('no-avatar');
@@ -10535,8 +10605,20 @@ window.PrinterBot = (function () {
         return present(lastModel, options || {});
     }
 
+    // 3.0.5 (the owner's rule, 15 Oct 2026): a printer set to Large message gives the large layout only to a cheer of at least the High Roller bits, a Super Chat that reached the YouTube
+    // High Roller amount, and the gift subscriptions of Twitch, YouTube and Kick (their names keep the columns of the large layout). The value counts, not the printer's switch: a big cheer on
+    // a printer that does not allow High Roller prints still gets the large page, with its plain message. Every other receipt prints as a printer set to Scaled prints it. Only a handler
+    // sets largePage, so event data cannot ask for the large layout.
+    function layoutFor(model, opts) {
+        if (!opts || opts.layout !== 'message' || model.largePage === true) return opts;
+        const scaled = Object.assign({}, opts);
+        delete scaled.layout;                                                     // (Image fit applies only with the large layout)
+        return scaled;
+    }
+
     // Builds the page from a model and reports how tall it is (the picture is taken by the action). The handler has run already, once per event.
-    async function present(model, opts) {
+    async function present(model, options) {
+        const opts = layoutFor(model, options);
         const avatarUrl = show(model, opts);
         await settle(avatarUrl);
         enforceImageLimit();

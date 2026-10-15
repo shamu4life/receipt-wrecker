@@ -65,9 +65,9 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 
 ## Self-hosting (running your own instance)
 
-Receipt Wrecker is a static page plus a small Worker. The page alone works anywhere; the Worker adds the picture-link proxy, uploads and the adjustment bake.
+Receipt Wrecker is a static page plus a small Worker. The page alone works anywhere; the Worker adds the picture-link proxy and the uploads to ImgBB.
 
-1. **Cloudflare Workers.** The repo is wired for this. `src/worker.js` serves `public/` as [static assets](https://developers.cloudflare.com/workers/static-assets/) and handles `POST /upload`, the image routes and the `/px` proxy. Deploy with `npx wrangler deploy` (credentials via `wrangler login`). `wrangler.jsonc` declares two custom domains in `routes` (both must stay listed), an `RW_IMG_HOST` var and the `RW_IMG` KV namespace, so a fork needs its own KV namespace id and domains, or none.
+1. **Cloudflare Workers.** The repo is wired for this. `src/worker.js` serves `public/` as [static assets](https://developers.cloudflare.com/workers/static-assets/) and handles the `/px` proxy and `POST /imgbb` (a Real picture's upload to ImgBB). Deploy with `npx wrangler deploy` (credentials via `wrangler login`). `wrangler.jsonc` declares the custom domain in `routes` and the `RW_IMG` KV namespace (where `/imgbb` keeps its hourly counts), so a fork needs its own KV namespace id and domain, or none. Uploads also need an ImgBB API key as the Worker secret `IMGBB_KEY` (`npx wrangler secret put IMGBB_KEY`); without it they say "uploads are off right now".
 2. **Any static host.** Put `public/` on GitHub Pages, Netlify, S3 or your own server.
 3. **Just open the file.** Text in every mode and pictures picked from disk work with no server at all.
 
@@ -89,14 +89,14 @@ Receipt Wrecker is a static page plus a small Worker. The page alone works anywh
 These are the non-negotiables. A PR that breaks one of them won't be merged without a very good reason.
 
 - **Stay single-file.** All CSS and JS stay inline in `public/index.html`. No separate assets, no bundler, no framework, no runtime dependencies, no CDN, no web fonts, no external images.
-- **Network calls only to our own Worker, and no new ones.** The app's script has exactly four `fetch` call sites, all same-origin: two `GET /px` (reading a pasted picture link for glyph-art, and for the adjustment bake) and two `POST /upload` (the bake, and a file picked on a Real picture card). The preview fetches nothing. Don't add a fifth, don't call a third party, and don't touch the SSRF guard on `/px`.
+- **Network calls only to our own Worker, and no new ones.** The app's script has exactly two `fetch` call sites, both same-origin: `GET /px` (reading a pasted picture link, for Glyph-art and a Real picture) and `POST /imgbb` (a file picked on a Real picture card, and a Real picture's turned and adjusted copy, uploaded to ImgBB). The preview fetches nothing. Don't add a third, don't call a third party from the page, and don't touch the SSRF guard on `/px`.
 - **Four `localStorage` keys, no more**: `rw_controls_v1` (settings), `rw_nonce_seq` (the repeat-number counter), `rw_blocks_v1` (the block stack) and `rw_presets_v1` (presets), each wrapped in `try/catch`. New state goes in as a field of one of them.
 - **Vanilla, ES5-ish IIFE.** One `"use strict"` IIFE, `var` and function expressions. Match the surrounding code.
 - **What a message may contain.** Only the tags `div` and `pre` (every line or row is its own `div`: never a `<br>`, which the channel's chat filter blocks), only the `style` attribute, and only style declarations SassyTP's sanitizer keeps. Never a picture tag (the channel's chat filter blocks it). The literal word `font` is also blocked by the chat filter, so the CSS property name is written `\66ont` (a unicode escape the browser resolves to `font`) via `FONT_PROP` in the pure core. Don't bypass it. A message never starts with `<`. Every user-supplied character that lands in markup goes through `escapeHtml` / `escapeAttr`. `test/tags.test.mjs` enforces the tag rule and the no-literal-`font` rule.
 - **Every High Roller mode has a plain form behind it.** Below the threshold the bot prints plain text, and the app prints Han tiling. Don't add a mode without one.
 - **Never route around a channel's moderation.** If a channel blocks a form, the answer is the plain form. No obfuscated tokens (case, entities, spacing, zero-width characters, CSS escapes), no swapping in another tag to get the same effect, and no describing word-splitting as a way past a filter. See THE RULE in `CLAUDE.md`, which notes the two existing owner-chosen exceptions (`<br>`→`<div>` and `font`→`\66ont`) and warns against adding a third.
 - **Credit SassyTP, don't borrow the name.** The preview is drawn by SassyTP's printer-bot renderer (MIT). Keep its notice; never use SassyTP's name or logo as this app's name, and never commit the platform logos.
-- **Privacy: be accurate about it.** Text and a picture picked from disk never leave the device; pasting a picture link, uploading on a Real picture card, and adjusting one do send data to this project's Worker. No analytics, accounts or third parties.
+- **Privacy: be accurate about it.** Text and a picture picked from disk for Glyph-art never leave the device; pasting a picture link sends it through this project's Worker, and a file picked on a Real picture card, or a Real picture's adjusted copy, goes through it to ImgBB, public to anyone with the link until ImgBB deletes it a day later. No analytics or accounts.
 
 ---
 

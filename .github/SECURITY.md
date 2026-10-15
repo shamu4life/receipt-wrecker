@@ -39,13 +39,13 @@ is a hobby project, but credit is gladly given in the advisory if you'd like it.
   and v4-mapped forms checked, and every redirect hop re-validated. **Any bypass of
   that guard is a real vulnerability. Please report it.** `test/proxy.test.mjs`
   covers the known cases.
-- Abuse of `POST /upload`. It accepts `image/*` only, caps bodies at 5 MB, and
-  stores objects in Cloudflare KV under a random key with a native 15-minute TTL.
-  Ways to store non-images, exceed the cap, bypass the TTL, or enumerate other
-  people's keys are in scope.
-- The image-serving routes. Keys are matched by shape (`imageKeyFor`), which
-  shares a namespace with the static site. A path that makes an image route shadow
-  or replace a real asset, or that escapes the key pattern, is in scope.
+- Abuse of `POST /imgbb` (1.8.0). It uploads a picture to ImgBB with the site
+  owner's API key (the Worker secret `IMGBB_KEY`): only a JPEG, at most 5 MB, only
+  from this site's own page, 20 an hour per viewer (counted in Cloudflare KV under a
+  hash of the address), and it hands back only a checked `i.ibb.co` picture link.
+  Ways to upload anything else, from elsewhere or past the hourly count, or to get
+  the key back, are in scope. (1.8.1 removed the older `POST /upload` and the routes
+  that served its pictures.)
 - XSS in the app's own page, via how a payload, a control value or an imported
   preset is rendered.
 - Escaping the preview frame. Each part is drawn by SassyTP's receipt page (vendored

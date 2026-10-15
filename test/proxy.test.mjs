@@ -99,48 +99,25 @@ test("still ALLOWS an IPv4-mapped IPv6 that embeds a PUBLIC address", () => {
   ok("http://[::ffff:8.8.8.8]/x.png");
 });
 
-// ── /px serves OUR OWN minted links from KV, never by fetching them ──────────
-// i.uwutoowo.com is a custom domain on this same Worker, so fetch()-ing it asks
-// Cloudflare to route a request from the Worker back into the Worker. Measured on
-// production: a 522 from the edge, surfaced as `upstream said 522`, against a link
-// that returned 200 to curl a second earlier. So the Worker answers its own links from
-// KV instead. Since 1.0.0 nothing uploaded prints and the Thermal preview fetches
-// nothing; this path serves glyph-art's decoding of a minted link and the Real
-// picture card's brightness/contrast bake, which both read the link through /px.
+// ── /px reads nothing out of KV (1.8.1) ──────────────────────────────────────
+// Until 1.8.1 /px answered the links /upload made (i.uwutoowo.com/<hex>.png) out of KV, since
+// fetching a custom domain of this same Worker loops back into it. /upload and its picture routes
+// are gone (the owner's decision), and so is that path: a link shaped like one of those is fetched
+// like any other, and an old upload link is simply gone.
 import worker from "../src/worker.js";
 
 const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer;
-const kv = (hit) => ({
-  getWithMetadata: async (k) =>
-    (hit && k === "0123456789ab" ? { value: PNG, metadata: { ct: "image/png" } } : null),
-});
 const px = (u, env) =>
   worker.fetch(new Request("https://receipt.uwutoowo.com/px?u=" + encodeURIComponent(u)), env);
 
-test("/px answers our own minted link out of KV instead of fetching it", async () => {
-  // No network is available in this test process, so a fetch would throw and the
-  // handler would report 502 — reaching 200 with the bytes proves KV answered.
-  const res = await px("https://i.uwutoowo.com/0123456789ab.png",
-    { RW_IMG: kv(true), RW_IMG_HOST: "i.uwutoowo.com" });
-  assert.equal(res.status, 200, "our own host must be served from KV, not fetched");
-  assert.equal(res.headers.get("content-type"), "image/png");
-  assert.equal(new Uint8Array(await res.arrayBuffer())[1], 80, "the PNG bytes must come back");
-});
-
-test("/px says expired — not 502 — for a minted link we no longer hold", async () => {
-  const res = await px("https://i.uwutoowo.com/0123456789ab.png",
-    { RW_IMG: kv(false), RW_IMG_HOST: "i.uwutoowo.com" });
-  assert.equal(res.status, 404, "the host is ours, so nobody else can answer for it");
-});
-
-test("/px still PROXIES a third-party URL that merely looks like a minted one", async () => {
-  // imageKeyFor matches by path SHAPE alone. Without the host gate this ordinary CDN
-  // filename would be answered out of our KV and 404 as "expired" — a whole class of
-  // perfectly good pictures broken by a naming coincidence.
-  const res = await px("https://cdn.example.com/0123456789ab.png",
-    { RW_IMG: kv(true), RW_IMG_HOST: "i.uwutoowo.com" });
-  assert.notEqual(res.status, 200, "a third-party host must never be served from our KV");
-  assert.notEqual(res.status, 404, "and must not be reported as an expired link of ours");
+test("/px never answers out of KV, not even for a link shaped like an old upload link", async () => {
+  for (const u of ["https://i.uwutoowo.com/0123456789ab.png", "https://receipt.uwutoowo.com/0123456789ab.png"]) {
+    const reads = [];
+    const kv = { getWithMetadata: async (k) => { reads.push(k); return { value: PNG, metadata: { ct: "image/png" } }; } };
+    const res = await px(u, { RW_IMG: kv, RW_IMG_HOST: "i.uwutoowo.com" });
+    assert.deepEqual(reads, [], u + ": KV must not be read");
+    assert.notEqual(res.status, 200, u + ": no picture comes out of KV");
+  }
 });
 
 // The guard's CONTRACT, stated as a test so the residual is a decision on the record

@@ -204,17 +204,17 @@ test("the High Roller test on Letter: sized for the page, boxed by it, centred i
 
 test("the Plain test on Letter: 23 cells a row, one cheer; a page too short for HI sends the row of tones alone", () => {
   const P = (o) => C.buildPlainProbe({ hrThreshold: 1000, letterBits: 500, paperMm: 80, ...o });
-  const m = P({ letterLayout: "message" });
-  eq([m.bits, m.paperMm, m.bodies.length, m.bodies[0].hanzi.cols], [999, "letter", 1, 23]);
-  assert.match(m.note, /which prints on the Letter printer/);
-  assert.match(m.note, /HI in Han characters/);
-  assert.match(m.note, /every row holds 23 characters/);
   // Scaled like 80 mm: 125 px is five lines, a header, three rows and the tail: no room for HI's seven.
   const s = P({});
-  eq([s.bodies.length, s.bodies[0].hanzi.rows], [1, 1]);
+  eq([s.bits, s.paperMm, s.bodies.length, s.bodies[0].hanzi.cols, s.bodies[0].hanzi.rows], [999, "letter", 1, 23, 1]);
+  assert.match(s.note, /which prints on the Letter printer/);
   assert.doesNotMatch(s.note, /HI in Han characters/);
   assert.match(s.note, /a light first line, a row of tones and a light last line/);
+  assert.match(s.note, /Check that the row holds 23 characters/);
   assert.match(s.note, /leaves room for only 3 rows, so HI is left out/);
+  // A printer set to Large message prints this cheer, below the threshold, Scaled like 80 mm
+  // (Printer Bot 3.0.5), so the test is the same. Before 3.0.5 it got the large page, with HI.
+  assert.equal(P({ letterLayout: "message" }).note, s.note);
   // On the roll nothing changes.
   const roll = C.buildPlainProbe({ hrThreshold: 25, letterBits: 500, paperMm: 80 });
   eq([roll.paperMm, roll.bodies.length, roll.bodies[0].hanzi.cols, roll.bodies[0].hanzi.rows], [80, 1, 15, 9]);

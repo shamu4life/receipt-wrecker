@@ -226,10 +226,10 @@ test("buildHanTyped: a plain cheer gets the light first row for the quote mark a
   const text = "一二三四五六七八九十一二三四五" + "六七八九十一二三四五六七八九十";
   const b = C.buildHanTyped(text, { mode: "plain", paperMm: 80, cheer: true, bits: 24, noNonce: true, limitPx: 1600 });
   assert.equal(b.length, 1);
-  assert.equal(b[0].html, "丶".repeat(14) + text);
+  assert.equal(b[0].html, "丶".repeat(14) + text + C.DESIGN_T_TAIL);
   assert.equal(b[0].alone, true);
   eq(C.packStackBodies(b, C.stackContext({ cheer: true, bits: 24, noNonce: true, paperMm: 80, hrThreshold: 25 })).map((p) => p.payload),
-    ["丶".repeat(14) + text + " Cheer24"]);
+    ["丶".repeat(14) + text + C.DESIGN_T_TAIL + " Cheer24"]);
 });
 
 test("buildHanTyped: a High Roller cheer has no quote marks, so no light first row", () => {

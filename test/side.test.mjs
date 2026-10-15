@@ -287,19 +287,27 @@ test("polish 4: ink past the end of the run gets room: padding-bottom for an f o
   // Its height is the run plus the padding (sideSegLen's rule: S x em + 0.5 a glyph).
   const run = 193 * C.bigLineEm("stuff") + 0.5 * 5;
   assert.ok(Math.abs(stuff[0].heightPx - (run + 7)) < 1e-6, stuff[0].heightPx + " vs " + (run + 7));
-  // Only the end at the BOTTOM counts: top to bottom a j's hook reaches up into the Cheer line,
-  // which is not cut, and bottom to top so does an f's arm.
-  assert.ok(!/padding/.test(build("jog", {})[0].html), "a j at the top of a top-to-bottom column");
+  // Since Printer Bot 3.0.4 the TOP end counts too (1.8.0): it prints no Cheer line, so the first
+  // body of a part starts at the top of the bot's box, which cuts there as well (bench, 3.0.4's
+  // page: the j of "just" at the top of a top-to-bottom column rose 8.3px above it, an f ending a
+  // bottom-to-top one 5.0px). That end gets padding-top.
+  assert.match(build("jog", {})[0].html, /;margin:auto;padding-top:10px;position:relative;left:-?\d+px">jog<\/div>$/, "a j at the top of a top-to-bottom column");
   assert.ok(/padding-bottom:10px/.test(build("jog", { dir: "up" })[0].html), "and at the bottom of a bottom-to-top one");
-  assert.ok(!/padding/.test(build("of", { dir: "up" })[0].html), "an f at the top of a bottom-to-top column");
+  assert.ok(!/padding-top/.test(build("jog", { dir: "up" })[0].html), "a g ends it: nothing at its top");
+  assert.match(build("of", { dir: "up" })[0].html, /;margin:auto;padding-top:7px;/, "an f at the top of a bottom-to-top column");
   assert.ok(/padding-bottom:7px/.test(build("of", {})[0].html), "and at the bottom of a top-to-bottom one");
+  // Its height counts it: "jog" top to bottom is its run plus the padding at its top.
+  const jog = build("jog", {})[0];
+  assert.ok(Math.abs(jog.heightPx - (jog.side.px * C.bigLineEm("jog") + 0.5 * 3 + 10)) < 1e-6, jog.heightPx + "");
   // Text whose ends stay inside the run is byte-identical to before: no padding.
   for (const t of ["HELLO", "HAPPY\nBIRTHDAY", "HI, BOB", "happy\nbirthday"]) {
     for (const dir of ["down", "up"]) assert.ok(!/padding/.test(build(t, { dir }).map((b) => b.html).join("")), t + " " + dir);
   }
   // A long run cut into several bodies: each body pads only for its own columns' ends, and the
   // whole run still fits the box and the 500 characters.
-  const k = ctx(), long = build("stuff and more stuff for you all of it", { size: 120 }, k);
+  // (With the repeat number's line: in the whole box, as Printer Bot 3.0.4 leaves it without one,
+  // the first body holds "stuff and more stuff for you" and no cut lands after a "stuff".)
+  const k = ctx({ noNonce: false }), long = build("stuff and more stuff for you all of it", { size: 120 }, k);
   assert.ok(long.length >= 2);
   for (const p of C.packStackBodies(long, k)) {
     assert.ok(p.chars <= C.MAX_CHARS);

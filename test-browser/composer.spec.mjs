@@ -32,7 +32,7 @@ import { serve } from "./_serve.mjs";
 import { loadCore } from "../test/_harness.mjs";
 
 const C = loadCore();
-let server, browser, PIC, PIC_WIDE;
+let server, browser, PIC, PIC_WIDE, PIC_TALL;
 
 test.before(async () => {
   server = await serve();
@@ -64,6 +64,16 @@ test.before(async () => {
     x.fillStyle = "#888"; x.fillRect(0, 160, 400, 40);
     return c.toDataURL("image/png");
   });
+  // 1.8.0: PIC_WIDE turned 90 degrees clockwise (200 x 400), what a turned copy of it is.
+  PIC_TALL = await p.evaluate(async (src) => {
+    const im = new Image(); im.src = src; await im.decode();
+    const c = document.createElement("canvas");
+    c.width = im.naturalHeight; c.height = im.naturalWidth;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    x.translate(c.width / 2, c.height / 2); x.rotate(Math.PI / 2); x.drawImage(im, -im.naturalWidth / 2, -im.naturalHeight / 2);
+    return c.toDataURL("image/png");
+  }, PIC_WIDE);
   await ctx.close();
 });
 test.after(async () => {
@@ -190,14 +200,19 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
       let bodies;
       const look = K.blockLook(b, ctx);
       if (b.type === "image") {
-        const real = b.imgKind !== "glyph", f = real ? K.realPictureForm({ url: b.url, mode: ctx.mode, imageSites: ctx.imageSites }) : null;
+        const real = b.imgKind !== "glyph", turn = real ? K.realTurn(b) : null;
+        const f = real ? K.realPictureForm({ url: b.url, mode: ctx.mode, imageSites: ctx.imageSites, turn, letter: !!ctx.letter,
+                                             turnedUrl: K.turnedCopyUrl(b, Date.now()) }) : null;
         if (real && f.form === "none") continue;
         const img = new Image();
         img.src = (window.__rwPictureStub && window.__rwPictureStub[b.url]) || b.url;
         await img.decode();
         if (real && f.form === "picture") {
-          for (const x of K.buildPictureBodies(f.link, img.naturalWidth, img.naturalHeight,
-                                               { contentW: ctx.contentW, heightPx: ctx.room, pxPerInch: ctx.paper.pxPerInch, shrinks: !!ctx.letter })) all.push(x);
+          // 1.8.0: a turn alone in the message (way "css"); the copy, turned, once made (way "copy").
+          const po = { contentW: ctx.contentW, heightPx: ctx.room, pxPerInch: ctx.paper.pxPerInch, shrinks: !!ctx.letter };
+          const sz = f.way === "copy" ? K.turnedSize(img.naturalWidth, img.naturalHeight, turn.deg) : { w: img.naturalWidth, h: img.naturalHeight };
+          if (f.way === "css") po.deg = turn.deg;
+          if (f.link) for (const x of K.buildPictureBodies(f.link, sz.w, sz.h, po)) all.push(x);
           continue;
         }
         const grid = K.glyphGrid(b, img, ctx);
@@ -250,6 +265,8 @@ async function drawnPart(page, i, payload) {
 // resets of the `font` shorthand (font-kerning, font-feature-settings, ...), and for each of
 // those the check is that dropping it changes nothing: the printed element's computed value
 // is exactly what was sent. Plain parts print as text: the text must be the payload itself.
+// `sent` is what the bot keeps of the payload: since Printer Bot 3.0.4 it takes the Cheer word
+// out first (the core's printedMessage, the renderer's cheerWords), so callers pass that.
 function frameContract(frame, sent) {
   return frame.evaluate((sent) => {
     const part = document.querySelector("#receipt-content > .part");
@@ -871,7 +888,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     const r = last.result;
     assert.equal(r.ok, true, label + ": " + JSON.stringify(r));
     assert.deepEqual(r.security, [], label + ": the bot's sanitizer took something out");
-    const k = await frameContract(frame, payload);
+    const k = await frameContract(frame, C.printedMessage(payload));
     assert.deepEqual(k.problems, [], label + ": " + payload.slice(0, 80));
     assert.equal(k.violations, 0, label + ": a securitypolicyviolation in the frame");
     noOps += k.noOps;
@@ -939,7 +956,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
   for (const paperMm of [80, 58]) {
     const s = { ...SETTINGS, paperMm, hrThreshold: 30 };
     const { page, ctx, errors } = await freshPage({ controls: s });
-    for (const [btn, probe, raw] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 30, bits: 100, paperMm }), true],
+    for (const [btn, probe, raw] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 30, bits: 100, paperMm, noNonce: true }), true],
                                      ["#plainProbeBtn", C.buildPlainProbe({ hrThreshold: 30, paperMm, noNonce: true }), false]]) {
       await page.click(btn);
       const payload = await copyPayload(page);
@@ -959,7 +976,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     const { page, ctx, errors } = await freshPage({ controls: s });
     const lo = { letterBits: 500, letterLayout, paperMm: 80 };
     const ps = { ...s, hrThreshold: 1000 };
-    for (const [btn, probe, raw, set] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 600, bits: 100, ...lo }), true, s],
+    for (const [btn, probe, raw, set] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 600, bits: 100, noNonce: true, ...lo }), true, s],
                                           ["#plainProbeBtn", C.buildPlainProbe({ hrThreshold: 1000, noNonce: true, ...lo }), false, ps]]) {
       if (set !== s) { await page.fill("#hrThreshold", "1000"); await page.locator("#hrThreshold").dispatchEvent("change"); }
       await page.click(btn);
@@ -1325,11 +1342,17 @@ test("a probe shows the way back to the stack; number fields show the values the
   assert.equal(await page.locator("#backToStack").count(), 0);
   assert.equal(await copyPayload(page), stack, "Back to my stack did not bring the stack back");
   // The High Roller test is built for the receipt the threshold buys: at 50 bits per inch, 25
-  // bits buy 48px, which the Cheer line fills, so there is nothing to test and no Copy.
+  // bits buy 48px. With the repeat number on, its line and BIG can't share them, so there is
+  // nothing to test and no Copy; without it Printer Bot 3.0.4 prints no Cheer line, and BIG fits.
   await page.fill("#bitsPerInch", "50");
+  await page.check("#cheerNonce");
   await page.click("#hrProbeBtn");
   assert.equal(await page.locator("#parts .part button").count(), 0);
   assert.match(await page.textContent("#parts"), /this test can't show anything/);
+  await page.click("#backToStack");
+  await page.uncheck("#cheerNonce");
+  await page.click("#hrProbeBtn");
+  assert.equal(await page.locator("#parts .part .copy-btn").count(), 1);
   await page.click("#backToStack");
   await page.fill("#bitsPerInch", "0");
 
@@ -1542,12 +1565,14 @@ test("round 3: Han tiling keeps every line (up to 50, and says so past it); a bo
   await ctx.close();
 
   // A Han tiling block in a High Roller cheer whose box (bits per inch) is shorter than a
-  // header, one row and the Cheer line: every part is cut, and the card says so.
+  // header, one row and the repeat number's line: every part is cut, and the card says so.
+  // (Without the repeat number Printer Bot 3.0.4 prints no line for the Cheer word, and the
+  // header and a row, 43.2px, fit the 48px.)
   ({ page: p2, ctx: c2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
-                                              controls: { ...SETTINGS, bitsPerInch: 200 } }));
+                                              controls: { ...SETTINGS, bitsPerInch: 200, nonce: true } }));
   await settled(p2);
   assert.match(await cards(p2).first().locator(".text-note").innerText(),
-    /Even one row a part \(with its light first row and the Cheer line, 3 lines\) is taller than this cheer’s part of the receipt/);
+    /Even one row a part \(with its light first row and the repeat number's line, 3 lines\) is taller than this cheer’s part of the receipt/);
   await c2.close();
 
   // A part over 500 characters: the fix is worded for text (it has no columns).
@@ -1702,11 +1727,13 @@ test("polish: a probe scrolls into view and takes focus; Back to my stack does t
   await ctx.close();
 });
 
-test("polish: a box with no room after the Cheer line: every part says so, Copy is off, and the total gives the advice", async () => {
+test("polish: a box with no room after the repeat number's line: every part says so, Copy is off, and the total gives the advice", async () => {
+  // Since Printer Bot 3.0.4 the Cheer word prints nothing, so only the repeat number's digits
+  // can fill a box: it is on here.
   for (const [s, advice, fix] of [
-    // A stack with a Han tiling part: that part has no Cheer line at its top (final review 2).
-    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its first line \(the Cheer line, or a Han tiling part's light first row\)\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
-    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its first line \(the Cheer line, or a Han tiling part's light first row\), whatever the bits\./, ["Go to Maximum length", "maxInches"]],
+    // A stack with a Han tiling part: that part has no lead at its top (final review 2).
+    [{ ...SETTINGS, bits: 25, bitsPerInch: 200, nonce: true }, /^Nothing worth sending: every part would print only its first line \(the repeat number, or a Han tiling part's light first row\)\. Turn off “Add a repeat number”, or set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
+    [{ ...SETTINGS, maxInches: 0.2, nonce: true }, /^Nothing worth sending: every part would print only its first line \(the repeat number, or a Han tiling part's light first row\), whatever the bits\. Turn off “Add a repeat number”, or the streamer's maximum length/, ["Go to Maximum length", "maxInches"]],
   ]) {
     const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "text", render: "hanzi", text: "HI" }], controls: s });
     await page.waitForFunction(() => document.querySelectorAll("#parts .part").length >= 2);
@@ -1714,7 +1741,7 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
     for (let i = 0; i < n; i++) {
       const part = page.locator("#parts .part").nth(i);
       assert.equal(await part.locator(".copy-btn").isDisabled(), true, "part " + (i + 1) + " can still be copied");
-      assert.match(await part.locator(".over-note").first().textContent(), /^Prints (nothing but the Cheer line|only its light first row)/);
+      assert.match(await part.locator(".over-note").first().textContent(), /^Prints (nothing but its repeat number|only its light first row)/);
     }
     const total = await page.locator("#partsTotal").evaluate((e) => e.firstChild.textContent);
     assert.match(total, advice);
@@ -1731,7 +1758,7 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
     }
     // The card agrees with the parts: no price for something that can't be sent (polish 2).
     const sum = await cards(page).first().locator(".text-note .note-sum").textContent();
-    assert.match(sum, /^Prints nothing: the Cheer line fills this cheer’s whole part of the receipt/);
+    assert.match(sum, /^Prints nothing: the repeat number’s line fills this cheer’s whole part of the receipt/);
     assert.ok(!/bits\)|cheers|Capitals/.test(sum), sum);
     assert.deepEqual(errors, []);
     await ctx.close();
@@ -1780,9 +1807,9 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   await img.locator(".sel-kind").selectOption("real");
   assert.equal(await file.evaluate((f) => f.files.length), 0);
   await file.setInputFiles(pic);
-  // The test server has no /catbox (1.7.0), so the upload is asked for and fails.
+  // The test server has no /imgbb (1.8.0), so the upload is asked for and fails.
   await page.waitForFunction(() => /Upload failed/.test(document.querySelectorAll("#blockList > .block-card")[1].innerText), null, { timeout: 5000 });
-  assert.ok(requests.some((u) => new URL(u).pathname === "/catbox"), "picking the same file on the Real card uploaded nothing");
+  assert.ok(requests.some((u) => new URL(u).pathname === "/imgbb"), "picking the same file on the Real card uploaded nothing");
   // A placeholder part is prose, wrapped to the column: nothing cut off.
   await cards(page).nth(1).getByRole("button", { name: "Remove block" }).click();
   await cards(page).first().locator("textarea").fill("");
@@ -2154,7 +2181,7 @@ test("polish 3: the cards: which picked file prints, the Detail field while rety
   // As a Real picture there is nothing to show, and the card says why.
   await img.locator(".sel-kind").selectOption("real");
   assert.equal(await img.locator(".file-use").textContent(),
-    "“smiley.png” was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it to Catbox.");
+    "“smiley.png” was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it to ImgBB.");
   assert.match(await img.innerText(), /Glyph-art has its own Darkness setting\./);
   assert.ok(!/own Contrast/.test(await img.innerText()));
   await img.locator(".sel-kind").selectOption("glyph");
@@ -2417,19 +2444,19 @@ test("final 1: work that finishes on its own keeps a test on screen; an upload's
   await ctx.close();
 
   // An upload on a Real picture card: the link field names the uploaded picture's link (it kept the
-  // link typed before), so Switch to Glyph-art prints the picture the field names. (1.7.0: the
-  // upload goes to Catbox through /catbox; stood in for here, never the real Catbox.)
-  const minted = "https://files.catbox.moe/abc123.jpg";
+  // link typed before), so Switch to Glyph-art prints the picture the field names. (1.8.0: the
+  // upload goes to ImgBB through /imgbb; stood in for here, never the real ImgBB.)
+  const minted = "https://i.ibb.co/AbC1234/p.jpg";
   const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG({ id: 2, imgKind: "real", url: "" })],
     routes: async (c) => {
-      await c.route("**/catbox", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }));
-      await c.route("https://files.catbox.moe/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+      await c.route("**/imgbb", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }));
+      await c.route("https://i.ibb.co/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
       await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
     } });
   const card = cards(p2).nth(1), link = card.locator("input[type=url]");
   await link.fill("https://example.com/other.png");
   await card.locator("input[type=file]").setInputFiles({ name: "smile.png", mimeType: "image/png", buffer: pic });
-  await p2.waitForFunction(() => /Uploaded to Catbox ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  await p2.waitForFunction(() => /Uploaded to ImgBB ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
   assert.equal(await link.inputValue(), minted);
   assert.equal((await stored(p2, "rw_blocks_v1"))[1].url, minted);
   await card.getByRole("button", { name: "Switch to Glyph-art" }).click();
@@ -2548,16 +2575,16 @@ test("final 2: a word Twitch charges as a cheer is counted by the part, the tota
 
 test("final 2: an upload that lands after a redraw, Han tiling with no room, Load over a Real picture, the streamer's fields, a part too wide, labels while typing", async () => {
   const pic = Buffer.from(PIC.split(",")[1], "base64");
-  const minted = "https://files.catbox.moe/abc123.jpg";
+  const minted = "https://i.ibb.co/AbC1234/p.jpg";
   const REAL = (o) => ({ type: "image", imgKind: "real", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
                          tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false, ...o });
-  // The cards are redrawn (+ Text) while an upload is in flight: the link and "Uploaded to Catbox ✓"
+  // The cards are redrawn (+ Text) while an upload is in flight: the link and "Uploaded to ImgBB ✓"
   // land on the card on screen, not on the old one.
   let release;
   const held = new Promise((r) => { release = r; });
   const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), REAL({ id: 2 })], routes: async (c) => {
-    await c.route("**/catbox", async (r) => { await held; await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }); });
-    await c.route("https://files.catbox.moe/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+    await c.route("**/imgbb", async (r) => { await held; await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }); });
+    await c.route("https://i.ibb.co/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
     await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
   } });
   const real = () => cards(page).nth(1);
@@ -2566,7 +2593,7 @@ test("final 2: an upload that lands after a redraw, Han tiling with no room, Loa
   await page.waitForFunction(() => /Uploading/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent));
   await page.click("#addTextBtn");
   release();
-  await page.waitForFunction(() => /Uploaded to Catbox ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  await page.waitForFunction(() => /Uploaded to ImgBB ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
   assert.equal(await real().locator("input[type=url]").inputValue(), minted);
   assert.equal((await stored(page, "rw_blocks_v1"))[1].url, minted);
   // The preset controls have names a screen reader can say.
@@ -2575,15 +2602,15 @@ test("final 2: an upload that lands after a redraw, Han tiling with no room, Loa
   assert.deepEqual(errors, []);
   await ctx.close();
 
-  // Han tiling in a box shorter than one line: no Cheer line tops its parts, so nothing says
-  // "the Cheer line fills it"; the card says what the part says.
+  // Han tiling in a box shorter than one line: no lead tops its parts (the repeat number goes
+  // last), so nothing says "the line fills it"; the card says what the part says.
   const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
-                                                              controls: { ...SETTINGS, bitsPerInch: 500 } });
+                                                              controls: { ...SETTINGS, bitsPerInch: 500, nonce: true } });
   await p2.waitForSelector("#partsTotal");
   assert.match(await cards(p2).first().locator(".text-note").innerText(), /prints only its light first row: the streamer's settings leave no room for the rest/);
   assert.match(await p2.textContent("#modeNote"), /about 5 mm of receipt, shorter than one line of text, so each Han tiling part prints only its light first row/);
   assert.match(await p2.locator("#partsTotal").evaluate((e) => e.firstChild.textContent), /^Nothing worth sending: every part would print only its light first row\./);
-  assert.doesNotMatch(await p2.locator("#blockList, #parts").allInnerTexts().then((t) => t.join(" ")), /Cheer line fills/);
+  assert.doesNotMatch(await p2.locator("#blockList, #parts").allInnerTexts().then((t) => t.join(" ")), /line fills/);
   // The streamer's fields keep their last value for an entry that isn't a number of 0 or more,
   // and say so beside the field; a value past the bot's limit is capped, and that is said too.
   await p2.fill("#hrThreshold", "-3");
@@ -2711,12 +2738,14 @@ test("1.1.0: no raise with Cheer-ready off or High Roller off; when bits per inc
   await card.locator(".sel-render").selectOption("sideways");
   assert.equal(await bitsValue(page), "10");
   assert.equal(await raiseNoteOf(card).count(), 0);
-  // 25 bits at 200 bits per inch is 12 px: nothing after the Cheer line would print.
+  // 25 bits at 200 bits per inch is 12 px: with the repeat number on, nothing after its line
+  // would print. (Without it Printer Bot 3.0.4 prints no line for the Cheer word.)
   await commit(page, "#hrThreshold", "25");
   await commit(page, "#bitsPerInch", "200");
+  await page.check("#cheerNonce");
   await card.locator(".sel-render").selectOption("big");
   assert.equal(await bitsValue(page), "10");
-  assert.equal(await raiseNoteOf(card).textContent(), "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the Cheer line, so the stack prints in its plain form.");
+  assert.equal(await raiseNoteOf(card).textContent(), "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the repeat number's line, so the stack prints in its plain form.");
   assert.equal(await raiseNoteOf(card).locator("button").count(), 0);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -2950,8 +2979,11 @@ test("1.1.0 review: the hints promise a raise only when a pick would raise or of
   assert.match(await note(0), /Changing Font, Layout, Size or Upside down raises Bits per cheer to 25 bits, or offers to\./);
   assert.match(await note(1), /Changing Font, Direction or Size raises Bits per cheer to 25 bits, or offers to\./);
   assert.match(await note(2), /Changing Characters, Detail or Smooth shading raises Bits per cheer to 25 bits, or offers to\./);
-  // No room after the Cheer line at 25 bits: no promise anywhere.
+  // No room after the repeat number's line at 25 bits: no promise anywhere. (Without the repeat
+  // number Printer Bot 3.0.4 prints no line for the Cheer word, and a raise still helps.)
   await commit(page, "#bitsPerInch", "200");
+  assert.match(await page.textContent("#bitsHint"), /raises it to 25 bits, or offers to/);
+  await page.check("#cheerNonce");
   assert.doesNotMatch(await page.textContent("#bitsHint"), /raises it to/);
   for (const i of [0, 1, 2]) assert.doesNotMatch(await note(i), /raises Bits per cheer/, "card " + (i + 1));
   assert.deepEqual(errors, []);
@@ -3041,14 +3073,13 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // 1.4.1: the page is Printer Bot 3.0.1's (it uses 3.0.0's layout folder, so the line says 3.0.0).
-  // A dock on 3.0.0-beta.7's Renderer (202610122236) or 2.5.4's (202610090056) prints the app's
-  // messages the same on a roll (measured against 3.0.1's page: 42 of 44 dot for dot, the other two
-  // a settings mismatch the app doesn't send), so the line names both rather than telling those
-  // streamers "it may not match". (Beta.6's prints the same too; the line has room for two.)
-  assert.equal(v, "202610140456");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610140456, in this computer's fonts, which may differ from the streamer's\. /);
-  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match, except 3\.0\.0-beta\.7's 202610122236 \(the same\) and 2\.5\.4's 202610090056 \(a smaller profile picture\)\.$/);
+  // 1.8.0: the page is Printer Bot 3.0.4's (it uses 3.0.0's layout folder, so the line says 3.0.0).
+  // 3.0.4 leaves each cheer's Cheer word out, and every older layout prints it (1.4.1 named
+  // 3.0.0-beta.7's and 2.5.4's as printing the same as 3.0.1's), so the line names none and says what
+  // an older one adds.
+  assert.equal(v, "202610150141");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610150141, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match: a Printer Bot older than 3\.0\.4 prints each cheer's Cheer word too\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
   // made the gap 414px in CI's fonts.
@@ -3185,7 +3216,9 @@ test("1.2.0 review: Han text as typed prints every row exactly as the grid has i
       for (let i = 0; i < n; i++) {
         const payload = await copyPayload(page, i);
         const { frame } = await drawnPart(page, i, payload);
-        const want = bodies[i].preview.grid.split("\n").filter(Boolean).concat(["Cheer" + bits]);
+        // Printer Bot 3.0.4 prints no Cheer word: a plain part's last line is its tail's light cell
+        // (the closing quote mark joins it), and a High Roller part ends with its last row.
+        const want = bodies[i].preview.grid.split("\n").filter(Boolean).concat(mode === "plain" ? [C.HAN_LIGHT] : []);
         assert.deepEqual(await printedLines(frame), want, paperMm + " mm, " + bits + " bits, part " + (i + 1));
       }
       assert.deepEqual(errors, []);
@@ -3241,10 +3274,13 @@ test("1.2.0 review: Han text as typed's card over many rows, a free test, the sw
   assert.match(n, /at any cheer: in a plain cheer a light first row takes the opening quote mark\./);
   assert.doesNotMatch(n, /below the threshold/);
   await page.check("#allowHighRoller");
-  // A box shorter than one row and the Cheer line: every part is cut.
+  // A box shorter than one row and the repeat number's line: every part is cut. (Without the
+  // repeat number Printer Bot 3.0.4 prints no line for the Cheer word, and a row fits.)
   await cards(page).first().locator("textarea").fill("鬱".repeat(30));
   await commit(page, "#bitsPerInch", "300");
-  assert.match(await note(), /Even one row a part \(with the Cheer line\) is taller than .*, so the bot cuts every part\./);
+  assert.doesNotMatch(await note(), /Even one row/);
+  await page.check("#cheerNonce");
+  assert.match(await note(), /Even one row a part \(with the repeat number's line\) is taller than .*, so the bot cuts every part\./);
   // No room at all: a part of Han text prints part of its first row, fading out; never "light".
   await commit(page, "#bitsPerInch", "500");
   n = await note();
@@ -3526,15 +3562,29 @@ test("1.5.0: with Imgur not ticked the Real picture prints nothing, says what th
 
 test("1.5.0: below the threshold a Real picture prints the plain Han grid, and its card says it prints the picture at the threshold", async () => {
   const s = { ...SETTINGS, bits: 10, imageSites: ["imgur"] };
-  // Its rotation and adjustments are only for the card: the grid is the linked picture as it is.
+  // 1.8.0: the grid is the picture as it prints, turned and adjusted as its card says.
   const blocks = [REAL({ id: 1, rotate: 90, adjBright: 40 })];
-  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE }) });
+  const TURNED = "https://i.imgur.com/Turn123.png";
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE, [TURNED]: PIC_TALL }) });
   await settled(page);
   const sent = await copyAll(page);
-  assert.deepEqual(sent, await expectPage(page, [REAL({ id: 1 })], s));
+  assert.deepEqual(sent, await expectPage(page, blocks, s));
+  assert.notDeepEqual(sent, await expectPage(page, [REAL({ id: 1 })], s), "the turn and the adjustment change the grid");
+  // Turned 90 degrees, the grid is the grid of the picture turned beforehand (both read from a
+  // canvas: the browser scales a canvas and a decoded picture through different filters, which
+  // moves a partly grey cell by a tone).
+  assert.equal(await page.evaluate(async ([wide, tall, so]) => {
+    const K = window.module.exports, ctx = K.stackContext(so);
+    const load = async (src) => { const im = new Image(); im.src = src; await im.decode(); return im; };
+    const w = await load(wide), t = await load(tall), cv = document.createElement("canvas");
+    cv.width = t.naturalWidth; cv.height = t.naturalHeight; cv.getContext("2d").drawImage(t, 0, 0);
+    const a = K.glyphGrid({ type: "image", imgKind: "real", url: "a", rotate: 90 }, w, ctx);
+    const b = K.glyphGrid({ type: "image", imgKind: "real", url: "b" }, cv, ctx);
+    return JSON.stringify(a) === JSON.stringify(b);
+  }, [PIC_WIDE, PIC_TALL, stackOptsOf(s)]), true);
   assert.ok(!sent.some((p) => p.includes("imgur")), "a plain cheer sent the link");
   const note = await cards(page).first().locator(".pic-note").textContent();
-  assert.match(note, /This cheer is below the streamer's High Roller threshold, so this prints as a plain grid of Han characters, 13 a row\. At 25 bits or more it prints as the picture\./);
+  assert.match(note, /This cheer is below the streamer's High Roller threshold, so this prints as a plain grid of Han characters, 13 a row, turned 90° and adjusted\. At 25 bits or more it prints as the picture, once the streamer's Printer Bot has ImgBB switched on\./);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -3545,7 +3595,7 @@ test("1.5.0: a link that isn't a direct picture link says why on the card, and s
     ["https://imgur.com/AbC1234", /^That's a page of the site, not the picture itself\. Open the picture and copy its own address/],
     ["https://i.imgur.com/a/AbC1234", /^That isn't a direct link to a picture: it has to end in \.png, \.jpg, \.gif or \.webp/],
     ["https://i.imgur.com/Font123.png", /^This link has the word “font” in it, which this channel's chat filter holds, so it can't go out\./],
-    ["", /^Pick a file below to upload it to Catbox, or paste a direct link to the picture on Imgur, Catbox or ImgBB/],
+    ["", /^Pick a file below to upload it to ImgBB, or paste a direct link to the picture on Imgur, Catbox or ImgBB/],
   ];
   const blocks = cases.map(([url], i) => REAL({ id: i + 1, url }));
   const { page, ctx, errors } = await freshPage({ blocks, controls: s });
@@ -3697,7 +3747,7 @@ test("1.6.0: colours: the pickers show for a Letter printer in colour, say wheth
   for (let i = 0; i < got.length; i++) {
     assertTags(got[i]);
     const { frame } = await drawnPart(page, i, got[i]);
-    const k = await frameContract(frame, got[i]);
+    const k = await frameContract(frame, C.printedMessage(got[i]));
     assert.deepEqual(k.problems, [], "part " + (i + 1));
   }
   // Black and white: the pickers go, the block keeps its colours, and none goes out.
@@ -3796,10 +3846,11 @@ test("1.6.0 review: Letter's lengths in the parts' notes, a cheer word that carr
   await ctx.close();
 });
 
-// ── 1.7.0: a picked file on a Real picture card goes to Catbox through this site's /catbox ──
-// /catbox is stood in for here: no test ever reaches the real Catbox, where an upload is public
-// and can't be deleted. test/catbox.test.mjs holds the route itself to its guards.
-test("1.7.0: picking a file on a Real picture card uploads it to Catbox through this site, and the link fills the field", async () => {
+// ── 1.8.0: a picked file on a Real picture card goes to ImgBB through this site's /imgbb ──
+// (1.7.0 sent it to Catbox through /catbox, until Catbox went down.) /imgbb is stood in for here:
+// no test ever reaches the real ImgBB, where an upload is public until ImgBB deletes it, a day later.
+// test/imgbb.test.mjs holds the route itself to its guards.
+test("1.8.0: picking a file on a Real picture card uploads it to ImgBB through this site, and the link fills the field", async () => {
   // A 2400 x 1200 picture with a transparent half: it goes out at most 1600 px on its longer side,
   // as a JPEG on white.
   const tmp = await browser.newContext(), tp = await tmp.newPage();
@@ -3809,23 +3860,23 @@ test("1.7.0: picking a file on a Real picture card uploads it to Catbox through 
     return c.toDataURL("image/png");
   })).split(",")[1], "base64");
   await tmp.close();
-  const link = "https://files.catbox.moe/abc123.jpg", sent = [];
+  const link = "https://i.ibb.co/AbC1234/p.jpg", sent = [];
   const { page, ctx, errors, requests } = await freshPage({
-    blocks: [REAL({ id: 1, url: "" })], controls: { ...SETTINGS, imageSites: ["catbox"] }, init: picStub({ [link]: PIC_WIDE }),
+    blocks: [REAL({ id: 1, url: "" })], controls: { ...SETTINGS, imageSites: ["imgbb"] }, init: picStub({ [link]: PIC_WIDE }),
     routes: async (c) => {
-      await c.route("**/catbox", async (r) => {
+      await c.route("**/imgbb", async (r) => {
         sent.push({ method: r.request().method(), type: r.request().headers()["content-type"], body: r.request().postDataBuffer() });
         await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: link }) });
       });
     } });
   const card = cards(page).first();
   // Before anything is picked, the card says where the picture goes and what that means.
-  assert.match(await card.textContent(), /Picking a file uploads it to Catbox \(files\.catbox\.moe\) through this site, and its link fills in above\. The picture becomes public to anyone with the link, stays up until two years after it was last viewed, and can't be deleted\./);
+  assert.match(await card.textContent(), /Picking a file uploads it to ImgBB \(i\.ibb\.co\) through this site, and its link fills in above\. Anyone with the link can see the picture until ImgBB deletes it, a day later: after that the link prints nothing, in a saved preset too\./);
   await card.locator("input[type=file]").setInputFiles({ name: "big.png", mimeType: "image/png", buffer: big });
-  await page.waitForFunction(() => /Uploaded to Catbox ✓/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
+  await page.waitForFunction(() => /Uploaded to ImgBB ✓/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
   assert.equal(await card.locator("input[type=url]").inputValue(), link);
   assert.equal((await stored(page, "rw_blocks_v1"))[0].url, link);
-  // What went to this site's /catbox: one POST of a JPEG, 1600 px on its longer side, white where
+  // What went to this site's /imgbb: one POST of a JPEG, 1600 px on its longer side, white where
   // the picture was transparent.
   assert.equal(sent.length, 1);
   assert.equal(sent[0].method, "POST");
@@ -3840,20 +3891,184 @@ test("1.7.0: picking a file on a Real picture card uploads it to Catbox through 
   }, sent[0].body.toString("base64"));
   assert.deepEqual(got.size, [1600, 800]);
   assert.ok(got.left.every((v) => v < 30) && got.right.every((v) => v > 225), JSON.stringify(got));
-  // The page itself never asks Catbox for anything: the upload went through this site.
-  assert.deepEqual(requests.filter((u) => /(^|\.)catbox\.moe$/.test(new URL(u).hostname)), []);
-  // With Catbox switched on, the link prints as the picture.
+  // The page itself never asks ImgBB for anything: the upload went through this site, which holds
+  // the key.
+  assert.deepEqual(requests.filter((u) => /(^|\.)(ibb\.co|imgbb\.com)$/.test(new URL(u).hostname)), []);
+  // With ImgBB switched on, the link prints as the picture.
   await settled(page);
   assert.deepEqual(await copyAll(page), ["Cheer100 <div>" + link + "</div>"]);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-test("1.7.0: an upload this site or Catbox refuses says why on the card, and leaves the link field alone", async () => {
-  const pic = Buffer.from(PIC.split(",")[1], "base64");
-  const { page, ctx, errors } = await freshPage({ blocks: [REAL({ id: 1, url: "" })], controls: { ...SETTINGS, imageSites: ["catbox"] },
+// ── 1.8.0: a Real picture's Rotate, Brightness and Contrast print ──
+// By the owner's decisions: a turn alone prints the original link, turned by CSS in the message
+// (the bot keeps the styling around a picture link on a roll); with Brightness or Contrast set the
+// page uploads a turned and adjusted copy to ImgBB (stood in for here) and that copy prints.
+test("1.8.0: Rotate alone turns the printed picture in the message, around its own link, and the bot draws it turned at the size predicted", async () => {
+  // PIC_WIDE is 400 x 200: turned, 200 x 400, printed 192 x 384 on 80 mm (never enlarged, at most 4
+  // inches) and 153 x 306 on 58 mm (the paper's width); upside down, as it is: 244 x 122, 153 x 76.5.
+  for (const [paperMm, deg, w, h] of [[80, 90, 192, 384], [80, 180, 244, 122], [80, 270, 192, 384], [58, 90, 153, 306], [58, 180, 153, 76.5]]) {
+    const s = { ...SETTINGS, paperMm, imageSites: ["imgur"] };
+    const blocks = [REAL({ id: 1, rotate: deg })];
+    const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true, init: picStub({ [IMGUR]: PIC_WIDE }) });
+    await settled(page);
+    const sent = await copyAll(page);
+    const want = await expectParts(page, blocks, s);
+    assert.deepEqual(sent, want.map((p) => p.payload));
+    const [core] = C.buildPictureBodies(C.pictureLink(IMGUR), 400, 200, { contentW: C.paperSpec(paperMm).contentW, heightPx: 1600, pxPerInch: 96, deg });
+    assert.deepEqual([core.picture.w, core.picture.h], [w, h], paperMm + " mm " + deg);
+    assert.ok(sent[0].includes(">" + IMGUR + "</div>") && sent[0].includes("rotate:" + deg + "deg"), sent[0]);
+    assertTags(sent[0]);
+    const { frame, last } = await drawnPart(page, 0, sent[0]);
+    const r = await frame.evaluate(() => {
+      const i = document.querySelector("#receipt-content img.msg-image"), c = document.querySelector("#receipt-content").getBoundingClientRect();
+      const b = i.getBoundingClientRect();
+      return { w: b.width, h: b.height, left: b.left - c.left, top: b.top - c.top, cw: c.width };
+    });
+    assert.ok(Math.abs(r.w - w) < 1 && Math.abs(r.h - h) < 1, deg + ": " + JSON.stringify(r));
+    assert.ok(Math.abs(r.left - (r.cw - w) / 2) < 1, deg + ": centred, " + JSON.stringify(r));
+    assert.ok(Math.abs(r.top - 6.4) < 1, deg + ": at the top of its box, its margin above it, " + JSON.stringify(r));
+    assert.deepEqual(last.result.security, []);
+    // The bot keeps every declaration of the divs around the link (the link itself becomes its picture).
+    const kept = await frame.evaluate((sentNow) => {
+      const part = document.querySelector("#receipt-content > .part"), out = [];
+      const doc = new DOMParser().parseFromString("<!DOCTYPE html><body>" + sentNow, "text/html");
+      const a = Array.from(doc.body.querySelectorAll("div")), b = Array.from(part.querySelectorAll("div"));
+      if (a.length !== b.length) return ["divs: sent " + a.length + ", kept " + b.length];
+      a.forEach((el, k) => {
+        for (let i = 0; i < el.style.length; i++) {
+          const p = el.style[i];
+          if (b[k].style.getPropertyValue(p) !== el.style.getPropertyValue(p)) out.push(p + ": " + el.style.getPropertyValue(p) + " -> " + b[k].style.getPropertyValue(p));
+        }
+      });
+      return out;
+    }, C.printedMessage(sent[0]));
+    assert.deepEqual(kept, [], deg + ": the bot keeps every declaration");
+    assert.ok(Math.abs(last.measure.fullPx - want[0].contentPx) <= 1, deg + ": " + last.measure.fullPx + " vs " + want[0].contentPx);
+    // Nothing was uploaded, and the link's own host was never asked.
+    assert.ok(!requests.some((u) => /\/imgbb|\/upload|imgur\.com/.test(u)), requests.join(" "));
+    assert.match(await cards(page).first().locator(".pic-note").textContent(), new RegExp("^Prints as the picture, turned " + deg + "°, about "));
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.8.0: Brightness or Contrast print through a turned and adjusted copy on ImgBB, made once the settings rest and kept for a day", async () => {
+  const COPY = "https://i.ibb.co/Cop1234/p.jpg", sent = [];
+  const s = { ...SETTINGS, imageSites: ["imgur", "imgbb"] };
+  // With a Big text block before it: a part would be copyable without the picture.
+  const blocks = [BIG({ id: 2, text: "HI" }), REAL({ id: 1, rotate: 90, adjBright: 40 })];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true, init: picStub({ [IMGUR]: PIC_WIDE, [COPY]: PIC_TALL }),
     routes: async (c) => {
-      await c.route("**/catbox", (r) => r.fulfill({ status: 429, contentType: "application/json",
+      await c.route("**/imgbb", async (r) => {
+        sent.push(r.request().postDataBuffer());
+        await held;
+        await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: COPY }) });
+      });
+    } });
+  const card = cards(page).nth(1);
+  // While the copy is being made nothing is copyable: the parts would change when it lands.
+  await page.waitForFunction(() => /Making the copy of it that prints/.test(document.getElementById("blockList").textContent));
+  assert.equal(await page.locator("#parts .copy-btn:not([disabled])").count(), 0);
+  assert.match(await page.textContent("#parts"), /still loading/);
+  release();
+  await page.waitForFunction(() => /Made the copy that prints/.test(document.getElementById("blockList").textContent), null, { timeout: 8000 });
+  await settled(page);
+  assert.equal(sent.length, 1, "one upload");
+  const after = await copyAll(page);
+  assert.ok(after.some((p) => p.endsWith("<div>" + COPY + "</div>")), after.join(" | "));
+  assert.deepEqual(after, await expectPage(page, await stored(page, "rw_blocks_v1"), s));
+  // The preview shows what the copy's link prints: the picture turned (200 x 400, printed 192 x
+  // 384), not the card's picture as it is (security review of 1.8.0: it drew the source, 244 x 122).
+  const at = after.findIndex((p) => p.includes(COPY));
+  const { frame: cf } = await drawnPart(page, at, after[at]);
+  const drawn = await cf.evaluate(() => {
+    const i = document.querySelector("#receipt-content img.msg-image"), r = i.getBoundingClientRect();
+    return { nw: i.naturalWidth, nh: i.naturalHeight, w: r.width, h: r.height };
+  });
+  assert.ok(drawn.nw < drawn.nh && Math.abs(drawn.w - 192) < 1 && Math.abs(drawn.h - 384) < 1, JSON.stringify(drawn));
+  // What went up: a JPEG of the picture turned (200 x 400) and brighter (its black corner is grey).
+  const got = await page.evaluate(async (b64) => {
+    const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();
+    const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const x = c.getContext("2d"); x.drawImage(im, 0, 0);
+    return { size: [im.naturalWidth, im.naturalHeight], dark: [...x.getImageData(100, 20, 1, 1).data].slice(0, 3) };
+  }, sent[0].toString("base64"));
+  assert.deepEqual(got.size, [200, 400]);
+  assert.ok(got.dark.every((v) => v > 80 && v < 130), "40 brighter: " + JSON.stringify(got.dark));
+  const kept = (await stored(page, "rw_blocks_v1"))[1].turned;
+  assert.equal(kept.url, COPY);
+  assert.equal(kept.key, C.turnKey(IMGUR, C.realTurn({ rotate: 90, adjBright: 40 })));
+  const note = await card.locator(".pic-note").textContent();
+  assert.match(note, /^Prints as the picture, turned 90° and adjusted, about \d+ × \d+ mm · 1 cheer/);
+  assert.match(note, /It prints from a copy this site made on ImgBB \(i\.ibb\.co\): anyone with its link can see it, ImgBB deletes it a day later/);
+  // A reload keeps the copy: nothing more is uploaded.
+  await page.reload();
+  await settled(page);
+  assert.deepEqual(await copyAll(page), after);
+  // A dragged slider is one upload once it rests, not one a step.
+  await card.locator("input[type=range]").first().evaluate((el) => {
+    for (const v of [45, 50, 55, 60]) { el.value = String(v); el.dispatchEvent(new Event("input", { bubbles: true })); }
+  });
+  await page.waitForFunction(() => /Made the copy that prints/.test(document.getElementById("blockList").textContent), null, { timeout: 8000 });
+  assert.equal(sent.length, 2, "one more upload for the four steps");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // A copy over 20 hours old is made again (ImgBB deletes it after a day).
+  const old = { ...REAL({ id: 1, rotate: 90, adjBright: 40 }), turned: { key: kept.key, url: COPY, at: Date.now() - 21 * 3600 * 1000 } };
+  const again = [];
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [old], controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE, [COPY]: PIC_TALL }),
+    routes: async (c) => { await c.route("**/imgbb", (r) => { again.push(1); return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: COPY }) }); }); } });
+  await p2.waitForFunction(() => /Made the copy that prints/.test(document.getElementById("blockList").textContent), null, { timeout: 8000 });
+  assert.equal(again.length, 1);
+  assert.deepEqual(e2, []);
+  await c2.close();
+});
+
+test("1.8.0: a copy needs ImgBB switched on, and one that couldn't be made says why, sends nothing and can be tried again", async () => {
+  const COPY = "https://i.ibb.co/Cop1234/p.jpg", tries = [];
+  const blocks = [REAL({ id: 1, adjContrast: 30 })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: { ...SETTINGS, imageSites: ["imgur"] }, init: picStub({ [IMGUR]: PIC_WIDE, [COPY]: PIC_WIDE }),
+    routes: async (c) => {
+      await c.route("**/imgbb", (r) => {
+        tries.push(1);
+        return tries.length === 1
+          ? r.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "20 uploads an hour is the most: try again later" }) })
+          : r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: COPY }) });
+      });
+    } });
+  const card = cards(page).first();
+  // Imgur alone: the copy prints from ImgBB, so nothing prints and nothing is uploaded.
+  assert.match(await card.locator(".pic-note").textContent(), /^Turned or adjusted this way it prints from a copy on ImgBB, so the streamer's Printer Bot has to have ImgBB switched on/);
+  await card.getByRole("button", { name: "Go to Pictures from links" }).click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), "imageSite-imgbb");
+  assert.equal(tries.length, 0);
+  // ImgBB on: the first try is refused, and the card and the parts say why.
+  await page.check("#imageSite-imgbb");
+  await page.waitForFunction(() => /couldn't be made/.test(document.querySelector("#blockList .pic-note").textContent), null, { timeout: 8000 });
+  assert.match(await card.locator(".pic-note").textContent(), /^The copy of it that prints couldn't be made \(20 uploads an hour is the most: try again later\)\. Until it is, this block prints nothing\./);
+  assert.match(await page.textContent("#pictureNote"), /the copy of it that prints couldn't be made \(20 uploads an hour is the most: try again later\)\. Try again on its card\./);
+  await page.waitForTimeout(1200);
+  assert.equal(tries.length, 1, "not asked again by itself");
+  await card.getByRole("button", { name: "Try again" }).click();
+  await page.waitForFunction(() => /Made the copy that prints/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
+  assert.equal(tries.length, 2);
+  assert.equal(await card.getByRole("button", { name: "Try again" }).isHidden(), true);
+  await settled(page);
+  assert.deepEqual(await copyAll(page), ["Cheer100 <div>" + COPY + "</div>"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.8.0: an upload this site or ImgBB refuses says why on the card, and leaves the link field alone", async () => {
+  const pic = Buffer.from(PIC.split(",")[1], "base64");
+  const { page, ctx, errors } = await freshPage({ blocks: [REAL({ id: 1, url: "" })], controls: { ...SETTINGS, imageSites: ["imgbb"] },
+    routes: async (c) => {
+      await c.route("**/imgbb", (r) => r.fulfill({ status: 429, contentType: "application/json",
         body: JSON.stringify({ error: "20 uploads an hour is the most: try again later" }) }));
     } });
   const card = cards(page).first();

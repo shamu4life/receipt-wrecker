@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.7.0](https://img.shields.io/badge/version-1.7.0-blue)](docs/CHANGELOG.md)
+[![Version 1.8.0](https://img.shields.io/badge/version-1.8.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -18,9 +18,9 @@ prints it as big as the paper allows on a printer driven by
 Receipt Wrecker is a single HTML file with no dependencies. You build a stack of blocks
 (text and pictures), it packs them into as few chat messages as it can, and you paste each
 one into Twitch chat as a cheer. The preview shows each message drawn by the bot's own
-receipt code: the newest Printer Bot release, 3.0.1. A streamer still on 3.0.0-beta.7 or
-beta.6, or on Printer Bot 2.5.4, prints these messages the same on a receipt printer (2.5.4 draws
-a smaller profile picture).
+receipt code: the newest Printer Bot release, 3.0.4, which leaves each cheer's `Cheer100` word
+out of what it prints. A streamer on an older Printer Bot prints that word too (a line above each
+High Roller part); everything else prints the same on a receipt printer.
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
 > different printer bot (nutty.gg's). Everything made for that one is gone, and saved work
@@ -90,8 +90,8 @@ threshold. The block's card says what changed and what the stack costs now and b
 an **Undo**. It asks first instead when that would more than quadruple the amount or go past
 500 bits, and it doesn't raise when it can't help: with Cheer-ready off, with High Roller off,
 when the streamer's printer has Allow High Roller prints off, or when the streamer's bits per
-inch or maximum length would leave nothing to print after the Cheer line at that amount (the
-card says why). After an Undo, or if you lower the amount again
+inch or maximum length would leave nothing to print after the repeat number's line at that amount
+(the card says why). After an Undo, or if you lower the amount again
 yourself, it only offers.
 
 ### Letter paper and colour (since 1.6.0)
@@ -318,12 +318,13 @@ the bot's dock (*Advanced → Images in messages*; every site starts off) and th
 images (its default). Tick the same sites under **Pictures from links** in the streamer's
 settings here.
 
-The easiest way (since 1.7.0): **pick a file on the card**. It goes to Catbox through this site,
-and its `https://files.catbox.moe/` link fills the card's Image URL field by itself. The card
-says it first, beside the file picker: the picture becomes public to anyone with the link, stays
-up until two years after it was last viewed, and can't be deleted. (It has to go through this
-site's server: Catbox doesn't let a web page see the link it sends back. The server takes only
-JPEG pictures from this page, 20 uploads an hour from one person.)
+The easiest way (since 1.8.0): **pick a file on the card**. It goes to ImgBB through this site,
+and its `https://i.ibb.co/` link fills the card's Image URL field by itself (the streamer needs
+ImgBB switched on). The card says it first, beside the file picker: anyone with the link can see
+the picture until ImgBB deletes it, a day later; after that the link prints nothing, in a saved
+preset too. (It goes through this site's server, which uploads with the site owner's ImgBB key,
+so the key never reaches the page. The server takes only JPEG pictures from this page, 20 uploads
+an hour from one person. 1.7.0 uploaded to Catbox, until Catbox went down.)
 
 Or upload the picture to one of those sites yourself and paste its direct link: the address of
 the picture itself, ending in `.png`, `.jpg`, `.gif` or `.webp` (Imgur's start
@@ -342,8 +343,22 @@ text, so the block prints the picture as a plain grid of Han characters instead,
 does. The bot waits 2.5 seconds for a picture: a big file that loads slower prints `[image]`.
 
 A link to any other site, or a page of the site rather than the picture, prints nothing, and
-the card says why and offers **Switch to Glyph-art**. Rotate and brightness/contrast on the card
-change only the picture shown there; the printer prints the linked picture as it is.
+the card says why and offers **Switch to Glyph-art**.
+
+**Rotate, Brightness and Contrast print** (since 1.8.0). Turned alone, the picture prints from its
+own link, turned in the message itself (nothing is uploaded):
+
+```text
+Cheer100 <div style="rotate:180deg">https://i.imgur.com/AbC1234.png</div>
+```
+
+(a quarter turn is a box as long as the turned picture, holding the link turned about its middle).
+With Brightness or Contrast set, or turned for a Letter printer, the page makes a copy of the
+picture turned and adjusted, uploads it to ImgBB through this site, and that copy's link prints
+(so the streamer needs ImgBB switched on). It waits until a slider rests, so dragging one is one
+upload; the copy is kept with the block and made again when it is over 20 hours old (ImgBB deletes
+it after a day). Below the High Roller threshold the Han grid turns and adjusts the same way. If a
+copy can't be made the card says why and offers **Try again**.
 
 ---
 
@@ -356,11 +371,11 @@ where the bot's box cuts it off and any fade come from the bot's own code. The T
 the footer is a grey box here.
 
 The line above the parts names the layout the preview draws with: *Printer Bot 3.0.0's layout
-v202610140456* (Printer Bot 3.0.1 uses 3.0.0's layout). SassyTP's bot can download a newer layout
+v202610150141* (Printer Bot 3.0.4 uses 3.0.0's layout). SassyTP's bot can download a newer layout
 to the streamer's dock by itself, so if their dock shows another **Renderer** version under
-**Updates**, the preview may not match their printer. The exceptions are 3.0.0-beta.7's
-202610122236 (and beta.6's 202610110524), which print this app's messages exactly as 3.0.1 does,
-and Printer Bot 2.5.4's 202610090056, which prints them the same with a smaller profile picture.
+**Updates**, the preview may not match their printer. A Printer Bot older than 3.0.4 prints each
+cheer's `Cheer100` word too (a line above each High Roller part, and the word at the end of a plain
+one); since 3.0.4 the bot leaves it out, and so does the preview.
 
 If a High Roller message reaches a printer below the streamer's real threshold, or one with
 **Allow High Roller prints** off, Printer Bot 3.0 prints its words small in quote marks, without
@@ -402,7 +417,8 @@ prints text sharp and shades only pictures, and in colour it prints the page as 
 ## Sending it
 
 - **Cheer-ready** (on by default) adds `Cheer<bits>` to each message so it triggers the
-  print: at the start of a High Roller message, at the end of a plain part. Turn Cheer-ready off for a
+  print: at the start of a High Roller message, at the end of a plain part. Printer Bot 3.0.4
+  leaves the word out of what it prints. Turn Cheer-ready off for a
   [free test](#test-cheaply-first).
 - **Add a repeat number** (off by default) puts two rotating digits after the cheer word
   (`Cheer100 07`). Twitch won't send the same message twice in a row within 30 seconds (it
@@ -413,10 +429,11 @@ prints text sharp and shades only pictures, and in colour it prints the page as 
   at most, Twitch's limit), and the bot prints its header between them. Paste them in order.
 - Every block's card says what it prints and which part it ends up in. Each part's header
   counts its characters ("230 / 500 characters").
-- If the streamer's length settings leave a cheer no room after its Cheer line, every part
-  says it would print nothing else, its Copy is off, and the line under the parts says what to
-  change. If they leave room, but less than even the smallest letters need, the card says to
-  raise Bits per cheer.
+- If the streamer's length settings leave a cheer no room after the repeat number's line (with
+  the repeat number off there is no such line since Printer Bot 3.0.4), every part says it would
+  print nothing else, its Copy is off, and the line under the parts says what to change. If they
+  leave room, but less than even the smallest letters need, the card says to raise Bits per
+  cheer.
 - A part over 500 characters says Twitch would reject it, and the line under the parts says to
   fix it before pasting.
 - A Glyph-art picture that isn't in the parts (still loading, a link or file that can't be
@@ -494,18 +511,18 @@ Work saved by an older version is converted the first time you open 1.0.0:
 (decoded in the browser); your settings, block stack and presets (in `localStorage`). The
 preview runs with no network access at all. No analytics, no accounts.
 
-**Goes to this project's own Worker** (and, for a file picked on a Real picture card, on to
-Catbox):
+**Goes to this project's own Worker** (and, for a file picked on a Real picture card or a Real
+picture's adjusted copy, on to ImgBB):
 
 | What you do | What happens |
 |---|---|
 | Paste a picture link into an Image block | The picture is fetched through `/px`, because a browser can't read another site's pixels directly. |
-| Pick a file on a **Real picture** card | It is redrawn on your device (at most 1600 px on its longer side, a JPEG on white, without the photo's hidden details such as where it was taken) and sent to `/catbox`, which uploads it to **Catbox**. The picture is then **public** to anyone with its link, stays up until two years after it was last viewed, and **can't be deleted**. Its link fills the card's Image URL field. |
-| Rotate or adjust brightness/contrast on a Real picture card | The picture is re-fetched through `/px`, adjusted and re-uploaded. |
+| Pick a file on a **Real picture** card | It is redrawn on your device (at most 1600 px on its longer side, a JPEG on white, without the photo's hidden details such as where it was taken) and sent to `/imgbb`, which uploads it to **ImgBB** with the site owner's key. The picture is then **public** to anyone with its link until ImgBB deletes it, a day later. Its link fills the card's Image URL field. |
+| Set Brightness or Contrast on a Real picture card (or turn one for a Letter printer) | In a High Roller cheer, once the slider rests, a turned and adjusted copy of the picture is drawn on your device and sent to `/imgbb`, which uploads it to **ImgBB**; that copy prints, public to anyone with its link until ImgBB deletes it a day later. A turn alone uploads nothing: it is done in the message. |
 | Paste an Imgur, Catbox or ImgBB link on a Real picture card | The picture is read through `/px` for its size (and its Han grid below the threshold). The link itself goes into the cheer, so the streamer's Printer Bot fetches the picture from that site. |
 
-Pasting a link and dragging a slider send data without a separate button, so "I never clicked
-upload" is not the same as "nothing left the device".
+Pasting a link, and a Brightness or Contrast change on a Real picture card, send data without a
+separate button, so "I never clicked upload" is not the same as "nothing left the device".
 
 Storage is four `localStorage` keys, all optional: `rw_controls_v1` (settings),
 `rw_nonce_seq` (the repeat-number counter), `rw_blocks_v1` (your stack) and `rw_presets_v1`

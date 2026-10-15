@@ -12,6 +12,82 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.8.0] - 2026-10-15
+
+### Changed
+
+- **A file picked on a Real picture card goes to ImgBB now, not Catbox.** Catbox went down on
+  the night of 1.7.0 (its site, its API and its file host all stopped answering), and the owner
+  moved uploads to ImgBB. The picture is redrawn on the device as before and sent to this site's
+  Worker, whose new route, `POST /imgbb`, uploads it with the owner's ImgBB API key, kept as a
+  Worker secret (`IMGBB_KEY`) so no page ever sees it. Its `https://i.ibb.co/…` link (30
+  characters) fills the card's Image URL field; with ImgBB switched on in Printer Bot it prints as
+  the picture. Each upload deletes itself after a day, and the card says so before anything is
+  picked: after that the link prints nothing, in a saved preset too. The route keeps all of
+  `/catbox`'s guards (this site's page only, a real JPEG only, 5 MB, 20 uploads an hour per viewer,
+  no site-wide limit), passes on only a checked `i.ibb.co` picture link and never ImgBB's own
+  words, never hands the key back, and names a bad key on the card ("ImgBB refused this site's
+  key"). Without the key it answers "uploads are off right now". `/catbox` is gone; a Catbox link
+  pasted by hand still prints.
+- **Printer Bot 3.0.4.** SassyTP shipped 3.0.2, 3.0.3 and 3.0.4 on 2026-10-14; the preview now
+  draws with 3.0.4's page (layout v202610150141), and the app models what it prints. 3.0.4 leaves
+  each cheer's cheermote words (`Cheer100`) out of what it prints:
+  - A High Roller part no longer prints a Cheer line, so its blocks get the whole box. With the
+    repeat number on, its digits still print a line, and that is the only line that can now fill a
+    small box ("Nothing after the repeat number prints", with "Turn off Add a repeat number"
+    among the fixes).
+  - A plain Han grid ends in a light cell after a space, so the closing quote mark keeps a line of
+    its own (without it, the mark pulled the last row's last cell onto a new line on 80 mm).
+  - A sideways column whose top end holds a glyph with ink past its advance (a j's hook, an f's
+    arm) gets room above it too: with no Cheer line above the first block, the bot's box cut it.
+  - The line above the parts says a Printer Bot older than 3.0.4 prints the Cheer word too.
+
+### Added
+
+- **A Real picture's Rotate, Brightness and Contrast print** (until now they changed only the
+  picture on its card). A turn alone is done in the message itself, around the original link: the
+  bot keeps the styling around a picture link on a receipt printer, so `rotate:180deg`, or for a
+  quarter turn a box as long as the turned picture holding the link turned about its middle,
+  prints it turned, with nothing uploaded. Brightness and Contrast have no styling the bot keeps,
+  and a Letter printer moves or shrinks pictures, so with either the page draws the picture turned
+  and adjusted, uploads that copy to ImgBB through `/imgbb`, and the copy's link prints (the
+  streamer needs ImgBB switched on). It waits for a slider to rest (one upload, not one a step),
+  keeps the copy with the block, makes a new one when it is over 20 hours old, and while it is
+  being made no part is copyable. A copy that can't be made says why on the card, with **Try
+  again**. Below the High Roller threshold the Han grid turns and adjusts the same way, and the
+  card's picture is drawn on the device as it prints.
+- **A copy that prints is only ever this browser's own** (from the security review of the first
+  push): Import drops a Real picture's saved copy from a shared preset, so a preset can't pair
+  the card's legitimate link with a copy of some other picture; the copy is made again here from
+  the block's own picture. And the preview draws the copy as it was made, turned and adjusted,
+  where it drew the picture as it is.
+
+### Removed
+
+- The turned or adjusted copy that was fetched through `/px` and uploaded to `/upload` only to
+  show it on the card: the card draws it on the device now. The app's script makes two kinds of
+  network call, `/px` and `/imgbb`.
+
+### Owner and streamer actions
+
+- **The site's owner:** create an ImgBB API key (api.imgbb.com) and add it to the Worker as the
+  secret `IMGBB_KEY` (Cloudflare dashboard: Workers & Pages, receipt-wrecker, Settings, Variables
+  and Secrets; or `wrangler secret put IMGBB_KEY`). Until then uploads answer "uploads are off
+  right now".
+- **The streamer:** switch ImgBB on in Printer Bot's dock (Advanced, Images in messages) for
+  uploaded and adjusted pictures to print, and update Printer Bot to 3.0.4.
+
+### How sure
+
+- 305 unit tests (`test/imgbb.test.mjs` drives the route against a fake ImgBB, 25 guards broken on
+  purpose and all caught; `test/bot304.test.mjs` holds the app's copy of the cheermote list to the
+  vendored page's; `test/turn.test.mjs`) and 99 browser tests. The contract test runs every mode
+  through 3.0.4's page. Nothing was uploaded to the real ImgBB. The 3.0.4 model pieces and the
+  picture settings were broken on purpose too, and the tests caught each. A real print on the
+  streamer's rig is still the acceptance test, and the first real upload is the owner's.
+
+---
+
 ## [1.7.0] - 2026-10-14
 
 ### Added

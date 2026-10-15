@@ -14,14 +14,16 @@
 //     inline it as a data: URI — see inlineImages() in index.html for why that
 //     is the only way to get a photo into the dithered raster.
 //
-//   /catbox  (1.7.0, by the owner's decision) a Real picture card's picked file,
-//     uploaded to Catbox for a files.catbox.moe link, which Printer Bot 3.0 prints as
-//     the picture. See handleCatbox.
+//   /imgbb  (1.8.0, by the owner's decision) a Real picture card's picked file,
+//     uploaded to ImgBB with the owner's API key for an i.ibb.co link, which Printer
+//     Bot 3.0 prints as the picture; ImgBB deletes it after a day. See handleImgbb.
+//     (1.7.0 sent it to Catbox through /catbox, until Catbox went down.)
 //
 // Privacy note: "upload for a link" sends an image to this Worker, and turning
 // on Thermal preview with a pasted URL sends that URL through /px. Big Text,
 // glyph-art, and a plain (non-thermal) URL preview all stay fully local. A file
-// picked on a Real picture card goes through /catbox to Catbox, where it is public.
+// picked on a Real picture card goes through /imgbb to ImgBB, public to anyone with
+// its link until it is deleted, a day later.
 
 const TTL_SECONDS = 900;               // 15 minutes, enforced natively by KV
 const MAX_BYTES = 5 * 1024 * 1024;     // 5 MB cap (KV values allow up to 25 MB; this is an abuse guard)
@@ -291,13 +293,14 @@ async function handleProxy(url, env) {
   });
 }
 
-// ── /catbox (1.7.0) ──
-// The owner's call (2026-10-14): a Real picture card's picked file goes to Catbox, and the
-// files.catbox.moe link comes back into the card's link field, in one step for the viewer. Catbox
-// sends no CORS headers, so the page can't see Catbox's answer itself: this route makes the upload
-// (anonymous: no userhash, so nobody can delete it; it stays until two years after its last view)
-// and hands back only a link it has checked. Guards, so it is not a free anonymous uploader for
-// anyone else:
+// ── /imgbb (1.8.0) ──
+// The owner's calls (2026-10-14): a Real picture card's picked file is uploaded for the viewer and
+// its link comes back into the card's link field, in one step. 1.7.0 used Catbox (/catbox) and Catbox
+// went down that night; the owner moved to ImgBB, each upload deleting itself after a day
+// (IMGBB_EXPIRATION_S), with the owner's API key kept here, as the Worker secret IMGBB_KEY, so no
+// page or viewer ever sees it (ImgBB would let a page upload directly, but anyone could then copy
+// the key and upload anything to the owner's account). The uploads land in the owner's ImgBB
+// account until they expire. Guards, so the route is not a free uploader into that account:
 //   * only this site's own page: the request's Origin must be this origin (a browser always sends
 //     one on a POST), and the answer carries no CORS header, so no other site's page can see it.
 //     A script outside a browser can claim any Origin, so this stops other sites' pages, not
@@ -305,21 +308,21 @@ async function handleProxy(url, env) {
 //   * a real JPEG only, its structure walked the way a decoder walks it (isCleanJpeg), 5 MB at
 //     most. The page redraws every picture as a JPEG before it sends it, so nothing else is ever
 //     needed (the review: the declared type alone was trusted);
-//   * CATBOX_PER_HOUR uploads an hour per viewer, an IPv6 viewer counted by network (the first 64
+//   * UPLOADS_PER_HOUR uploads an hour per viewer, an IPv6 viewer counted by network (the first 64
 //     bits: one network holds billions of addresses), counted in KV under a hash of the network
 //     (never the address), each counter expiring by itself. KV is eventually consistent, so a burst
-//     can slip a few past: a brake, not a wall. With no KV the route refuses rather than upload
-//     without its limit. There is no site-wide limit, by the owner's decision (2026-10-14): one would
-//     let someone spread over several networks lock every viewer out for an hour, and the owner
-//     preferred that risk gone, accepting that uploads spread over many networks have no overall
-//     limit;
-//   * Catbox's answer passed on only when it is exactly a files.catbox.moe picture link.
-// Catbox sees every upload as this Worker's (Cloudflare names the site on a Worker's requests), so
-// a bad upload by anyone is on the site's record: the owner accepted that for the one-step upload.
-const CATBOX_API = "https://catbox.moe/user/api.php";
-const CATBOX_LINK = /^https:\/\/files\.catbox\.moe\/[a-z0-9]{6}\.(png|jpe?g|gif|webp)$/;
-const CATBOX_PER_HOUR = 20;
-const CATBOX_TIMEOUT_MS = 30000;
+//     can slip a few past: a brake, not a wall. With no KV, or no key, the route refuses rather than
+//     upload without its limit. There is no site-wide limit, by the owner's decision (2026-10-14):
+//     one would let someone spread over several networks lock every viewer out for an hour, and the
+//     owner preferred that risk gone, accepting that uploads spread over many networks have no
+//     overall limit;
+//   * ImgBB's answer passed on only when its link is an i.ibb.co picture link of the shape Printer
+//     Bot prints, and never ImgBB's own words.
+const IMGBB_API = "https://api.imgbb.com/1/upload";
+const IMGBB_LINK = /^https:\/\/i\.ibb\.co\/[A-Za-z0-9]{3,16}\/[A-Za-z0-9_.~-]{1,120}\.(?:png|jpe?g|gif|webp)$/;
+const IMGBB_EXPIRATION_S = 86400;
+const UPLOADS_PER_HOUR = 20;
+const UPLOAD_TIMEOUT_MS = 30000;
 
 // A JPEG whose structure a decoder walks cleanly, end to end: SOI first; then marker segments by
 // their own lengths, only APPn (64 KB of them in all: a colour profile, the JFIF header), DQT,
@@ -379,7 +382,7 @@ function networkOf(ip) {
   return head.concat(zeros, tail).slice(0, 4).map(function (g) { return (parseInt(g, 16) || 0).toString(16); }).join(":") + "::/64";
 }
 
-// JSON for /catbox: like json(), but with no CORS header.
+// JSON for /imgbb: like json(), but with no CORS header.
 function sameSiteJson(obj, status) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
@@ -390,13 +393,13 @@ function sameSiteJson(obj, status) {
 // The KV key counting this viewer's uploads this hour: a hash of their network, never the address.
 async function viewerSlot(request) {
   const net = networkOf(request.headers.get("cf-connecting-ip") || "");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rw-catbox:" + net));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rw-upload:" + net));
   var hex = "";
   new Uint8Array(digest).slice(0, 16).forEach(function (b) { hex += (b + 0x100).toString(16).slice(1); });
-  return "catbox-rate/" + hex + "/" + Math.floor(Date.now() / 3600000);
+  return "upload-rate/" + hex + "/" + Math.floor(Date.now() / 3600000);
 }
 
-async function handleCatbox(request, env, url) {
+async function handleImgbb(request, env, url) {
   if (request.method !== "POST") return sameSiteJson({ error: "POST a picture" }, 405);
   if (request.headers.get("origin") !== url.origin) return sameSiteJson({ error: "uploads only from this site's page" }, 403);
   const ct = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
@@ -407,13 +410,13 @@ async function handleCatbox(request, env, url) {
   if (buf.byteLength > MAX_BYTES) return sameSiteJson({ error: "too big: 5 MB at most" }, 413);
   if (!isCleanJpeg(buf)) return sameSiteJson({ error: "that isn't a JPEG picture" }, 415);
 
-  if (!env || !env.RW_IMG) return sameSiteJson({ error: "uploads are off right now" }, 503);
+  if (!env || !env.RW_IMG || !env.IMGBB_KEY) return sameSiteJson({ error: "uploads are off right now" }, 503);
   const slot = await viewerSlot(request);
   const mine = parseInt(await env.RW_IMG.get(slot), 10) || 0;
-  if (mine >= CATBOX_PER_HOUR) return sameSiteJson({ error: CATBOX_PER_HOUR + " uploads an hour is the most: try again later" }, 429);
+  if (mine >= UPLOADS_PER_HOUR) return sameSiteJson({ error: UPLOADS_PER_HOUR + " uploads an hour is the most: try again later" }, 429);
   // The upload is counted before it goes (so a burst can't all slip in while the first ones are on
-  // their way) and handed back if Catbox didn't take it: only uploads Catbox took use up a viewer's
-  // hour, so failures, and junk Catbox refuses, lock nobody out (security review of the hardening).
+  // their way) and handed back if ImgBB didn't take it: only uploads ImgBB took use up a viewer's
+  // hour, so failures, and junk ImgBB refuses, lock nobody out (security review of the hardening).
   // The hand-back takes away this upload's own count from the count as it is now, never restoring
   // the count as it stood when the upload began: that wiped out every upload made meanwhile, and a
   // slow failure reset a viewer's hour (security review of the second round). KV's read-then-write
@@ -425,28 +428,42 @@ async function handleCatbox(request, env, url) {
     await env.RW_IMG.put(slot, String(Math.max(0, now - 1)), { expirationTtl: 7200 });
   };
 
+  // A one-letter name keeps the link short (https://i.ibb.co/<id>/p.jpg, 30 characters): every
+  // character of it is cheer payload. The key rides in the query string, as ImgBB's own example has
+  // it (a key in the form body isn't documented, and nothing here can try one without a real key).
+  // Workers Logs record only the request coming in, never this one; Workers tracing would record its
+  // URL, key and all, so it stays off for this Worker (observability.traces is not set).
   const form = new FormData();
-  form.append("reqtype", "fileupload");
-  form.append("fileToUpload", new Blob([buf], { type: ct }), "picture.jpg");
+  form.append("image", new Blob([buf], { type: ct }), "p.jpg");
+  form.append("name", "p");
+  const api = IMGBB_API + "?expiration=" + IMGBB_EXPIRATION_S + "&key=" + encodeURIComponent(env.IMGBB_KEY);
   var res, said;
   try {
-    res = await fetch(CATBOX_API, {
+    res = await fetch(api, {
       method: "POST", body: form,
       headers: { "user-agent": "receipt-wrecker (+https://receipt.uwutoowo.com)" },
-      signal: AbortSignal.timeout(CATBOX_TIMEOUT_MS),
+      signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
     });
-    said = (await res.text()).trim();
-  } catch (e) { await refund(); return sameSiteJson({ error: "Catbox didn't answer: try again" }, 502); }
-  if (!res.ok) { await refund(); return sameSiteJson({ error: "Catbox refused it (" + res.status + ")" }, 502); }
-  if (!CATBOX_LINK.test(said)) { await refund(); return sameSiteJson({ error: "Catbox didn't send back a picture link" }, 502); }
-  return sameSiteJson({ url: said });
+    said = await res.json().catch(function () { return null; });
+  } catch (e) { await refund(); return sameSiteJson({ error: "ImgBB didn't answer: try again" }, 502); }
+  if (!res.ok) {
+    await refund();
+    // ImgBB's error code 100 is a bad key (the secret pasted wrong, say): named, so the owner knows
+    // what to fix on the first try. Its own message never goes to the page.
+    const badKey = said && said.error && String(said.error.code) === "100";
+    return sameSiteJson({ error: badKey ? "ImgBB refused this site's key (" + res.status + "): the site's owner needs to check it"
+                                        : "ImgBB refused it (" + res.status + ")" }, 502);
+  }
+  const link = said && said.data && typeof said.data.url === "string" ? said.data.url : "";
+  if (!IMGBB_LINK.test(link)) { await refund(); return sameSiteJson({ error: "ImgBB didn't send back a picture link" }, 502); }
+  return sameSiteJson({ url: link });
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/upload") return handleUpload(request, env, url);
-    if (url.pathname === "/catbox") return handleCatbox(request, env, url);
+    if (url.pathname === "/imgbb") return handleImgbb(request, env, url);
     if (url.pathname === "/px") return handleProxy(url, env);
     // Image keys are matched by SHAPE, not by host, so the same Worker serves them on
     // receipt.uwutoowo.com and on a short image host alike with no host-sniffing. The

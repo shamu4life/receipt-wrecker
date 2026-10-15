@@ -58,19 +58,27 @@ test("High Roller test: only the shapes the threshold's receipt holds, and the n
   assert.match(p.note, /check that UP runs up the tape/);
   assert.ok(!/MMMMM keeps|jog keeps|second BIG/.test(p.note), p.note);
   assert.match(p.note, /leaves out MMMMM, jog and the upside-down BIG\.$/);
-  // 50 bits per inch: 25 bits buy 48px, which the Cheer line and BIG can't share. Nothing to
-  // show: the test is not offered.
+  // 50 bits per inch: 25 bits buy 48px, which the repeat number's line and BIG can't share.
+  // Nothing to show: the test is not offered. (The repeat number is on unless said.)
   const none = C.buildHighRollerProbe({ hrThreshold: 25, bitsPerInch: 50 });
   assert.equal(none.works, false);
   assert.match(none.note, /can't show anything/);
-  // It says what really happens (polish review 4): 26.4px (7 mm) is left after the Cheer line,
-  // too short for BIG (48px, 13 mm); the bot prints the Cheer line and the top of BIG. Only a
-  // box the Cheer line fills is "the Cheer line fills it".
-  assert.match(none.note, /about 1\.3 cm of receipt, and after the Cheer line only about 7 mm is left, too short for even the test's smallest shape \(BIG, 13 mm tall\), so this test can't show anything\./);
-  assert.ok(!/Cheer line fills it/.test(none.note), none.note);
+  // It says what really happens (polish review 4): 26.4px (7 mm) is left after the repeat number's
+  // line, too short for BIG (48px, 13 mm); the bot prints the line and the top of BIG. Only a box
+  // the line fills is "the repeat number's line fills it".
+  assert.match(none.note, /about 1\.3 cm of receipt, and after the repeat number's line only about 7 mm is left, too short for even the test's smallest shape \(BIG, 13 mm tall\), so this test can't show anything\./);
+  assert.ok(!/line fills it/.test(none.note), none.note);
   const full = C.buildHighRollerProbe({ hrThreshold: 25, bitsPerInch: 200 });
   assert.equal(full.works, false);
-  assert.match(full.note, /about 0\.3 cm of receipt, and the Cheer line fills it, so this test can't show anything\./);
+  assert.match(full.note, /about 0\.3 cm of receipt, and the repeat number's line fills it, so this test can't show anything\./);
+  // Without the repeat number the Cheer word prints nothing (Printer Bot 3.0.4): the 48px is all
+  // BIG's, and the test is offered.
+  const bare = C.buildHighRollerProbe({ hrThreshold: 25, bitsPerInch: 50, noNonce: true });
+  assert.equal(bare.works, true);
+  assert.match(bare.note, /^One 25-bit cheer, exactly the threshold\. If BIG prints big/);
+  const tiny = C.buildHighRollerProbe({ hrThreshold: 25, bitsPerInch: 200, noNonce: true });
+  assert.equal(tiny.works, false);
+  assert.match(tiny.note, /about 0\.3 cm of receipt, and that is too short for even the test's smallest shape \(BIG, 13 mm tall\)/);
 });
 
 test("Plain test: one bit under the threshold, a Design T HI grid, the token last", () => {
@@ -82,9 +90,9 @@ test("Plain test: one bit under the threshold, a Design T HI grid, the token las
     const parts = pack(p);
     assert.equal(parts.length, 1);
     const pay = parts[0].payload;
-    assert.ok(pay.endsWith(" Cheer24"));
+    assert.ok(pay.endsWith(C.DESIGN_T_TAIL + " Cheer24"));
     assert.equal(scanTags(pay).length, 0, "no markup at all");
-    const grid = Array.from(pay.slice(0, -" Cheer24".length));
+    const grid = Array.from(pay.slice(0, -(C.DESIGN_T_TAIL + " Cheer24").length));
     assert.equal((grid.length - header) % cols, 0, "every row exactly " + cols);
     const rows = (grid.length - header) / cols;
     for (let r = 0; r < rows; r++) {

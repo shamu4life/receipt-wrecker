@@ -44,7 +44,7 @@ test("targetPaper: a cheer of the Letter printer's bits or more prints on Letter
 });
 
 test("contentLimitPx on Letter: the page leaves 125 px in Scaled like 80 mm and 343 in Large message, under the bot's lengths in inches", () => {
-  const L = (o) => C.contentLimitPx({ bits: 600, letterBits: 500, ...o });
+  const L = (o) => { const { leadPx, ...box } = C.contentLimitPx({ bits: 600, letterBits: 500, ...o }); return box; };
   // The header and footer, measured on the bot's own page with its profile picture (Scaled like 80 mm
   // is the roll's header; Large message has a small picture beside the name and the logo below).
   eq(C.LETTER_CHROME_PX, { scaled: 407.8125, message: 189.96875 });
@@ -55,7 +55,7 @@ test("contentLimitPx on Letter: the page leaves 125 px in Scaled like 80 mm and 
   eq(L({ maxInches: 2 }), { px: Math.floor(2 * PPI), by: "cap", fades: true });
   eq(L({ maxInches: 40, letterLayout: "message" }), { px: 533 - 189.96875, by: "page", fades: true });
   // A roll keeps its own box, exactly as before.
-  eq(C.contentLimitPx({ bits: 100, letterBits: 500 }), { px: 1600, by: "ceiling", fades: false });
+  eq(L({ bits: 100 }), { px: 1600, by: "ceiling", fades: false });
 });
 
 test("stackContext on Letter: the paper, the room after the Cheer line, centring in Large message, colour in the colour profile", () => {
@@ -194,11 +194,11 @@ test("the High Roller test on Letter: sized for the page, boxed by it, centred i
   const roll = C.buildHighRollerProbe({ hrThreshold: 25, letterBits: 500, paperMm: 80 });
   assert.equal(roll.paperMm, 80);
   assert.match(roll.note, /^One 25-bit cheer, exactly the threshold\. If BIG/);
-  // A box that leaves nothing after the Cheer line on Letter says it in Letter millimetres.
+  // A box that leaves nothing after the repeat number's line on Letter says it in Letter millimetres.
   const tiny = P({ bitsPerInch: 100000 });
   assert.equal(tiny.works, false);
-  assert.match(tiny.note, /gets about 0\.0 cm of receipt, and the Cheer line fills it/);
-  const small = P({ bitsPerInch: 1000 });   // 600 / 1000 inch = 32 px on Letter: 10.4 px after the Cheer line
+  assert.match(tiny.note, /gets about 0\.0 cm of receipt, and the repeat number's line fills it/);
+  const small = P({ bitsPerInch: 1000 });   // 600 / 1000 inch = 32 px on Letter: 10.4 px after the repeat number's line
   assert.match(small.note, /only about 5 mm is left, too short for even the test's smallest shape \(BIG, 23 mm tall\)/);
 });
 
@@ -208,12 +208,12 @@ test("the Plain test on Letter: 23 cells a row, one cheer; a page too short for 
   eq([m.bits, m.paperMm, m.bodies.length, m.bodies[0].hanzi.cols], [999, "letter", 1, 23]);
   assert.match(m.note, /which prints on the Letter printer/);
   assert.match(m.note, /HI in Han characters/);
-  assert.match(m.note, /every line holds 23 characters/);
-  // Scaled like 80 mm: 125 px is five lines, a header, three rows and the token: no room for HI's seven.
+  assert.match(m.note, /every row holds 23 characters/);
+  // Scaled like 80 mm: 125 px is five lines, a header, three rows and the tail: no room for HI's seven.
   const s = P({});
   eq([s.bodies.length, s.bodies[0].hanzi.rows], [1, 1]);
   assert.doesNotMatch(s.note, /HI in Han characters/);
-  assert.match(s.note, /a light first line, a row of tones, then Cheer999/);
+  assert.match(s.note, /a light first line, a row of tones and a light last line/);
   assert.match(s.note, /leaves room for only 3 rows, so HI is left out/);
   // On the roll nothing changes.
   const roll = C.buildPlainProbe({ hrThreshold: 25, letterBits: 500, paperMm: 80 });

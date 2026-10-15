@@ -96,7 +96,7 @@ test("raiseNote: asking first names the threshold and what the stack prints mean
 
 test("raiseNote: no room says which of the streamer's settings is in the way", () => {
   assert.equal(C.raiseNote({ action: "noRoom", from: 10, to: 25, by: "bits" }, "Big text"),
-    "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the Cheer line, so the stack prints in its plain form.");
+    "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the repeat number's line, so the stack prints in its plain form.");
   assert.equal(C.raiseNote({ action: "noRoom", from: 10, to: 25, by: "cap" }, "Big text"),
-    "Bits per cheer stays at 10: the streamer's maximum length leaves no room after the Cheer line at any amount, so the stack prints in its plain form.");
+    "Bits per cheer stays at 10: the streamer's maximum length leaves no room after the repeat number's line at any amount, so the stack prints in its plain form.");
 });

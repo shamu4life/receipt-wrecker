@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // tools/forkbench.mjs: render one Twitch cheer through SassyTP printer-bot's REAL receipt page
-// (the pinned v/3.0.0/renderer.html, Printer Bot 3.0.1's) in headless Chromium, the way the
+// (the pinned v/3.0.0/renderer.html, Printer Bot 3.0.4's) in headless Chromium, the way the
 // bot's Streamer.bot action drives it in headless Edge, and report what would print.
 //
-// How the bot prints (printer-bot 2.5.4 and, on a roll printer, 3.0.0-beta.6, 3.0.0-beta.7 and
-// 3.0.1, verified against their source): the action opens the
+// How the bot prints (printer-bot 2.5.4 and, on a roll printer, 3.0.0-beta.6, 3.0.0-beta.7,
+// 3.0.1 and 3.0.4, verified against their source): the action opens the
 // receipt page in headless Edge with a 272 x 5000 CSS px viewport on 80 mm paper (181 px on
 // 58 mm) at deviceScaleFactor 576/272 (384/181), calls PrinterBot.render(event, options),
 // screenshots the height render() returns, converts it to 8-bit grey ((77R + 151G + 28B) >> 8),
@@ -81,12 +81,12 @@ import { deflateSync, inflateSync } from "node:zlib";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..");
 
-// The printer-bot commit this bench is pinned to (3.0.1, the page the app vendors since 1.4.1;
-// 1.3.0 vendored 3.0.0-beta.6, 1.3.1 3.0.0-beta.7), and the sha256 of its renderer page.
+// The printer-bot commit this bench is pinned to (3.0.4, the page the app vendors since 1.8.0;
+// 1.3.0 vendored 3.0.0-beta.6, 1.3.1 3.0.0-beta.7, 1.4.1 3.0.1), and the sha256 of its renderer page.
 // A fetched copy that does not match is refused rather than measured.
-const PINNED_SHA = "104929270ded1c63f111c414fd3f0c99cdb740fc";
+const PINNED_SHA = "fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2";
 const RENDERER_PATH = "v/3.0.0/renderer.html";
-const RENDERER_SHA256 = "6604dffcbf8252dd2b2c70ef2a44cb4e65806244cd699a1bbfe65809aaf9b6fe";
+const RENDERER_SHA256 = "f4f4d5bbb25f352324261df90303ec3517617a49effd5610e644fd61734afa06";
 const RENDERER_URL = "https://raw.githubusercontent.com/SassyTP/printer-bot/" + PINNED_SHA + "/" + RENDERER_PATH;
 const CACHE_DIR = join(REPO, ".render", "sassytp", PINNED_SHA);
 const CACHE_FILE = join(CACHE_DIR, RENDERER_PATH);

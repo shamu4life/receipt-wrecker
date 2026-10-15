@@ -70,7 +70,7 @@ test("/catbox answers only this site's own page, and no other site's page can se
   assert.equal(res.headers.get("access-control-allow-origin"), null, "no CORS header on /catbox");
 });
 
-test("/catbox takes POSTed pictures only: png, jpeg, gif or webp, not empty, 5 MB at most", async () => {
+test("/catbox takes POSTed pictures only, not empty, 5 MB at most", async () => {
   const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
   assert.equal((await call({ method: "GET", catbox: cb })).res.status, 405);
   for (const type of ["text/html", "image/svg+xml", "application/octet-stream", "image/bmp", null]) {
@@ -79,13 +79,45 @@ test("/catbox takes POSTed pictures only: png, jpeg, gif or webp, not empty, 5 M
   assert.equal((await call({ body: new Uint8Array(0), catbox: cb })).res.status, 400);
   assert.equal((await call({ body: new Uint8Array(5 * 1024 * 1024 + 1), catbox: cb })).res.status, 413);
   assert.equal(cb.calls.length, 0);
-  for (const [type, ext] of [["image/png", "png"], ["image/gif", "gif"], ["image/webp", "webp"]]) {
-    const ok = fakeCatbox(new Response("https://files.catbox.moe/abc123." + ext));
-    const { res, json } = await call({ type, catbox: ok });
-    assert.equal(res.status, 200, type);
-    assert.equal(ok.calls[0].init.body.get("fileToUpload").name, "picture." + ext);
-    assert.equal(json.url, "https://files.catbox.moe/abc123." + ext);
+});
+
+test("/catbox takes a real JPEG only (the page always sends one): the bytes are checked, not the label", async () => {
+  // Security review of 1.7.0: the declared type was trusted, so any bytes labelled a picture went
+  // to Catbox. The page redraws every picture as a JPEG, so the route takes nothing else.
+  const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
+  for (const type of ["image/png", "image/gif", "image/webp"]) assert.equal((await call({ type, catbox: cb })).res.status, 415, type);
+  const html = new TextEncoder().encode("<html><body>not a picture</body></html>");
+  const noEnd = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6]);
+  const trailing = new Uint8Array([...JPEG, 0x50, 0x4b, 0x03, 0x04]);          // a zip glued after the picture
+  for (const [what, body] of [["html", html], ["no end marker", noEnd], ["data after the end", trailing]]) {
+    assert.equal((await call({ body, catbox: cb })).res.status, 415, what);
   }
+  assert.equal(cb.calls.length, 0, "nothing but a JPEG reached Catbox");
+});
+
+test("/catbox counts an IPv6 viewer by their network (the first 64 bits), not by each address", async () => {
+  // Security review of 1.7.0: one IPv6 network holds billions of addresses, so counting each one
+  // let a single viewer pass the hourly limit by changing address.
+  const env = { RW_IMG: fakeKv(), ASSETS: { fetch: () => new Response("asset") } };
+  const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
+  for (let i = 1; i <= 20; i++) assert.equal((await call({ env, ip: "2001:db8:1:2::" + i.toString(16), catbox: cb })).res.status, 200);
+  assert.equal((await call({ env, ip: "2001:0db8:0001:0002:ffff:ffff:ffff:fffe", catbox: cb })).res.status, 429);
+  assert.equal((await call({ env, ip: "2001:db8:1:3::1", catbox: cb })).res.status, 200, "the next network is not held up");
+});
+
+test("/catbox takes at most 100 uploads an hour from everyone together, and refuses outright with no counter store", async () => {
+  // Security review of 1.7.0: per viewer alone, many machines together had no bound.
+  const env = { RW_IMG: fakeKv(), ASSETS: { fetch: () => new Response("asset") } };
+  const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
+  for (let i = 1; i <= 100; i++) assert.equal((await call({ env, ip: "198.51." + (i >> 8) + "." + (i & 255), catbox: cb })).res.status, 200, "upload " + i);
+  const { res, json } = await call({ env, ip: "192.0.2.77", catbox: cb });
+  assert.equal(res.status, 429);
+  assert.match(json.error, /This site has taken all the uploads it takes in an hour/);
+  assert.equal(cb.calls.length, 100);
+  // No counter store (a misconfigured deploy): refuse, never upload without the limits.
+  const none = await call({ env: { ASSETS: { fetch: () => new Response("asset") } }, catbox: cb });
+  assert.equal(none.res.status, 503);
+  assert.equal(cb.calls.length, 100);
 });
 
 test("/catbox passes on only a files.catbox.moe picture link: anything else Catbox says is an error", async () => {

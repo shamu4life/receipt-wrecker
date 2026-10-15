@@ -299,19 +299,43 @@ async function handleProxy(url, env) {
 // and hands back only a link it has checked. Guards, so it is not a free anonymous uploader for
 // anyone else:
 //   * only this site's own page: the request's Origin must be this origin (a browser always sends
-//     one on a POST), and the answer carries no CORS header, so no other site's page can see it;
-//   * pictures only, png, jpeg, gif or webp (what Printer Bot's Catbox rule prints), 5 MB at most;
-//   * CATBOX_PER_HOUR uploads an hour per viewer, counted in KV under a hash of the address (never
-//     the address), each counter expiring by itself. KV is eventually consistent, so a burst can slip
-//     a few past: a brake, not a wall;
+//     one on a POST), and the answer carries no CORS header, so no other site's page can see it.
+//     A script outside a browser can claim any Origin, so this stops other sites' pages, not
+//     scripts: the limits below are what bound a script (security review of 1.7.0);
+//   * a real JPEG only, checked by its bytes (it starts FF D8 FF and ends FF D9, so nothing is
+//     glued after the picture), 5 MB at most. The page redraws every picture as a JPEG before it
+//     sends it, so nothing else is ever needed (the review: the declared type alone was trusted);
+//   * CATBOX_PER_HOUR uploads an hour per viewer, an IPv6 viewer counted by network (the first 64
+//     bits: one network holds billions of addresses), and CATBOX_SITE_PER_HOUR from everyone
+//     together, counted in KV under a hash of the network (never the address), each counter
+//     expiring by itself. KV is eventually consistent, so a burst can slip a few past: a brake, not
+//     a wall. With no KV the route refuses rather than upload without its limits;
 //   * Catbox's answer passed on only when it is exactly a files.catbox.moe picture link.
 // Catbox sees every upload as this Worker's (Cloudflare names the site on a Worker's requests), so
 // a bad upload by anyone is on the site's record: the owner accepted that for the one-step upload.
 const CATBOX_API = "https://catbox.moe/user/api.php";
-const CATBOX_TYPES = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp" };
 const CATBOX_LINK = /^https:\/\/files\.catbox\.moe\/[a-z0-9]{6}\.(png|jpe?g|gif|webp)$/;
 const CATBOX_PER_HOUR = 20;
+const CATBOX_SITE_PER_HOUR = 100;
 const CATBOX_TIMEOUT_MS = 30000;
+
+// A whole JPEG: its start-of-image marker first and its end-of-image marker last.
+function isWholeJpeg(buf) {
+  const b = new Uint8Array(buf), n = b.length;
+  return n >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff && b[n - 2] === 0xff && b[n - 1] === 0xd9;
+}
+
+// The viewer's network: an IPv4 address as it is, an IPv6 one by its first 64 bits.
+function networkOf(ip) {
+  const s = String(ip || "").trim().toLowerCase();
+  if (s.indexOf(":") < 0) return s;
+  const halves = s.split("::");
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length > 1 && halves[1] ? halves[1].split(":") : [];
+  const zeros = [];
+  for (let i = head.length + tail.length; i < 8; i++) zeros.push("0");
+  return head.concat(zeros, tail).slice(0, 4).map(function (g) { return (parseInt(g, 16) || 0).toString(16); }).join(":") + "::/64";
+}
 
 // JSON for /catbox: like json(), but with no CORS header.
 function sameSiteJson(obj, status) {
@@ -321,36 +345,42 @@ function sameSiteJson(obj, status) {
   });
 }
 
-// The KV key counting this viewer's uploads this hour: a hash of the address, never the address.
-async function viewerSlot(request) {
-  const ip = request.headers.get("cf-connecting-ip") || "";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rw-catbox:" + ip));
+// The KV keys counting uploads this hour: this viewer's (a hash of their network, never the
+// address) and everyone's together.
+async function rateSlots(request) {
+  const net = networkOf(request.headers.get("cf-connecting-ip") || "");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rw-catbox:" + net));
   var hex = "";
   new Uint8Array(digest).slice(0, 16).forEach(function (b) { hex += (b + 0x100).toString(16).slice(1); });
-  return "catbox-rate/" + hex + "/" + Math.floor(Date.now() / 3600000);
+  const hour = Math.floor(Date.now() / 3600000);
+  return { viewer: "catbox-rate/" + hex + "/" + hour, site: "catbox-rate/all/" + hour };
 }
 
 async function handleCatbox(request, env, url) {
   if (request.method !== "POST") return sameSiteJson({ error: "POST a picture" }, 405);
   if (request.headers.get("origin") !== url.origin) return sameSiteJson({ error: "uploads only from this site's page" }, 403);
   const ct = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-  const ext = CATBOX_TYPES[ct];
-  if (!ext) return sameSiteJson({ error: "a png, jpeg, gif or webp picture only" }, 415);
+  if (ct !== "image/jpeg") return sameSiteJson({ error: "a JPEG picture only" }, 415);
   var buf;
   try { buf = await request.arrayBuffer(); } catch (e) { return sameSiteJson({ error: "could not take the picture" }, 400); }
   if (!buf || buf.byteLength === 0) return sameSiteJson({ error: "empty upload" }, 400);
   if (buf.byteLength > MAX_BYTES) return sameSiteJson({ error: "too big: 5 MB at most" }, 413);
+  if (!isWholeJpeg(buf)) return sameSiteJson({ error: "that isn't a JPEG picture" }, 415);
 
-  if (env && env.RW_IMG) {
-    const slot = await viewerSlot(request);
-    const n = parseInt(await env.RW_IMG.get(slot), 10) || 0;
-    if (n >= CATBOX_PER_HOUR) return sameSiteJson({ error: CATBOX_PER_HOUR + " uploads an hour is the most: try again later" }, 429);
-    await env.RW_IMG.put(slot, String(n + 1), { expirationTtl: 7200 });
+  if (!env || !env.RW_IMG) return sameSiteJson({ error: "uploads are off right now" }, 503);
+  const slots = await rateSlots(request);
+  const mine = parseInt(await env.RW_IMG.get(slots.viewer), 10) || 0;
+  if (mine >= CATBOX_PER_HOUR) return sameSiteJson({ error: CATBOX_PER_HOUR + " uploads an hour is the most: try again later" }, 429);
+  const all = parseInt(await env.RW_IMG.get(slots.site), 10) || 0;
+  if (all >= CATBOX_SITE_PER_HOUR) {
+    return sameSiteJson({ error: "This site has taken all the uploads it takes in an hour: try again later, or paste a link" }, 429);
   }
+  await env.RW_IMG.put(slots.viewer, String(mine + 1), { expirationTtl: 7200 });
+  await env.RW_IMG.put(slots.site, String(all + 1), { expirationTtl: 7200 });
 
   const form = new FormData();
   form.append("reqtype", "fileupload");
-  form.append("fileToUpload", new Blob([buf], { type: ct }), "picture." + ext);
+  form.append("fileToUpload", new Blob([buf], { type: ct }), "picture.jpg");
   var res, said;
   try {
     res = await fetch(CATBOX_API, {

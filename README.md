@@ -322,8 +322,8 @@ The easiest way (since 1.7.0): **pick a file on the card**. It goes to Catbox th
 and its `https://files.catbox.moe/` link fills the card's Image URL field by itself. The card
 says it first, beside the file picker: the picture becomes public to anyone with the link, stays
 up until two years after it was last viewed, and can't be deleted. (It has to go through this
-site's server: Catbox doesn't let a web page see the link it sends back. The server takes 20
-uploads an hour from one person at most, and only from this page.)
+site's server: Catbox doesn't let a web page see the link it sends back. The server takes only
+JPEG pictures from this page, 20 uploads an hour from one person and 100 from everyone together.)
 
 Or upload the picture to one of those sites yourself and paste its direct link: the address of
 the picture itself, ending in `.png`, `.jpg`, `.gif` or `.webp` (Imgur's start

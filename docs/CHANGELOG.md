@@ -27,9 +27,13 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   deleted. An upload that fails says why on the card and leaves the link field as it was.
 - **A new Worker route, `POST /catbox`,** by the owner's decision. It has to be the server:
   Catbox lets no web page see the link it sends back (checked in a browser). Its guards: only this
-  site's own page; png, jpeg, gif or webp, 5 MB at most; 20 uploads an hour per viewer, counted
-  under a hash of the address; and Catbox's answer passed on only when it is exactly a
-  `files.catbox.moe` picture link.
+  site's own page (which stops other sites' pages; a script can claim to be this page, so the
+  limits are what bound it); a real JPEG only, checked by its bytes, 5 MB at most; 20 uploads an
+  hour per viewer (an IPv6 viewer counted by network) and 100 an hour from everyone together,
+  counted under a hash of the network, with no upload at all if the counters can't be kept; and
+  Catbox's answer passed on only when it is exactly a `files.catbox.moe` picture link. A security
+  review of the first push added the bytes check, the network counting, the site-wide cap and the
+  refusal without counters.
 
 ### Changed
 
@@ -41,7 +45,7 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ### How sure
 
-- **Tests**: 287 unit tests (6 new, for the route, against a fake Catbox) and 96 browser tests (2
+- **Tests**: 290 unit tests (9 new, for the route, against a fake Catbox) and 96 browser tests (2
   new, with `/catbox` stood in for). Each of the route's guards, and each piece of the card's
   upload, was broken on purpose and a test caught it. Nothing was uploaded to the real Catbox.
 - **Not tried for real yet**: the first real upload. Catbox takes requests from other sites (a

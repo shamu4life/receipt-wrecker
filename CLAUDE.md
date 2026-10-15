@@ -1773,10 +1773,16 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 > a page can send it a file but can't see the link it answers with (proven in a browser, with a
 > request that carried no file). Its guards, each held by `test/catbox.test.mjs` against a fake
 > Catbox and each mutation-checked: only this site's own page (the Origin must be this origin, and
-> the answer carries no CORS header); png, jpeg, gif or webp only, 5 MB at most; 20 uploads an hour
-> per viewer, counted in `RW_IMG` under a hash of the address (never the address), each counter
-> expiring by itself (KV is eventually consistent: a brake, not a wall); Catbox's answer passed on
-> only when it is exactly a `files.catbox.moe` picture link. Uploads are anonymous (no userhash),
+> the answer carries no CORS header; a script outside a browser can claim any Origin, so this stops
+> other sites' pages, not scripts, and the limits are what bound a script); a real JPEG only,
+> checked by its bytes (FF D8 FF first, FF D9 last, so nothing rides after the picture; the page
+> redraws every picture as one), 5 MB at most; 20 uploads an hour per viewer (an IPv6 viewer counted
+> by the first 64 bits of the address) and 100 an hour from everyone together, counted in `RW_IMG`
+> under a hash of the network (never the address), each counter expiring by itself (KV is
+> eventually consistent: a brake, not a wall), and no upload at all without the counter store;
+> Catbox's answer passed on only when it is exactly a `files.catbox.moe` picture link. (The bytes
+> check, the IPv6 counting, the site-wide cap and the refusal without KV came from a security
+> review of the first push.) Uploads are anonymous (no userhash),
 > so nobody can delete one, and they stay until two years after their last view; Catbox sees every
 > one as this Worker's (Cloudflare names the site on a Worker's requests), so a bad upload by
 > anyone is on the site's record. The owner accepted that, and the card says the rest plainly

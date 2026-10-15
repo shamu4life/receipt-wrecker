@@ -8,17 +8,22 @@
 
   // The app's domain is listed, and that is not optional.
   //
-  // Once routes appear in this file, it is the source of truth for them: a deploy
-  // reconciles the Worker's route set to this list, so anything you want reachable
-  // has to be in it. (receipt.uwutoowo.com was once configured only in the dashboard.)
+  // Anything you want reachable has to be in this list: a deploy attaches the custom
+  // domains listed here (after 1.8.1's, which stopped listing i.uwutoowo.com, the
+  // Worker had no custom domain for it). A deploy leaves alone a zone route set
+  // elsewhere (the dashboard or the API), which still sends its hostname to this
+  // Worker: check the zone's Workers Routes too.
+  // (receipt.uwutoowo.com was once configured only in the dashboard.)
   //
   // custom_domain:true means Cloudflare manages the hostname end to end (DNS record
   // + certificate) rather than matching a pattern on an existing route.
   //
   // 1.8.1, by the owner's decision, took out i.uwutoowo.com, the short host of the
   // links the old /upload route made, together with /upload and the RW_IMG_HOST var
-  // that pointed its links there: the app stopped using them in 1.8.0. Deploying this
-  // list detaches that domain from the Worker.
+  // that pointed its links there: the app stopped using them in 1.8.0. Its deploy left
+  // the Worker no custom domain for it, but a zone route set outside this file,
+  // i.uwutoowo.com/*, still sent it to the Worker until it was removed through
+  // Cloudflare's API the same day (2026-10-15).
   "routes": [
     { "pattern": "receipt.uwutoowo.com", "custom_domain": true }
   ],

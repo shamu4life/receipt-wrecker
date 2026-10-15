@@ -47,8 +47,10 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   device), and it took a picture from anyone, with no hourly limit, for a 15-minute link on
   `i.uwutoowo.com`, writing to the KV namespace `/imgbb` keeps its hourly counts in. Gone with it:
   the routes that served its pictures (`/<hex>.png`, `/i/<hex>`), `/px`'s answer out of KV for
-  them, the `RW_IMG_HOST` var, and the `i.uwutoowo.com` domain, which this release's deploy
-  detaches from the Worker. Every link `/upload` made expired 15 minutes after it was made; one
+  them, the `RW_IMG_HOST` var, and the `i.uwutoowo.com` domain. (The release's deploy left the
+  Worker no custom domain for it, but a zone route set outside `wrangler.jsonc`,
+  `i.uwutoowo.com/*`, still sent it to the Worker until it was removed through Cloudflare's API
+  the same day.) Every link `/upload` made expired 15 minutes after it was made; one
   still in a saved preset loads nothing, and the expiry check says so, as before. The `RW_IMG` KV
   binding stays for `/imgbb`.
 

@@ -104,7 +104,7 @@ test("buildPictureBodies: one bare <div> holding the link, as tall as it prints,
   assert.equal(b.chars, 42);
   assert.equal(r2(b.heightPx), 134.8);
   assert.equal(b.marginTop, 6.4); assert.equal(b.marginBottom, 6.4);
-  eq(b.picture, { url: "https://i.imgur.com/abc1234.png", site: "imgur", natW: 1000, natH: 500, w: 244, h: 122, tall: false, shrinks: false });
+  eq(b.picture, { url: "https://i.imgur.com/abc1234.png", site: "imgur", natW: 1000, natH: 500, w: 244, h: 122, turned: 0, tall: false, shrinks: false });
   // Taller than the box the cheer buys: the bot's box cuts it, and the body says so.
   const [t] = C.buildPictureBodies(link, 500, 2000, { contentW: 244, heightPx: 100 });
   assert.equal(t.picture.tall, true);
@@ -145,7 +145,7 @@ test("normalizeControls: imageSites, the sites the streamer switched on, in the 
 test("realPictureForm: the picture in a High Roller cheer when its site is on, the plain Han grid below the threshold, else nothing and why", () => {
   const f = (url, mode, sites) => C.realPictureForm({ url, mode, imageSites: sites });
   const u = "https://i.imgur.com/abc1234.png";
-  eq(f(u, "raw", ["imgur"]), { form: "picture", link: { url: u, site: "imgur" } });
+  eq(f(u, "raw", ["imgur"]), { form: "picture", link: { url: u, site: "imgur" }, way: "none" });
   eq(f(u, "raw", ["catbox", "imgbb"]), { form: "none", why: "site-off", site: "imgur" });
   eq(f(u, "raw", []), { form: "none", why: "site-off", site: "imgur" });
   eq(f("https://imgur.com/abc1234", "raw", ["imgur"]), { form: "none", why: "page" });

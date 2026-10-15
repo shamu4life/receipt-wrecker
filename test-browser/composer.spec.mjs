@@ -32,7 +32,7 @@ import { serve } from "./_serve.mjs";
 import { loadCore } from "../test/_harness.mjs";
 
 const C = loadCore();
-let server, browser, PIC, PIC_WIDE;
+let server, browser, PIC, PIC_WIDE, PIC_TALL;
 
 test.before(async () => {
   server = await serve();
@@ -64,6 +64,16 @@ test.before(async () => {
     x.fillStyle = "#888"; x.fillRect(0, 160, 400, 40);
     return c.toDataURL("image/png");
   });
+  // 1.8.0: PIC_WIDE turned 90 degrees clockwise (200 x 400), what a turned copy of it is.
+  PIC_TALL = await p.evaluate(async (src) => {
+    const im = new Image(); im.src = src; await im.decode();
+    const c = document.createElement("canvas");
+    c.width = im.naturalHeight; c.height = im.naturalWidth;
+    const x = c.getContext("2d");
+    x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height);
+    x.translate(c.width / 2, c.height / 2); x.rotate(Math.PI / 2); x.drawImage(im, -im.naturalWidth / 2, -im.naturalHeight / 2);
+    return c.toDataURL("image/png");
+  }, PIC_WIDE);
   await ctx.close();
 });
 test.after(async () => {
@@ -190,14 +200,19 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
       let bodies;
       const look = K.blockLook(b, ctx);
       if (b.type === "image") {
-        const real = b.imgKind !== "glyph", f = real ? K.realPictureForm({ url: b.url, mode: ctx.mode, imageSites: ctx.imageSites }) : null;
+        const real = b.imgKind !== "glyph", turn = real ? K.realTurn(b) : null;
+        const f = real ? K.realPictureForm({ url: b.url, mode: ctx.mode, imageSites: ctx.imageSites, turn, letter: !!ctx.letter,
+                                             turnedUrl: K.turnedCopyUrl(b, Date.now()) }) : null;
         if (real && f.form === "none") continue;
         const img = new Image();
         img.src = (window.__rwPictureStub && window.__rwPictureStub[b.url]) || b.url;
         await img.decode();
         if (real && f.form === "picture") {
-          for (const x of K.buildPictureBodies(f.link, img.naturalWidth, img.naturalHeight,
-                                               { contentW: ctx.contentW, heightPx: ctx.room, pxPerInch: ctx.paper.pxPerInch, shrinks: !!ctx.letter })) all.push(x);
+          // 1.8.0: a turn alone in the message (way "css"); the copy, turned, once made (way "copy").
+          const po = { contentW: ctx.contentW, heightPx: ctx.room, pxPerInch: ctx.paper.pxPerInch, shrinks: !!ctx.letter };
+          const sz = f.way === "copy" ? K.turnedSize(img.naturalWidth, img.naturalHeight, turn.deg) : { w: img.naturalWidth, h: img.naturalHeight };
+          if (f.way === "css") po.deg = turn.deg;
+          if (f.link) for (const x of K.buildPictureBodies(f.link, sz.w, sz.h, po)) all.push(x);
           continue;
         }
         const grid = K.glyphGrid(b, img, ctx);
@@ -2964,8 +2979,11 @@ test("1.1.0 review: the hints promise a raise only when a pick would raise or of
   assert.match(await note(0), /Changing Font, Layout, Size or Upside down raises Bits per cheer to 25 bits, or offers to\./);
   assert.match(await note(1), /Changing Font, Direction or Size raises Bits per cheer to 25 bits, or offers to\./);
   assert.match(await note(2), /Changing Characters, Detail or Smooth shading raises Bits per cheer to 25 bits, or offers to\./);
-  // No room after the Cheer line at 25 bits: no promise anywhere.
+  // No room after the repeat number's line at 25 bits: no promise anywhere. (Without the repeat
+  // number Printer Bot 3.0.4 prints no line for the Cheer word, and a raise still helps.)
   await commit(page, "#bitsPerInch", "200");
+  assert.match(await page.textContent("#bitsHint"), /raises it to 25 bits, or offers to/);
+  await page.check("#cheerNonce");
   assert.doesNotMatch(await page.textContent("#bitsHint"), /raises it to/);
   for (const i of [0, 1, 2]) assert.doesNotMatch(await note(i), /raises Bits per cheer/, "card " + (i + 1));
   assert.deepEqual(errors, []);
@@ -3544,15 +3562,29 @@ test("1.5.0: with Imgur not ticked the Real picture prints nothing, says what th
 
 test("1.5.0: below the threshold a Real picture prints the plain Han grid, and its card says it prints the picture at the threshold", async () => {
   const s = { ...SETTINGS, bits: 10, imageSites: ["imgur"] };
-  // Its rotation and adjustments are only for the card: the grid is the linked picture as it is.
+  // 1.8.0: the grid is the picture as it prints, turned and adjusted as its card says.
   const blocks = [REAL({ id: 1, rotate: 90, adjBright: 40 })];
-  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE }) });
+  const TURNED = "https://i.imgur.com/Turn123.png";
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE, [TURNED]: PIC_TALL }) });
   await settled(page);
   const sent = await copyAll(page);
-  assert.deepEqual(sent, await expectPage(page, [REAL({ id: 1 })], s));
+  assert.deepEqual(sent, await expectPage(page, blocks, s));
+  assert.notDeepEqual(sent, await expectPage(page, [REAL({ id: 1 })], s), "the turn and the adjustment change the grid");
+  // Turned 90 degrees, the grid is the grid of the picture turned beforehand (both read from a
+  // canvas: the browser scales a canvas and a decoded picture through different filters, which
+  // moves a partly grey cell by a tone).
+  assert.equal(await page.evaluate(async ([wide, tall, so]) => {
+    const K = window.module.exports, ctx = K.stackContext(so);
+    const load = async (src) => { const im = new Image(); im.src = src; await im.decode(); return im; };
+    const w = await load(wide), t = await load(tall), cv = document.createElement("canvas");
+    cv.width = t.naturalWidth; cv.height = t.naturalHeight; cv.getContext("2d").drawImage(t, 0, 0);
+    const a = K.glyphGrid({ type: "image", imgKind: "real", url: "a", rotate: 90 }, w, ctx);
+    const b = K.glyphGrid({ type: "image", imgKind: "real", url: "b" }, cv, ctx);
+    return JSON.stringify(a) === JSON.stringify(b);
+  }, [PIC_WIDE, PIC_TALL, stackOptsOf(s)]), true);
   assert.ok(!sent.some((p) => p.includes("imgur")), "a plain cheer sent the link");
   const note = await cards(page).first().locator(".pic-note").textContent();
-  assert.match(note, /This cheer is below the streamer's High Roller threshold, so this prints as a plain grid of Han characters, 13 a row\. At 25 bits or more it prints as the picture\./);
+  assert.match(note, /This cheer is below the streamer's High Roller threshold, so this prints as a plain grid of Han characters, 13 a row, turned 90° and adjusted\. At 25 bits or more it prints as the picture, once the streamer's Printer Bot has ImgBB switched on\./);
   assert.deepEqual(errors, []);
   await ctx.close();
 });
@@ -3865,6 +3897,160 @@ test("1.8.0: picking a file on a Real picture card uploads it to ImgBB through t
   // With ImgBB switched on, the link prints as the picture.
   await settled(page);
   assert.deepEqual(await copyAll(page), ["Cheer100 <div>" + link + "</div>"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── 1.8.0: a Real picture's Rotate, Brightness and Contrast print ──
+// By the owner's decisions: a turn alone prints the original link, turned by CSS in the message
+// (the bot keeps the styling around a picture link on a roll); with Brightness or Contrast set the
+// page uploads a turned and adjusted copy to ImgBB (stood in for here) and that copy prints.
+test("1.8.0: Rotate alone turns the printed picture in the message, around its own link, and the bot draws it turned at the size predicted", async () => {
+  // PIC_WIDE is 400 x 200: turned, 200 x 400, printed 192 x 384 on 80 mm (never enlarged, at most 4
+  // inches) and 153 x 306 on 58 mm (the paper's width); upside down, as it is: 244 x 122, 153 x 76.5.
+  for (const [paperMm, deg, w, h] of [[80, 90, 192, 384], [80, 180, 244, 122], [80, 270, 192, 384], [58, 90, 153, 306], [58, 180, 153, 76.5]]) {
+    const s = { ...SETTINGS, paperMm, imageSites: ["imgur"] };
+    const blocks = [REAL({ id: 1, rotate: deg })];
+    const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true, init: picStub({ [IMGUR]: PIC_WIDE }) });
+    await settled(page);
+    const sent = await copyAll(page);
+    const want = await expectParts(page, blocks, s);
+    assert.deepEqual(sent, want.map((p) => p.payload));
+    const [core] = C.buildPictureBodies(C.pictureLink(IMGUR), 400, 200, { contentW: C.paperSpec(paperMm).contentW, heightPx: 1600, pxPerInch: 96, deg });
+    assert.deepEqual([core.picture.w, core.picture.h], [w, h], paperMm + " mm " + deg);
+    assert.ok(sent[0].includes(">" + IMGUR + "</div>") && sent[0].includes("rotate:" + deg + "deg"), sent[0]);
+    assertTags(sent[0]);
+    const { frame, last } = await drawnPart(page, 0, sent[0]);
+    const r = await frame.evaluate(() => {
+      const i = document.querySelector("#receipt-content img.msg-image"), c = document.querySelector("#receipt-content").getBoundingClientRect();
+      const b = i.getBoundingClientRect();
+      return { w: b.width, h: b.height, left: b.left - c.left, top: b.top - c.top, cw: c.width };
+    });
+    assert.ok(Math.abs(r.w - w) < 1 && Math.abs(r.h - h) < 1, deg + ": " + JSON.stringify(r));
+    assert.ok(Math.abs(r.left - (r.cw - w) / 2) < 1, deg + ": centred, " + JSON.stringify(r));
+    assert.ok(Math.abs(r.top - 6.4) < 1, deg + ": at the top of its box, its margin above it, " + JSON.stringify(r));
+    assert.deepEqual(last.result.security, []);
+    // The bot keeps every declaration of the divs around the link (the link itself becomes its picture).
+    const kept = await frame.evaluate((sentNow) => {
+      const part = document.querySelector("#receipt-content > .part"), out = [];
+      const doc = new DOMParser().parseFromString("<!DOCTYPE html><body>" + sentNow, "text/html");
+      const a = Array.from(doc.body.querySelectorAll("div")), b = Array.from(part.querySelectorAll("div"));
+      if (a.length !== b.length) return ["divs: sent " + a.length + ", kept " + b.length];
+      a.forEach((el, k) => {
+        for (let i = 0; i < el.style.length; i++) {
+          const p = el.style[i];
+          if (b[k].style.getPropertyValue(p) !== el.style.getPropertyValue(p)) out.push(p + ": " + el.style.getPropertyValue(p) + " -> " + b[k].style.getPropertyValue(p));
+        }
+      });
+      return out;
+    }, C.printedMessage(sent[0]));
+    assert.deepEqual(kept, [], deg + ": the bot keeps every declaration");
+    assert.ok(Math.abs(last.measure.fullPx - want[0].contentPx) <= 1, deg + ": " + last.measure.fullPx + " vs " + want[0].contentPx);
+    // Nothing was uploaded, and the link's own host was never asked.
+    assert.ok(!requests.some((u) => /\/imgbb|\/upload|imgur\.com/.test(u)), requests.join(" "));
+    assert.match(await cards(page).first().locator(".pic-note").textContent(), new RegExp("^Prints as the picture, turned " + deg + "°, about "));
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.8.0: Brightness or Contrast print through a turned and adjusted copy on ImgBB, made once the settings rest and kept for a day", async () => {
+  const COPY = "https://i.ibb.co/Cop1234/p.jpg", sent = [];
+  const s = { ...SETTINGS, imageSites: ["imgur", "imgbb"] };
+  // With a Big text block before it: a part would be copyable without the picture.
+  const blocks = [BIG({ id: 2, text: "HI" }), REAL({ id: 1, rotate: 90, adjBright: 40 })];
+  let release;
+  const held = new Promise((r) => { release = r; });
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true, init: picStub({ [IMGUR]: PIC_WIDE, [COPY]: PIC_TALL }),
+    routes: async (c) => {
+      await c.route("**/imgbb", async (r) => {
+        sent.push(r.request().postDataBuffer());
+        await held;
+        await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: COPY }) });
+      });
+    } });
+  const card = cards(page).nth(1);
+  // While the copy is being made nothing is copyable: the parts would change when it lands.
+  await page.waitForFunction(() => /Making the copy of it that prints/.test(document.getElementById("blockList").textContent));
+  assert.equal(await page.locator("#parts .copy-btn:not([disabled])").count(), 0);
+  assert.match(await page.textContent("#parts"), /still loading/);
+  release();
+  await page.waitForFunction(() => /Made the copy that prints/.test(document.getElementById("blockList").textContent), null, { timeout: 8000 });
+  await settled(page);
+  assert.equal(sent.length, 1, "one upload");
+  const after = await copyAll(page);
+  assert.ok(after.some((p) => p.endsWith("<div>" + COPY + "</div>")), after.join(" | "));
+  assert.deepEqual(after, await expectPage(page, await stored(page, "rw_blocks_v1"), s));
+  // What went up: a JPEG of the picture turned (200 x 400) and brighter (its black corner is grey).
+  const got = await page.evaluate(async (b64) => {
+    const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();
+    const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const x = c.getContext("2d"); x.drawImage(im, 0, 0);
+    return { size: [im.naturalWidth, im.naturalHeight], dark: [...x.getImageData(100, 20, 1, 1).data].slice(0, 3) };
+  }, sent[0].toString("base64"));
+  assert.deepEqual(got.size, [200, 400]);
+  assert.ok(got.dark.every((v) => v > 80 && v < 130), "40 brighter: " + JSON.stringify(got.dark));
+  const kept = (await stored(page, "rw_blocks_v1"))[1].turned;
+  assert.equal(kept.url, COPY);
+  assert.equal(kept.key, C.turnKey(IMGUR, C.realTurn({ rotate: 90, adjBright: 40 })));
+  const note = await card.locator(".pic-note").textContent();
+  assert.match(note, /^Prints as the picture, turned 90° and adjusted, about \d+ × \d+ mm · 1 cheer/);
+  assert.match(note, /It prints from a copy this site made on ImgBB \(i\.ibb\.co\): anyone with its link can see it, ImgBB deletes it a day later/);
+  // A reload keeps the copy: nothing more is uploaded.
+  await page.reload();
+  await settled(page);
+  assert.deepEqual(await copyAll(page), after);
+  // A dragged slider is one upload once it rests, not one a step.
+  await card.locator("input[type=range]").first().evaluate((el) => {
+    for (const v of [45, 50, 55, 60]) { el.value = String(v); el.dispatchEvent(new Event("input", { bubbles: true })); }
+  });
+  await page.waitForFunction(() => /Made the copy that prints/.test(document.getElementById("blockList").textContent), null, { timeout: 8000 });
+  assert.equal(sent.length, 2, "one more upload for the four steps");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+
+  // A copy over 20 hours old is made again (ImgBB deletes it after a day).
+  const old = { ...REAL({ id: 1, rotate: 90, adjBright: 40 }), turned: { key: kept.key, url: COPY, at: Date.now() - 21 * 3600 * 1000 } };
+  const again = [];
+  const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [old], controls: s, core: true, init: picStub({ [IMGUR]: PIC_WIDE, [COPY]: PIC_TALL }),
+    routes: async (c) => { await c.route("**/imgbb", (r) => { again.push(1); return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: COPY }) }); }); } });
+  await p2.waitForFunction(() => /Made the copy that prints/.test(document.getElementById("blockList").textContent), null, { timeout: 8000 });
+  assert.equal(again.length, 1);
+  assert.deepEqual(e2, []);
+  await c2.close();
+});
+
+test("1.8.0: a copy needs ImgBB switched on, and one that couldn't be made says why, sends nothing and can be tried again", async () => {
+  const COPY = "https://i.ibb.co/Cop1234/p.jpg", tries = [];
+  const blocks = [REAL({ id: 1, adjContrast: 30 })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: { ...SETTINGS, imageSites: ["imgur"] }, init: picStub({ [IMGUR]: PIC_WIDE, [COPY]: PIC_WIDE }),
+    routes: async (c) => {
+      await c.route("**/imgbb", (r) => {
+        tries.push(1);
+        return tries.length === 1
+          ? r.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "20 uploads an hour is the most: try again later" }) })
+          : r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: COPY }) });
+      });
+    } });
+  const card = cards(page).first();
+  // Imgur alone: the copy prints from ImgBB, so nothing prints and nothing is uploaded.
+  assert.match(await card.locator(".pic-note").textContent(), /^Turned or adjusted this way it prints from a copy on ImgBB, so the streamer's Printer Bot has to have ImgBB switched on/);
+  await card.getByRole("button", { name: "Go to Pictures from links" }).click();
+  assert.equal(await page.evaluate(() => document.activeElement.id), "imageSite-imgbb");
+  assert.equal(tries.length, 0);
+  // ImgBB on: the first try is refused, and the card and the parts say why.
+  await page.check("#imageSite-imgbb");
+  await page.waitForFunction(() => /couldn't be made/.test(document.querySelector("#blockList .pic-note").textContent), null, { timeout: 8000 });
+  assert.match(await card.locator(".pic-note").textContent(), /^The copy of it that prints couldn't be made \(20 uploads an hour is the most: try again later\)\. Until it is, this block prints nothing\./);
+  assert.match(await page.textContent("#pictureNote"), /the copy of it that prints couldn't be made \(20 uploads an hour is the most: try again later\)\. Try again on its card\./);
+  await page.waitForTimeout(1200);
+  assert.equal(tries.length, 1, "not asked again by itself");
+  await card.getByRole("button", { name: "Try again" }).click();
+  await page.waitForFunction(() => /Made the copy that prints/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
+  assert.equal(tries.length, 2);
+  assert.equal(await card.getByRole("button", { name: "Try again" }).isHidden(), true);
+  await settled(page);
+  assert.deepEqual(await copyAll(page), ["Cheer100 <div>" + COPY + "</div>"]);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

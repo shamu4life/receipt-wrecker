@@ -3981,6 +3981,15 @@ test("1.8.0: Brightness or Contrast print through a turned and adjusted copy on 
   const after = await copyAll(page);
   assert.ok(after.some((p) => p.endsWith("<div>" + COPY + "</div>")), after.join(" | "));
   assert.deepEqual(after, await expectPage(page, await stored(page, "rw_blocks_v1"), s));
+  // The preview shows what the copy's link prints: the picture turned (200 x 400, printed 192 x
+  // 384), not the card's picture as it is (security review of 1.8.0: it drew the source, 244 x 122).
+  const at = after.findIndex((p) => p.includes(COPY));
+  const { frame: cf } = await drawnPart(page, at, after[at]);
+  const drawn = await cf.evaluate(() => {
+    const i = document.querySelector("#receipt-content img.msg-image"), r = i.getBoundingClientRect();
+    return { nw: i.naturalWidth, nh: i.naturalHeight, w: r.width, h: r.height };
+  });
+  assert.ok(drawn.nw < drawn.nh && Math.abs(drawn.w - 192) < 1 && Math.abs(drawn.h - 384) < 1, JSON.stringify(drawn));
   // What went up: a JPEG of the picture turned (200 x 400) and brighter (its black corner is grey).
   const got = await page.evaluate(async (b64) => {
     const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();

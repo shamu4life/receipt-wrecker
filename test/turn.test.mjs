@@ -95,3 +95,21 @@ test("realPictureForm: a turn prints the link where its site is on; a copy needs
   assert.equal(C.realPictureForm({ url: IMGUR, mode: "plain", turn: C.realTurn({ adjBright: 10 }) }).form, "grid", "below the threshold, the grid");
   assert.equal(raw({ url: "https://imgur.com/AbC1234", turn: C.realTurn({ adjBright: 10 }), imageSites: ["imgbb"] }).why, "page", "the source must still be a picture link");
 });
+
+test("Import never takes a copy that prints from outside: a block's `turned` is dropped, and the copy is made here from the block's own picture", () => {
+  // Security review of 1.8.0 (content spoofing): a shared preset could carry a legitimate link in
+  // the card's field and, in `turned`, a copy on ImgBB of some other picture, which would print
+  // while the card and the preview showed the legitimate one.
+  const block = { id: 1, type: "image", imgKind: "real", url: IMGUR, adjBright: 10 };
+  const turned = { key: C.turnKey(IMGUR, C.realTurn(block)), url: "https://i.ibb.co/Evil123/p.jpg", at: Date.now() };
+  const r = C.importPresets([], [{ v: 1, name: "Shared", savedAt: 1, blocks: [{ ...block, turned }] }]);
+  assert.equal(r.added, 1);
+  assert.equal("turned" in r.presets[0].blocks[0], false);
+  assert.equal(C.turnedCopyUrl(r.presets[0].blocks[0], Date.now()), "");
+  assert.equal(r.presets[0].blocks[0].url, IMGUR, "everything else is kept");
+  // A setup saved here, exported and imported again, is still already saved: the copy is no part of it.
+  const mine = [{ v: 1, name: "Mine", savedAt: 1, blocks: [{ ...block, turned }] }];
+  const again = C.importPresets(mine, [{ v: 1, name: "Mine", savedAt: 2, blocks: [{ ...block, turned: { ...turned, at: 5 } }] }]);
+  assert.equal(again.added, 0);
+  assert.deepEqual([...again.same], ["Mine"]);
+});

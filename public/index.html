@@ -1070,21 +1070,34 @@
     var suffix = " (" + m[2] + ")";
     return m[1] === base.slice(0, Math.max(0, 60 - suffix.length)).replace(/\s+$/, "");
   }
+  // A Real picture's copy that prints (`turned`, 1.8.0) is taken only from this browser's own
+  // work: an imported block loses it, and the copy is made again from the block's own picture when
+  // it is needed (security review of 1.8.0: a shared preset could carry the card's legitimate link
+  // and, in `turned`, a copy of some other picture, which printed while the card and the preview
+  // showed the legitimate one). It is no part of what makes two setups the same either.
+  function withoutCopies(blocks) {
+    return Array.isArray(blocks) ? blocks.map(function (b) {
+      if (!b || typeof b !== "object" || !("turned" in b)) return b;
+      var o = {}, k;
+      for (k in b) if (k !== "turned") o[k] = b[k];
+      return o;
+    }) : blocks;
+  }
   function importPresets(presets, incoming) {
     var out = (presets || []).slice(), renamed = [], same = [], i, p, name, key;
     for (i = 0; i < (incoming || []).length; i++) {
       p = incoming[i];
       if (!p || typeof p !== "object") continue;
-      key = canonJson(p.blocks);
+      key = canonJson(withoutCopies(p.blocks));
       // `same` names the SAVED setup that matched: after an earlier import renamed a copy, the
       // identical one is "Party (2)", and naming the incoming "Party" said a setup holding other
       // text was saved exactly as it is (final review 2).
       var match = null;
-      for (var j = 0; j < out.length && !match; j++) if (out[j] && presetNamedFrom(out[j].name, p.name) && canonJson(out[j].blocks) === key) match = out[j];
+      for (var j = 0; j < out.length && !match; j++) if (out[j] && presetNamedFrom(out[j].name, p.name) && canonJson(withoutCopies(out[j].blocks)) === key) match = out[j];
       if (match) { if (same.indexOf(match.name) < 0) same.push(match.name); continue; }
       name = freePresetName(out, p.name);
       if (name !== p.name) renamed.push({ from: p.name, to: name });
-      out.push({ v: p.v, name: name, savedAt: p.savedAt, blocks: p.blocks });
+      out.push({ v: p.v, name: name, savedAt: p.savedAt, blocks: withoutCopies(p.blocks) });
     }
     return { presets: out, added: out.length - (presets || []).length, renamed: renamed, same: same };
   }
@@ -4865,18 +4878,32 @@
       block._copy = { img: im, url: url };
       return url;
     }
+    // The picture the frame shows for a part's picture link: the block's picture as read, or, for
+    // its copy that prints (1.8.0, a link other than the card's), that picture turned and adjusted
+    // as the copy was made, so the preview shows what the link prints. (It drew the picture as it
+    // is under the copy's link: security review of 1.8.0.)
     function partPictures(item) {
       var out = {};
       (item.bodies || []).forEach(function (b) {
         if (!b.picture) return;
         for (var i = 0; i < blocks.length; i++) {
           if (blocks[i].id !== b.blockId) continue;
-          var url = pictureCopy(blocks[i]);
+          var url = b.picture.url !== pictureLink(blocks[i].url).url ? turnedPictureCopy(blocks[i]) : pictureCopy(blocks[i]);
           if (url) out[b.picture.url] = url;
           break;
         }
       });
       return out;
+    }
+    function turnedPictureCopy(block) {
+      var im = block._img, t = realTurn(block);
+      if (!im) return "";
+      var key = turnKey(block.url, t);
+      if (block._copyTurned && block._copyTurned.img === im && block._copyTurned.key === key) return block._copyTurned.url;
+      var url = "";
+      try { url = turnedCanvas(im, t, 1200).toDataURL("image/png"); } catch (e) { url = ""; }
+      block._copyTurned = { img: im, key: key, url: url };
+      return url;
     }
     // Ask for this part's drawing (when the request changed since the last one). Until the part
     // has a frame, a box of the predicted receipt height holds its place.
@@ -7554,7 +7581,7 @@
       LEAD_GUARD: LEAD_GUARD, buildLead: buildLead, leadLength: leadLength,
       buildTrail: buildTrail, trailLength: trailLength, stackContext: stackContext,
       BOT_CHEERMOTES: BOT_CHEERMOTES, printedMessage: printedMessage, nonceOn: nonceOn, leadLinePx: leadLinePx,
-      limitLeadPx: limitLeadPx, DESIGN_T_TAIL: DESIGN_T_TAIL, boxNoRoom: boxNoRoom,
+      limitLeadPx: limitLeadPx, DESIGN_T_TAIL: DESIGN_T_TAIL, boxNoRoom: boxNoRoom, withoutCopies: withoutCopies,
       UPLOAD_MAX_SIDE: UPLOAD_MAX_SIDE, TURN_FRESH_MS: TURN_FRESH_MS, realTurn: realTurn, hasTurn: hasTurn, turnWay: turnWay,
       turnKey: turnKey, turnedCopyUrl: turnedCopyUrl, turnedSize: turnedSize,
       packStackBodies: packStackBodies,

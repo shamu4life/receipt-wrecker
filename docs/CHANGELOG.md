@@ -56,6 +56,11 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
   being made no part is copyable. A copy that can't be made says why on the card, with **Try
   again**. Below the High Roller threshold the Han grid turns and adjusts the same way, and the
   card's picture is drawn on the device as it prints.
+- **A copy that prints is only ever this browser's own** (from the security review of the first
+  push): Import drops a Real picture's saved copy from a shared preset, so a preset can't pair
+  the card's legitimate link with a copy of some other picture; the copy is made again here from
+  the block's own picture. And the preview draws the copy as it was made, turned and adjusted,
+  where it drew the picture as it is.
 
 ### Removed
 

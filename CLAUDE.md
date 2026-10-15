@@ -1206,7 +1206,11 @@ arithmetic shifts as in the C#, the ≥ 250 / ≤ 5 clamps, transparent pixels o
 **Presets.** `makePreset` deep-copies (a preset outlives the stack it came from);
 `parsePresets` validates untrusted JSON and says what is wrong; `upsertPreset` replaces by
 name (the glue asks first: Save under a taken name turns into "Replace?" for a second press);
-`importPresets(presets, incoming)` is Import: it ADDS every preset and never replaces one, a
+`importPresets(presets, incoming)` is Import: it drops every incoming block's `turned`
+(`withoutCopies`, 1.8.0: a Real picture's copy that prints is taken only from this browser's own
+work, so a shared preset can't pair the card's legitimate link with a copy of another picture;
+the security review of 1.8.0 found that content spoofing, and `turned` is no part of what makes
+two setups the same either), and it ADDS every preset and never replaces one, a
 name taken by a saved setup or by one added earlier in the same import getting
 `freePresetName`'s "Stream (2)" (upserting lost a setup when a file held two of one name, and
 replaced saved ones without asking); a preset already saved exactly as it is (same name, same
@@ -1238,10 +1242,14 @@ generations; `presetImageUrls` walks a stack's picture links.
   `decodeGlyphImage` into `block._img`, then its picture link sized from `_img`'s natural size, or
   in a plain cheer the Design T grid of the picture as it prints: `glyphGrid` takes a Real picture
   turned and adjusted (`realSource`, 1.8.0) with default glyph options; nothing for `none`. Its
-  card's settings print (1.8.0): way `css` hands `buildPictureBodies` the turn; way `copy` sizes the
+  card's settings print (1.8.0): way `css` hands `buildPictureBodies` the turn (the preview frame
+  gets the picture as read, `pictureCopy`, and turns it by the CSS itself); way `copy` sizes the
   copy (`turnedSize`) once it is made, and until then asks for it (`requestTurnedCopy`, below) and
   returns a waiting body (so no part is copyable, `missingPictures`' "loading"), or, when it failed,
-  nothing (its card and the parts' red notice say why); a Glyph-art
+  nothing (its card and the parts' red notice say why). The preview frame gets the copy's link's
+  picture as the copy was made, turned and adjusted on the device (`partPictures`,
+  `turnedPictureCopy`): it drew the picture as read under the copy's link until the security
+  review of 1.8.0; a Glyph-art
   picture → `glyphImageBodies` (decoded once into `block._img` by `decodeGlyphImage`, turned by
   `block.rotate` on a canvas by `glyphSource`; `glyphGrid` samples it for the tier's form, or
   for Design T in plain mode). Runtime-only decode state: `_decoding`, `_decodeKey` (a slow

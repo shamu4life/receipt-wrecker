@@ -250,6 +250,8 @@ async function drawnPart(page, i, payload) {
 // resets of the `font` shorthand (font-kerning, font-feature-settings, ...), and for each of
 // those the check is that dropping it changes nothing: the printed element's computed value
 // is exactly what was sent. Plain parts print as text: the text must be the payload itself.
+// `sent` is what the bot keeps of the payload: since Printer Bot 3.0.4 it takes the Cheer word
+// out first (the core's printedMessage, the renderer's cheerWords), so callers pass that.
 function frameContract(frame, sent) {
   return frame.evaluate((sent) => {
     const part = document.querySelector("#receipt-content > .part");
@@ -871,7 +873,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     const r = last.result;
     assert.equal(r.ok, true, label + ": " + JSON.stringify(r));
     assert.deepEqual(r.security, [], label + ": the bot's sanitizer took something out");
-    const k = await frameContract(frame, payload);
+    const k = await frameContract(frame, C.printedMessage(payload));
     assert.deepEqual(k.problems, [], label + ": " + payload.slice(0, 80));
     assert.equal(k.violations, 0, label + ": a securitypolicyviolation in the frame");
     noOps += k.noOps;
@@ -939,7 +941,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
   for (const paperMm of [80, 58]) {
     const s = { ...SETTINGS, paperMm, hrThreshold: 30 };
     const { page, ctx, errors } = await freshPage({ controls: s });
-    for (const [btn, probe, raw] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 30, bits: 100, paperMm }), true],
+    for (const [btn, probe, raw] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 30, bits: 100, paperMm, noNonce: true }), true],
                                      ["#plainProbeBtn", C.buildPlainProbe({ hrThreshold: 30, paperMm, noNonce: true }), false]]) {
       await page.click(btn);
       const payload = await copyPayload(page);
@@ -959,7 +961,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     const { page, ctx, errors } = await freshPage({ controls: s });
     const lo = { letterBits: 500, letterLayout, paperMm: 80 };
     const ps = { ...s, hrThreshold: 1000 };
-    for (const [btn, probe, raw, set] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 600, bits: 100, ...lo }), true, s],
+    for (const [btn, probe, raw, set] of [["#hrProbeBtn", C.buildHighRollerProbe({ hrThreshold: 600, bits: 100, noNonce: true, ...lo }), true, s],
                                           ["#plainProbeBtn", C.buildPlainProbe({ hrThreshold: 1000, noNonce: true, ...lo }), false, ps]]) {
       if (set !== s) { await page.fill("#hrThreshold", "1000"); await page.locator("#hrThreshold").dispatchEvent("change"); }
       await page.click(btn);
@@ -1325,11 +1327,17 @@ test("a probe shows the way back to the stack; number fields show the values the
   assert.equal(await page.locator("#backToStack").count(), 0);
   assert.equal(await copyPayload(page), stack, "Back to my stack did not bring the stack back");
   // The High Roller test is built for the receipt the threshold buys: at 50 bits per inch, 25
-  // bits buy 48px, which the Cheer line fills, so there is nothing to test and no Copy.
+  // bits buy 48px. With the repeat number on, its line and BIG can't share them, so there is
+  // nothing to test and no Copy; without it Printer Bot 3.0.4 prints no Cheer line, and BIG fits.
   await page.fill("#bitsPerInch", "50");
+  await page.check("#cheerNonce");
   await page.click("#hrProbeBtn");
   assert.equal(await page.locator("#parts .part button").count(), 0);
   assert.match(await page.textContent("#parts"), /this test can't show anything/);
+  await page.click("#backToStack");
+  await page.uncheck("#cheerNonce");
+  await page.click("#hrProbeBtn");
+  assert.equal(await page.locator("#parts .part .copy-btn").count(), 1);
   await page.click("#backToStack");
   await page.fill("#bitsPerInch", "0");
 
@@ -1542,12 +1550,14 @@ test("round 3: Han tiling keeps every line (up to 50, and says so past it); a bo
   await ctx.close();
 
   // A Han tiling block in a High Roller cheer whose box (bits per inch) is shorter than a
-  // header, one row and the Cheer line: every part is cut, and the card says so.
+  // header, one row and the repeat number's line: every part is cut, and the card says so.
+  // (Without the repeat number Printer Bot 3.0.4 prints no line for the Cheer word, and the
+  // header and a row, 43.2px, fit the 48px.)
   ({ page: p2, ctx: c2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
-                                              controls: { ...SETTINGS, bitsPerInch: 200 } }));
+                                              controls: { ...SETTINGS, bitsPerInch: 200, nonce: true } }));
   await settled(p2);
   assert.match(await cards(p2).first().locator(".text-note").innerText(),
-    /Even one row a part \(with its light first row and the Cheer line, 3 lines\) is taller than this cheer’s part of the receipt/);
+    /Even one row a part \(with its light first row and the repeat number's line, 3 lines\) is taller than this cheer’s part of the receipt/);
   await c2.close();
 
   // A part over 500 characters: the fix is worded for text (it has no columns).
@@ -1702,11 +1712,13 @@ test("polish: a probe scrolls into view and takes focus; Back to my stack does t
   await ctx.close();
 });
 
-test("polish: a box with no room after the Cheer line: every part says so, Copy is off, and the total gives the advice", async () => {
+test("polish: a box with no room after the repeat number's line: every part says so, Copy is off, and the total gives the advice", async () => {
+  // Since Printer Bot 3.0.4 the Cheer word prints nothing, so only the repeat number's digits
+  // can fill a box: it is on here.
   for (const [s, advice, fix] of [
-    // A stack with a Han tiling part: that part has no Cheer line at its top (final review 2).
-    [{ ...SETTINGS, bits: 25, bitsPerInch: 200 }, /^Nothing worth sending: every part would print only its first line \(the Cheer line, or a Han tiling part's light first row\)\. Set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
-    [{ ...SETTINGS, maxInches: 0.2 }, /^Nothing worth sending: every part would print only its first line \(the Cheer line, or a Han tiling part's light first row\), whatever the bits\./, ["Go to Maximum length", "maxInches"]],
+    // A stack with a Han tiling part: that part has no lead at its top (final review 2).
+    [{ ...SETTINGS, bits: 25, bitsPerInch: 200, nonce: true }, /^Nothing worth sending: every part would print only its first line \(the repeat number, or a Han tiling part's light first row\)\. Turn off “Add a repeat number”, or set Bits per cheer higher: the streamer gives 1 inch \(2\.5 cm\) of receipt per 200 bits\.$/, ["Change Bits per cheer", "bitsAmount"]],
+    [{ ...SETTINGS, maxInches: 0.2, nonce: true }, /^Nothing worth sending: every part would print only its first line \(the repeat number, or a Han tiling part's light first row\), whatever the bits\. Turn off “Add a repeat number”, or the streamer's maximum length/, ["Go to Maximum length", "maxInches"]],
   ]) {
     const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "text", render: "hanzi", text: "HI" }], controls: s });
     await page.waitForFunction(() => document.querySelectorAll("#parts .part").length >= 2);
@@ -1714,7 +1726,7 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
     for (let i = 0; i < n; i++) {
       const part = page.locator("#parts .part").nth(i);
       assert.equal(await part.locator(".copy-btn").isDisabled(), true, "part " + (i + 1) + " can still be copied");
-      assert.match(await part.locator(".over-note").first().textContent(), /^Prints (nothing but the Cheer line|only its light first row)/);
+      assert.match(await part.locator(".over-note").first().textContent(), /^Prints (nothing but its repeat number|only its light first row)/);
     }
     const total = await page.locator("#partsTotal").evaluate((e) => e.firstChild.textContent);
     assert.match(total, advice);
@@ -1731,7 +1743,7 @@ test("polish: a box with no room after the Cheer line: every part says so, Copy 
     }
     // The card agrees with the parts: no price for something that can't be sent (polish 2).
     const sum = await cards(page).first().locator(".text-note .note-sum").textContent();
-    assert.match(sum, /^Prints nothing: the Cheer line fills this cheer’s whole part of the receipt/);
+    assert.match(sum, /^Prints nothing: the repeat number’s line fills this cheer’s whole part of the receipt/);
     assert.ok(!/bits\)|cheers|Capitals/.test(sum), sum);
     assert.deepEqual(errors, []);
     await ctx.close();
@@ -2575,15 +2587,15 @@ test("final 2: an upload that lands after a redraw, Han tiling with no room, Loa
   assert.deepEqual(errors, []);
   await ctx.close();
 
-  // Han tiling in a box shorter than one line: no Cheer line tops its parts, so nothing says
-  // "the Cheer line fills it"; the card says what the part says.
+  // Han tiling in a box shorter than one line: no lead tops its parts (the repeat number goes
+  // last), so nothing says "the line fills it"; the card says what the part says.
   const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [{ id: 1, type: "text", render: "hanzi", text: "HI" }],
-                                                              controls: { ...SETTINGS, bitsPerInch: 500 } });
+                                                              controls: { ...SETTINGS, bitsPerInch: 500, nonce: true } });
   await p2.waitForSelector("#partsTotal");
   assert.match(await cards(p2).first().locator(".text-note").innerText(), /prints only its light first row: the streamer's settings leave no room for the rest/);
   assert.match(await p2.textContent("#modeNote"), /about 5 mm of receipt, shorter than one line of text, so each Han tiling part prints only its light first row/);
   assert.match(await p2.locator("#partsTotal").evaluate((e) => e.firstChild.textContent), /^Nothing worth sending: every part would print only its light first row\./);
-  assert.doesNotMatch(await p2.locator("#blockList, #parts").allInnerTexts().then((t) => t.join(" ")), /Cheer line fills/);
+  assert.doesNotMatch(await p2.locator("#blockList, #parts").allInnerTexts().then((t) => t.join(" ")), /line fills/);
   // The streamer's fields keep their last value for an entry that isn't a number of 0 or more,
   // and say so beside the field; a value past the bot's limit is capped, and that is said too.
   await p2.fill("#hrThreshold", "-3");
@@ -2711,12 +2723,14 @@ test("1.1.0: no raise with Cheer-ready off or High Roller off; when bits per inc
   await card.locator(".sel-render").selectOption("sideways");
   assert.equal(await bitsValue(page), "10");
   assert.equal(await raiseNoteOf(card).count(), 0);
-  // 25 bits at 200 bits per inch is 12 px: nothing after the Cheer line would print.
+  // 25 bits at 200 bits per inch is 12 px: with the repeat number on, nothing after its line
+  // would print. (Without it Printer Bot 3.0.4 prints no line for the Cheer word.)
   await commit(page, "#hrThreshold", "25");
   await commit(page, "#bitsPerInch", "200");
+  await page.check("#cheerNonce");
   await card.locator(".sel-render").selectOption("big");
   assert.equal(await bitsValue(page), "10");
-  assert.equal(await raiseNoteOf(card).textContent(), "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the Cheer line, so the stack prints in its plain form.");
+  assert.equal(await raiseNoteOf(card).textContent(), "Bits per cheer stays at 10: at 25 bits the streamer's bits per inch leaves no room after the repeat number's line, so the stack prints in its plain form.");
   assert.equal(await raiseNoteOf(card).locator("button").count(), 0);
   assert.deepEqual(errors, []);
   await ctx.close();
@@ -3041,14 +3055,13 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // 1.4.1: the page is Printer Bot 3.0.1's (it uses 3.0.0's layout folder, so the line says 3.0.0).
-  // A dock on 3.0.0-beta.7's Renderer (202610122236) or 2.5.4's (202610090056) prints the app's
-  // messages the same on a roll (measured against 3.0.1's page: 42 of 44 dot for dot, the other two
-  // a settings mismatch the app doesn't send), so the line names both rather than telling those
-  // streamers "it may not match". (Beta.6's prints the same too; the line has room for two.)
-  assert.equal(v, "202610140456");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610140456, in this computer's fonts, which may differ from the streamer's\. /);
-  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match, except 3\.0\.0-beta\.7's 202610122236 \(the same\) and 2\.5\.4's 202610090056 \(a smaller profile picture\)\.$/);
+  // 1.8.0: the page is Printer Bot 3.0.4's (it uses 3.0.0's layout folder, so the line says 3.0.0).
+  // 3.0.4 leaves each cheer's Cheer word out, and every older layout prints it (1.4.1 named
+  // 3.0.0-beta.7's and 2.5.4's as printing the same as 3.0.1's), so the line names none and says what
+  // an older one adds.
+  assert.equal(v, "202610150141");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610150141, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match: a Printer Bot older than 3\.0\.4 prints each cheer's Cheer word too\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
   // made the gap 414px in CI's fonts.
@@ -3185,7 +3198,9 @@ test("1.2.0 review: Han text as typed prints every row exactly as the grid has i
       for (let i = 0; i < n; i++) {
         const payload = await copyPayload(page, i);
         const { frame } = await drawnPart(page, i, payload);
-        const want = bodies[i].preview.grid.split("\n").filter(Boolean).concat(["Cheer" + bits]);
+        // Printer Bot 3.0.4 prints no Cheer word: a plain part's last line is its tail's light cell
+        // (the closing quote mark joins it), and a High Roller part ends with its last row.
+        const want = bodies[i].preview.grid.split("\n").filter(Boolean).concat(mode === "plain" ? [C.HAN_LIGHT] : []);
         assert.deepEqual(await printedLines(frame), want, paperMm + " mm, " + bits + " bits, part " + (i + 1));
       }
       assert.deepEqual(errors, []);
@@ -3241,10 +3256,13 @@ test("1.2.0 review: Han text as typed's card over many rows, a free test, the sw
   assert.match(n, /at any cheer: in a plain cheer a light first row takes the opening quote mark\./);
   assert.doesNotMatch(n, /below the threshold/);
   await page.check("#allowHighRoller");
-  // A box shorter than one row and the Cheer line: every part is cut.
+  // A box shorter than one row and the repeat number's line: every part is cut. (Without the
+  // repeat number Printer Bot 3.0.4 prints no line for the Cheer word, and a row fits.)
   await cards(page).first().locator("textarea").fill("鬱".repeat(30));
   await commit(page, "#bitsPerInch", "300");
-  assert.match(await note(), /Even one row a part \(with the Cheer line\) is taller than .*, so the bot cuts every part\./);
+  assert.doesNotMatch(await note(), /Even one row/);
+  await page.check("#cheerNonce");
+  assert.match(await note(), /Even one row a part \(with the repeat number's line\) is taller than .*, so the bot cuts every part\./);
   // No room at all: a part of Han text prints part of its first row, fading out; never "light".
   await commit(page, "#bitsPerInch", "500");
   n = await note();
@@ -3697,7 +3715,7 @@ test("1.6.0: colours: the pickers show for a Letter printer in colour, say wheth
   for (let i = 0; i < got.length; i++) {
     assertTags(got[i]);
     const { frame } = await drawnPart(page, i, got[i]);
-    const k = await frameContract(frame, got[i]);
+    const k = await frameContract(frame, C.printedMessage(got[i]));
     assert.deepEqual(k.problems, [], "part " + (i + 1));
   }
   // Black and white: the pickers go, the block keeps its colours, and none goes out.

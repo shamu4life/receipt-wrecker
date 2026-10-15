@@ -58,7 +58,8 @@ test("printMode mirrors the bot: High Roller iff the threshold is above 0 and th
 });
 
 test("contentLimitPx mirrors highRollerMaxHeight and show(): 1600 by default, bits per inch, maximum length", () => {
-  const L = (o) => ({ ...C.contentLimitPx(o) });
+  // The box, without the lead's line it carries (leadPx: the repeat number's since Printer Bot 3.0.4).
+  const L = (o) => { const { leadPx, ...box } = C.contentLimitPx(o); return box; };
   assert.deepEqual(L({ bits: 100 }), { px: 1600, by: "ceiling", fades: false }, "no setting: the box, cut hard");
   assert.deepEqual(L({ bits: 100, bitsPerInch: 25 }), { px: 384, by: "bits", fades: true }, "bench c07: 384px, faded");
   assert.deepEqual(L({ bits: 100, bitsPerInch: 10 }), { px: 960, by: "bits", fades: true });
@@ -85,14 +86,16 @@ test("stackContext: one place for mode, box, room after the lead, character budg
   assert.equal(raw.limit.px, 1600);
   assert.equal(raw.room, 1600 - 21.6, "the lead's line comes out of every High Roller part");
   assert.equal(raw.budget, 500 - 12, "Cheer100 07 ");
+  assert.equal(raw.leadPx, 21.6, "the repeat number's digits, on unless said");
   const bare = C.stackContext({ cheer: true, bits: 100, noNonce: true, bitsPerInch: 25, paperMm: 58 });
   assert.equal(bare.budget, 500 - 9);
-  assert.equal(bare.room, 384 - 21.6);
+  assert.equal(bare.room, 384, "since Printer Bot 3.0.4 the Cheer word prints nothing: no line of its own");
+  assert.equal(bare.leadPx, 0);
   assert.equal(bare.contentW, 153);
   assert.equal(bare.trail, " Cheer100".length);
   const plain = C.stackContext({ cheer: true, bits: 10, hrThreshold: 25, bitsPerInch: 1 });
   assert.equal(plain.mode, "plain");
-  assert.deepEqual({ ...plain.limit }, { px: 1600, by: "ceiling", fades: false },
+  assert.deepEqual({ ...plain.limit, leadPx: undefined }, { px: 1600, by: "ceiling", fades: false, leadPx: undefined },
     "a plain message is never length-limited by bits per inch");
   assert.equal(C.stackContext({ cheer: true, bits: 10, mode: "raw" }).mode, "raw", "probes may force the mode");
 });
@@ -160,8 +163,13 @@ test("joinPx is charged only when a body follows another in the same part", () =
   const joined = C.packStackBodies([a, b], { ...opts, heightPx: 400 });
   assert.equal(joined.length, 1);
   assert.ok(Math.abs(joined[0].heightPx - (140 + 21.6 + 140)) < 1e-9);
-  assert.ok(Math.abs(joined[0].contentPx - (21.6 + 140 + 21.6 + 140)) < 1e-9, "the lead's line on top");
-  assert.equal(joined[0].leadPx, C.LEAD_LINE_PX);
+  // Since Printer Bot 3.0.4 the Cheer word prints nothing: the lead has a line only with the
+  // repeat number.
+  assert.ok(Math.abs(joined[0].contentPx - (140 + 21.6 + 140)) < 1e-9, "no Cheer line on top");
+  assert.equal(joined[0].leadPx, 0);
+  const digits = C.packStackBodies([a, b], { ...opts, noNonce: false, heightPx: 400 });
+  assert.ok(Math.abs(digits[0].contentPx - (21.6 + 140 + 21.6 + 140)) < 1e-9, "the repeat number's line on top");
+  assert.equal(digits[0].leadPx, C.LEAD_LINE_PX);
 });
 
 test("the lead helpers live in the pure core and keep their contract (bits from 1 up)", () => {

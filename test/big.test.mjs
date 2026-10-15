@@ -172,7 +172,10 @@ test("Words wrapped is a layout of its own, and every fit says how much tape it 
   assert.ok(C.BIG_LAYOUTS.includes("wrap"));
   eq(C.bigOpts({ bigLayout: "wrap" }).layout, "wrap");
   const t = "good game everyone";
-  const auto = C.bigFit(t, {}), wrap = C.bigFit(t, { layout: "wrap" });
+  // Fitted for the room `build` packs into (the stack's, with no repeat number: since Printer Bot
+  // 3.0.4 the whole box, no Cheer line).
+  const k0 = ctx(), fo = { budget: k0.budget, heightPx: k0.room, contentW: k0.contentW };
+  const auto = C.bigFit(t, fo), wrap = C.bigFit(t, { ...fo, layout: "wrap" });
   assert.equal(auto.layout, "stack");
   assert.equal(wrap.layout, "wrap");
   assert.equal(wrap.lines.join(" "), t);
@@ -432,24 +435,30 @@ test("tall: one line taller than the box is flagged and explained, never silentl
     /no warning/);
 });
 
-test("a box with room after the Cheer line, but less than the smallest letters need: no 'fits', and the advice is more bits, not a smaller size", () => {
-  // 100 bits at 300 bits per inch: a 32px box, 10.4px after the Cheer line. Capitals at 20px and
-  // line height .8 need 16px: every size is cut. The note said "fits 1 cheer" and "Pick a
-  // smaller size", at 20px too (polish review 3).
-  const k = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, bitsPerInch: 300, paperMm: 80 });
+test("a box with room after the repeat number's line, but less than the smallest letters need: no 'fits', and the advice is more bits, not a smaller size", () => {
+  // 100 bits at 300 bits per inch: a 32px box, 10.4px after the repeat number's line. Capitals at
+  // 20px and line height .8 need 16px: every size is cut. The note said "fits 1 cheer" and "Pick a
+  // smaller size", at 20px too (polish review 3). (Without the repeat number, since Printer Bot
+  // 3.0.4, the whole 32px is room: below.)
+  const k = C.stackContext({ cheer: true, bits: 100, noNonce: false, hrThreshold: 25, bitsPerInch: 300, paperMm: 80 });
   assert.ok(k.room > 0 && k.room < 16, "room " + k.room);
   for (const size of ["fit1", 20, 64]) {
     const b = build("HELLO", { size }, k), msg = C.bigReport(b, { bits: 100, limit: k.limit, cheers: 1 });
     assert.match(msg.split("\n")[0], /^Capitals ≈ [\d.]+ cm · 1 cheer, but cut off \(see below\)$/, size + ": " + msg);
-    assert.match(msg, /Even the smallest letters are too tall for what is left after the Cheer line \(this cheer gets about 8 mm of receipt from the streamer’s bits-per-inch setting\), so the bot cuts them off at any size\. Set Bits per cheer higher for more room\./);
+    assert.match(msg, /Even the smallest letters are too tall for what is left after the repeat number’s line \(this cheer gets about 8 mm of receipt from the streamer’s bits-per-inch setting\), so the bot cuts them off at any size\. Set Bits per cheer higher for more room\./);
     assert.doesNotMatch(msg, /fits 1 cheer|Pick a smaller size/, size + ": " + msg);
     const s = C.buildSideBodies("HI", { size, budget: k.budget, heightPx: k.room, contentW: k.contentW });
     const sr = C.sideReport(s, { bits: 100, limit: k.limit, cheers: 1 });
     assert.match(sr, /cm down the tape · 1 cheer, but cut off \(see below\)\nEven the smallest letters are too tall/, size + ": " + sr);
     assert.doesNotMatch(sr, /fits 1 cheer|Pick a smaller size/);
   }
+  // Without the repeat number the Cheer word prints nothing (Printer Bot 3.0.4): the 32px is room,
+  // and 20px capitals fit it.
+  const k3 = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, bitsPerInch: 300, paperMm: 80 });
+  assert.equal(k3.room, 32);
+  assert.doesNotMatch(C.bigReport(build("HELLO", {}, k3), { bits: 100, limit: k3.limit, cheers: 1 }), /Even the smallest|cut off/);
   // Under a maximum length, more bits buy nothing: the note says so.
-  const c = C.stackContext({ cheer: true, bits: 100, noNonce: true, hrThreshold: 25, maxInches: 0.3, paperMm: 80 });
+  const c = C.stackContext({ cheer: true, bits: 100, noNonce: false, hrThreshold: 25, maxInches: 0.3, paperMm: 80 });
   assert.equal(c.limit.by, "cap");
   assert.match(C.bigReport(build("HELLO", {}, c), { bits: 100, limit: c.limit }),
     /\(the streamer’s maximum length is about 7 mm\), so the bot cuts them off at any size\. Only a longer maximum length would let them print whole\./);
@@ -460,12 +469,15 @@ test("a box with room after the Cheer line, but less than the smallest letters n
   assert.match(big.split("\n")[0], /1 cheer, but cut off/);
 });
 
-test("a box no taller than the Cheer line is NO room, not the default 1600px box", () => {
+test("a box no taller than the repeat number's line is NO room, not the default 1600px box", () => {
   // bits 40 at 200 bits per inch: a 19px box, 2.6px less than the lead's 21.6px line. It used to
   // read as "unset" and size and pack the stack for 1600px: 310px capitals, "fits 1 cheer", no
-  // warning, while the bot printed the Cheer line and faded the rest.
+  // warning, while the bot printed the Cheer line and faded the rest. Since Printer Bot 3.0.4 the
+  // Cheer word prints nothing, so only the repeat number's digits make that line.
   for (const [bits, bpi] of [[40, 200], [25, 200], [21, 96]]) {
-    const k = C.stackContext({ cheer: true, bits, noNonce: true, hrThreshold: 20, bitsPerInch: bpi, paperMm: 80 });
+    const k = C.stackContext({ cheer: true, bits, noNonce: false, hrThreshold: 20, bitsPerInch: bpi, paperMm: 80 });
+    assert.equal(C.stackContext({ cheer: true, bits, noNonce: true, hrThreshold: 20, bitsPerInch: bpi, paperMm: 80 }).room, k.limit.px,
+      "without the repeat number the whole box is room");
     assert.ok(k.room <= 0, bits + "/" + bpi + ": room " + k.room);
     const b = build("HELLO", {}, k);
     assert.ok(b.every((x) => x.big.tall), bits + "/" + bpi + ": every body is flagged too tall");
@@ -473,30 +485,31 @@ test("a box no taller than the Cheer line is NO room, not the default 1600px box
     // Copy is off, and a card quoting "needs 2 cheers (200 bits)" beside them contradicted them.
     const msg = C.bigReport(b, { bits, limit: k.limit, cheers: 2 });
     // And no size either (final review 2): none prints, and the sideways card quoted its biggest.
-    assert.equal(msg.split("\n")[0], "Prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)");
+    assert.equal(msg.split("\n")[0], "Prints nothing: the repeat number’s line fills this cheer’s whole part of the receipt (see the note above the parts)");
     assert.doesNotMatch(msg, /bits\)|needs \d|fits 1 cheer|Pick a smaller size|Capitals|cm/, "no price, no fit, no size and no size to pick");
-    assert.equal(msg.split("\n").filter((l) => /Cheer line/.test(l)).length, 1, "said once");
+    assert.equal(msg.split("\n").filter((l) => /repeat number/.test(l)).length, 1, "said once");
     const s = C.buildSideBodies("HELLO", { budget: k.budget, heightPx: k.room, contentW: k.contentW });
     assert.ok(s.some((x) => x.tall || x.side.tall), "sideways is flagged too");
     const sr = C.sideReport(s, { bits, limit: k.limit, cheers: 2 });
-    assert.equal(sr.split("\n")[0], "Prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)");
+    assert.equal(sr.split("\n")[0], "Prints nothing: the repeat number’s line fills this cheer’s whole part of the receipt (see the note above the parts)");
     assert.doesNotMatch(sr, /bits\)|needs \d|Capitals|down the tape/);
     // A free test has no box to fill: it still counts its messages.
     assert.match(C.bigReport(b, { bits, limit: k.limit, free: true }), /free: a test with Cheer-ready off never prints/);
     const g = C.buildCjkGrid([["丶", "鬱"], ["鬱", "丶"]].map((r) => r.concat(Array(10).fill("丶"))), { budget: k.budget, heightPx: k.room, paperMm: 80 });
-    // Nothing after the Cheer line prints whatever a band's height, so the rows are banded by
-    // characters alone: one cheer, where banding by height made a cheer of every row.
-    assert.equal(g.length, 1, "glyph rows band by characters in a box the Cheer line fills");
+    // Nothing after the repeat number's line prints whatever a band's height, so the rows are
+    // banded by characters alone: one cheer, where banding by height made a cheer of every row.
+    assert.equal(g.length, 1, "glyph rows band by characters in a box the repeat number's line fills");
     const parts = C.packStackBodies(b.concat(build("WORLD", {}, k)), k);
     assert.equal(parts.length, 2, "the packer gives each over-tall body its own part rather than packing for 1600px");
-    assert.match(C.modeNotice({ cheer: true, bits, hrThreshold: 20, bitsPerInch: bpi }),
-      new RegExp("gives a " + bits + "-bit cheer about \\d+ mm of receipt, and the Cheer line fills it.*1 inch \\(2\\.5 cm\\) of receipt per " + bpi + " bits"));
+    assert.match(C.modeNotice({ cheer: true, bits, hrThreshold: 20, bitsPerInch: bpi, nonce: true }),
+      new RegExp("gives a " + bits + "-bit cheer about \\d+ mm of receipt, and the repeat number's line fills it.*Turn off “Add a repeat number”, or set Bits per cheer higher.*1 inch \\(2\\.5 cm\\) of receipt per " + bpi + " bits"));
+    assert.equal(C.modeNotice({ cheer: true, bits, hrThreshold: 20, bitsPerInch: bpi, nonce: false }), "", "no repeat number, no line to fill the box");
   }
   for (const h of [undefined, NaN]) {
     const f = C.bigFit("HELLO", { heightPx: h, paperMm: 80 });
     assert.ok(f.px >= 300 && !f.tall, "heightPx " + h + ": absent still means the default box");
   }
-  assert.match(C.modeNotice({ cheer: true, bits: 100, hrThreshold: 25, maxInches: 0.2 }), /maximum length \(about 5 mm\) is no taller than the Cheer line/);
+  assert.match(C.modeNotice({ cheer: true, bits: 100, hrThreshold: 25, maxInches: 0.2 }), /maximum length \(about 5 mm\) is no taller than the repeat number's line, so nothing after it prints, whatever the bits\. Turn off “Add a repeat number” to give the message that room\./);
   assert.equal(C.modeNotice({ cheer: true, bits: 50, hrThreshold: 25, bitsPerInch: 200 }), "", "a 24px box has room, and each body says it is too tall");
 });
 

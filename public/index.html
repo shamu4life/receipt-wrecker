@@ -510,7 +510,9 @@
       lim = bitsPx === null ? { px: ceiling, by: "ceiling", fades: false }
         : bitsPx < ceiling ? { px: bitsPx, by: "bits", fades: true } : { px: ceiling, by: "ceiling", fades: true };
     } else lim = bitsPx !== null && bitsPx < capPx ? { px: bitsPx, by: "bits", fades: true } : { px: capPx, by: "cap", fades: true };
-    return paper.pagePx ? pageLimit(lim, o) : lim;
+    lim = paper.pagePx ? pageLimit(lim, o) : lim;
+    lim.leadPx = leadLinePx(o);
+    return lim;
   }
   // ── THE LETTER PRINTER (1.6.0) ──
   // Printer Bot 3.0 prints an event on every printer whose rules it passes; the streamer here has a
@@ -586,6 +588,44 @@
     opts = opts || {};
     return payloadLength(buildTrail(opts, opts.noNonce ? "" : makeNonce(0)));
   }
+  // ── WHAT PRINTER BOT 3.0.4 PRINTS OF A CHEER (1.8.0) ──
+  // Printer Bot 3.0.4 takes the cheermotes out of a cheer's message before it prints it (cheerWords,
+  // renderer lines 1577-1591): every word of its own (spaces or the message's ends around it) that is
+  // one of Twitch's cheermotes with its number, in any capitals, so the receipt shows only what the
+  // viewer said. The app's own Cheer word is one, so since 3.0.4 a High Roller part's lead prints no
+  // line and a plain part's token none either (they printed a line of their own until then). What
+  // stays: the repeat number's digits, LEAD_GUARD, and a cheermote-shaped word inside a tag
+  // (<div>Kappa50</div>), which is no cheermote. A message of cheermotes alone is no message.
+  // BOT_CHEERMOTES is the renderer's CHEERMOTE_NAMES (a test holds them equal).
+  var BOT_CHEERMOTES = ["cheer", "doodlecheer", "biblethump", "cheerwhal", "corgo", "scoops", "uni", "showlove", "party",
+    "seemsgood", "pride", "kappa", "frankerz", "heyguys", "dansgame", "elegiggle", "trihard", "kreygasm", "4head",
+    "swiftrage", "notlikethis", "failfish", "vohiyo", "pjsalt", "mrdestructoid", "bday", "ripcheer", "shamrock",
+    "bitboss", "streamlabs", "muxy", "holidaycheer", "goal", "anon", "charity"];
+  var BOT_CHEERMOTE_WORD = new RegExp("(^|\\s)(?:" + BOT_CHEERMOTES.join("|") + ")[0-9]{1,9}(?=\\s|$)", "gi");
+  function printedMessage(m) {
+    if (typeof m !== "string") return m;
+    var said = m, before;
+    do { before = said; said = said.replace(BOT_CHEERMOTE_WORD, "$1"); } while (said !== before);
+    return said.trim() ? said : "";
+  }
+  // Whether a part carries the repeat number: `noNonce` when the options say (the stack's), else
+  // `nonce` (the settings panel's field), else on, as the packer has it.
+  function nonceOn(o) {
+    o = o || {};
+    return typeof o.noNonce === "boolean" ? !o.noNonce : typeof o.nonce === "boolean" ? o.nonce : true;
+  }
+  // The line a High Roller part's lead prints above its first body (1.8.0): none for a cheer, whose
+  // Cheer word Printer Bot 3.0.4 takes out (printedMessage), unless the repeat number is on (its two
+  // digits stay, a line of the receipt's text); one in a free test, whose LEAD_GUARD stays.
+  function leadLinePx(o) {
+    o = o || {};
+    return !o.cheer || nonceOn(o) ? LEAD_LINE_PX : 0;
+  }
+  // The lead's line under a High Roller box: contentLimitPx and stackContext put it on the box
+  // (leadPx); a box made by hand keeps the line every part had before 3.0.4.
+  function limitLeadPx(limit) {
+    return limit && typeof limit.leadPx === "number" && isFinite(limit.leadPx) ? limit.leadPx : LEAD_LINE_PX;
+  }
   // Everything a stack is built against, in one place, so the body builders, the packer and
   // the card labels read the same numbers. opts = {cheer, bits, noNonce, hrThreshold,
   // bitsPerInch, maxInches, paperMm, mode?}.
@@ -593,7 +633,9 @@
   //   limit   the message box ({px, by, fades}); 1600 for a plain part, which the bot never
   //           length-limits
   //   room    what one High Roller part has for its bodies: the box minus the lead's line
-  //           (also as `heightPx`, so the context can be handed to packStackBodies as is)
+  //           (also as `heightPx`, so the context can be handed to packStackBodies as is);
+  //           `leadPx` that line (leadLinePx: none for a cheer without the repeat number since
+  //           Printer Bot 3.0.4), on the box too
   //   budget  characters a body may spend after the lead; `trail` what a plain part's
   //           trailing token costs
   function stackContext(o) {
@@ -606,8 +648,10 @@
     var plainLim = { px: CONTENT_CEILING_PX * paper.pxPerInch / PX_PER_INCH, by: "ceiling", fades: false };
     var limit = mode === "raw" ? contentLimitPx(o) : letter ? pageLimit(plainLim, o) : plainLim;
     var layout = letterLayoutOf(o.letterLayout), profile = letterProfileOf(o.letterProfile);
+    var leadPx = leadLinePx(lead);
+    limit.leadPx = leadPx;
     return { mode: mode, paper: paper, paperMm: paper.mm, contentW: paper.contentW, limit: limit,
-             room: limit.px - LEAD_LINE_PX, heightPx: limit.px - LEAD_LINE_PX,
+             room: limit.px - leadPx, heightPx: limit.px - leadPx, leadPx: leadPx,
              budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
              cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce, imageSites: imageSitesOf(o.imageSites),
              // On Letter: its card's settings; Large message lays the message out from the left, so a
@@ -629,9 +673,10 @@
   // reserved and the characters sent cannot drift apart.
   //
   //  - `opts.heightPx` is what one High Roller part has for its BODIES: the message box
-  //    minus the lead's 21.6px line (stackContext's `room`). Absent, it is the bot's default
+  //    minus the lead's line (stackContext's `room`). Absent, it is the bot's default
   //    box: CONTENT_CEILING_PX - LEAD_LINE_PX. Each part reports `leadPx` (that line,
-  //    opts.leadPx, default LEAD_LINE_PX) and `contentPx` = leadPx + heightPx, the height the
+  //    opts.leadPx, by default leadLinePx of the options: 21.6px, or none for a cheer without the
+  //    repeat number since Printer Bot 3.0.4) and `contentPx` = leadPx + heightPx, the height the
   //    bot's message box gets.
   //  - A body with `alone: true` is a PLAIN part (Han tiling): it never shares a part, it has
   //    no lead, and its token goes LAST (buildTrail): payload = html + trail. Its heightPx
@@ -651,7 +696,7 @@
     // dropped. Set but not positive (a box no taller than the lead's line: a small cheer under
     // a high bits-per-inch) is NO room, not "unset": every body is then too tall.
     var hb = bigRoom(opts.heightPx);
-    var leadPx = typeof opts.leadPx === "number" && isFinite(opts.leadPx) && opts.leadPx >= 0 ? opts.leadPx : LEAD_LINE_PX;
+    var leadPx = typeof opts.leadPx === "number" && isFinite(opts.leadPx) && opts.leadPx >= 0 ? opts.leadPx : leadLinePx(leadOpts);
     // curPics: the pictures in the part (PICTURES_PER_CHEER at most); prevB: its last printable
     // body, whose bottom margin a picture right after it shares (1.5.0).
     var parts = [], cur = [], curChars = 0, curH = 0, curInk = false, curPics = 0, prevB = null;
@@ -2318,18 +2363,20 @@
     if (l.by === "page") return "what the Letter page leaves the message (about " + cm + "), where the bot fades it out";
     return "the bot’s message box (about " + cm + "), where it is cut off" + (l.fades ? " and faded" : " with no warning");
   }
-  // Whether a High Roller box leaves no room after the Cheer line (a small cheer under a high
+  // Whether a High Roller box leaves no room after the lead's line (a small cheer under a high
   // bits-per-inch, or a tiny maximum length): no size fits, so "pick a smaller size" is wrong.
-  function boxNoRoom(limit) { return !!limit && limit.px <= LEAD_LINE_PX + PX_EPS; }
+  // Since Printer Bot 3.0.4 that line is the repeat number's (the Cheer word prints nothing), so
+  // without the repeat number every box has room: a short one cuts the bodies instead (`tall`).
+  function boxNoRoom(limit) { return !!limit && limit.px <= limitLeadPx(limit) + PX_EPS; }
   // `minPx` (optional): how tall the block's line (big text) or longest letter (sideways) is at
-  // the SMALLEST size. When even that is taller than the room after the Cheer line, no size
+  // the SMALLEST size. When even that is taller than the room after the lead's line, no size
   // prints whole, so "Pick a smaller size" was wrong advice, given even at 20px: only more room
   // helps (polish review 3; the Glyph-art and Han tiling notes already said so).
   function tallWords(what, limit, minPx, paperMm) {
-    if (boxNoRoom(limit)) return "Nothing after the Cheer line prints: that line fills this cheer’s whole part of the receipt. See the note above the parts.";
-    var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false };
-    if (minPx > l.px - LEAD_LINE_PX + PX_EPS && l.by !== "ceiling") {
-      return "Even the smallest letters are too tall for what is left after the Cheer line ("
+    if (boxNoRoom(limit)) return "Nothing after the repeat number prints: its line fills this cheer’s whole part of the receipt. See the note above the parts.";
+    var l = limit || { px: CONTENT_CEILING_PX, by: "ceiling", fades: false }, lead = limitLeadPx(l);
+    if (minPx > l.px - lead + PX_EPS && l.by !== "ceiling") {
+      return "Even the smallest letters are too tall for " + (lead ? "what is left after the repeat number’s line" : "this cheer’s part of the receipt") + " ("
         + (l.by === "cap" ? "the streamer’s maximum length is about " + lenWords(l.px, paperMm)
            : l.by === "page" ? "the Letter page leaves the message about " + lenWords(l.px, paperMm)
            : "this cheer gets about " + lenWords(l.px, paperMm) + " of receipt from the streamer’s bits-per-inch setting")
@@ -2342,7 +2389,7 @@
   // What a block costs, for a card's summary line: "fits 1 cheer", or "needs 3 cheers (300
   // bits); ..." In a free test (Cheer-ready off) nothing is spent and nothing prints, so it
   // counts messages instead. `cut`: the letters don't fit the paper, so it doesn't "fit".
-  // `noRoom`: the box leaves nothing after the Cheer line (boxNoRoom), so no count of cheers or
+  // `noRoom`: the box leaves nothing after the repeat number's line (boxNoRoom), so no count of cheers or
   // bits means anything: the parts say "Nothing worth sending" and their Copy is off, and a
   // card that priced the block (200 bits) beside them contradicted them.
   // `tall`: a line or letter is taller than the box, so the bot cuts it: it doesn't "fit" either.
@@ -2351,12 +2398,12 @@
   function costWords(cheers, bits, free, cut, noRoom, tall, paid) {
     if (free) return (cheers === 1 ? "1 message" : cheers + " messages")
       + (paid ? ", not free: Twitch reads a word in it as a cheer (see below)" : ", free: a test with Cheer-ready off never prints");
-    if (noRoom) return "prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)";
+    if (noRoom) return "prints nothing: the repeat number’s line fills this cheer’s whole part of the receipt (see the note above the parts)";
     if (cheers === 1) return tall ? "1 cheer, but cut off (see below)" : cut ? "1 cheer, but too wide for the paper (see below)" : "fits 1 cheer";
     return "needs " + cheers + " cheers (" + cheers * cheerBits(bits) + " bits); the bot prints its header between the pieces";
   }
-  // A text card's summary when the box leaves no room after the Cheer line (boxNoRoom).
-  var NO_ROOM_SUMMARY = "Prints nothing: the Cheer line fills this cheer’s whole part of the receipt (see the note above the parts)";
+  // A text card's summary when the box leaves no room after the repeat number's line (boxNoRoom).
+  var NO_ROOM_SUMMARY = "Prints nothing: the repeat number’s line fills this cheer’s whole part of the receipt (see the note above the parts)";
   // Every cheer-shaped word a block's bodies hold (their big or side records), each once.
   function blockCheerWords(gs) {
     var words = [];
@@ -2431,7 +2478,7 @@
 
   // ── SIDEWAYS (High Roller): the words run down the tape ──
   // <div style="writing-mode:<DIR>;\66ont:<W> <S>px/<LH> <FONT>;white-space:nowrap;margin:auto
-  //   [;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>
+  //   [;padding-top:<T>px][;padding-bottom:<P>px][;position:relative;left:<X>px]"><div>line 1</div><div>line 2</div></div>
   // (one column is the bare styled div)
   // where <DIR> is "vertical-rl;text-orientation:sideways" (down) or "sideways-lr" (up).
   // writing-mode turns the layout box itself, so the run's length is real height inside the
@@ -2459,19 +2506,24 @@
   // position:relative with left moves the painted box without changing the layout, and both
   // are on the bot's style allow-list (position: static, relative or absolute; left).
   // `pad` (px, optional): room below the run for ink that ends past it (sidePad), as
-  // padding-bottom, also on the allow-list.
-  function sideOpen(S, lh, dir, shift, pad) {
+  // padding-bottom, also on the allow-list; `head` (px, optional) the same above it, as padding-top.
+  function sideOpen(S, lh, dir, shift, pad, head) {
     return '<div style="writing-mode:' + (SIDE_DIRS[dir] || SIDE_DIRS.down) + ";" + FONT_PROP + ":" + curFace.weight + " " + S + "px/" + lh
-      + " " + curFace.css + ";white-space:nowrap;margin:auto" + (pad ? ";padding-bottom:" + pad + "px" : "")
+      + " " + curFace.css + ";white-space:nowrap;margin:auto" + (head ? ";padding-top:" + head + "px" : "") + (pad ? ";padding-bottom:" + pad + "px" : "")
       + (shift ? ";position:relative;left:" + shift + "px" : "") + curStyle + '">';
   }
   // INK PAST THE END OF THE RUN. The div is exactly as long as its longest column's advances,
   // and the bot's box ends with it, so a glyph whose ink runs past its advance (BIG_EDGE) at
   // the BOTTOM end of a column was cut off: top to bottom, the last letter's right side (f's
   // arm, r's ear: "stuff" at 193px lost 6.2px); bottom to top, the first letter's left side
-  // (j's hook: "just" lost 9.4px, 2.5 mm). The other end overhangs into the line above (the
-  // Cheer line or the body before), which is not cut. So a body whose columns end (or, bottom
-  // to top, start) with such a glyph gets padding-bottom of that ink, in whole px, rounded up:
+  // (j's hook: "just" lost 9.4px, 2.5 mm). The other end overhung into the line above (the
+  // Cheer line or the body before), which is not cut, until Printer Bot 3.0.4 left the Cheer word
+  // out: now the first body of a part starts at the top of the bot's box, which cuts there too
+  // (bench, 3.0.4's page: the j of "just" at the top of a top-to-bottom column rose 8.3px above it,
+  // an f ending a bottom-to-top one 5.0px), so that end is padded as well (padding-top, `head`).
+  // So a body whose columns end (or, bottom to top, start) with such a glyph gets padding-bottom
+  // of that ink, and one whose columns start (bottom to top, end) with one padding-top, in whole
+  // px, rounded up:
   // the box then reaches past it, plus half a px for the anti-aliased edge (f at 193px inked
   // 6.2px past its advance, 0.032em). A column shorter than the longest is centred and needs
   // less, but the lengths here are upper bounds (kerning), so every column counts in full.
@@ -2691,38 +2743,45 @@
   // puts it after the previous body. Bottom to top ("up") reads the tape from the bottom,
   // so the bodies go out LAST FIRST and the whole run reads in order. `prep` is sidePrep of
   // every line.
-  // `edges` = {word, all}: the largest overhang (em), on the side that matters for `dir`
-  // (sidePad), of a glyph that ends a word (top to bottom) or starts one (bottom to top), and
-  // of any glyph at all. A padding that big is kept back in every body, in characters and in
-  // length, so a body's real padding always fits: first the word ends' (segments end at word
-  // ends, unless a word too long for a body is cut between letters), and when a cut letter
-  // needs more, every glyph's. Most text has none of these glyphs at its word ends: nothing is
-  // kept back and the payload is as it was.
+  // `edges` = {word, all, wordHead, allHead}: the largest overhang (em), on the side that matters
+  // for `dir` (sidePad), of a glyph that ends a word (top to bottom) or starts one (bottom to top),
+  // and of any glyph at all; and the same at the run's top end (`…Head`: a word's first glyph top
+  // to bottom, its last bottom to top). Paddings that big are kept back in every body, in
+  // characters and in length, so a body's real paddings always fit: first the word ends' (segments
+  // end at word ends, unless a word too long for a body is cut between letters), and when a cut
+  // letter needs more, every glyph's. Most text has none of these glyphs at its word ends: nothing
+  // is kept back and the payload is as it was.
   function sideEval(prep, S, lh, dir, budget, room, shift, edges) {
-    edges = edges || { word: 0, all: 0 };
-    var r = sideEvalAt(prep, S, lh, dir, budget, room, shift, edges.word);
-    if (r.padTop > sidePad(S, [edges.word])) r = sideEvalAt(prep, S, lh, dir, budget, room, shift, edges.all);
+    edges = edges || { word: 0, all: 0, wordHead: 0, allHead: 0 };
+    var r = sideEvalAt(prep, S, lh, dir, budget, room, shift, edges.word, edges.wordHead || 0);
+    if (r.padMax > sidePad(S, [edges.word]) || r.headMax > sidePad(S, [edges.wordHead || 0])) {
+      r = sideEvalAt(prep, S, lh, dir, budget, room, shift, edges.all, edges.allHead || 0);
+    }
     return r;
   }
-  function sideEvalAt(prep, S, lh, dir, budget, room, shift, reserveEm) {
-    var padMax = sidePad(S, [reserveEm || 0]), N = Math.max(1, prep.length), openL = payloadLength(sideOpen(S, lh, dir, shift, padMax));
+  function sideEvalAt(prep, S, lh, dir, budget, room, shift, reserveEm, reserveHeadEm) {
+    var padMax = sidePad(S, [reserveEm || 0]), headMax = sidePad(S, [reserveHeadEm || 0]), N = Math.max(1, prep.length);
+    var openL = payloadLength(sideOpen(S, lh, dir, shift, padMax, headMax));
     var colsL = N > 1 ? LINE_COST * N : 0;
     var maxChars = Math.max(1, Math.floor((budget - LINE_BLANK_LEN - openL - BIG_CLOSE.length - colsL) / N));
-    var segs = prep.map(function (w) { return sideSegments(w, S, room - padMax, maxChars); });
-    var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], pads = [], k;
+    var segs = prep.map(function (w) { return sideSegments(w, S, room - padMax - headMax, maxChars); });
+    var K = segs.reduce(function (m, s) { return Math.max(m, s.length); }, 1), src = [], cols = [], pads = [], heads = [], k;
     for (k = 0; k < K; k++) {
       var c = segs.map(function (s) { return s[k] || null; });
       var sp = c.some(function (x) { return !!(x && x.sp); });
       var pad = sidePad(S, c.map(function (x) { return x && x.t ? (dir === "up" ? x.a : x.z) : 0; }));
-      var chars = payloadLength(sideOpen(S, lh, dir, shift, pad)) + BIG_CLOSE.length + colsL
+      var head = sidePad(S, c.map(function (x) { return x && x.t ? (dir === "up" ? x.z : x.a) : 0; }));
+      var chars = payloadLength(sideOpen(S, lh, dir, shift, pad, head)) + BIG_CLOSE.length + colsL
         + c.reduce(function (t, x) { return t + (x && x.t ? x.ch : 1); }, 0);
-      var h = c.reduce(function (m, x) { return Math.max(m, x && x.t ? S * x.em + 0.5 * x.g : 0); }, 0) + pad;
+      var h = c.reduce(function (m, x) { return Math.max(m, x && x.t ? S * x.em + 0.5 * x.g : 0); }, 0) + pad + head;
       cols.push(c.map(function (x) { return x ? x.t : ""; }));
       pads.push(pad);
+      heads.push(head);
       src.push({ start: k, end: k + 1, heightPx: Math.round(h * 1000) / 1000, chars: chars, gapBefore: k > 0 && sp });
     }
     var em = bigEmit(src, dir === "up", budget, room);
-    return { px: S, shift: shift || 0, cols: cols, pads: pads, padTop: Math.max.apply(null, pads), chunks: em,
+    return { px: S, shift: shift || 0, cols: cols, pads: pads, heads: heads, padMax: Math.max.apply(null, pads),
+             headMax: Math.max.apply(null, heads), chunks: em,
              cheers: bigCheerCount(em, budget, room),
              over: em.some(function (r) { return r.over; }), tall: em.some(function (r) { return r.tall; }) };
   }
@@ -2748,13 +2807,17 @@
     var boxPx = Math.floor(contentW / (Math.max(1, lines.length) * parseFloat(lh)) + PX_EPS);
     var maxPx = Math.min(SIDE_MAX_PX, sideWidthPx(lines.length, caps, contentW), boxPx);
     var emoji = lines.some(function (l) { return bigGraphemes(l).some(function (g) { return bigGlyphEm(g) === BIG_W_EMOJI; }); });
-    var prep = lines.map(sidePrep), shiftEm = sideShiftEm(lines, parseFloat(lh)), edges = { word: 0, all: 0 };
+    var prep = lines.map(sidePrep), shiftEm = sideShiftEm(lines, parseFloat(lh)), edges = { word: 0, all: 0, wordHead: 0, allHead: 0 };
     prep.forEach(function (ws) {
       ws.forEach(function (gs) {
         if (!gs.length) return;
-        var end = o.dir === "up" ? gs[0].l : gs[gs.length - 1].r;
+        var end = o.dir === "up" ? gs[0].l : gs[gs.length - 1].r, start = o.dir === "up" ? gs[gs.length - 1].r : gs[0].l;
         edges.word = Math.max(edges.word, end);
-        gs.forEach(function (g) { edges.all = Math.max(edges.all, o.dir === "up" ? g.l : g.r); });
+        edges.wordHead = Math.max(edges.wordHead, start);
+        gs.forEach(function (g) {
+          edges.all = Math.max(edges.all, o.dir === "up" ? g.l : g.r);
+          edges.allHead = Math.max(edges.allHead, o.dir === "up" ? g.r : g.l);
+        });
       });
     });
     var ev = function (S) {
@@ -2807,7 +2870,7 @@
     }
     if (!k) return [{ html: "", chars: 0, heightPx: 0, preview: { kind: "html", html: "" }, side: info(0, 0, null, []) }];
     return k.chunks.map(function (r, ci) {
-      var cols = k.cols[r.start], open = sideOpen(k.px, p.lh, p.dir, k.shift, k.pads[r.start]);
+      var cols = k.cols[r.start], open = sideOpen(k.px, p.lh, p.dir, k.shift, k.pads[r.start], k.heads[r.start]);
       // One column is a bare styled div (as it always was); two or more are a div each.
       var html = open + (cols.length === 1 ? (cols[0] ? escapeHtml(cols[0]) : "\u00A0")
         : cols.map(function (c) { return lineDiv(c ? escapeHtml(c) : ""); }).join("")) + BIG_CLOSE;
@@ -3015,8 +3078,15 @@
   //     own line (a closing quote cannot start a line; it would drag the last cell down).
   // Never a space, Latin letter or U+3000 inside the grid, and the light cell is 丶. A plain
   // part rides alone in its cheer (anything before the grid shifts every row) and every part
-  // repeats the header and the token. Height = (header + R + token) lines x 21.6px.
-  var HAN_CELL_PX = 16, QUOTE_PX = 6, HAN_LIGHT = "丶";
+  // repeats the header and the token. Since Printer Bot 3.0.4 the token prints nothing (the bot
+  // takes the Cheer word out, printedMessage), so a plain part ends in the tail, a space and one
+  // light cell: the closing quote mark can't share the last row's line on 80 mm (a full row and
+  // the mark are wider than the paper, and a line never breaks right before a quote mark, so the
+  // row's last cell went down with it), and on 58 mm and Letter it would by a pixel or so, which
+  // the fonts decide. After the tail's space it always has a line of its own, with the light cell
+  // (and the repeat number, when on). Height = (header + R + last line) lines x 21.6px, the last
+  // line being the tail's, or in a High Roller cheer the repeat number's when it is on.
+  var HAN_CELL_PX = 16, QUOTE_PX = 6, HAN_LIGHT = "丶", DESIGN_T_TAIL = " " + HAN_LIGHT;
   // Han tiling draws each typed line as a picture of its own, a column at least ten rows long,
   // so it takes at most HAN_MAX_LINES of them; any more are left out and the card says how many.
   // (Every part is a preview frame running the bot's renderer: 100 one-word lines made 73
@@ -3049,23 +3119,24 @@
     });
     if (!rows.length) return glyphEmpty();
     var h = mode === "raw" && opts.headerless ? 0 : designTHeader(p.mm, mode), header = new Array(h + 1).join(HAN_LIGHT);
-    var trail = trailLength({ cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce });
-    var extra = (h ? 1 : 0) + (trail ? 1 : 0);
+    var lead = { cheer: !!opts.cheer, bits: opts.bits, noNonce: !!opts.noNonce };
+    var trail = trailLength(lead), tail = mode === "plain" ? DESIGN_T_TAIL : "";
+    var extra = (h ? 1 : 0) + (tail || (lead.cheer && !lead.noNonce) ? 1 : 0);
     var limit = (typeof opts.limitPx === "number" && isFinite(opts.limitPx) && opts.limitPx > 0) ? opts.limitPx : CONTENT_CEILING_PX;
     // A row's characters: C, unless a cell is several code points (Han text as typed keeps a
     // variation sequence whole), so a cheer holds as many rows as its LONGEST row allows.
     var rowLen = rows.reduce(function (m, r) { return Math.max(m, payloadLength(r.join(""))); }, C);
-    var per = Math.max(1, Math.min(Math.floor((MAX_CHARS - trail - h) / rowLen), Math.floor(limit / LEAD_LINE_PX + 1e-9) - extra));
+    var per = Math.max(1, Math.min(Math.floor((MAX_CHARS - trail - payloadLength(tail) - h) / rowLen), Math.floor(limit / LEAD_LINE_PX + 1e-9) - extra));
     // As many cheers as `per` rows a cheer needs, with the rows spread evenly over them: the
     // last cheer used to carry whatever was left, sometimes one row (the bottom stroke of a
     // letter) for a whole cheer and a whole header.
-    // A box shorter than a header, one row and the token line (a High Roller cheer under the
+    // A box shorter than a header, one row and the last line (a High Roller cheer under the
     // streamer's bits-per-inch or maximum length) still gets one row a part, and every part
     // is then taller than the box: `tall`, so the card says the bot cuts each one.
     var out = [], size = Math.ceil(rows.length / Math.ceil(rows.length / per));
     for (var i = 0; i < rows.length; i += size) {
       var band = rows.slice(i, i + size);
-      var html = header + band.map(function (r) { return r.join(""); }).join("");
+      var html = header + band.map(function (r) { return r.join(""); }).join("") + tail;
       var hPx = Math.round((band.length + extra) * LEAD_LINE_PX * 1000) / 1000, tall = hPx > limit + PX_EPS;
       out.push({ html: html, chars: payloadLength(html), alone: true, heightPx: hPx, tall: tall,
                  preview: { kind: "grid", grid: [header].concat(band.map(function (r) { return r.join(""); })).join("\n") },
@@ -3169,7 +3240,7 @@
   // under the streamer's bits-per-inch or maximum length that may buy less receipt than all
   // five take (about 7 cm), and the bot would fade out the ones the note asks about. So they
   // are kept in order of what they prove (BIG, then UP, the upside-down BIG, jog, MMMMM) while
-  // they fit the box after the Cheer line, still printed in their usual order, and the note
+  // they fit the box after the lead's line (the repeat number's, when it is on), still printed in their usual order, and the note
   // names only what was kept and says what was left out. When not even BIG fits, the test
   // can't show anything at these settings and is not offered (`works` false).
   // o = {hrThreshold, bits, paperMm, bitsPerInch, maxInches, letterBits, letterLayout}. The cheer
@@ -3179,11 +3250,11 @@
   function buildHighRollerProbe(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), bits = t > 0 ? t : cheerBits(o.bits);
-    var at = { bits: bits, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches, letterBits: o.letterBits,
-               letterLayout: o.letterLayout, paperMm: o.paperMm };
+    var at = { cheer: true, bits: bits, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches, letterBits: o.letterBits,
+               letterLayout: o.letterLayout, paperMm: o.paperMm, noNonce: o.noNonce, nonce: o.nonce };
     var paperMm = targetPaper(at), p = paperSpec(paperMm), letter = paperMm === "letter", mmPx = mmPerPx(paperMm);
     var mPx = Math.floor(bigFitPx(p.contentW, 5) / bigLineEm("MMMMM"));
-    var lim = contentLimitPx(at), room = lim.px - LEAD_LINE_PX;
+    var lim = contentLimitPx(at), room = lim.px - lim.leadPx;
     var center = blockStyle({ center: letter && letterLayoutOf(o.letterLayout) === "message" });
     var big = function (px, lh, flip, text) { return withFace(null, bigOpen, [px, lh, flip], center) + text + BIG_CLOSE; };
     var shapes = [
@@ -3214,14 +3285,14 @@
     if (t <= 0) note = "High Roller is off (threshold 0), so this prints as plain text, tags and all. Ask the streamer to set a High Roller amount.";
     else if (!hrOn) note = hrPrinterWords(o) + " has Allow High Roller prints off, so this prints as plain text, tags and all. "
       + "It is a Printer Bot 3.0 setting, on by default, for each printer: ask the streamer to turn it on for the printer that prints cheers.";
-    // Not working because the box is too short: either the Cheer line fills it (nothing after it
-    // prints at all), or a little is left after it, too little for BIG, the smallest shape. That
-    // case said "the Cheer line fills it" too, under a verdict that the receipt prints the Cheer
-    // line and the top of BIG (polish review 4).
+    // Not working because the box is too short: either the repeat number's line fills it (nothing
+    // after it prints at all), or what is left is too little for BIG, the smallest shape. That case
+    // said "the line fills it" too, under a verdict that the receipt prints the line and the top of
+    // BIG (polish review 4).
     else if (!works) note = "At the streamer's length settings a " + bits + "-bit cheer gets about " + cm + " of receipt, and "
-      + (boxNoRoom(lim) ? "the Cheer line fills it"
-         : "after the Cheer line only about " + Math.round(room * mmPx) + " mm is left, too short for even the test's "
-           + "smallest shape (BIG, " + Math.round(shapes[0].h * mmPx) + " mm tall)")
+      + (boxNoRoom(lim) ? "the repeat number's line fills it"
+         : (lim.leadPx ? "after the repeat number's line only about " + Math.round(room * mmPx) + " mm is left, " : "that is ")
+           + "too short for even the test's smallest shape (BIG, " + Math.round(shapes[0].h * mmPx) + " mm tall)")
       + ", so this test can't show anything. Check the bits-per-inch and maximum length above.";
     else note = "One " + bits + "-bit cheer, exactly the threshold" + (letter ? ", which prints on the Letter printer" : "")
       + ". If BIG prints big, High Roller is on at " + bitsWord(bits)
@@ -3274,7 +3345,7 @@
                letterLayout: o.letterLayout, paperMm: o.paperMm, noNonce: !!o.noNonce };
     var mode = printMode(at), ctx = stackContext(at), p = ctx.paper, C = hanziCols(p.contentW), letter = p.mm === "letter";
     var grid = probeHiGrid(C);
-    var fits = Math.floor(ctx.limit.px / LEAD_LINE_PX + 1e-9) - (designTHeader(p.mm, mode) ? 1 : 0) - 1;
+    var fits = Math.floor(ctx.limit.px / LEAD_LINE_PX + 1e-9) - (designTHeader(p.mm, mode) ? 1 : 0) - (mode === "plain" || !o.noNonce ? 1 : 0);
     var short = mode === "plain" && grid.length > fits;
     if (short) grid = grid.slice(-1);
     var bodies = buildDesignT(grid, { mode: mode, paperMm: p.mm, cheer: true, bits: bits, noNonce: !!o.noNonce, limitPx: ctx.limit.px });
@@ -3286,9 +3357,9 @@
                  + "it should print small, inside quote marks: a light first line, "
          : t === 0 ? "One " + bits + "-bit cheer" + on + ". High Roller is off, so every cheer prints plain: it should print small, inside quote marks: a light first line, "
                  : "One " + bits + "-bit cheer, one under the threshold" + on + ". It should print small, inside quote marks: a light first line, ")
-        + (short ? "a row of tones, then Cheer" + bits + ". Check that the row holds " + C + " characters."
+        + (short ? "a row of tones and a light last line. Check that the row holds " + C + " characters."
                    + " The Letter page leaves room for only " + Math.max(0, fits) + (fits === 1 ? " row" : " rows") + ", so HI is left out."
-                 : "HI in Han characters, a row of tones, then Cheer" + bits + ". Check that every line holds " + C
+                 : "HI in Han characters, a row of tones and a light last line. Check that every row holds " + C
                    + " characters and the edges of HI line up.")
       : "The threshold is 1 bit, so every cheer is a High Roller cheer and nothing prints as plain text: there is no plain test to send.";
     return { bits: bits, mode: mode, bodies: bodies, note: note, paperMm: p.mm };
@@ -3393,11 +3464,12 @@
       }
       return lim.by === "cap"
         ? "The streamer's maximum length (about " + mm + " mm) is no taller than "
-          + "the Cheer line, so nothing after it prints, whatever the bits." + han
+          + "the repeat number's line, so nothing after it prints, whatever the bits." + han
+          + " Turn off “Add a repeat number” to give the message that room."
         : "The streamer's bits-per-inch setting gives a " + cheerBits(o.bits) + "-bit cheer about "
-          + mm + " mm of receipt, and the Cheer line fills it, so nothing after "
-          + "it prints." + han + " The streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch))
-          + ": set Bits per cheer higher for room to print.";
+          + mm + " mm of receipt, and the repeat number's line fills it, so nothing after "
+          + "it prints." + han + " Turn off “Add a repeat number”, or set Bits per cheer higher: the streamer gives 1 inch (2.5 cm) of receipt per "
+          + bitsWord(bitsPerInchOf(o.bitsPerInch)) + ".";
     }
     var t = hrThresholdOf(o.hrThreshold), bits = cheerBits(o.bits);
     if (t > 0 && !allowsHighRoller(o)) {
@@ -3411,19 +3483,20 @@
       + (t > 0 ? "For big text, sideways text or glyph-art in the characters you picked, set Bits per cheer to " + t + " or more."
                : "Big text, sideways text and glyph-art in the characters you picked need the streamer to set a High Roller threshold.");
   }
-  // What to do when the streamer's settings leave a High Roller cheer no room after its Cheer
-  // line (boxNoRoom): said under the parts in place of the bits total, since nothing there is
-  // worth sending. opts and `shape` as modeNotice.
+  // What to do when the streamer's settings leave a High Roller cheer no room after its repeat
+  // number's line (boxNoRoom): said under the parts in place of the bits total, since nothing there
+  // is worth sending. opts and `shape` as modeNotice.
   function noRoomAdvice(o, shape) {
     o = o || {};
     var lim = contentLimitPx(o), f = shapeFlags(shape);
     var first = f.tiling && f.typed ? "a Han tiling or Han text part's first row" : f.typed ? "part of a Han text part's first row" : "a Han tiling part's light first row";
-    var what = !f.lead ? aloneRow(f) : f.tiling || f.typed ? "its first line (the Cheer line, or " + first + ")" : "its Cheer line";
+    var what = !f.lead ? aloneRow(f) : f.tiling || f.typed ? "its first line (the repeat number, or " + first + ")" : "its repeat number";
+    var off = f.lead ? "Turn off “Add a repeat number”" : "";
     return lim.by === "cap"
-      ? "Nothing worth sending: every part would print only " + what + ", whatever the bits. The streamer's "
-        + "maximum length would have to be longer than one line."
-      : "Nothing worth sending: every part would print only " + what + ". Set Bits per cheer higher: the streamer "
-        + "gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch)) + ".";
+      ? "Nothing worth sending: every part would print only " + what + ", whatever the bits. "
+        + (off ? off + ", or the" : "The") + " streamer's maximum length would have to be longer than one line."
+      : "Nothing worth sending: every part would print only " + what + ". " + (off ? off + ", or set" : "Set")
+        + " Bits per cheer higher: the streamer gives 1 inch (2.5 cm) of receipt per " + bitsWord(bitsPerInchOf(o.bitsPerInch)) + ".";
   }
   // What picking a High Roller-only control does to Bits per cheer below the threshold. null
   // when no amount changes what is built; "noRoom" when the streamer's length settings would
@@ -3435,8 +3508,8 @@
   function bitsRaiseFor(o) {
     o = o || {};
     var t = hrThresholdOf(o.hrThreshold), from = cheerBits(o.bits);
-    var at = { bits: t, allowHighRoller: o.allowHighRoller, letterBits: o.letterBits, letterLayout: o.letterLayout,
-               paperMm: o.paperMm, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches };
+    var at = { cheer: true, bits: t, allowHighRoller: o.allowHighRoller, letterBits: o.letterBits, letterLayout: o.letterLayout,
+               paperMm: o.paperMm, bitsPerInch: o.bitsPerInch, maxInches: o.maxInches, noNonce: o.noNonce, nonce: o.nonce };
     if (!o.cheer || from >= t || !allowsHighRoller(at)) return null;
     var lim = contentLimitPx(at);
     if (boxNoRoom(lim)) return { action: "noRoom", from: from, to: t, by: lim.by };
@@ -3466,8 +3539,8 @@
     }
     if (r.action === "noRoom") {
       return "Bits per cheer stays at " + r.from + ": " + (r.by === "cap"
-        ? "the streamer's maximum length leaves no room after the Cheer line at any amount, so "
-        : "at " + bitsWord(r.to) + " the streamer's bits per inch leaves no room after the Cheer line, so ") + plain;
+        ? "the streamer's maximum length leaves no room after the repeat number's line at any amount, so "
+        : "at " + bitsWord(r.to) + " the streamer's bits per inch leaves no room after the repeat number's line, so ") + plain;
     }
     var cost = now && now.cheers ? ": " + cheersWord(now.cheers) + ", " + bitsWord(now.bits)
       + (was && was.cheers ? " (was " + was.cheers + " plain " + (was.cheers === 1 ? "cheer" : "cheers") + ", " + bitsWord(was.bits) + ")" : "")
@@ -5119,7 +5192,7 @@
       }
       if (item.noRoom) {
         before.push(mkEl("div", { "class": "over-note" }, !item.alone
-          ? "Prints nothing but the Cheer line: the streamer's settings leave this cheer no room after it."
+          ? "Prints nothing but its repeat number: the streamer's settings leave this cheer no room after it."
           : "Prints only " + (partsShape([item]) === "typed" ? "part of its first row, fading out" : "its light first row")
             + ": the streamer's settings leave this cheer no room for the rest."));
       }
@@ -5276,7 +5349,8 @@
     function raiseOffered() {
       var st = getSettings();
       var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch, maxInches: st.maxInches,
-                             allowHighRoller: st.allowHighRoller, paperMm: st.paperMm, letterBits: st.letterBits, letterLayout: st.letterLayout });
+                             allowHighRoller: st.allowHighRoller, paperMm: st.paperMm, letterBits: st.letterBits, letterLayout: st.letterLayout,
+                             nonce: st.nonce });
       return !!r && r.action !== "noRoom";
     }
     function raiseHost(block) {
@@ -5293,7 +5367,7 @@
       var st = getSettings();
       var r = bitsRaiseFor({ cheer: st.cheer, bits: st.bits, hrThreshold: st.hrThreshold, bitsPerInch: st.bitsPerInch,
                              maxInches: st.maxInches, allowHighRoller: st.allowHighRoller, paperMm: st.paperMm, letterBits: st.letterBits,
-                             letterLayout: st.letterLayout, noAuto: raiseNoAuto });
+                             letterLayout: st.letterLayout, noAuto: raiseNoAuto, nonce: st.nonce });
       if (!r) { dropRaiseOffer(block); return; }
       raiseSlot = { blockId: block.id, r: r, what: what, ctl: ctl.className.split(" ")[0],
                     was: partsTally(copyableParts()), sig: stackSig(), ver: (raiseSlot ? raiseSlot.ver : 0) + 1 };
@@ -5918,7 +5992,7 @@
         relabelSoon(stackContext(stackOpts(below0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
         var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
         var lines = [], fine = [], plainNow = ctx.mode === "plain";
-        // The parts' own test for "nothing after the Cheer line prints" (composeParts).
+        // The parts' own test for "nothing after the repeat number's line prints" (composeParts).
         var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
         // A free test counts messages, as the parts' total does.
         var countOf = function (n) { return ctx.cheer ? cheersOf(n) : n === 1 ? "1 message" : n + " messages"; };
@@ -5931,7 +6005,8 @@
                 ? "prints only part of its first row, fading out: the streamer's settings leave no room for the rest (see the note above the parts)"
                 : countOf(where.inParts.length || ts.length)));
             if (!noRoom && ts.some(function (b) { return b.tall; })) {
-              lines.push("Even one row a part (with the Cheer line) is taller than " + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts every part."
+              lines.push("Even one row a part" + (ctx.cheer && !ctx.noNonce ? " (with the repeat number's line)" : "") + " is taller than "
+                + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts every part."
                 + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
             }
           } else if (/\S/.test(bigClean(text).text)) {
@@ -5962,7 +6037,8 @@
                 + " left out. Put the rest in another block.");
             }
             if (!noRoom && hs.some(function (b) { return b.tall; })) {
-              lines.push("Even one row a part (with its light first row and the Cheer line, 3 lines) is taller than "
+              lines.push("Even one row a part (with its light first row" + (plainNow ? " and its light last line, 3 lines"
+                : ctx.cheer && !ctx.noNonce ? " and the repeat number's line, 3 lines" : ", 2 lines") + ") is taller than "
                 + boxWords(ctx.limit, ctx.paperMm) + ", so the bot cuts every part."
                 + (ctx.limit.by === "bits" ? " Set Bits per cheer higher for more room." : ""));
             }
@@ -7099,7 +7175,8 @@
       // Each built for the paper its bits reach (1.6.0).
       var pr = kind === "hrprobe"
         ? buildHighRollerProbe({ hrThreshold: s.hrThreshold, bits: s.bits, paperMm: s.paperMm, bitsPerInch: s.bitsPerInch,
-                                 maxInches: s.maxInches, allowHighRoller: s.allowHighRoller, letterBits: s.letterBits, letterLayout: s.letterLayout })
+                                 maxInches: s.maxInches, allowHighRoller: s.allowHighRoller, letterBits: s.letterBits, letterLayout: s.letterLayout,
+                                 noNonce: !getNonce() })
         : buildPlainProbe({ hrThreshold: s.hrThreshold, paperMm: s.paperMm, noNonce: !getNonce(), allowHighRoller: s.allowHighRoller,
                             letterBits: s.letterBits, letterLayout: s.letterLayout });
       var so = stackOpts({ cheer: true, bits: pr.bits, mode: pr.mode, nonceFn: nonceForPart }), ctx = stackContext(so), po = {}, k;
@@ -7240,21 +7317,22 @@
       syncModeUi();
       // The layout the preview draws with, read off the vendored block itself, so it can't drift from
       // it. SassyTP's bot can download a newer layout to the streamer's dock by itself. Since 1.3.0 the
-      // block is Printer Bot 3.0's (3.0.1's since 1.4.1). Layouts that print the app's messages the
-      // same on a roll are named as such, each with what differs: 3.0.0-beta.7's and 2.5.4's (each
-      // measured against 3.0.1's page, 42 of 44 dot for dot, the other two a settings mismatch the app
-      // doesn't send; 2.5.4 also draws a smaller profile picture). Beta.6's prints the same too, but
-      // the line has room for two.
+      // block is Printer Bot 3.0's (3.0.1's since 1.4.1, 3.0.4's since 1.8.0). Layouts that print the
+      // app's messages the same on a roll are named as such, each with what differs (1.4.1 named
+      // 3.0.0-beta.7's and 2.5.4's). Since 3.0.4 the bot leaves each cheer's Cheer word out, and every
+      // older layout prints it (a line above each High Roller part), so none is named, and the line
+      // says what an older one adds.
       // On a phone the line sits between the blocks and the parts, so it stays short (1.2.0's was 360
       // characters; at 493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).
-      var SAME_PRINTS = [["202610122236", "3.0.0-beta.7", "the same"], ["202610090056", "2.5.4", "a smaller profile picture"]];
+      var SAME_PRINTS = [];
       var rblock = document.getElementById("sassytp-renderer"), rver = rblock && rblock.getAttribute("data-version");
       var rpath = /^v\/([0-9][0-9A-Za-z.-]*)\/renderer\.html$/.exec((rblock && rblock.getAttribute("data-path")) || "");
       if (rver && /^\d+$/.test(rver)) {
         document.getElementById("rendererVersion").textContent = (rpath ? ", Printer Bot " + rpath[1] + "'s" : ",") + " layout v" + rver;
         var same = SAME_PRINTS.filter(function (s) { return s[0] !== rver; }).map(function (s) { return s[1] + "'s " + s[0] + " (" + s[2] + ")"; });
         document.getElementById("rendererCompare").textContent = " If their dock shows another Renderer version under Updates, it may not match"
-          + (same.length ? ", except " + same.slice(0, -1).join(", ") + (same.length > 1 ? " and " : "") + same[same.length - 1] : "") + ".";
+          + (same.length ? ", except " + same.slice(0, -1).join(", ") + (same.length > 1 ? " and " : "") + same[same.length - 1] : "")
+          + ": a Printer Bot older than 3.0.4 prints each cheer's Cheer word too.";
       }
       // The preview frames answer by postMessage (onPreviewMessage checks which frame sent it).
       window.addEventListener("message", onPreviewMessage);
@@ -7355,6 +7433,8 @@
       bitsRaiseFor: bitsRaiseFor, partsTally: partsTally, raiseNote: raiseNote,
       LEAD_GUARD: LEAD_GUARD, buildLead: buildLead, leadLength: leadLength,
       buildTrail: buildTrail, trailLength: trailLength, stackContext: stackContext,
+      BOT_CHEERMOTES: BOT_CHEERMOTES, printedMessage: printedMessage, nonceOn: nonceOn, leadLinePx: leadLinePx,
+      limitLeadPx: limitLeadPx, DESIGN_T_TAIL: DESIGN_T_TAIL, boxNoRoom: boxNoRoom,
       packStackBodies: packStackBodies,
       // Big text (High Roller).
       BIG_MIN_PX: BIG_MIN_PX, BIG_MAX_PX: BIG_MAX_PX, BIG_LH_CAPS: BIG_LH_CAPS, BIG_LH_TEXT: BIG_LH_TEXT,
@@ -7409,8 +7489,8 @@
 <!--
   The receipt preview is drawn by SassyTP's printer-bot renderer (MIT): the receipt page the bot
   itself prints from, kept here as inert text and loaded into one sandboxed frame per part.
-  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0/renderer.html  commit 104929270ded1c63f111c414fd3f0c99cdb740fc
-  (renderer version 202610140456, upstream file sha256 6604dffcbf8252dd2b2c70ef2a44cb4e65806244cd699a1bbfe65809aaf9b6fe)
+  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0/renderer.html  commit fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2
+  (renderer version 202610150141, upstream file sha256 f4f4d5bbb25f352324261df90303ec3517617a49effd5610e644fd61734afa06)
 
   MIT License
 
@@ -7439,7 +7519,7 @@
   logo; (2) the page's Content-Security-Policy is a no-network policy; (3) every closing script tag
   is written with a backslash before its slash, undone when the app reads the block.
 -->
-<script type="text/plain" id="sassytp-renderer" data-commit="104929270ded1c63f111c414fd3f0c99cdb740fc" data-path="v/3.0.0/renderer.html" data-version="202610140456">
+<script type="text/plain" id="sassytp-renderer" data-commit="fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2" data-path="v/3.0.0/renderer.html" data-version="202610150141">
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7449,7 +7529,7 @@
 <!-- RW-EDIT 2 (Receipt Wrecker): this policy replaces the page's own. Nothing loads from the network (no connections, images only from data: URLs) and no frame, form or object; inline scripts are allowed instead of the renderer script's hash, so the preview's glue script can run next to it. -->
 <!-- RW-EDIT 3 (Receipt Wrecker): every closing script tag in this copy is written with a backslash before its slash, so the page can sit inside Receipt Wrecker's own page as inert text. The app takes the backslash out again before it loads the page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
-<meta name="printer-bot-renderer" content="202610140456">
+<meta name="printer-bot-renderer" content="202610150141">
 <style>
 /*
  * Printer Bot receipt
@@ -7804,6 +7884,15 @@ img.msg-image {
 	text-transform: uppercase;
 }
 
+/* 3.0.4: the line under a receipt that the dock's test print made from typed values (renderer.js, testMark) */
+#receipt-test-mark {
+	margin-top: 6px;
+	font-size: 0.8em;
+	font-weight: 700;
+	letter-spacing: 0.3em;
+	text-align: center;
+}
+
 
 /* ---- the layout "large message" of a page of Letter paper (3.0.0-beta.10) ---------------------------------------------------------------------------------------- */
 
@@ -7812,10 +7901,21 @@ img.msg-image {
    The receipt is one page tall at least. The header is a small round picture at the top left (2.3 inches, the size it has on an 80 mm roll) with the amount, the name and the time
    beside it. The platform logo is at the bottom of the page, smaller than in the other layout. All the space between belongs to the message and its pictures. */
 #receipt-container.letter-message {
+	position: relative;       /* the box that the logos of the pages of a long list are placed in (3.0.2, .page-logo below) */
 	display: flex;
 	flex-direction: column;
 	min-height: var(--pb-page-h, 533px);
 	text-align: left;
+}
+
+/* A list that takes more than one page has the platform logo at the bottom of every page, not only the last (3.0.2). renderer.js (addPageLogos) makes a copy of the logo for each page and gives it
+   its place and size in px, the place of the logo of the footer a page above. They are no part of the message. */
+.letter-message > .page-logo {
+	position: absolute;
+	display: block;
+	margin: 0;
+	max-width: none;
+	pointer-events: none;
 }
 
 .letter-message .rule {
@@ -7987,7 +8087,8 @@ img.msg-image {
 //                                  avatars = the lookups that finished since the last render, for the routine to keep: key -> { url, ts } for a
 //                                            picture, key -> { none: true, ts } for a viewer the lookup service does not know (kept NOT_FOUND_TTL_MS)
 //                                  trimmed = { limitIn, fullIn, by } when a High Roller message was cut. by is 'bits' when the bits-per-inch
-//                                  limit cut it and 'cap' when the maximum length cut it.
+//                                  limit cut it, 'amount' when the amount-per-inch limit of a YouTube High Roller Super Chat did (3.0.2), 'cap' when the maximum length
+//                                  cut it and 'page' when the end of a page of Letter paper did.
 //                                  photos  = [[x, y, width, height], ...] in CSS px: where the pictures are on the page (the viewer's picture and the images
 //                                            in a message). The action dithers only these on a page of Letter size, and prints the text with no shading (3.0.0-beta.5)
 //                                  options: { highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks } from the dock's settings
@@ -8013,6 +8114,11 @@ img.msg-image {
 //                                    allowHighRoller        boolean, default true (3.0.0-beta.5). false = this printer prints a High Roller cheer as an ordinary
 //                                                           cheer: its message is plain text, with no styling and no length limit of its own. The receipt is the same
 //                                                           event, so a Hype Train tally counts it once whichever printers allow High Roller.
+//                                    allowYouTubeHighRoller boolean, default false (3.0.2). true = this printer prints a YouTube High Roller Super Chat (see youtubeHighRoller)
+//                                                           with its styled message; anything else prints it as an ordinary Super Chat. Off unless the action says true.
+//                                    youtubeHighRoller      { amount, currency, perInch } (3.0.2), only for a Super Chat that the action found to be a YouTube High Roller
+//                                                           one: its amount in the streamer's currency (the action converts it, the page decides nothing about money) and the
+//                                                           amount per inch, the length limit (0 = none of its own). highRollerMaxInches and the built-in ceiling apply as for a cheer.
 //                                    pxPerInch              number, default 96 (3.0.0-beta.5). How many CSS px are one inch of paper at this paper size: 96 on a roll,
 //                                                           about 53.3 on Letter paper. The inch limits of High Roller messages are inches of paper.
 //   PrinterBot.setTheme(css)       -> extra CSS from the streamer's theme.css
@@ -8026,7 +8132,7 @@ img.msg-image {
 window.PrinterBot = (function () {
     'use strict';
 
-    const VERSION = '202610140456';
+    const VERSION = '202610150141';
     // RW-EDIT 1 (Receipt Wrecker): the Twitch, YouTube and Kick logos (trademarks of their owners, outside the MIT licence) are replaced by one plain grey box the size of the Twitch logo (336 x 112 px), so the footer keeps its size.
     const ICONS = {"twitch":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","youtube":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","kick":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII="};
 
@@ -8101,9 +8207,9 @@ window.PrinterBot = (function () {
     const MAX_STYLE_PROPS = 40;
     const MAX_NAME_CHARS = 48;         // a viewer / donor / reward / level name. Longer is cut and ends in "…". (Twitch logins are at most 25 characters. Display names and tip names are free text)
     const MAX_VARIANTS = 50;           // line items of one Fourthwall order that are printed
-    const NAMES_PER_PAGE = 100;        // gift recipients on one page of Letter paper (set in columns, see fitNames): more names go on to the next page, this many to a page
+    const NAMES_PER_PAGE = 100;        // gift recipients that fit the first page of Letter paper (set in columns, see fitNames): more names go on to the next page. In the large layout (3.0.2) the pages after the first hold as many as fit at the same size
     const MIN_PAGE_FIT = 0.3;          // a receipt on Letter paper that is still taller than its page after every cut is made smaller as a whole, down to this share of its size (Hype Train receipts need 0.45 to 0.6)
-    const MAX_NAME_PAGES = 10;         // ... on at most this many pages (the action prints 10 in black and white and 5 in color). Names beyond them are counted in the last line
+    const MAX_NAME_PAGES = 10;         // ... on at most this many pages (the action prints 10 in black and white and 5 in color): the list is cut at NAMES_PER_PAGE * this - 1 names, which take fewer pages since 3.0.2 (the pages after the first are fuller). Names beyond them are counted in the last line
     const MAX_VIEWER_IMAGE_PX = 64;   // a viewer's image in a High Roller message can't be shown larger than this (about 17 mm on paper)
     const MAX_DATA_IMAGE_CHARS = 2000; // base64 characters allowed in an inline (data:) image, enough for a tiny icon
 
@@ -8597,6 +8703,16 @@ window.PrinterBot = (function () {
         return threshold > 0 && Number(bits) >= threshold;
     }
 
+    // 3.0.2: the YouTube High Roller part of the options, checked: { amount, currency, perInch } with an amount above 0, or null (no such Super Chat, or a value that is no number).
+    // The action sets it only for a Super Chat whose amount, in the streamer's currency, reached the YouTube High Roller amount; event data never reaches it.
+    function youtubeHighRollerOf(opts) {
+        const y = opts && opts.youtubeHighRoller;
+        if (!y || typeof y !== 'object' || Array.isArray(y)) return null;
+        const amount = Number(y.amount), perInch = Number(y.perInch);
+        if (!Number.isFinite(amount) || amount <= 0) return null;
+        return { amount, perInch: Number.isFinite(perInch) && perInch > 0 ? perInch : 0, currency: /^[A-Z]{3}$/.test(String(y.currency)) ? String(y.currency) : '' };
+    }
+
     // Length limit for a High Roller message: "bits per inch" from the dock's Advanced section. A cheer may print
     // (bits / bitsPerInch) inches of message. A shorter message prints in full. 0 or missing = no limit of its own
     // (the content box's built-in ceiling still applies).
@@ -8632,18 +8748,27 @@ window.PrinterBot = (function () {
     function imageFitOf(opts) { const v = opts ? opts.imageFit : undefined; return IMAGE_FITS.indexOf(v) >= 0 ? v : 'fit'; }
 
     function highRollerMaxHeight(bits, opts) {
-        const perInch = opts ? Number(opts.highRollerBitsPerInch) : 0;
+        return lengthLimit(bits, opts ? Number(opts.highRollerBitsPerInch) : 0, 'bits', opts);
+    }
+
+    // The same rule for an amount of money (a YouTube High Roller Super Chat, 3.0.2): at most (amount / amount per inch) inches, then the maximum length and the ceiling as for a cheer.
+    function amountMaxHeight(yt, opts) {
+        return lengthLimit(yt.amount, yt.perInch, 'amount', opts);
+    }
+
+    // units (bits or an amount) / perInch inches of paper, held to the maximum length when one is set. `by` names the limit that cut it: the units one, or 'cap'.
+    function lengthLimit(units, perInch, unitsBy, opts) {
         const pxIn = pxPerInch(opts);
         let bitsPx = null;
         if (perInch > 0) {
-            const px = Math.floor(Number(bits) / perInch * pxIn);
+            const px = Math.floor(Number(units) / perInch * pxIn);
             if (Number.isFinite(px)) bitsPx = Math.max(1, px);
         }
         const capIn = opts ? Number(opts.highRollerMaxInches) : 0;
         let capPx = null;
         if (capIn > 0 && Number.isFinite(capIn)) capPx = Math.max(1, Math.floor(Math.min(capIn, MAX_CAP_INCHES) * pxIn));    // NaN, negatives, 0 and infinity give no cap
-        if (capPx === null) return bitsPx === null ? null : { px: bitsPx, by: 'bits', ignoreCeiling: false };
-        if (bitsPx !== null && bitsPx < capPx) return { px: bitsPx, by: 'bits', ignoreCeiling: true };
+        if (capPx === null) return bitsPx === null ? null : { px: bitsPx, by: unitsBy, ignoreCeiling: false };
+        if (bitsPx !== null && bitsPx < capPx) return { px: bitsPx, by: unitsBy, ignoreCeiling: true };
         return { px: capPx, by: 'cap', ignoreCeiling: true };
     }
 
@@ -8972,7 +9097,23 @@ window.PrinterBot = (function () {
     const text = (html) => ({ kind: 'text', html });
     const lead = (html) => ({ kind: 'lead', html });
     const stat = (html) => ({ kind: 'stat', html });
-    const message = (value) => value ? { kind: 'message', value } : null;          // cleaned (and, if asked, link-free) in show(), where the options are known
+    const message = (value) => value ? { kind: 'message', value } : null;
+
+    // 3.0.4: the message of a real cheer holds its cheermotes, the words that pay the bits ("Cheer2000 Look at this"): Streamer.bot sends the message as Twitch wrote it, and its own tests of a
+    // cheer send it without them. On the receipt a cheermote is no word of the viewer (the title says the bits), and printed as text it also put itself before a picture that opens the message, which
+    // then went below the words (the owner's cheer of 14 October). So a word that is a cheermote is taken out of a cheer's message: one of Twitch's cheermotes (a channel's own cheermotes keep the
+    // name Cheer) with its number, a word of its own (spaces or the ends of the message around it), in any capitals. Anything else stays: Cheer with no number, Cheer100x, Win10, a cheermote
+    // inside a tag (<b>Cheer100</b> is no cheermote on Twitch either). A message of cheermotes alone is no message.
+    const CHEERMOTE_NAMES = ['cheer', 'doodlecheer', 'biblethump', 'cheerwhal', 'corgo', 'scoops', 'uni', 'showlove', 'party', 'seemsgood', 'pride', 'kappa', 'frankerz', 'heyguys', 'dansgame',
+        'elegiggle', 'trihard', 'kreygasm', '4head', 'swiftrage', 'notlikethis', 'failfish', 'vohiyo', 'pjsalt', 'mrdestructoid', 'bday', 'ripcheer', 'shamrock', 'bitboss', 'streamlabs', 'muxy',
+        'holidaycheer', 'goal', 'anon', 'charity'];
+    const CHEERMOTE_WORD = new RegExp('(^|\\s)(?:' + CHEERMOTE_NAMES.join('|') + ')[0-9]{1,9}(?=\\s|$)', 'gi');
+    function cheerWords(value) {
+        if (typeof value !== 'string') return value;
+        let said = value, before;
+        do { before = said; said = said.replace(CHEERMOTE_WORD, '$1'); } while (said !== before);     // twice for two cheermotes side by side: the space between them belongs to one match
+        return said.trim() ? said : '';
+    }          // cleaned (and, if asked, link-free) in show(), where the options are known
     const cap = (s) => String(s ?? '').replace(/^./, c => c.toUpperCase());
     const byNumber = (a, b) => Number(a) - Number(b);
     // Finds an entry in one of the tables below only if the table holds it itself. A plain lookup such as HANDLERS['constructor'] also finds
@@ -9400,16 +9541,17 @@ window.PrinterBot = (function () {
 
         // ---- Twitch ----------------------------------------------------
         async TwitchCheer(d, opts) {
-            // High Roller: at or above the dock's threshold the message is used as-is (styling, rotated text,
-            // cheermotes). Below it, the message is cleaned like any other viewer text.
+            // High Roller: at or above the dock's threshold the message is used as-is (styling, rotated text). Below it, the message is cleaned like any other viewer text.
             // A High Roller cheer carries its message twice: as styled content, and as the plain message that a printer gets when it does not allow High Roller prints (options.allowHighRoller
             // false, see viewOf). The length limit is worked out when the receipt is shown, because it is a length of paper and the paper differs from printer to printer.
-            const raw = !!d.message && isHighRoller(d.bits, opts);
-            const content = !d.message ? null : raw ? { kind: 'raw', rich: d.message } : message(d.message);
+            // 3.0.4: the cheermotes are taken out first (cheerWords): they are the bits, which the title shows.
+            const said = cheerWords(d.message);
+            const raw = !!said && isHighRoller(d.bits, opts);
+            const content = !said ? null : raw ? { kind: 'raw', rich: said } : message(said);
             return {
                 avatar: await getAvatar(d.userName, 'twitch'),
                 title: `${displayName(d.bits, 12)} BITS`, subtitle: displayName(d.user), content, icon: 'twitch',
-                highRoller: raw ? { bits: d.bits } : null, contentPlain: raw ? message(d.message) : null,
+                highRoller: raw ? { bits: d.bits } : null, contentPlain: raw ? message(said) : null,
             };
         },
         async TwitchRewardRedemption(d) {
@@ -9571,10 +9713,16 @@ window.PrinterBot = (function () {
                 content: text(`<b>${nm(d.gifterUser)}</b><br>gifted a membership to<br><b>${nm(d.user)}</b>!`), icon: 'youtube',
             };
         },
-        async YouTubeSuperChat(d) {
+        // 3.0.2: YouTube High Roller. When the action says that this Super Chat is a High Roller one (options.youtubeHighRoller, its amount in the streamer's currency reached the
+        // YouTube High Roller amount), its message is used as-is, under the same rules as a High Roller cheer, and the plain message is kept for a printer that does not allow it
+        // (options.allowYouTubeHighRoller is not true, see viewOf).
+        async YouTubeSuperChat(d, opts) {
+            const yt = d.message ? youtubeHighRollerOf(opts) : null;
+            const sent = text(`<b>${nm(d.user)}</b><br>sent a Super Chat!`);
             return {
                 avatar: d.userProfileUrl || '', title: displayName(d.amount, 24), titleBig: true, icon: 'youtube',
-                content: [text(`<b>${nm(d.user)}</b><br>sent a Super Chat!`), d.message ? message(d.message) : null],
+                content: [sent, d.message ? (yt ? { kind: 'raw', rich: d.message } : message(d.message)) : null],
+                highRoller: yt ? { youtube: yt } : null, contentPlain: yt ? [sent, message(d.message)] : null,
             };
         },
         async YouTubeSuperSticker(d) {
@@ -9726,7 +9874,7 @@ window.PrinterBot = (function () {
             message: Array.from({ length: 60 }, (_, i) => `<b>Line ${i + 1}</b> of 60`).join('<br>') },
         TwitchRewardRedemption: { __source: 'TwitchRewardRedemption', rewardName: 'Receipt', rewardCost: 50, rawInput: 'Hello from channel points', user: 'SassyTP', userName: 'sassytp' },
         TwitchRaid: { __source: 'TwitchRaid', viewers: 42, user: 'SassyTP', userName: 'sassytp' },
-        YouTubeSuperChat: { __source: 'YouTubeSuperChat', amount: '$5.00', user: 'SassyTP', message: 'Great stream!' },
+        YouTubeSuperChat: { __source: 'YouTubeSuperChat', amount: '$5.00', microAmount: 5000000, currencyCode: 'USD', user: 'SassyTP', message: 'Great stream!' },
         KickSubscription: { __source: 'KickSubscription', user: 'SassyTP', duration: 3 },
         TwitchGiftBomb: BOMB_SAMPLE,
         TwitchGiftBombBig: BOMB_BIG_SAMPLE,
@@ -9811,8 +9959,10 @@ window.PrinterBot = (function () {
     // its own, exactly as a cheer below the threshold. Any other receipt shows its content as the handler made it.
     function viewOf(model, opts) {
         if (model.highRoller) {
-            if (opts && opts.allowHighRoller === false) return { content: model.contentPlain, maxPx: null, by: null, ignoreCeiling: false };
-            const limit = highRollerMaxHeight(model.highRoller.bits, opts);
+            const yt = model.highRoller.youtube;
+            const allowed = yt ? !!(opts && opts.allowYouTubeHighRoller === true) : !(opts && opts.allowHighRoller === false);      // YouTube: off unless the printer has it on (3.0.2)
+            if (!allowed) return { content: model.contentPlain, maxPx: null, by: null, ignoreCeiling: false };
+            const limit = yt ? amountMaxHeight(yt, opts) : highRollerMaxHeight(model.highRoller.bits, opts);
             return { content: model.content, maxPx: limit ? limit.px : null, by: limit ? limit.by : null, ignoreCeiling: limit ? limit.ignoreCeiling : false, styled: true };
         }
         return { content: model.content, maxPx: model.contentMaxHeight != null ? model.contentMaxHeight : null, by: model.contentLimitBy, ignoreCeiling: !!model.contentIgnoreCeiling };
@@ -9826,11 +9976,25 @@ window.PrinterBot = (function () {
         container.classList.toggle('letter-message', page !== null);
         container.style.minHeight = '';                                 // fitNames may have given the receipt of a long list a floor of its own
         container.style.transform = ''; container.style.transformOrigin = '';       // and present() may have made the last receipt smaller to fit its page
+        for (const logo of Array.from(container.querySelectorAll(':scope > .page-logo'))) container.removeChild(logo);       // and the logos of the pages of the last list (addPageLogos)
         for (const f of IMAGE_FITS) container.classList.toggle('fit-' + f, page !== null && imageFitOf(opts) === f);
         if (page !== null) { container.style.setProperty('--pb-in', pxPerInch(opts) + 'px'); container.style.setProperty('--pb-page-h', Math.floor(page) + 'px'); }
         else { container.style.removeProperty('--pb-in'); container.style.removeProperty('--pb-page-h'); }
         const date = $('receipt-date'), home = page !== null ? $('receipt-header') : $('receipt-footer');
         if (date.parentNode !== home) home.appendChild(date);
+        testMark(opts);
+    }
+
+    // 3.0.4: a receipt that the dock's test print made from values the person typed says TEST at the bottom of its footer (the owner's choice: such a receipt can never pass for a
+    // real one). The action decides it (options.testMark, exactly true); event data cannot. Every receipt starts without the line, so it never stays for the next one.
+    function testMark(opts) {
+        const old = $('receipt-test-mark');
+        if (old) old.remove();
+        if (!(opts && opts.testMark === true)) return;
+        const mark = document.createElement('div');
+        mark.id = 'receipt-test-mark';
+        mark.textContent = 'TEST';
+        $('receipt-footer').appendChild(mark);
     }
 
     // Builds the receipt from the model. Returns the avatar URL that is on the page ('' = none).
@@ -9910,7 +10074,8 @@ window.PrinterBot = (function () {
 
     // ---- a list of names on a page of Letter paper (3.0.0) ----------------------------------------------------------------------------------
     // A gift list or the items of an order is a list of names. On a roll it is one column, as long as it comes. On a page of Letter paper (one page, always) it is set in columns and a
-    // smaller type, as many as it takes to fit: up to NAMES_PER_PAGE gift names fit one page, more go on to the next page, 100 to a page, and the footer is on the last page. An order
+    // smaller type, as many as it takes to fit: up to NAMES_PER_PAGE gift names fit one page, more go on to the next page, 100 to a page (3.0.2, large layout: the first page 100 and every page
+    // after it as many as fit at the type of the first, which has no header to make room for, and the platform logo is at the bottom of every page, see addPageLogos). An order
     // is held to one page and cut at its end (the page cut of present()) if the densest step still does not fit it. The names are our own, cleaned and escaped by the handlers; the list a
     // handler gives is the only way in, so event data cannot ask for columns or pages.
     // The steps go from the largest type to the smallest, and for one size from the fewest columns to the most, so the first step that fits is the largest type that does (0.42 is about 9 pt on paper).
@@ -9971,23 +10136,27 @@ window.PrinterBot = (function () {
         const top = (el) => el.getBoundingClientRect().top + window.scrollY;
         const bottom = (el) => el.getBoundingClientRect().bottom + window.scrollY;
         const docHeight = () => Math.ceil(document.documentElement.getBoundingClientRect().height);
+        // 3.0.2, large layout: the platform logo is at the bottom of every page, so a page that the list goes on from keeps the room that the footer takes on the last page (the footer and what is
+        // under it: the padding of the receipt). Measured here, before any name is moved: it is the distance between the top of the footer and the bottom of the receipt, whatever the page.
+        const footerRoom = large && logoShown() ? Math.max(0, Math.ceil(container.getBoundingClientRect().bottom - $('receipt-footer').getBoundingClientRect().top)) : 0;
         const applyStep = (wrap, step) => {
             wrap.style.setProperty('--pb-cols', String(step[0]));
             wrap.style.setProperty('--pb-name-scale', String(step[1]));
             wrap.style.setProperty('--pb-name-lh', step[2]);
         };
         let lastStep = 0;                                 // the step the last trial left on
-        // `count` names from `from` on page k, in `wrap`, tried from step number `startAt` on: the index of the first step that fits (the largest type that does), or -1 when none does (the
-        // densest step is left on). With onlyDensest only the densest step is tried: a cheap question, "can this many names fit at all?"
-        const trial = (wrap, from, count, k, onlyDensest, startAt) => {
+        // `count` names from `from` on page k, in `wrap`, tried from step number `startAt` on (to step `endAt`, the densest by default): the index of the first step that fits (the largest type that
+        // does), or -1 when none does (the last step tried is left on). With onlyDensest only the densest step is tried: a cheap question, "can this many names fit at all?"
+        const trial = (wrap, from, count, k, onlyDensest, startAt, endAt) => {
             wrap.replaceChildren(...all.slice(from, from + count));
             const last = from + count === all.length;
             if (k > 1) { wrap.style.marginTop = '0px'; wrap.style.marginTop = Math.max(0, (k - 1) * pageH + NAME_PAGE_PAD - top(wrap)) + 'px'; }
             if (large) container.style.minHeight = last ? (k * pageH) + 'px' : '';
-            for (let i = onlyDensest ? NAME_STEPS.length - 1 : (startAt || 0); i < NAME_STEPS.length; i++) {
+            const end = endAt === undefined ? NAME_STEPS.length - 1 : endAt;
+            for (let i = onlyDensest ? NAME_STEPS.length - 1 : (startAt || 0); i <= end; i++) {
                 applyStep(wrap, NAME_STEPS[i]);
                 lastStep = i;
-                if (last ? docHeight() <= k * pageH : bottom(wrap) <= k * pageH - NAME_PAGE_RESERVE) return i;
+                if (last ? docHeight() <= k * pageH : bottom(wrap) <= k * pageH - NAME_PAGE_RESERVE - footerRoom) return i;
             }
             return -1;
         };
@@ -10000,11 +10169,53 @@ window.PrinterBot = (function () {
             trial(wrap, from, lo, k);
             return lo;
         };
+        // the most names (of `want`) that fit on page k at this one step, with the layout of that answer left on (at least one)
+        const largestAt = (wrap, from, want, k, step) => {
+            if (trial(wrap, from, want, k, false, step, step) >= 0) return want;
+            let lo = 0, hi = want - 1;
+            while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (trial(wrap, from, mid, k, false, step, step) >= 0) lo = mid; else hi = mid - 1; }
+            lo = Math.max(1, lo);
+            trial(wrap, from, lo, k, false, step, step);
+            return lo;
+        };
         const placed = [];                                // every page of the list: its box, its names, its page number and the step it was given
         let used, pages = 1;
         if (perPage) used = largest(first, 0, Math.min(all.length, perPage), 1);
         else { trial(first, 0, all.length, 1); used = all.length; }
         placed.push({ wrap: first, from: 0, count: used, k: 1, step: lastStep });
+        // 3.0.2, large layout: the first page holds the names that fit under its header, and the pages after it have no header, so they hold as many as fit at the same type and the same columns
+        // (the owner saw a lot of empty paper under the names of every page after the first). The step of the first page is tried first. When a page after it cannot hold a page's worth of names at
+        // that step (its names are longer, so more of them wrap), the next denser step is tried, and so on: the whole list keeps one type and one number of columns, and every page that goes on is full.
+        // Only when no step does it, the layout below is the answer, which gives every page the room it needs.
+        const fillPages = (firstCount) => {
+            const extra = [];
+            const undo = () => { for (const wrap of extra) if (wrap.parentNode === div) div.removeChild(wrap); extra.length = 0; };
+            for (let step = placed[0].step; step < NAME_STEPS.length; step++) {
+                undo();                                                              // no page of an earlier try stays: it would stand in the way of the height of the last one
+                if (trial(first, 0, firstCount, 1, false, step, step) < 0) continue;          // the first page has to hold its names at this step too
+                let at = firstCount, k = 1, good = true;
+                while (at < all.length) {
+                    k++;
+                    const wrap = document.createElement('div');
+                    wrap.className = 'names-page';
+                    div.appendChild(wrap);
+                    extra.push(wrap);
+                    const need = Math.min(perPage, all.length - at);
+                    if (trial(wrap, at, need, k, false, step, step) < 0) { good = false; break; }       // a cheap question first: does a page's worth fit?
+                    const n = largestAt(wrap, at, all.length - at, k, step);
+                    if (n < need) { good = false; break; }
+                    at += n;
+                }
+                if (good) return k;
+            }
+            undo();
+            return 0;
+        };
+        if (large && perPage && used < all.length) {
+            const laidOut = fillPages(used);
+            if (laidOut) return laidOut;
+            trial(first, 0, used, 1);                                                // the first page as it was
+        }
         while (used < all.length) {
             pages++;
             const wrap = document.createElement('div');
@@ -10025,6 +10236,35 @@ window.PrinterBot = (function () {
             }
         }
         return pages;
+    }
+
+    // true while the receipt shows its platform logo (the picture of the footer)
+    function logoShown() {
+        const icon = $('receipt-icon');
+        return !!icon.getAttribute('src') && getComputedStyle(icon).display !== 'none' && icon.getBoundingClientRect().height > 0;
+    }
+
+    // 3.0.2, large layout: the platform logo is at the bottom of every page of a list that takes more than one, in the place it has on the last page (the one of the footer). The others are
+    // copies of that picture, made here from the picture the page already holds (our own, never event data), put by pixel in the receipt, which is the box they are placed in (receipt.css), and
+    // below the content, so they are no picture of the message. Each is one page above the one under it. They go when the next receipt is built (applyLayout).
+    async function addPageLogos(pages, opts) {
+        const pageH = pageHeightPx(opts), container = $('receipt-container'), icon = $('receipt-icon');
+        if (pages < 2 || pageH === null || largeLayoutPx(opts) === null || !logoShown()) return;
+        const box = container.getBoundingClientRect(), r = icon.getBoundingClientRect(), made = [];
+        for (let k = 1; k < pages; k++) {
+            const img = document.createElement('img');
+            img.className = 'page-logo';
+            img.setAttribute('alt', '');
+            img.referrerPolicy = 'no-referrer';
+            img.src = icon.getAttribute('src');
+            img.style.left = (r.left - box.left) + 'px';
+            img.style.top = (r.top - box.top - (pages - k) * pageH) + 'px';
+            img.style.width = r.width + 'px';
+            img.style.height = r.height + 'px';
+            container.appendChild(img);
+            made.push(img);
+        }
+        await withTimeout(Promise.all(made.map(img => img.decode().then(() => true, () => false))), 1000);
     }
 
     // true when the image has loaded and decoded, false when it failed or `ms` ran out first
@@ -10104,6 +10344,8 @@ window.PrinterBot = (function () {
         if (avatar) avatar.removeAttribute('src');
         if (icon) icon.removeAttribute('src');
         for (const id of ['receipt-title', 'receipt-subtitle', 'receipt-content', 'receipt-banner', 'receipt-tail']) { const el = $(id); if (el) el.textContent = ''; }
+        for (const logo of Array.from(document.querySelectorAll('#receipt-container > .page-logo'))) logo.remove();       // the logos of the pages of a long list (addPageLogos)
+        testMark(null);                                                       // and the TEST line of a test print with typed values
         return hadPicture ? 2 : true;
     }
 
@@ -10113,7 +10355,8 @@ window.PrinterBot = (function () {
             sample = true;
             const name = data.sample;
             const step = HYPE_STEPS.findIndex(x => x.name === name);
-            if (step >= 0) data = hypeSampleStep(step);                       // a Hype Train test print: the event of that step, with the test train brought up to it
+            if (data.event && typeof data.event === 'object' && !Array.isArray(data.event)) data = data.event;      // 3.0.4: the values the person typed in the dock
+            else if (step >= 0) data = hypeSampleStep(step);                       // a Hype Train test print: the event of that step, with the test train brought up to it
             else {
                 data = own(SAMPLES, name) ? SAMPLES[name] : SAMPLES.TwitchSub;
                 // the long-message sample has to be a High Roller cheer, whatever the threshold is set to
@@ -10166,6 +10409,7 @@ window.PrinterBot = (function () {
         // A gift list is the one receipt that takes more than one page: names set in columns, up to NAMES_PER_PAGE to a page (fitNames). Its pages are the page limit below.
         const nameBox = box.querySelector(':scope > .part.names');
         const pages = nameBox && pagePx !== null ? fitNames(nameBox, opts) : 1;
+        if (pages > 1) await addPageLogos(pages, opts);
         if (nameBox && pagePx === null) rollColumns(nameBox);
         let limited = view.maxPx != null;
         // Only what a viewer wrote (a message, a list of names) is cut at the end of the page: its words are the part that can go. Every other receipt (a Hype Train, a subscription) has nothing
@@ -10208,7 +10452,7 @@ window.PrinterBot = (function () {
                     if (clipped) box.classList.remove('cut');
                 }
                 const inches = (px) => Math.round(px / pxPerInch(opts) * 100) / 100;
-                trimmed = { limitIn: inches(shown), fullIn: inches(full), by: limitBy === 'cap' || limitBy === 'page' ? limitBy : 'bits' };
+                trimmed = { limitIn: inches(shown), fullIn: inches(full), by: limitBy === 'cap' || limitBy === 'page' || limitBy === 'amount' ? limitBy : 'bits' };
             }
         }
 

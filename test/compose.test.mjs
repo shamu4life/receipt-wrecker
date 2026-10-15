@@ -291,17 +291,19 @@ test("a part too wide for the paper says so, and the total stops saying 'send it
   assert.equal(one.warn, true); assert.doesNotMatch(one.text, /Paste it into chat and send it/);
   assert.match(C.partsCostWords([{ cheer: true, bits: 100, extra: none, wide: [] }, { cheer: true, bits: 100, extra: none, wide: [2] }]).text,
     /^Part 2 is too wide for the paper, so it wraps or is cut off/);
-  // A Han tiling part has no Cheer line at its top: with no room, it prints its light first row.
+  // A Han tiling part has no lead at its top (its token goes last): with no room, it prints its
+  // light first row. (No room is the repeat number's line filling the box: the settings here leave
+  // the repeat number unsaid, so it is on.)
   const ht = { html: "x" }, part = (alone, b) => ({ alone, bodies: [b || ht] });
   assert.equal(C.partsShape([part(true), part(true)]), "plain");
   assert.equal(C.partsShape([part(true), part(false)]), "mixed plain");
   assert.equal(C.partsShape([part(false)]), "");
   const s = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 500 };
   assert.match(C.modeNotice(s, "plain"), /shorter than one line of text, so each Han tiling part prints only its light first row/);
-  assert.doesNotMatch(C.modeNotice(s, "plain"), /Cheer line fills/);
-  assert.match(C.modeNotice(s, "mixed plain"), /the Cheer line fills it, so nothing after it prints\. A Han tiling part prints only its light first row\./);
-  assert.match(C.noRoomAdvice(s, "plain"), /^Nothing worth sending: every part would print only its light first row\./);
-  assert.match(C.noRoomAdvice(s), /^Nothing worth sending: every part would print only its Cheer line\./);
+  assert.doesNotMatch(C.modeNotice(s, "plain"), /line fills/);
+  assert.match(C.modeNotice(s, "mixed plain"), /the repeat number's line fills it, so nothing after it prints\. A Han tiling part prints only its light first row\./);
+  assert.match(C.noRoomAdvice(s, "plain"), /^Nothing worth sending: every part would print only its light first row\. Set Bits per cheer higher/);
+  assert.match(C.noRoomAdvice(s), /^Nothing worth sending: every part would print only its repeat number\. Turn off “Add a repeat number”, or set Bits per cheer higher/);
 });
 
 test("no-room notes: a High Roller part of Han text as typed has no light row; its first row is the viewer's text", () => {
@@ -319,8 +321,8 @@ test("no-room notes: a High Roller part of Han text as typed has no light row; i
   assert.match(C.modeNotice(s, "mixed typed"), /nothing after it prints\. A Han text part prints only part of its first row, fading out\./);
   assert.match(C.modeNotice(s, "plain typed"), /so each Han tiling or Han text part prints only part of its first row \(a Han tiling part's is a light row\)/);
   assert.match(C.noRoomAdvice(s, "typed"), /^Nothing worth sending: every part would print only part of its first row, fading out\./);
-  assert.match(C.noRoomAdvice(s, "mixed typed"), /only its first line \(the Cheer line, or part of a Han text part's first row\)/);
-  assert.match(C.noRoomAdvice(s, "mixed plain"), /only its first line \(the Cheer line, or a Han tiling part's light first row\)/);
+  assert.match(C.noRoomAdvice(s, "mixed typed"), /only its first line \(the repeat number, or part of a Han text part's first row\)/);
+  assert.match(C.noRoomAdvice(s, "mixed plain"), /only its first line \(the repeat number, or a Han tiling part's light first row\)/);
   const cap = { cheer: true, bits: 100, hrThreshold: 25, maxInches: 0.2 };
   assert.match(C.modeNotice(cap, "typed"), /maximum length \(about 5 mm\) is shorter than one line of text, so each Han text part prints only part of its first row, fading out, whatever the bits\./);
 });

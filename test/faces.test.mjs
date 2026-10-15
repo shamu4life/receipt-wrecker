@@ -17,6 +17,10 @@ const LABELS = ["Arial Bold", "Arial Black", "Impact", "Comic Sans MS", "Georgia
 // ── ARIAL IS UNCHANGED, BYTE FOR BYTE ──
 // Every Arial message, height, fit and card note is what 1.3.1 sent. The fixture holds a hash of
 // each case, written once from 1.3.1's core (RW_WRITE_FIXTURE=1 node --test test/faces.test.mjs).
+// 1.8.0 rewrote 19 sideways cases ("jeff stuff" both ways, "a\nbb\nccc" and the fox bottom to
+// top), and only those: a column whose top end holds a glyph with ink past its advance now gets
+// padding-top, since Printer Bot 3.0.4 prints no Cheer line above the first body. With that
+// padding switched off every case still hashed to 1.3.1's value.
 const TEXTS = ["HELLO", "Hello world", "Happy birthday Rob!", "WE ARE SO BACK", "jeff stuff", "QUIZ", "你好你好",
   "GG 😀", "a\nbb\nccc", "The quick brown fox jumps over the lazy dog", "ÀÉÎÕÜ çß", "100% & #1", "1,2;3", "if j", "  "];
 function arialCases(face) {
@@ -191,9 +195,11 @@ test("a sideways run is as long as the face's own advances, its space included",
   const k = ctx();
   const f = C.faceOf("courier");
   const body = C.buildSideBodies("A B", { size: 100, face: "courier", budget: k.budget, heightPx: k.room, contentW: k.contentW })[0];
-  // Courier New: every character 0.6em, the space too (Arial Bold's is 0.278), plus half a px a glyph.
-  const pad = C.sidePad(100, [(Object.prototype.hasOwnProperty.call(f.edge, "B") ? f.edge.B : [0, 0])[1]]);
-  assert.equal(body.heightPx, Math.round((100 * (f.w.A + f.w[" "] + f.w.B) + 0.5 * 3 + pad) * 1000) / 1000);
+  // Courier New: every character 0.6em, the space too (Arial Bold's is 0.278), plus half a px a glyph,
+  // and the ink past the run at both ends (since 1.8.0 the top's too: padding-top for the A).
+  const edge = (ch) => Object.prototype.hasOwnProperty.call(f.edge, ch) ? f.edge[ch] : [0, 0];
+  const pad = C.sidePad(100, [edge("B")[1]]), head = C.sidePad(100, [edge("A")[0]]);
+  assert.equal(body.heightPx, Math.round((100 * (f.w.A + f.w[" "] + f.w.B) + 0.5 * 3 + pad + head) * 1000) / 1000);
 });
 
 test("the High Roller test stays in Arial Bold", () => {

@@ -167,18 +167,22 @@ test("Design T: header, rows of exactly C cells, the token LAST, alone in its ch
   const b = C.buildDesignT(grid, { mode: k.mode, paperMm: 80, cheer: true, bits: 24, noNonce: true, limitPx: k.limit.px });
   assert.equal(b.length, 1);
   assert.equal(b[0].alone, true);
-  assert.equal(b[0].html, "丶".repeat(14) + grid.map((r) => r.join("")).join(""));
-  assert.ok(Math.abs(b[0].heightPx - (12 + 2) * 21.6) < 1e-9, "header, 12 rows and the token's line");
+  assert.equal(b[0].html, "丶".repeat(14) + grid.map((r) => r.join("")).join("") + C.DESIGN_T_TAIL);
+  assert.ok(Math.abs(b[0].heightPx - (12 + 2) * 21.6) < 1e-9, "header, 12 rows and the tail's line");
   const parts = C.packStackBodies(b, k);
   assert.equal(parts.length, 1);
   assert.equal(parts[0].payload, b[0].html + " Cheer24");
   assert.equal(parts[0].lead, "");
-  assert.ok(!/[ A-Za-z<>]/.test(parts[0].payload.slice(0, -" Cheer24".length)), "no space, Latin or markup inside the grid");
+  assert.ok(!/[ A-Za-z<>]/.test(parts[0].payload.slice(0, -(C.DESIGN_T_TAIL + " Cheer24").length)), "no space, Latin or markup inside the grid");
+  // Printer Bot 3.0.4 prints it without the Cheer word: the grid, then the tail's light cell (the
+  // closing quote mark joins it on a line of its own).
+  assert.equal(C.printedMessage(parts[0].payload), b[0].html + " ");
   assert.ok(!parts[0].payload.includes("　"));
 });
 
 test("Design T bands: 31 rows a cheer on 80 mm, 53 on 58 mm; every part repeats header and token", () => {
-  const cases = [[80, 100, true, 31], [80, 100, false, 31], [80, 10, true, 31], [58, 100, true, 53], [58, 10000, false, 53]];
+  // (58 mm at 10000 bits with the repeat number: 52, the tail's two characters left no room for a 53rd.)
+  const cases = [[80, 100, true, 31], [80, 100, false, 31], [80, 10, true, 31], [58, 100, true, 53], [58, 10000, false, 52]];
   for (const [mm, bits, noNonce, per] of cases) {
     const cols = C.hanziCols(C.paperSpec(mm).contentW);
     const grid = disc(cols, 80, CJK);
@@ -200,8 +204,8 @@ test("Design T bands: 31 rows a cheer on 80 mm, 53 on 58 mm; every part repeats 
     for (const p of parts) {
       assert.ok(p.chars <= 500, p.chars + " chars");
       assert.ok(p.payload.startsWith("丶".repeat(h)));
-      assert.ok(p.payload.endsWith(" Cheer" + bits + (noNonce ? "" : " " + p.nonce)));
-      assert.equal((Array.from(p.payload.slice(0, -p.trail.length)).length - h) % cols, 0);
+      assert.ok(p.payload.endsWith(C.DESIGN_T_TAIL + " Cheer" + bits + (noNonce ? "" : " " + p.nonce)));
+      assert.equal((Array.from(p.payload.slice(0, -(C.DESIGN_T_TAIL + p.trail).length)).length - h) % cols, 0);
       rows += p.bodies[0].hanzi.rows;
     }
     assert.equal(rows, 80, "every row sent once");
@@ -219,15 +223,20 @@ test("Design T bands: 31 rows a cheer on 80 mm, 53 on 58 mm; every part repeats 
   assert.equal(C.packStackBodies(off, { cheer: false })[0].payload, off[0].html);
 });
 
-test("Design T under a box too short for header, row and token: every part is flagged tall", () => {
-  // bits 100 at 200 bits per inch: a 48px box. One row a part is still 3 lines (64.8px), so
-  // every part is cut; the card says so (round 3: it said only the row and cheer counts).
+test("Design T under a box too short for header, row and last line: every part is flagged tall", () => {
+  // bits 100 at 200 bits per inch: a 48px box. With the repeat number one row a part is still 3
+  // lines (64.8px: header, row and the digits' line), so every part is cut; the card says so
+  // (round 3: it said only the row and cheer counts).
   const k = ctx({ bitsPerInch: 200 });
   assert.equal(k.limit.px, 48);
-  const o = { mode: "raw", paperMm: 80, cheer: true, bits: 100, noNonce: true, limitPx: k.limit.px };
+  const o = { mode: "raw", paperMm: 80, cheer: true, bits: 100, noNonce: false, limitPx: k.limit.px };
   const b = C.buildDesignT(disc(15, 4, CJK), o);
   assert.equal(b.length, 4);
   for (const x of b) { assert.equal(x.tall, true); assert.equal(x.hanzi.tall, true); }
+  // Without it, since Printer Bot 3.0.4 the token prints nothing: header and a row, 43.2px, fit.
+  const two = C.buildDesignT(disc(15, 4, CJK), { ...o, noNonce: true });
+  assert.equal(two.length, 4);
+  for (const x of two) { assert.equal(!!x.tall, false); assert.ok(Math.abs(x.heightPx - 2 * 21.6) < 1e-9); }
   // A box that holds them is not tall.
   for (const x of C.buildDesignT(disc(15, 4, CJK), { ...o, limitPx: 384 })) assert.equal(!!x.tall, false);
   for (const x of C.buildDesignT(disc(15, 40, CJK), { ...o, mode: "plain", limitPx: 1600 })) assert.equal(!!x.tall, false);
@@ -260,7 +269,7 @@ test("Design T picture: a light frame column each side of C - 2 picture cells", 
   }
   // A row of the wrong length is padded or cut, never left to shear the rows after it.
   const ragged = C.buildDesignT([["鬱"], CJK.slice(0, 20)], { mode: "plain", paperMm: 58, cheer: true, bits: 1 });
-  assert.equal(Array.from(ragged[0].html).length, 9 + 2 * 9);
+  assert.equal(Array.from(ragged[0].html).length, 9 + 2 * 9 + C.DESIGN_T_TAIL.length);
 });
 
 test("every glyph builder emits only div and pre, and nothing of the user's as markup", () => {
@@ -295,10 +304,11 @@ test("a grid that needs several cheers is spread evenly over them, never a slive
   assert.ok(Math.max(...rows) - Math.min(...rows) <= 1 || rows.length === 1, JSON.stringify(rows));
 });
 
-test("a box the Cheer line fills: the grid is banded by characters, not one cheer per row", () => {
-  // 1 bit at 1000 bits per inch: a 1px box. Nothing after the Cheer line prints whatever a
-  // band's height, so cutting the picture by height made a cheer of every row.
-  const k = ctx({ bits: 1, hrThreshold: 1, bitsPerInch: 1000 });
+test("a box the repeat number's line fills: the grid is banded by characters, not one cheer per row", () => {
+  // 1 bit at 1000 bits per inch: a 1px box. Nothing after the repeat number's line prints whatever
+  // a band's height, so cutting the picture by height made a cheer of every row. (Without the
+  // repeat number the Cheer word prints nothing since Printer Bot 3.0.4, and the 1px is room.)
+  const k = ctx({ bits: 1, hrThreshold: 1, bitsPerInch: 1000, noNonce: false });
   assert.ok(k.room <= 0);
   const b = C.buildCjkGrid(disc(14, 11, C.getTier("cjk").ramp), opts(k));
   assert.equal(b.length, 1);
@@ -306,7 +316,7 @@ test("a box the Cheer line fills: the grid is banded by characters, not one chee
 });
 
 test("a box with room, but less than one row: every band is flagged tall (the bot cuts each one)", () => {
-  // 25 bits at 50 bits per inch: a 48px box, 26.4px after the Cheer line. An 8-column ASCII row
+  // 25 bits at 50 bits per inch: a 48px box (no repeat number: all of it is room). An 8-column ASCII row
   // is 1.2 x 17.49vw = 57.1px tall, so each part prints the top half of one row.
   const k = ctx({ bits: 25, bitsPerInch: 50 });
   assert.ok(k.room > 0 && k.room < 57);
@@ -314,8 +324,8 @@ test("a box with room, but less than one row: every band is flagged tall (the bo
   const b = C.buildMonoGrid(grid, opts(k));
   assert.equal(b.length, 8);
   assert.ok(b.every((x) => x.tall === true && x.glyph.tall === true && x.heightPx > k.room));
-  // Room enough for a row: nothing tall. No room at all (the Cheer line fills the box) is the
+  // Room enough for a row: nothing tall. No room at all (the repeat number's line fills the box) is the
   // other case, banded by characters and said by the notice, so nothing there is tall either.
   assert.ok(C.buildMonoGrid(grid, opts(ctx())).every((x) => !x.tall));
-  assert.ok(C.buildCjkGrid(disc(14, 11, CJK), opts(ctx({ bits: 1, hrThreshold: 1, bitsPerInch: 1000 }))).every((x) => !x.tall));
+  assert.ok(C.buildCjkGrid(disc(14, 11, CJK), opts(ctx({ bits: 1, hrThreshold: 1, bitsPerInch: 1000, noNonce: false }))).every((x) => !x.tall));
 });

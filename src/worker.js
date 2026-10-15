@@ -14,9 +14,14 @@
 //     inline it as a data: URI — see inlineImages() in index.html for why that
 //     is the only way to get a photo into the dithered raster.
 //
+//   /catbox  (1.7.0, by the owner's decision) a Real picture card's picked file,
+//     uploaded to Catbox for a files.catbox.moe link, which Printer Bot 3.0 prints as
+//     the picture. See handleCatbox.
+//
 // Privacy note: "upload for a link" sends an image to this Worker, and turning
 // on Thermal preview with a pasted URL sends that URL through /px. Big Text,
-// glyph-art, and a plain (non-thermal) URL preview all stay fully local.
+// glyph-art, and a plain (non-thermal) URL preview all stay fully local. A file
+// picked on a Real picture card goes through /catbox to Catbox, where it is public.
 
 const TTL_SECONDS = 900;               // 15 minutes, enforced natively by KV
 const MAX_BYTES = 5 * 1024 * 1024;     // 5 MB cap (KV values allow up to 25 MB; this is an abuse guard)
@@ -286,10 +291,162 @@ async function handleProxy(url, env) {
   });
 }
 
+// ── /catbox (1.7.0) ──
+// The owner's call (2026-10-14): a Real picture card's picked file goes to Catbox, and the
+// files.catbox.moe link comes back into the card's link field, in one step for the viewer. Catbox
+// sends no CORS headers, so the page can't see Catbox's answer itself: this route makes the upload
+// (anonymous: no userhash, so nobody can delete it; it stays until two years after its last view)
+// and hands back only a link it has checked. Guards, so it is not a free anonymous uploader for
+// anyone else:
+//   * only this site's own page: the request's Origin must be this origin (a browser always sends
+//     one on a POST), and the answer carries no CORS header, so no other site's page can see it.
+//     A script outside a browser can claim any Origin, so this stops other sites' pages, not
+//     scripts: the limits below are what bound a script (security review of 1.7.0);
+//   * a real JPEG only, its structure walked the way a decoder walks it (isCleanJpeg), 5 MB at
+//     most. The page redraws every picture as a JPEG before it sends it, so nothing else is ever
+//     needed (the review: the declared type alone was trusted);
+//   * CATBOX_PER_HOUR uploads an hour per viewer, an IPv6 viewer counted by network (the first 64
+//     bits: one network holds billions of addresses), counted in KV under a hash of the network
+//     (never the address), each counter expiring by itself. KV is eventually consistent, so a burst
+//     can slip a few past: a brake, not a wall. With no KV the route refuses rather than upload
+//     without its limit. There is no site-wide limit, by the owner's decision (2026-10-14): one would
+//     let someone spread over several networks lock every viewer out for an hour, and the owner
+//     preferred that risk gone, accepting that uploads spread over many networks have no overall
+//     limit;
+//   * Catbox's answer passed on only when it is exactly a files.catbox.moe picture link.
+// Catbox sees every upload as this Worker's (Cloudflare names the site on a Worker's requests), so
+// a bad upload by anyone is on the site's record: the owner accepted that for the one-step upload.
+const CATBOX_API = "https://catbox.moe/user/api.php";
+const CATBOX_LINK = /^https:\/\/files\.catbox\.moe\/[a-z0-9]{6}\.(png|jpe?g|gif|webp)$/;
+const CATBOX_PER_HOUR = 20;
+const CATBOX_TIMEOUT_MS = 30000;
+
+// A JPEG whose structure a decoder walks cleanly, end to end: SOI first; then marker segments by
+// their own lengths, only APPn (64 KB of them in all: a colour profile, the JFIF header), DQT,
+// SOF0/1/2 (baseline, extended, progressive), DHT and DRI, never a comment or anything else; scans
+// (SOS, after a frame) whose entropy-coded data holds only byte stuffing (FF 00) and restart markers,
+// tables allowed between progressive scans; and EOI as the very last two bytes. A start and an end
+// marker alone let a file carry anything in between (security review of the hardening).
+const JPEG_APP_BUDGET = 65536;
+function isCleanJpeg(buf) {
+  const b = new Uint8Array(buf), n = b.length;
+  if (n < 4 || b[0] !== 0xff || b[1] !== 0xd8) return false;
+  let i = 2, app = 0, frame = false, scan = false;
+  while (i < n) {
+    if (b[i] !== 0xff) return false;
+    while (i + 1 < n && b[i + 1] === 0xff) i++;                      // fill bytes before a marker
+    if (i + 1 >= n) return false;
+    const m = b[i + 1];
+    if (m === 0xd9) return scan && i + 2 === n;                       // EOI, and nothing after it
+    if (i + 3 >= n) return false;
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2 || i + 2 + len > n) return false;
+    if (m >= 0xe0 && m <= 0xef) {
+      app += len;
+      if (app > JPEG_APP_BUDGET) return false;
+    } else if (m === 0xc0 || m === 0xc1 || m === 0xc2) {
+      frame = true;
+    } else if (m === 0xda) {
+      if (!frame) return false;
+      scan = true;
+      i += 2 + len;
+      while (i < n) {                                                 // the scan's entropy-coded data
+        if (b[i] === 0xff) {
+          const x = i + 1 < n ? b[i + 1] : -1;
+          if (x === 0x00 || (x >= 0xd0 && x <= 0xd7)) { i += 2; continue; }
+          break;
+        }
+        i++;
+      }
+      continue;
+    } else if (m !== 0xdb && m !== 0xc4 && m !== 0xdd) {
+      return false;                                                   // a comment, or anything else
+    }
+    i += 2 + len;
+  }
+  return false;
+}
+
+// The viewer's network: an IPv4 address as it is, an IPv6 one by its first 64 bits.
+function networkOf(ip) {
+  const s = String(ip || "").trim().toLowerCase();
+  if (s.indexOf(":") < 0) return s;
+  const halves = s.split("::");
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length > 1 && halves[1] ? halves[1].split(":") : [];
+  const zeros = [];
+  for (let i = head.length + tail.length; i < 8; i++) zeros.push("0");
+  return head.concat(zeros, tail).slice(0, 4).map(function (g) { return (parseInt(g, 16) || 0).toString(16); }).join(":") + "::/64";
+}
+
+// JSON for /catbox: like json(), but with no CORS header.
+function sameSiteJson(obj, status) {
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
+}
+
+// The KV key counting this viewer's uploads this hour: a hash of their network, never the address.
+async function viewerSlot(request) {
+  const net = networkOf(request.headers.get("cf-connecting-ip") || "");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("rw-catbox:" + net));
+  var hex = "";
+  new Uint8Array(digest).slice(0, 16).forEach(function (b) { hex += (b + 0x100).toString(16).slice(1); });
+  return "catbox-rate/" + hex + "/" + Math.floor(Date.now() / 3600000);
+}
+
+async function handleCatbox(request, env, url) {
+  if (request.method !== "POST") return sameSiteJson({ error: "POST a picture" }, 405);
+  if (request.headers.get("origin") !== url.origin) return sameSiteJson({ error: "uploads only from this site's page" }, 403);
+  const ct = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (ct !== "image/jpeg") return sameSiteJson({ error: "a JPEG picture only" }, 415);
+  var buf;
+  try { buf = await request.arrayBuffer(); } catch (e) { return sameSiteJson({ error: "could not take the picture" }, 400); }
+  if (!buf || buf.byteLength === 0) return sameSiteJson({ error: "empty upload" }, 400);
+  if (buf.byteLength > MAX_BYTES) return sameSiteJson({ error: "too big: 5 MB at most" }, 413);
+  if (!isCleanJpeg(buf)) return sameSiteJson({ error: "that isn't a JPEG picture" }, 415);
+
+  if (!env || !env.RW_IMG) return sameSiteJson({ error: "uploads are off right now" }, 503);
+  const slot = await viewerSlot(request);
+  const mine = parseInt(await env.RW_IMG.get(slot), 10) || 0;
+  if (mine >= CATBOX_PER_HOUR) return sameSiteJson({ error: CATBOX_PER_HOUR + " uploads an hour is the most: try again later" }, 429);
+  // The upload is counted before it goes (so a burst can't all slip in while the first ones are on
+  // their way) and handed back if Catbox didn't take it: only uploads Catbox took use up a viewer's
+  // hour, so failures, and junk Catbox refuses, lock nobody out (security review of the hardening).
+  // The hand-back takes away this upload's own count from the count as it is now, never restoring
+  // the count as it stood when the upload began: that wiped out every upload made meanwhile, and a
+  // slow failure reset a viewer's hour (security review of the second round). KV's read-then-write
+  // is not atomic, so requests in flight together can still overshoot the limit by their number:
+  // a brake, not a wall.
+  await env.RW_IMG.put(slot, String(mine + 1), { expirationTtl: 7200 });
+  const refund = async function () {
+    const now = parseInt(await env.RW_IMG.get(slot), 10) || 0;
+    await env.RW_IMG.put(slot, String(Math.max(0, now - 1)), { expirationTtl: 7200 });
+  };
+
+  const form = new FormData();
+  form.append("reqtype", "fileupload");
+  form.append("fileToUpload", new Blob([buf], { type: ct }), "picture.jpg");
+  var res, said;
+  try {
+    res = await fetch(CATBOX_API, {
+      method: "POST", body: form,
+      headers: { "user-agent": "receipt-wrecker (+https://receipt.uwutoowo.com)" },
+      signal: AbortSignal.timeout(CATBOX_TIMEOUT_MS),
+    });
+    said = (await res.text()).trim();
+  } catch (e) { await refund(); return sameSiteJson({ error: "Catbox didn't answer: try again" }, 502); }
+  if (!res.ok) { await refund(); return sameSiteJson({ error: "Catbox refused it (" + res.status + ")" }, 502); }
+  if (!CATBOX_LINK.test(said)) { await refund(); return sameSiteJson({ error: "Catbox didn't send back a picture link" }, 502); }
+  return sameSiteJson({ url: said });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/upload") return handleUpload(request, env, url);
+    if (url.pathname === "/catbox") return handleCatbox(request, env, url);
     if (url.pathname === "/px") return handleProxy(url, env);
     // Image keys are matched by SHAPE, not by host, so the same Worker serves them on
     // receipt.uwutoowo.com and on a short image host alike with no host-sniffing. The

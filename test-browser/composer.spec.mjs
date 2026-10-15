@@ -1780,9 +1780,9 @@ test("polish: the cards: move buttons stop at the ends, the layout hint follows 
   await img.locator(".sel-kind").selectOption("real");
   assert.equal(await file.evaluate((f) => f.files.length), 0);
   await file.setInputFiles(pic);
-  // The test server has no /upload, so the upload is asked for and fails.
+  // The test server has no /catbox (1.7.0), so the upload is asked for and fails.
   await page.waitForFunction(() => /Upload failed/.test(document.querySelectorAll("#blockList > .block-card")[1].innerText), null, { timeout: 5000 });
-  assert.ok(requests.some((u) => new URL(u).pathname === "/upload"), "picking the same file on the Real card uploaded nothing");
+  assert.ok(requests.some((u) => new URL(u).pathname === "/catbox"), "picking the same file on the Real card uploaded nothing");
   // A placeholder part is prose, wrapped to the column: nothing cut off.
   await cards(page).nth(1).getByRole("button", { name: "Remove block" }).click();
   await cards(page).first().locator("textarea").fill("");
@@ -2154,7 +2154,7 @@ test("polish 3: the cards: which picked file prints, the Detail field while rety
   // As a Real picture there is nothing to show, and the card says why.
   await img.locator(".sel-kind").selectOption("real");
   assert.equal(await img.locator(".file-use").textContent(),
-    "“smiley.png” was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it.");
+    "“smiley.png” was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it to Catbox.");
   assert.match(await img.innerText(), /Glyph-art has its own Darkness setting\./);
   assert.ok(!/own Contrast/.test(await img.innerText()));
   await img.locator(".sel-kind").selectOption("glyph");
@@ -2416,19 +2416,20 @@ test("final 1: work that finishes on its own keeps a test on screen; an upload's
   assert.deepEqual(errors, []);
   await ctx.close();
 
-  // An upload on a Real picture card: the link field names the minted link (it kept the link typed
-  // before), so Switch to Glyph-art prints the picture the field names.
-  const minted = "https://i.uwutoowo.com/aaaaaaaaaaaa.png";
+  // An upload on a Real picture card: the link field names the uploaded picture's link (it kept the
+  // link typed before), so Switch to Glyph-art prints the picture the field names. (1.7.0: the
+  // upload goes to Catbox through /catbox; stood in for here, never the real Catbox.)
+  const minted = "https://files.catbox.moe/abc123.jpg";
   const { page: p2, ctx: c2, errors: e2 } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), IMG({ id: 2, imgKind: "real", url: "" })],
     routes: async (c) => {
-      await c.route("**/upload", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }));
-      await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+      await c.route("**/catbox", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }));
+      await c.route("https://files.catbox.moe/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
       await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
     } });
   const card = cards(p2).nth(1), link = card.locator("input[type=url]");
   await link.fill("https://example.com/other.png");
   await card.locator("input[type=file]").setInputFiles({ name: "smile.png", mimeType: "image/png", buffer: pic });
-  await p2.waitForFunction(() => /Uploaded ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  await p2.waitForFunction(() => /Uploaded to Catbox ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
   assert.equal(await link.inputValue(), minted);
   assert.equal((await stored(p2, "rw_blocks_v1"))[1].url, minted);
   await card.getByRole("button", { name: "Switch to Glyph-art" }).click();
@@ -2547,16 +2548,16 @@ test("final 2: a word Twitch charges as a cheer is counted by the part, the tota
 
 test("final 2: an upload that lands after a redraw, Han tiling with no room, Load over a Real picture, the streamer's fields, a part too wide, labels while typing", async () => {
   const pic = Buffer.from(PIC.split(",")[1], "base64");
-  const minted = "https://i.uwutoowo.com/aaaaaaaaaaaa.png";
+  const minted = "https://files.catbox.moe/abc123.jpg";
   const REAL = (o) => ({ type: "image", imgKind: "real", url: "", width: 70, rotate: 0, adjBright: 0, adjContrast: 0,
                          tier: "cjk", cols: 18, dither: true, contrast: 128, invert: false, ...o });
-  // The cards are redrawn (+ Text) while an upload is in flight: the link and "Uploaded ✓" land on
-  // the card on screen, not on the old one.
+  // The cards are redrawn (+ Text) while an upload is in flight: the link and "Uploaded to Catbox ✓"
+  // land on the card on screen, not on the old one.
   let release;
   const held = new Promise((r) => { release = r; });
   const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HI" }), REAL({ id: 2 })], routes: async (c) => {
-    await c.route("**/upload", async (r) => { await held; await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }); });
-    await c.route("https://i.uwutoowo.com/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
+    await c.route("**/catbox", async (r) => { await held; await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: minted }) }); });
+    await c.route("https://files.catbox.moe/**", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
     await c.route("**/px?u=*", (r) => r.fulfill({ status: 200, contentType: "image/png", body: pic }));
   } });
   const real = () => cards(page).nth(1);
@@ -2565,7 +2566,7 @@ test("final 2: an upload that lands after a redraw, Han tiling with no room, Loa
   await page.waitForFunction(() => /Uploading/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent));
   await page.click("#addTextBtn");
   release();
-  await page.waitForFunction(() => /Uploaded ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  await page.waitForFunction(() => /Uploaded to Catbox ✓/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
   assert.equal(await real().locator("input[type=url]").inputValue(), minted);
   assert.equal((await stored(page, "rw_blocks_v1"))[1].url, minted);
   // The preset controls have names a screen reader can say.
@@ -3544,7 +3545,7 @@ test("1.5.0: a link that isn't a direct picture link says why on the card, and s
     ["https://imgur.com/AbC1234", /^That's a page of the site, not the picture itself\. Open the picture and copy its own address/],
     ["https://i.imgur.com/a/AbC1234", /^That isn't a direct link to a picture: it has to end in \.png, \.jpg, \.gif or \.webp/],
     ["https://i.imgur.com/Font123.png", /^This link has the word “font” in it, which this channel's chat filter holds, so it can't go out\./],
-    ["", /^Paste a direct link to the picture on Imgur, Catbox or ImgBB/],
+    ["", /^Pick a file below to upload it to Catbox, or paste a direct link to the picture on Imgur, Catbox or ImgBB/],
   ];
   const blocks = cases.map(([url], i) => REAL({ id: i + 1, url }));
   const { page, ctx, errors } = await freshPage({ blocks, controls: s });
@@ -3791,6 +3792,76 @@ test("1.6.0 review: Letter's lengths in the parts' notes, a cheer word that carr
   await settled(page);
   assert.equal(await cards(page).first().locator("input.num-cols").inputValue(), "29");
   assert.equal((await stored(page, "rw_blocks_v1"))[0].cols, 40, "showing the roll's clamp rewrote the block");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── 1.7.0: a picked file on a Real picture card goes to Catbox through this site's /catbox ──
+// /catbox is stood in for here: no test ever reaches the real Catbox, where an upload is public
+// and can't be deleted. test/catbox.test.mjs holds the route itself to its guards.
+test("1.7.0: picking a file on a Real picture card uploads it to Catbox through this site, and the link fills the field", async () => {
+  // A 2400 x 1200 picture with a transparent half: it goes out at most 1600 px on its longer side,
+  // as a JPEG on white.
+  const tmp = await browser.newContext(), tp = await tmp.newPage();
+  const big = Buffer.from((await tp.evaluate(() => {
+    const c = document.createElement("canvas"); c.width = 2400; c.height = 1200;
+    const x = c.getContext("2d"); x.fillStyle = "#000"; x.fillRect(0, 0, 1200, 1200);
+    return c.toDataURL("image/png");
+  })).split(",")[1], "base64");
+  await tmp.close();
+  const link = "https://files.catbox.moe/abc123.jpg", sent = [];
+  const { page, ctx, errors, requests } = await freshPage({
+    blocks: [REAL({ id: 1, url: "" })], controls: { ...SETTINGS, imageSites: ["catbox"] }, init: picStub({ [link]: PIC_WIDE }),
+    routes: async (c) => {
+      await c.route("**/catbox", async (r) => {
+        sent.push({ method: r.request().method(), type: r.request().headers()["content-type"], body: r.request().postDataBuffer() });
+        await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ url: link }) });
+      });
+    } });
+  const card = cards(page).first();
+  // Before anything is picked, the card says where the picture goes and what that means.
+  assert.match(await card.textContent(), /Picking a file uploads it to Catbox \(files\.catbox\.moe\) through this site, and its link fills in above\. The picture becomes public to anyone with the link, stays up until two years after it was last viewed, and can't be deleted\./);
+  await card.locator("input[type=file]").setInputFiles({ name: "big.png", mimeType: "image/png", buffer: big });
+  await page.waitForFunction(() => /Uploaded to Catbox ✓/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
+  assert.equal(await card.locator("input[type=url]").inputValue(), link);
+  assert.equal((await stored(page, "rw_blocks_v1"))[0].url, link);
+  // What went to this site's /catbox: one POST of a JPEG, 1600 px on its longer side, white where
+  // the picture was transparent.
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].method, "POST");
+  assert.equal(sent[0].type, "image/jpeg");
+  assert.deepEqual([...sent[0].body.subarray(0, 3)], [0xff, 0xd8, 0xff]);
+  const got = await page.evaluate(async (b64) => {
+    const im = new Image(); im.src = "data:image/jpeg;base64," + b64; await im.decode();
+    const c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const x = c.getContext("2d"); x.drawImage(im, 0, 0);
+    return { size: [im.naturalWidth, im.naturalHeight], left: [...x.getImageData(100, 400, 1, 1).data].slice(0, 3),
+             right: [...x.getImageData(1500, 400, 1, 1).data].slice(0, 3) };
+  }, sent[0].body.toString("base64"));
+  assert.deepEqual(got.size, [1600, 800]);
+  assert.ok(got.left.every((v) => v < 30) && got.right.every((v) => v > 225), JSON.stringify(got));
+  // The page itself never asks Catbox for anything: the upload went through this site.
+  assert.deepEqual(requests.filter((u) => /(^|\.)catbox\.moe$/.test(new URL(u).hostname)), []);
+  // With Catbox switched on, the link prints as the picture.
+  await settled(page);
+  assert.deepEqual(await copyAll(page), ["Cheer100 <div>" + link + "</div>"]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.7.0: an upload this site or Catbox refuses says why on the card, and leaves the link field alone", async () => {
+  const pic = Buffer.from(PIC.split(",")[1], "base64");
+  const { page, ctx, errors } = await freshPage({ blocks: [REAL({ id: 1, url: "" })], controls: { ...SETTINGS, imageSites: ["catbox"] },
+    routes: async (c) => {
+      await c.route("**/catbox", (r) => r.fulfill({ status: 429, contentType: "application/json",
+        body: JSON.stringify({ error: "20 uploads an hour is the most: try again later" }) }));
+    } });
+  const card = cards(page).first();
+  await card.locator("input[type=url]").fill("https://example.com/kept.png");
+  await card.locator("input[type=file]").setInputFiles({ name: "smile.png", mimeType: "image/png", buffer: pic });
+  await page.waitForFunction(() => /Upload failed/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
+  assert.match(await card.textContent(), /Upload failed: 20 uploads an hour is the most: try again later\./);
+  assert.equal(await card.locator("input[type=url]").inputValue(), "https://example.com/kept.png");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

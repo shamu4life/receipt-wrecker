@@ -12,6 +12,54 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.7.0] - 2026-10-14
+
+### Added
+
+- **Pick a file on a Real picture card, and it goes to Catbox: the link fills itself in.** The
+  picture is redrawn on the viewer's device (at most 1600 px on its longer side, a JPEG on white,
+  so it loads within Printer Bot's 2.5-second wait; the redraw stands a phone photo upright and
+  drops its hidden details, such as where it was taken), sent to this site's Worker, and uploaded
+  from there to Catbox. Its `https://files.catbox.moe/…` link lands in the card's Image URL field,
+  and with Catbox switched on in Printer Bot it prints as the picture.
+- **It says so first.** Beside the file picker, before anything is picked: the picture becomes
+  public to anyone with the link, stays up until two years after it was last viewed, and can't be
+  deleted. An upload that fails says why on the card and leaves the link field as it was.
+- **A new Worker route, `POST /catbox`,** by the owner's decision. It has to be the server:
+  Catbox lets no web page see the link it sends back (checked in a browser). Its guards: only this
+  site's own page (which stops other sites' pages; a script can claim to be this page, so the
+  limits are what bound it); a real JPEG only, its structure walked the way a decoder walks it (no
+  comments, little extra data, nothing after the end), 5 MB at most; 20 uploads an hour per viewer
+  (an IPv6 viewer counted by network), counted under a hash of the network, only uploads Catbox
+  took counting (a failed upload hands back its own count), with no upload at all if the counters
+  can't be kept; and Catbox's answer passed on only when it is exactly a `files.catbox.moe` picture
+  link. Three security reviews of the first pushes added the structure check, the network counting,
+  the hand-back and the refusal without counters. The counters are approximate when many requests
+  arrive at once. There is no site-wide limit, by the owner's decision: a cap of 100 an hour from
+  everyone together would let someone spread over several networks lock every viewer out for an
+  hour, and the owner preferred that risk gone, accepting that uploads spread over many networks
+  have no overall limit.
+
+### Changed
+
+- A file picked on a Real picture card no longer goes to this site's 15-minute store; that store
+  now only holds the turned or adjusted copy the card shows.
+- The privacy notes (README, `llms.txt`, CLAUDE.md) say that a file picked on a Real picture card
+  goes to Catbox, which is public and permanent. Catbox is the one third party the site sends
+  anything to.
+
+### How sure
+
+- **Tests**: 293 unit tests (12 new, for the route, against a fake Catbox) and 96 browser tests (2
+  new, with `/catbox` stood in for). Each of the route's guards, and each piece of the card's
+  upload, was broken on purpose and a test caught it. Nothing was uploaded to the real Catbox.
+- **Not tried for real yet**: the first real upload. Catbox takes requests from other sites (a
+  request with no file, sent from this computer, got its "No files given." answer), but whether it
+  takes uploads from Cloudflare's servers is unknown until one is made, and a real upload is public
+  and permanent, so it is the owner's to make. If Catbox refuses it, the card says so.
+
+---
+
 ## [1.6.0] - 2026-10-14
 
 ### Added

@@ -6103,19 +6103,20 @@
       if (block._proc) clearTimeout(block._proc);
       block._proc = setTimeout(function () { block._proc = null; processImage(block, setStatus); }, 400);
     }
-    // A Real picture card's picked file, to Catbox (1.7.0, the owner's decision): redrawn on this
-    // device first, at most CATBOX_MAX_SIDE px on its longer side, as a JPEG on white, so it loads
-    // within Printer Bot's 2.5-second wait for a picture (the redraw also stands a phone photo upright
-    // and drops its hidden details, such as where it was taken). Then it is POSTed to this site's
-    // Worker, whose /catbox route uploads it to Catbox and hands back the files.catbox.moe link:
-    // Catbox lets no other site's page see its answer, so the page can't upload it itself and read the
-    // link (see handleCatbox in src/worker.js). Hands back the link and the picture's aspect.
-    var CATBOX_MAX_SIDE = 1600;
-    function uploadToCatbox(file, setStatus, done) {
-      setStatus("Uploading to Catbox…");
+    // A Real picture card's picked file, to ImgBB (1.8.0, the owner's decision; 1.7.0 sent it to
+    // Catbox, until Catbox went down): redrawn on this device first, at most UPLOAD_MAX_SIDE px on its
+    // longer side, as a JPEG on white, so it loads within Printer Bot's 2.5-second wait for a picture
+    // (the redraw also stands a phone photo upright and drops its hidden details, such as where it was
+    // taken). Then it is POSTed to this site's Worker, whose /imgbb route uploads it with the owner's
+    // ImgBB key and hands back the i.ibb.co link: the key stays on the server, never in this page (see
+    // handleImgbb in src/worker.js). ImgBB deletes the picture a day later. Hands back the link and the
+    // picture's aspect.
+    var UPLOAD_MAX_SIDE = 1600;
+    function uploadPicture(file, setStatus, done) {
+      setStatus("Uploading to ImgBB…");
       var img = new Image();
       img.onload = function () {
-        var scale = Math.min(1, CATBOX_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+        var scale = Math.min(1, UPLOAD_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
         var w = Math.max(1, Math.round(img.naturalWidth * scale)), h = Math.max(1, Math.round(img.naturalHeight * scale));
         var cv = document.createElement("canvas"); cv.width = w; cv.height = h;
         var cx = cv.getContext("2d");
@@ -6126,7 +6127,7 @@
         cv.toBlob(function (blob) {
           if (!blob) { setStatus("Couldn't process that image."); return; }
           if (blob.size > 5 * 1024 * 1024) { setStatus("Too big even after shrinking."); return; }
-          fetch("/catbox", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob })
+          fetch("/imgbb", { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob })
             .then(function (r) {
               return r.json().then(function (d) { return { ok: r.ok, d: d }; }, function () { return { ok: false, d: null }; });
             })
@@ -6147,13 +6148,13 @@
     // typed before (or nothing), so the card named one picture while another one was the block's,
     // and Switch to Glyph-art printed the upload under someone else's link (final review 1).
     function uploadFileForBlock(block, file, setStatus, urlInput) {
-      uploadToCatbox(file, setStatus, function (url, aspect) {
+      uploadPicture(file, setStatus, function (url, aspect) {
         // A new link is a new picture: whatever glyph-art decoded before is not it.
         block.url = url; block.outUrl = null; block.aspect = aspect; block._img = null;
         if (urlInput) urlInput.value = url;
         delete block.fileName; delete block._decodeFailed; cancelDecode(block);
-        if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded to Catbox, now adjusting the view…"); processImage(block, setStatus); }
-        else { setStatus("Uploaded to Catbox ✓"); saveBlocks(); refresh(); }
+        if (block.rotate || block.adjBright || block.adjContrast) { setStatus("Uploaded to ImgBB, now adjusting the view…"); processImage(block, setStatus); }
+        else { setStatus("Uploaded to ImgBB ✓"); saveBlocks(); refresh(); }
       });
     }
     function imageCard(block, at, count) {
@@ -6181,8 +6182,8 @@
       card.appendChild(fileUse);
       // What happens to a picked file depends on the kind: glyph-art reads it on this device
       // and never uploads it, so it lives only in memory (a reload or a preset keeps only a
-      // link); a Real picture uploads it to Catbox through our Worker (1.7.0), and its link fills
-      // the link field.
+      // link); a Real picture uploads it to ImgBB through our Worker (1.8.0; Catbox in 1.7.0), and
+      // its link fills the link field.
       var fileHint = mkEl("div", { "class": "hint" });
       card.appendChild(fileHint);
       // The status is the BLOCK's (a runtime field), and so is the link: an upload or a bake that
@@ -6335,12 +6336,13 @@
         if (status.textContent !== (block._status || "")) status.textContent = block._status || "";
         fileHint.textContent = block.imgKind === "glyph"
           ? "A picked file is read on this device and never uploaded, so it isn't kept after a reload or saved in a preset: pick it again then. A link is kept."
-          : "Picking a file uploads it to Catbox (files.catbox.moe) through this site, and its link fills in above. "
-            + "The picture becomes public to anyone with the link, stays up until two years after it was last viewed, and can't be deleted.";
+          : "Picking a file uploads it to ImgBB (i.ibb.co) through this site, and its link fills in above. "
+            + "Anyone with the link can see the picture until ImgBB deletes it, a day later: after that the link prints nothing, "
+            + "in a saved preset too.";
         var picked = !block.url && block.fileName ? "“" + block.fileName + "”" : "";
         fileUse.textContent = !picked ? ""
           : block.imgKind !== "glyph"
-          ? picked + " was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it to Catbox."
+          ? picked + " was read on this device for Glyph-art and never uploaded, so there is no picture to show here. Pick it again to upload it to ImgBB."
           : block._img ? "Using " + picked + ", read on this device (not uploaded)." : "";
         fileUse.hidden = !fileUse.textContent;
         if (block.imgKind !== "glyph") { syncReal(parts); return; }
@@ -6394,7 +6396,7 @@
       // picture and its size in a High Roller cheer, the plain grid below the threshold, or why it
       // prints nothing (realPictureForm's reasons), with a button to the setting that fixes it.
       var REAL_WHY = {
-        empty: "Pick a file below to upload it to Catbox, or paste a direct link to the picture on Imgur, Catbox or ImgBB: the "
+        empty: "Pick a file below to upload it to ImgBB, or paste a direct link to the picture on Imgur, Catbox or ImgBB: the "
           + "address of the picture itself, ending in .png, .jpg, .gif or .webp. Anyone with the link can see the picture.",
         https: "This prints only from a link that starts with https://.",
         invalid: "That isn't a web address.",

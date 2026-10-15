@@ -360,9 +360,9 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/` | The deployed site. Cloudflare serves only this directory. |
 | `public/index.html` | The app, plus the vendored renderer block. |
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
-| `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, the `/px` image proxy, and (1.7.0) `POST /catbox`. **Unchanged from before 1.0.0 until 1.7.0, by the owner's decision; 1.7.0 added `/catbox` on the owner's request and changed nothing else.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. `test/catbox.test.mjs` holds `/catbox` to its guards with a fake Catbox. |
+| `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, the `/px` image proxy, and (1.8.0) `POST /imgbb`. **Unchanged from before 1.0.0 until 1.7.0, by the owner's decision; 1.7.0 added an upload route on the owner's request (`/catbox`), and 1.8.0 replaced it with `/imgbb` when Catbox went down, changing nothing else.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. `test/imgbb.test.mjs` holds `/imgbb` to its guards with a fake ImgBB. |
 | `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.7.0. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.8.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -1341,11 +1341,12 @@ generations; `presetImageUrls` walks a stack's picture links.
   with `update()` a read landing under the High Roller test swapped the stack's parts in, and
   the next Copy sent the stack's part 1. The expiry check's card rebuild keeps the focused
   control, its caret and scroll (`keepFocus`), since it lands 700 ms after a keystroke. An upload
-  on a Real picture card (1.7.0: to Catbox through `/catbox`, `uploadToCatbox`; status
-  "Uploading to Catbox…", then "Uploaded to Catbox ✓", or "Upload failed: " and the route's
-  reason, the link field left as it was) writes the files.catbox.moe link into the card's Image
-  URL field, under a note beside the file picker that says the picture becomes public, stays
-  until two years after its last view and can't be deleted; the link and
+  on a Real picture card (1.8.0: to ImgBB through `/imgbb`, `uploadPicture`; status
+  "Uploading to ImgBB…", then "Uploaded to ImgBB ✓", or "Upload failed: " and the route's
+  reason, the link field left as it was; 1.7.0 sent it to Catbox) writes the i.ibb.co link into
+  the card's Image URL field, under a note beside the file picker that says anyone with the link
+  can see the picture until ImgBB deletes it a day later, and that the link then prints nothing,
+  in a saved preset too; the link and
   the status line are the BLOCK's (`block.url`, the runtime `block._status`) and the image
   card's `syncGlyph` shows them on every refresh, so an upload that lands after the cards were
   redrawn (add, move, ×, Undo, the expiry check) shows on the card on screen, not a detached

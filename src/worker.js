@@ -319,10 +319,50 @@ const CATBOX_PER_HOUR = 20;
 const CATBOX_SITE_PER_HOUR = 100;
 const CATBOX_TIMEOUT_MS = 30000;
 
-// A whole JPEG: its start-of-image marker first and its end-of-image marker last.
-function isWholeJpeg(buf) {
+// A JPEG whose structure a decoder walks cleanly, end to end: SOI first; then marker segments by
+// their own lengths, only APPn (64 KB of them in all: a colour profile, the JFIF header), DQT,
+// SOF0/1/2 (baseline, extended, progressive), DHT and DRI, never a comment or anything else; scans
+// (SOS, after a frame) whose entropy-coded data holds only byte stuffing (FF 00) and restart markers,
+// tables allowed between progressive scans; and EOI as the very last two bytes. A start and an end
+// marker alone let a file carry anything in between (security review of the hardening).
+const JPEG_APP_BUDGET = 65536;
+function isCleanJpeg(buf) {
   const b = new Uint8Array(buf), n = b.length;
-  return n >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff && b[n - 2] === 0xff && b[n - 1] === 0xd9;
+  if (n < 4 || b[0] !== 0xff || b[1] !== 0xd8) return false;
+  let i = 2, app = 0, frame = false, scan = false;
+  while (i < n) {
+    if (b[i] !== 0xff) return false;
+    while (i + 1 < n && b[i + 1] === 0xff) i++;                      // fill bytes before a marker
+    if (i + 1 >= n) return false;
+    const m = b[i + 1];
+    if (m === 0xd9) return scan && i + 2 === n;                       // EOI, and nothing after it
+    if (i + 3 >= n) return false;
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (len < 2 || i + 2 + len > n) return false;
+    if (m >= 0xe0 && m <= 0xef) {
+      app += len;
+      if (app > JPEG_APP_BUDGET) return false;
+    } else if (m === 0xc0 || m === 0xc1 || m === 0xc2) {
+      frame = true;
+    } else if (m === 0xda) {
+      if (!frame) return false;
+      scan = true;
+      i += 2 + len;
+      while (i < n) {                                                 // the scan's entropy-coded data
+        if (b[i] === 0xff) {
+          const x = i + 1 < n ? b[i + 1] : -1;
+          if (x === 0x00 || (x >= 0xd0 && x <= 0xd7)) { i += 2; continue; }
+          break;
+        }
+        i++;
+      }
+      continue;
+    } else if (m !== 0xdb && m !== 0xc4 && m !== 0xdd) {
+      return false;                                                   // a comment, or anything else
+    }
+    i += 2 + len;
+  }
+  return false;
 }
 
 // The viewer's network: an IPv4 address as it is, an IPv6 one by its first 64 bits.
@@ -365,7 +405,7 @@ async function handleCatbox(request, env, url) {
   try { buf = await request.arrayBuffer(); } catch (e) { return sameSiteJson({ error: "could not take the picture" }, 400); }
   if (!buf || buf.byteLength === 0) return sameSiteJson({ error: "empty upload" }, 400);
   if (buf.byteLength > MAX_BYTES) return sameSiteJson({ error: "too big: 5 MB at most" }, 413);
-  if (!isWholeJpeg(buf)) return sameSiteJson({ error: "that isn't a JPEG picture" }, 415);
+  if (!isCleanJpeg(buf)) return sameSiteJson({ error: "that isn't a JPEG picture" }, 415);
 
   if (!env || !env.RW_IMG) return sameSiteJson({ error: "uploads are off right now" }, 503);
   const slots = await rateSlots(request);
@@ -375,8 +415,17 @@ async function handleCatbox(request, env, url) {
   if (all >= CATBOX_SITE_PER_HOUR) {
     return sameSiteJson({ error: "This site has taken all the uploads it takes in an hour: try again later, or paste a link" }, 429);
   }
+  // The upload is counted before it goes (so a burst can't all slip in while the first ones are on
+  // their way) and handed back if Catbox didn't take it: only uploads Catbox took use up anybody's
+  // hour, so failures, and junk Catbox refuses, can't lock everyone out (security review of the
+  // hardening). The caps still mean someone spread over many networks can use up the site's hour;
+  // viewers can paste a link meanwhile, and the card says so.
   await env.RW_IMG.put(slots.viewer, String(mine + 1), { expirationTtl: 7200 });
   await env.RW_IMG.put(slots.site, String(all + 1), { expirationTtl: 7200 });
+  const refund = async function () {
+    await env.RW_IMG.put(slots.viewer, String(mine), { expirationTtl: 7200 });
+    await env.RW_IMG.put(slots.site, String(all), { expirationTtl: 7200 });
+  };
 
   const form = new FormData();
   form.append("reqtype", "fileupload");
@@ -389,9 +438,9 @@ async function handleCatbox(request, env, url) {
       signal: AbortSignal.timeout(CATBOX_TIMEOUT_MS),
     });
     said = (await res.text()).trim();
-  } catch (e) { return sameSiteJson({ error: "Catbox didn't answer: try again" }, 502); }
-  if (!res.ok) return sameSiteJson({ error: "Catbox refused it (" + res.status + ")" }, 502);
-  if (!CATBOX_LINK.test(said)) return sameSiteJson({ error: "Catbox didn't send back a picture link" }, 502);
+  } catch (e) { await refund(); return sameSiteJson({ error: "Catbox didn't answer: try again" }, 502); }
+  if (!res.ok) { await refund(); return sameSiteJson({ error: "Catbox refused it (" + res.status + ")" }, 502); }
+  if (!CATBOX_LINK.test(said)) { await refund(); return sameSiteJson({ error: "Catbox didn't send back a picture link" }, 502); }
   return sameSiteJson({ url: said });
 }
 

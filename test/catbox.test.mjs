@@ -5,10 +5,27 @@
 // nothing here ever reaches the real Catbox, where an upload is public and can't be deleted.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import worker, { imageKeyFor } from "../src/worker.js";
 
 const ORIGIN = "https://receipt.uwutoowo.com";
-const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 0xff, 0xd9]);
+// A JPEG a decoder walks cleanly, the smallest there is: SOI, a JFIF APP0, a quantisation table, a
+// one-pixel baseline frame, a Huffman table, one scan with stuffed entropy data, EOI. `seg` makes a
+// marker segment of `data` bytes; `jpeg` puts the pieces together, `before` going in front of the scan.
+const seg = (m, data) => [0xff, m, (data.length + 2) >> 8, (data.length + 2) & 255, ...data];
+const jpeg = ({ before = [], after = [] } = {}) => new Uint8Array([
+  0xff, 0xd8,
+  ...seg(0xe0, [0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]),
+  ...seg(0xdb, [0, ...new Array(64).fill(1)]),
+  ...seg(0xc0, [8, 0, 1, 0, 1, 1, 1, 0x11, 0]),
+  ...seg(0xc4, [0, 1, ...new Array(15).fill(0), 0]),
+  ...before,
+  ...seg(0xda, [1, 1, 0, 0, 63, 0]),
+  0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd0, 0x78,
+  0xff, 0xd9, ...after]);
+const JPEG = jpeg();
+// What the page really sends: a picture from Chromium's canvas encoder (with its colour profile).
+const CANVAS_JPEG = new Uint8Array(readFileSync(new URL("./fixtures/chromium-canvas.jpg", import.meta.url)));
 
 function fakeKv() {
   const m = new Map();
@@ -87,12 +104,45 @@ test("/catbox takes a real JPEG only (the page always sends one): the bytes are 
   const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
   for (const type of ["image/png", "image/gif", "image/webp"]) assert.equal((await call({ type, catbox: cb })).res.status, 415, type);
   const html = new TextEncoder().encode("<html><body>not a picture</body></html>");
-  const noEnd = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6]);
-  const trailing = new Uint8Array([...JPEG, 0x50, 0x4b, 0x03, 0x04]);          // a zip glued after the picture
+  const noEnd = JPEG.slice(0, JPEG.length - 2);
+  const trailing = jpeg({ after: [0x50, 0x4b, 0x03, 0x04] });                  // a zip glued after the picture
   for (const [what, body] of [["html", html], ["no end marker", noEnd], ["data after the end", trailing]]) {
     assert.equal((await call({ body, catbox: cb })).res.status, 415, what);
   }
   assert.equal(cb.calls.length, 0, "nothing but a JPEG reached Catbox");
+});
+
+test("/catbox walks the JPEG the way a decoder does: no comments, no unknown segments, little extra data, nothing after the end", async () => {
+  // Security review of the hardening: a start and an end marker alone let a file carry anything in
+  // between (a comment holding a page, say). The structure is walked segment by segment now.
+  const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
+  const bigApp = new Array(40000).fill(0x41);
+  const refused = [
+    ["start and end markers only", new Uint8Array([0xff, 0xd8, 0xff, 0xd9])],
+    ["a comment segment", jpeg({ before: seg(0xfe, [...new TextEncoder().encode("<script>alert(1)</script>")]) })],
+    ["an unknown segment", jpeg({ before: seg(0xf7, [1, 2, 3]) })],
+    ["over 64 KB of APPn data", jpeg({ before: [...seg(0xe1, bigApp), ...seg(0xe1, bigApp)] })],
+    ["a segment longer than the file", new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff, 1, 2, 0xff, 0xd9])],
+    ["a scan before any frame", new Uint8Array([0xff, 0xd8, ...seg(0xda, [1, 1, 0, 0, 63, 0]), 0x12, 0xff, 0xd9])],
+  ];
+  for (const [what, body] of refused) assert.equal((await call({ body, catbox: cb })).res.status, 415, what);
+  assert.equal(cb.calls.length, 0);
+  // A real encoder's picture, colour profile and all, goes through; and so does one with a little APPn data.
+  assert.equal((await call({ body: CANVAS_JPEG, catbox: cb })).res.status, 200, "Chromium's canvas JPEG");
+  assert.equal((await call({ body: jpeg({ before: seg(0xe2, new Array(3000).fill(7)) }), catbox: cb })).res.status, 200);
+});
+
+test("/catbox counts only uploads Catbox took: a failure uses up nobody's hour", async () => {
+  // Security review of the hardening: counted before the upload, failures (Catbox down, or junk it
+  // refused) used up a viewer's hour and the site's, so anyone could lock everyone out cheaply.
+  const kv = fakeKv(), env = { RW_IMG: kv, ASSETS: { fetch: () => new Response("asset") } };
+  const down = fakeCatbox(new Response("nope", { status: 500 }));
+  for (let i = 0; i < 30; i++) assert.equal((await call({ env, catbox: down })).res.status, 502, "failure " + (i + 1));
+  const cb = fakeCatbox(new Response("https://files.catbox.moe/abc123.jpg"));
+  for (let i = 0; i < 20; i++) assert.equal((await call({ env, catbox: cb })).res.status, 200, "upload " + (i + 1));
+  assert.equal((await call({ env, catbox: cb })).res.status, 429);
+  const site = [...kv.m].find(([k]) => /^catbox-rate\/all\//.test(k));
+  assert.equal(site[1].value, "20", "the site counted the 20 uploads Catbox took, not the 30 failures");
 });
 
 test("/catbox counts an IPv6 viewer by their network (the first 64 bits), not by each address", async () => {

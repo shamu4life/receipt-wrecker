@@ -28,12 +28,15 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 - **A new Worker route, `POST /catbox`,** by the owner's decision. It has to be the server:
   Catbox lets no web page see the link it sends back (checked in a browser). Its guards: only this
   site's own page (which stops other sites' pages; a script can claim to be this page, so the
-  limits are what bound it); a real JPEG only, checked by its bytes, 5 MB at most; 20 uploads an
-  hour per viewer (an IPv6 viewer counted by network) and 100 an hour from everyone together,
-  counted under a hash of the network, with no upload at all if the counters can't be kept; and
-  Catbox's answer passed on only when it is exactly a `files.catbox.moe` picture link. A security
-  review of the first push added the bytes check, the network counting, the site-wide cap and the
-  refusal without counters.
+  limits are what bound it); a real JPEG only, its structure walked the way a decoder walks it (no
+  comments, little extra data, nothing after the end), 5 MB at most; 20 uploads an hour per viewer
+  (an IPv6 viewer counted by network) and 100 an hour from everyone together, counted under a hash
+  of the network, only uploads Catbox took counting, with no upload at all if the counters can't
+  be kept; and Catbox's answer passed on only when it is exactly a `files.catbox.moe` picture link.
+  Two security reviews of the first pushes added the structure check, the network counting, the
+  site-wide cap, the hand-back of a failed upload's count and the refusal without counters. The
+  site-wide cap is a tradeoff: someone spread over several networks can use up the hour's uploads
+  (viewers can paste a link meanwhile), where without it there would be no bound at all.
 
 ### Changed
 
@@ -45,7 +48,7 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ### How sure
 
-- **Tests**: 290 unit tests (9 new, for the route, against a fake Catbox) and 96 browser tests (2
+- **Tests**: 292 unit tests (11 new, for the route, against a fake Catbox) and 96 browser tests (2
   new, with `/catbox` stood in for). Each of the route's guards, and each piece of the card's
   upload, was broken on purpose and a test caught it. Nothing was uploaded to the real Catbox.
 - **Not tried for real yet**: the first real upload. Catbox takes requests from other sites (a

@@ -1775,14 +1775,20 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 > Catbox and each mutation-checked: only this site's own page (the Origin must be this origin, and
 > the answer carries no CORS header; a script outside a browser can claim any Origin, so this stops
 > other sites' pages, not scripts, and the limits are what bound a script); a real JPEG only,
-> checked by its bytes (FF D8 FF first, FF D9 last, so nothing rides after the picture; the page
-> redraws every picture as one), 5 MB at most; 20 uploads an hour per viewer (an IPv6 viewer counted
-> by the first 64 bits of the address) and 100 an hour from everyone together, counted in `RW_IMG`
-> under a hash of the network (never the address), each counter expiring by itself (KV is
-> eventually consistent: a brake, not a wall), and no upload at all without the counter store;
-> Catbox's answer passed on only when it is exactly a `files.catbox.moe` picture link. (The bytes
-> check, the IPv6 counting, the site-wide cap and the refusal without KV came from a security
-> review of the first push.) Uploads are anonymous (no userhash),
+> walked the way a decoder walks it (`isCleanJpeg`: SOI; segments by their own lengths, only APPn
+> (64 KB in all), DQT, SOF0/1/2, DHT and DRI, never a comment or anything else; scans after a frame
+> whose entropy-coded data holds only stuffing and restart markers; EOI as the last two bytes; the
+> page redraws every picture as one, and a Chromium canvas JPEG is a test fixture), 5 MB at most;
+> 20 uploads an hour per viewer (an IPv6 viewer counted by the first 64 bits of the address) and 100
+> an hour from everyone together, counted in `RW_IMG` under a hash of the network (never the
+> address), each counter expiring by itself (KV is eventually consistent: a brake, not a wall),
+> counted before the upload and handed back when Catbox didn't take it, so only accepted uploads
+> use up an hour, and no upload at all without the counter store; Catbox's answer passed on only
+> when it is exactly a `files.catbox.moe` picture link. (The structure check, the IPv6 counting,
+> the site-wide cap, the hand-back and the refusal without KV came from two security reviews of the
+> first pushes.) The site-wide cap is a tradeoff: someone spread over five or more networks can use
+> up the hour's uploads, and viewers paste a link meanwhile; without it, abuse spread over many
+> networks has no bound. Uploads are anonymous (no userhash),
 > so nobody can delete one, and they stay until two years after their last view; Catbox sees every
 > one as this Worker's (Cloudflare names the site on a Worker's requests), so a bad upload by
 > anyone is on the site's record. The owner accepted that, and the card says the rest plainly

@@ -1,60 +1,44 @@
+// 1.8.1, by the owner's decision: the old upload route is gone. Since 1.8.0 the app never calls
+// /upload (a Real picture's copy that prints goes to ImgBB, and its card's picture is drawn on the
+// device), and /upload took a picture from anyone, with no hourly limit, for a 15-minute link on
+// i.uwutoowo.com, writing to the KV namespace /imgbb keeps its hourly counts in. Its picture routes
+// (/<hex>.png and the older /i/<hex>) went with it: every link it made expired 15 minutes after it
+// was made. Those paths are now the static site's, like any other, and nothing reads KV for them.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { imageKeyFor } from "../src/worker.js";
+import worker, * as mod from "../src/worker.js";
 
-// The Worker's image routes. Since 1.0.0 no payload carries an uploaded link (a Real picture
-// sends nothing on SassyTP's bot, and glyph-art is characters): the links matter for the Real
-// picture card's thumbnail and for saved presets. Every link shape ever minted, the short root
-// form (/<12 hex>.png) and the older /i/<hex> forms, must keep resolving, because a preset saved
-// by an older build may still hold one. This file guards that routing.
+const ORIGIN = "https://receipt.uwutoowo.com";
+const envOf = () => {
+  const seen = [], kv = [];
+  return {
+    seen, kv,
+    RW_IMG: { put: async (k) => { kv.push("put " + k); }, get: async (k) => { kv.push("get " + k); return null; },
+              getWithMetadata: async (k) => { kv.push("getWithMetadata " + k); return null; } },
+    ASSETS: { fetch: (req) => { seen.push(new URL(req.url).pathname); return new Response("asset", { status: 404 }); } },
+  };
+};
 
-const HEX12 = "a1b2c3d4e5f6";
-const HEX32 = "0123456789abcdef0123456789abcdef";
-
-test("the short root form resolves — that's the shape /upload now mints", () => {
-  assert.equal(imageKeyFor("/" + HEX12 + ".png"), HEX12);
-  assert.equal(imageKeyFor("/" + HEX12), HEX12);              // extension is stripped, not required
+test("/upload is gone: a picture sent there reaches the static site, and nothing is stored", async () => {
+  const env = envOf();
+  const res = await worker.fetch(new Request(ORIGIN + "/upload", {
+    method: "POST", headers: { "content-type": "image/png", origin: ORIGIN }, body: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) }), env);
+  assert.equal(await res.text(), "asset");
+  assert.deepEqual(env.seen, ["/upload"]);
+  assert.deepEqual(env.kv, [], "KV is not touched");
 });
 
-test("links minted before the change keep resolving", () => {
-  // These live for 15 minutes, so the overlap is short — but a link that 404s mid-cheer
-  // is a blank space on someone's tape, and there is no reason to cause one.
-  assert.equal(imageKeyFor("/i/" + HEX32 + ".png"), HEX32);   // the previous form
-  assert.equal(imageKeyFor("/i/" + HEX32), HEX32);            // and the one before that
-  assert.equal(imageKeyFor("/" + HEX32 + ".png"), HEX32);     // long key on the new path
-});
-
-test("every image extension a minted link may carry is stripped", () => {
-  // Minted links carry an image extension (the printer engine before 1.0.0 failed the whole
-  // print on a subresource with an unknown one), and links minted then may still be in saved
-  // presets, so serving must ignore the extension rather than 404 on it.
-  for (const ext of ["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "PNG", "JpEg"]) {
-    assert.equal(imageKeyFor("/" + HEX12 + "." + ext), HEX12, "failed on ." + ext);
+test("the old picture links are the static site's: /<hex>.png, /<hex> and /i/<hex>.png, on either host", async () => {
+  for (const host of [ORIGIN, "https://i.uwutoowo.com"]) {
+    for (const p of ["/0123456789ab.png", "/0123456789ab", "/i/0123456789abcdef0123456789abcdef.png"]) {
+      const env = envOf();
+      const res = await worker.fetch(new Request(host + p), env);
+      assert.equal(await res.text(), "asset", host + p);
+      assert.deepEqual([env.seen, env.kv], [[p], []], host + p);
+    }
   }
 });
 
-test("the root form must not shadow the static site", () => {
-  // This is the risk the short path buys: image keys now share a namespace with every
-  // asset served from public/. A pattern that swallowed one of these would take the
-  // page, the crawler policy or the sitemap offline.
-  for (const p of ["/", "/index.html", "/robots.txt", "/llms.txt", "/sitemap.xml",
-                   "/favicon.ico", "/upload", "/px", "/i/", "/deadbeef/x.png"]) {
-    assert.equal(imageKeyFor(p), null, p + " was mistaken for an image key");
-  }
-});
-
-test("a key is hex and long enough to be unguessable, or it isn't a key", () => {
-  assert.equal(imageKeyFor("/abc.png"), null, "too short to be a real key");
-  assert.equal(imageKeyFor("/" + "z".repeat(12) + ".png"), null, "not hex");
-  assert.equal(imageKeyFor("/" + "a".repeat(65) + ".png"), null, "absurdly long");
-  assert.equal(imageKeyFor("/" + HEX12 + ".exe"), null, "unknown extension is not stripped");
-  assert.equal(imageKeyFor(""), null);
-  assert.equal(imageKeyFor(null), null);
-});
-
-test("the minted link is short enough to matter", () => {
-  // The numbers this whole change exists for.
-  assert.equal(("https://receipt.uwutoowo.com/" + HEX12 + ".png").length, 45);
-  assert.equal(("https://i.uwutoowo.com/" + HEX12 + ".png").length, 39);
-  assert.equal(("https://receipt.uwutoowo.com/i/" + HEX32 + ".png").length, 67);   // what it was
+test("the Worker keeps nothing of the old route: no picture-key matcher", () => {
+  assert.equal(mod.imageKeyFor, undefined);
 });

@@ -10,9 +10,9 @@ or a picture into a Twitch chat message that prints big on a streamer's thermal 
 printer. The printer is driven by **SassyTP's printer-bot** (MIT,
 <https://github.com/SassyTP/printer-bot>), a Streamer.bot action that draws every cheer on a
 receipt page in headless Edge and prints a screenshot of it. The app targets the newest Printer
-Bot release (3.0 since 1.3.0), 3.0.4 since 1.8.0, which leaves each cheer's Cheer word out of what
-it prints; an older bot prints that word too, and nothing else differently on a roll (see "The
-target").
+Bot release (3.0 since 1.3.0), 3.0.5 since 1.8.1. Since 3.0.4 the bot leaves each cheer's Cheer
+word out of what it prints; an older bot prints that word too, and nothing else differently on a
+roll (see "The target").
 
 The bot prints a cheer in one of two ways, and the whole app follows from that:
 
@@ -46,22 +46,25 @@ logos (trademarks outside the licence).
 
 ## The target, with evidence
 
-Since 1.3.0 the app targets the newest Printer Bot release, beta or stable: **3.0.4** since
-1.8.0 (3.0.0 went stable on 2026-10-14, and 3.0.1 to 3.0.4 followed within a day; `versions.json`
-names no prerelease). The facts below were read from `v/3.0.0/renderer.html` (3.0.4 keeps 3.0.0's
-page folder) at commit `fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2` (renderer `VERSION`
-`202610150141`, line 611) and from the action's C#, which ships in the same repo as the
-Streamer.bot import (`import.txt` for the stable release; `import.prerelease.txt` for a beta;
-base64 of `SBAE` + gzip, decode it to read the code). Line numbers are for that file at that
-commit. Re-check them whenever the pin moves. 3.0.4's C# draws, greys and dithers a cheer and
-builds its raster as beta.7's did: `OptionsFor`, `ToGray`, `class Ditherer` and the
-`setDeviceMetricsOverride` call are character for character 3.0.1's (decoded for 1.8.0), whose
-`OptionsFor` added only `imageSites` and, on Letter paper, `layout` and `imageFit` (1.4.1).
+Since 1.3.0 the app targets the newest Printer Bot release, beta or stable: **3.0.5** since
+1.8.1 (3.0.0 went stable on 2026-10-14, 3.0.1 to 3.0.4 followed within a day, and 3.0.5 on
+2026-10-15; `versions.json` names no prerelease). The facts below were read from
+`v/3.0.0/renderer.html` (3.0.5 keeps 3.0.0's page folder) at commit
+`d4800f82d2074246bb1141def6ba72d713811e2c` (renderer `VERSION` `202610150536`, line 611) and from
+the action's C#, which ships in the same repo as the Streamer.bot import (`import.txt` for the
+stable release; `import.prerelease.txt` for a beta; base64 of `SBAE` + gzip, decode it to read the
+code). Line numbers are for that file at that commit. Re-check them whenever the pin moves. 3.0.5's
+C# draws, greys and dithers a cheer and builds its raster as beta.7's did: `OptionsFor`, `ToGray`,
+`class Ditherer` and the `setDeviceMetricsOverride` call are character for character 3.0.1's
+(decoded for 1.8.0 and again for 1.8.1, where the C# changed only how Edge starts and how YouTube
+amounts count), whose `OptionsFor` added only `imageSites` and, on Letter paper, `layout` and
+`imageFit` (1.4.1).
 
 **An older bot prints one thing more: the Cheer word.** Until 3.0.4 every cheer printed its
 `Cheer100`: a line of its own above each High Roller part, and the word before a plain part's
-closing quote mark (3.0.4, below). Apart from that, on a roll, 3.0.1, 3.0.0-beta.7 and beta.6, and
-2.5.4 print the app's messages as 3.0.4 does. For 1.4.1, through the bench, 22 kinds of
+closing quote mark (3.0.4, below). Apart from that, on a roll, 3.0.4, 3.0.1, 3.0.0-beta.7 and
+beta.6, and 2.5.4 print the app's messages as 3.0.5 does (3.0.4's page differs from 3.0.5's, for a
+Twitch cheer, only in Letter's Large message, below). For 1.4.1, through the bench, 22 kinds of
 app message on both papers (every Big layout, flipped, two other faces, a Han wrap, Sideways both
 ways, the four Glyph-art tiers, plain Han tiling of a picture and of text, both probes, a free
 test, a cut by bits per inch) printed through beta.7's page (`v/3.0.0-beta.7/renderer.html` at
@@ -76,10 +79,10 @@ as the printer is, the app sends no such message. Only the profile picture diffe
 
 What 3.0 changed on the page after beta.7:
 
-- **The Cheer word prints nothing** (3.0.4; `cheerWords`, lines 1577-1591, first thing in the
-  `TwitchCheer` handler, 2018-2031, for the High Roller and the plain copy alike): every word of
+- **The Cheer word prints nothing** (3.0.4; `cheerWords`, lines 1582-1596, first thing in the
+  `TwitchCheer` handler, 2023-2036, for the High Roller and the plain copy alike): every word of
   its own (spaces or the message's ends around it) that is one of Twitch's cheermotes
-  (`CHEERMOTE_NAMES`, 1582) with its number, in any capitals, is taken out of a cheer's message
+  (`CHEERMOTE_NAMES`, 1587) with its number, in any capitals, is taken out of a cheer's message
   before anything else; a message of cheermotes alone is no message. A cheermote-shaped word inside
   a tag (`<div>Kappa50</div>`) is no cheermote and stays. For the app: a High Roller part's
   `Cheer100 ` lead prints nothing (it printed a 21.6px line), so the first body starts at the top
@@ -89,11 +92,11 @@ What 3.0 changed on the page after beta.7:
   Design T tail and the sideways top padding mirror it all, below). The action passes the message
   untouched as before (its C# has no cheermote list).
 - **YouTube High Roller** (3.0.2): a Super Chat over an amount prints styled, on printers with
-  **Allow YouTube High Roller prints**; `highRollerMaxHeight` (1225-1227) now goes through
-  `lengthLimit` (1235-1248), the same rule shared with YouTube's amount per inch. Nothing the app
+  **Allow YouTube High Roller prints**; `highRollerMaxHeight` (1230-1232) now goes through
+  `lengthLimit` (1240-1253), the same rule shared with YouTube's amount per inch. Nothing the app
   sends; a cheer's box is unchanged.
 - **A message printed plain shows its words, not its tags** (3.0.0; `flattenMarkup`, lines
-  944-953, through `messagePart`, 957-959, in `show()`): the tags are left out, block tags become
+  949-958, through `messagePart`, 962-964, in `show()`): the tags are left out, block tags become
   line breaks, a script or a style goes with its content and entities are decoded. A message with
   no tag is untouched, and the app's plain parts have none. It changes how a wrong setting looks:
   a High Roller form sent below the real threshold, or to a printer with Allow High Roller prints
@@ -103,14 +106,14 @@ What 3.0 changed on the page after beta.7:
   link to a picture on Imgur (`i.imgur.com`), Catbox (`files.catbox.moe`) or ImgBB (`i.ibb.co`) in
   a High Roller message prints as that picture (at most three, each at most 4 inches tall) when the
   streamer ticked that site under **Images in messages** in the dock and the printer has **Allow
-  images** on (`IMAGE_SITES` 874, `pictureLinksInRich` 987-1004). Every site is off until ticked.
+  images** on (`IMAGE_SITES` 879, `pictureLinksInRich` 992-1009). Every site is off until ticked.
   Since 1.5.0 a Real picture block sends its link this way, by the owner's decision (see the
   field record and "Pictures from links" under the browser glue); a link typed into a Big or
   Sideways text block still draws as text in the preview and is counted as text, but on a rig
   with that site on it prints as the picture.
 - **Letter paper** (since 1.6.0 the app models one Letter printer: "The Letter printer" below).
   The "large message" layout (3.0.0-beta.10; `opts.layout === 'message'`, `largeLayoutPx`
-  1216-1219): the message gets the page between a small header and the footer, its pictures set
+  1221-1224): the message gets the page between a small header and the footer, its pictures set
   by `imageFit` (fill, fit or stretch). Every Letter receipt is one page: a viewer's message is
   cut at the page's end, and what has nothing to cut (a Hype Train) is made smaller as a whole
   down to 30% (`MIN_PAGE_FIT`), a gift list excepted.
@@ -129,7 +132,7 @@ How a cheer prints:
    one: a 400 px page at 53.3 px to the inch, 2250 dots at 300 dpi. Since 1.6.0 the app models
    one Letter printer: "The Letter printer" below.)
 3. It calls `PrinterBot.render(event, options)` (API notes lines 559-599, `render` lines
-   2827-2852, then `present()` 2865-2962). `options` (`OptionsFor` in the C#) = the dock's
+   2840-2865, then `present()` 2889-2987). `options` (`OptionsFor` in the C#) = the dock's
    `{highRollerBits, highRollerBitsPerInch, highRollerMaxInches, hideLinks, imageSites}`, one
    setting for every printer, plus the printer's `allowHighRoller` (3.0's **Allow High Roller
    prints**, on by default; the action's `PrintEventBody` (`PrintEventCore` in beta.6) sends the
@@ -153,31 +156,31 @@ How a cheer prints:
 
 What the page decides:
 
-- **High Roller or plain.** `isHighRoller` (lines 1176-1179): threshold > 0 and bits ≥ threshold,
-  25 when no option arrives. The `TwitchCheer` handler (lines 2018-2031) takes the cheermotes out,
+- **High Roller or plain.** `isHighRoller` (lines 1181-1184): threshold > 0 and bits ≥ threshold,
+  25 when no option arrives. The `TwitchCheer` handler (lines 2023-2036) takes the cheermotes out,
   then keeps a High Roller message for `sanitizeRich` and a plain copy beside it; `viewOf`
-  (2435-2444) shows the plain
+  (2440-2449) shows the plain
   copy, with no length limit of its own, when the printer has `allowHighRoller: false`, as if
   the cheer were below the threshold. The app mirrors the test in `printMode`.
-- **The High Roller sanitizer.** `sanitizeRich` (lines 1153-1161) parses the message in an inert
-  document and builds a new tree from allow-lists: `ALLOWED_TAGS` (698-700; `div`, `pre` and
-  `br` are on it), `DROP_WITH_CONTENT` (703-705; script, style, iframe, object, embed, svg and
-  more go with their content), `ALLOWED_CSS` (715-731; longhands only, because `copyStyle`
-  (1073) walks the CSSOM, which hands out longhands: font-*, line-height, letter-spacing,
+- **The High Roller sanitizer.** `sanitizeRich` (lines 1158-1166) parses the message in an inert
+  document and builds a new tree from allow-lists: `ALLOWED_TAGS` (703-705; `div`, `pre` and
+  `br` are on it), `DROP_WITH_CONTENT` (708-710; script, style, iframe, object, embed, svg and
+  more go with their content), `ALLOWED_CSS` (720-736; longhands only, because `copyStyle`
+  (1078) walks the CSSOM, which hands out longhands: font-*, line-height, letter-spacing,
   text-align, the white-space longhands, word-break, overflow-wrap, writing-mode,
   text-orientation, transform/rotate/scale/translate, width/height, margins, paddings,
-  display, position, colours, borders), `CSS_VALUE_ALLOWED` (733-741; position only static,
-  relative or absolute; a display allow-list) and `CSS_VALUE_FORBIDDEN` (743; `url(`,
+  display, position, colours, borders), `CSS_VALUE_ALLOWED` (738-746; position only static,
+  relative or absolute; a display allow-list) and `CSS_VALUE_FORBIDDEN` (748; `url(`,
   backslashes, `<`, `>`, `var(`, `attr(`, comments and more). `class` and `id` are dropped,
   except an img's `emote` or `bits` class. Pictures load only from the Twitch, Kick, BTTV, 7TV
-  and FFZ CDNs (`TRUSTED_IMAGE_HOSTS`, 695), from an image site the streamer switched on (3.0,
-  above), or as a data: PNG/GIF/WebP of at most 2000 characters (689), never larger than 64px
-  (688; `vetImage` 849, `clampImage` 1064). Whatever it removes is a `security` note in
-  `render()`'s result. The message lands in ONE `<div class="part raw">` (`show()`, line 2533)
+  and FFZ CDNs (`TRUSTED_IMAGE_HOSTS`, 700), from an image site the streamer switched on (3.0,
+  above), or as a data: PNG/GIF/WebP of at most 2000 characters (694), never larger than 64px
+  (693; `vetImage` 854, `clampImage` 1069). Whatever it removes is a `security` note in
+  `render()`'s result. The message lands in ONE `<div class="part raw">` (`show()`, line 2541)
   and inherits the receipt's Segoe UI 16px/1.35, centred, black. The allow-lists are identical
   to 2.5.4's; 3.0 adds only the image sites.
-- **Plain.** `plainText` (lines 806-812) uses the message as text and cuts it at 500
-  characters plus `…` (`MAX_PLAIN_CHARS`, 678); it trims nothing, so the space left where 3.0.4
+- **Plain.** `plainText` (lines 811-817) uses the message as text and cuts it at 500
+  characters plus `…` (`MAX_PLAIN_CHARS`, 683); it trims nothing, so the space left where 3.0.4
   took a plain part's ` Cheer100` out stays. The part gets “ and ” from
   `.part.message::before` / `::after` (245-246) and `overflow-wrap: anywhere` (254-257, new in
   2.5.4). Since 3.0.0 a message's tags are left out first (`flattenMarkup`, above); before,
@@ -189,22 +192,22 @@ What the page decides:
   centred. A message therefore has the page width less 28px: **244 px on 80 mm, 153 px on
   58 mm**. One line of plain text is **21.6 px**.
 - **The message box.** `#receipt-content` (174-179): `overflow: hidden; contain: paint;
-  max-height: 1600px`. `highRollerMaxHeight` (1225-1227, through `lengthLimit` 1235-1248, with
-  `pxPerInch` 1202 and `pageHeightPx` 1208) and `show()` (2517-2528) apply the streamer's limits
+  max-height: 1600px`. `highRollerMaxHeight` (1230-1232, through `lengthLimit` 1240-1253, with
+  `pxPerInch` 1207 and `pageHeightPx` 1213) and `show()` (2525-2536) apply the streamer's limits
   to High Roller messages only:
   bitsPx = bpi > 0 ? max(1, floor(bits / bpi × pxPerInch)) : none; capPx = maxIn > 0 ? max(1,
   floor(min(maxIn, 40) × pxPerInch)) : none, with pxPerInch 96 on a roll. With no cap the box
   is min(bitsPx, 1600), or 1600 (the ceiling is a length of paper, scaled by pxPerInch / 96).
   With a cap it is bitsPx when that is smaller, else capPx, and the 1600 ceiling no longer
   applies. A message cut by either setting fades its last 40px (`.cut`, 215-218) and
-  `render()` reports it as `trimmed` (`present()`, 2874-2932; `by` is `bits`, `cap`, or on
+  `render()` reports it as `trimmed` (`present()`, 2899-2957; `by` is `bits`, `cap`, or on
   Letter `page`). The 1600 ceiling on its own cuts **hard**, with no fade and no report.
-- **Receipt height** is capped at 5000 CSS px (`MAX_RECEIPT_HEIGHT`, 616, applied at 2956).
+- **Receipt height** is capped at 5000 CSS px (`MAX_RECEIPT_HEIGHT`, 621, applied at 2981).
 - **The profile picture** (3.0): `#receipt-avatar` (110-131) is 13.875em, 222 px on 80 mm and
   173 px on 58 mm (the 153 px message width plus a 10 px bleed into each margin, its own
   `@media` rule), where 2.5.4 drew min(11.5em, 100%), 184 / 153 px. The page takes what it
   gains back out of seven gaps around the header and the footer (`OLD_AVATAR_PX`, `GAP_ROOM`,
-  `shareCuts`, `tightenGaps`: 2371-2430), so a receipt with a picture is as tall as it was.
+  `shareCuts`, `tightenGaps`: 2376-2435), so a receipt with a picture is as tall as it was.
   That runs only for the bot's own pictures; the preview repeats it for its stand-in.
 - **The page's own policy** (CSP, line 7) runs only the renderer's script, connects only to
   two avatar lookups and loads pictures only from the emote CDNs, the avatar hosts and (3.0) the
@@ -222,7 +225,8 @@ The app mirrors these in `PAPERS` / `paperSpec`, `BASE_PX` / `BASE_LH` / `LEAD_L
 The streamer's second printer, on Letter paper, for cheers of `letterBits` bits or more (0 = none;
 `targetPaper` picks it by the cheer's bits, a free test by the bits the real cheer would carry).
 What the app models, from 3.0.1's page and C# (`PbPaper`, `OptionsFor`, `PbLetter`, `Ditherer`;
-3.0.4's prints a cheer on Letter the same, its page changing only a gift list's page logos):
+3.0.4's prints a cheer on Letter the same, its page changing only a gift list's page logos; 3.0.5
+gives the large layout only to a big cheer, below):
 
 - **The page.** 400 CSS px printed 7.5 inches wide at 300 dpi: 2250 dots, scale 5.625, 53.3 px to
   the inch (`pxPerInch`), one page `floor(3000 / 5.625)` = 533 px tall (`pageHeightPx`, which
@@ -231,11 +235,11 @@ What the app models, from 3.0.1's page and C# (`PbPaper`, `OptionsFor`, `PbLette
   `rollMmOf` keeps the roll's own width setting a roll.
 - **Lengths are lengths of paper**: bits per inch and the maximum length at 53.3 px to the inch,
   and the 1600 px ceiling scaled to 888.9 px (16.7 inches; the page ends a message first).
-- **One page a receipt** (`present()` 2702-2798): when the receipt reaches past the page, a
+- **One page a receipt** (`present()` 2889-2987): when the receipt reaches past the page, a
   viewer's message (High Roller or plain) gives the excess back off its box, keeping at least an
   inch (`floor(pxPerInch)`), and fades there (`trimmed.by` "page"). In Scaled like 80 mm the
   pictures of a message give back height first, down to 0.75 inch each (`shrinkPictures`,
-  1011-1017); in the large layout they are flex items that only ever take what the words leave
+  1042-1048); in the large layout they are flex items that only ever take what the words leave
   (min 0.75 inch, CSS 482-509). So the room a message has is the page less the rest of the
   receipt, measured on the bot's page WITH its profile picture, the worst case
   (`LETTER_CHROME_PX`: Scaled like 80 mm 407.8 px, the roll's header on a wider page, leaving
@@ -248,10 +252,22 @@ What the app models, from 3.0.1's page and C# (`PbPaper`, `OptionsFor`, `PbLette
   there (`stackContext`'s `center`, `blockStyle`'s `;text-align:center`, on Big text and Glyph-art;
   Sideways text centres with `margin:auto`). tightenGaps runs only in Scaled like 80 mm, whose
   222 px picture is the roll's.
+- **Large message only for a big cheer** (3.0.5, the bot's author's rule; `present()` 2889-2987
+  lays the receipt out with `layoutFor`, 2881-2886). A printer set to Large message gives the
+  large layout only to a model with `largePage`, which the `TwitchCheer` handler (2023-2036) sets
+  to `isHighRoller(d.bits, opts)`: a cheer of the threshold or more. Any other cheer (below the
+  threshold, or every cheer while High Roller is off) prints as Scaled like 80 mm does, with its
+  room. The amount decides, not the printer's Allow High Roller prints. The app mirrors it in
+  `letterLayoutFor(o)`, which `stackContext`, `letterRoomPx`, the High Roller test and the preview
+  read; a free test is drawn as a High Roller cheer (threshold 1), so it gets the large page.
+  `previewEvent` still sends the printer's own `layout`, as `OptionsFor` does, and the page
+  decides; the MANDATORY contract test holds `letterLayoutFor` to the layout the page drew
+  (`#receipt-container.letter-message`). Before 3.0.5 every cheer on such a printer got the
+  large page.
 - **Allow High Roller prints and Allow images** of the Letter printer are taken as on, their
   defaults (`allowsHighRoller`: the app's switch is the roll printer's).
 - **Printing.** Black and white (`Ditherer.AddRowsMasked`, ported as `letterDither`): outside the
-  rectangles `render()` lists in `photos` (`photoRects`, 2804-2820: the profile picture and the
+  rectangles `render()` lists in `photos` (`photoRects`, 2993-3008: the profile picture and the
   message's images, in CSS px, padded 2 dots), a plain `< 128` threshold, so text stays sharp;
   inside, serpentine Floyd-Steinberg (even rows left to right) or Atkinson, and nothing in Crisp.
   Colour: the page as drawn, 24-bit, no dots.
@@ -375,8 +391,8 @@ between `BEGIN` / `END vendored` comments. Edit the app's script for behaviour c
 edit the vendored block by hand: `tools/vendor-renderer.mjs` writes it (see "The preview").
 
 `src/worker.js` is the other piece of shipped code: a small Cloudflare Worker that serves the
-static site plus `/upload`, the image-serving routes and `/px`. It is `main` in
-`wrangler.jsonc`. `test/proxy.test.mjs` and `test/imgpath.test.mjs` import it directly.
+static site plus `/px` and `/imgbb`. It is `main` in `wrangler.jsonc`. `test/proxy.test.mjs`,
+`test/imgbb.test.mjs` and `test/imgpath.test.mjs` import it directly.
 
 Everything else is tests, tools, documentation or deploy config.
 
@@ -387,9 +403,9 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/` | The deployed site. Cloudflare serves only this directory. |
 | `public/index.html` | The app, plus the vendored renderer block. |
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
-| `src/worker.js` | The Worker: static assets, `POST /upload`, `/<hex>.png` and legacy `/i/<hex>`, the `/px` image proxy, and (1.8.0) `POST /imgbb`. **Unchanged from before 1.0.0 until 1.7.0, by the owner's decision; 1.7.0 added an upload route on the owner's request (`/catbox`), and 1.8.0 replaced it with `/imgbb` when Catbox went down, changing nothing else.** Its own header comments still describe older uses (a picture carrier, a Thermal-preview proxy); the docs here describe what the app uses it for now. `test/imgbb.test.mjs` holds `/imgbb` to its guards with a fake ImgBB. |
-| `wrangler.jsonc` | Workers config: `main`, the two custom domains in `routes`, the `RW_IMG_HOST` var, the `RW_IMG` KV binding. Byte-identical. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.8.0. No runtime deps. |
+| `src/worker.js` | The Worker: static assets, the `/px` image proxy and (1.8.0) `POST /imgbb`. **Changed only on the owner's requests:** unchanged from before 1.0.0 until 1.7.0, which added an upload route (`/catbox`); 1.8.0 replaced it with `/imgbb` when Catbox went down; 1.8.1 removed the old `POST /upload` and its picture routes (`/<hex>.png`, legacy `/i/<hex>`, and `/px`'s answer out of KV for them), which the app stopped using in 1.8.0 and which took a picture from anyone. `test/imgbb.test.mjs` holds `/imgbb` to its guards with a fake ImgBB; `test/imgpath.test.mjs` holds the old paths to the static site. |
+| `wrangler.jsonc` | Workers config: `main`, the app's custom domain in `routes` (1.8.1 removed `i.uwutoowo.com` and the `RW_IMG_HOST` var with `/upload`), the `RW_IMG` KV binding (`/imgbb`'s hourly counts). Changed only on the owner's requests. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.8.1. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -436,13 +452,13 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **195 keys**. Regenerate the list instead of trusting this one:
+test harness **198 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`,
 `cheerBits`, `bitsWord`, `PAPERS`, `paperSpec`, `BASE_PX`, `BASE_LH`, `LEAD_LINE_PX`,
-`mmPerPx`, `targetPaper`, `LETTER_CHROME_PX`, `letterBitsOf`, `colourOf`, `letterDither`, `blockLook`,
+`mmPerPx`, `targetPaper`, `LETTER_CHROME_PX`, `letterBitsOf`, `letterLayoutFor`, `colourOf`, `letterDither`, `blockLook`,
 `allowsHighRoller`, `boxWords`, `tallWords`, `CONTENT_CEILING_PX`, `PX_PER_INCH`, `MAX_CAP_INCHES`, `HR_DEFAULT`, `HR_MAX`,
 `hrThresholdOf`, `bitsPerInchOf`, `maxInchesOf`, `printMode`, `buildMode`, `contentLimitPx`, `bitsRaiseFor`, `partsTally`, `raiseNote`,
 `LEAD_GUARD`, `buildLead`, `leadLength`, `buildTrail`, `trailLength`, `stackContext`,
@@ -465,7 +481,10 @@ test harness **195 keys**. Regenerate the list instead of trusting this one:
 `MIGRATION_BACKUP_NAME`, `TEXT_RENDERS`, `blockRender`, `giantLevelPx`, `THERMAL_DITHERS`,
 `normalizeControls`, `hanziWeightOf`, `GLYPH_TIERS`, `glyphOpts`, `modeNotice`, `noRoomAdvice`, `partsShape`,
 `extraCheers`, `extraCheerLines`, `partsCostWords`, `paidTestNotice`, `wideLine`, `partCheer`, `forkDither`,
-`previewEvent`, `previewVerdict`, `avatarExtraPx`, `designTTextGrid`, `glyphGrid`.
+`previewEvent`, `previewVerdict`, `avatarExtraPx`, (Printer Bot 3.0.4, 1.8.0) `BOT_CHEERMOTES`,
+`printedMessage`, `nonceOn`, `leadLinePx`, `limitLeadPx`, `DESIGN_T_TAIL`, `boxNoRoom`, (a Real
+picture's settings, 1.8.0) `withoutCopies`, `UPLOAD_MAX_SIDE`, `TURN_FRESH_MS`, `realTurn`, `hasTurn`,
+`turnWay`, `turnKey`, `turnedCopyUrl`, `turnedSize`, (1.8.1) `goneWords`, `designTTextGrid`, `glyphGrid`.
 
 ### The pure core, section by section
 
@@ -1044,11 +1063,11 @@ every printed line back against the grid's rows.
 picture on Imgur, Catbox or ImgBB, in a High Roller cheer, when the streamer ticked that site
 under Advanced, Images in messages in the dock (all off by default) and the printer has Allow
 images on (also its default). See the field record for why this is allowed here.
-- `PICTURE_SITES` mirrors the bot's `IMAGE_SITES` and `IMAGE_PATHS` (renderer lines 848-856): ids,
+- `PICTURE_SITES` mirrors the bot's `IMAGE_SITES` and `IMAGE_PATHS` (renderer lines 879-885): ids,
   names, hosts and path shapes, plus each site's own `pages` (imgur.com, ibb.co, catbox.moe) so
   the card can say a page is not the picture. `test/pictures.test.mjs` reads the bot's lists off
   the vendored block and fails when they differ.
-- `pictureLink(raw)` is the bot's `imageSiteLink` (875-888): typed as `https://`, parsed by the
+- `pictureLink(raw)` is the bot's `imageSiteLink` (904-918): typed as `https://`, parsed by the
   browser's `URL` (the harness lends it to the sandbox), no user, password or port, the exact
   host (no look-alike or sub-domain), a direct link's path shape ending in png, jpg, jpeg, gif or
   webp, rebuilt as `https://` + host + path (no query or fragment), 400 characters at most. It
@@ -1258,7 +1277,14 @@ generations; `presetImageUrls` walks a stack's picture links.
   Real picture card, or replaced by an upload, where the old read used to land and print the
   picture the field no longer named) and `_decodeFailed` (the source that
   could not be read; it is not asked again until the link changes, where every refresh used
-  to re-fetch it through /px). A picked file is read on the device and never uploaded, so it
+  to re-fetch it through /px), with `_gone` the same source when `/px` said "upstream said 404"
+  or 410 (1.8.1): the picture is gone, and the Real picture card, the Glyph-art card and the
+  parts' notice say so in `goneWords`' words (ImgBB deletes an upload a day after it was made,
+  and its link then answers 404 with its own "image not found" picture, which the bot's Edge draws:
+  sent anyway, that is what would print; Catbox answers with a page, which the bot prints as
+  [image]; Imgur redirects a deleted picture to its "removed" picture, which reads like any other,
+  so the card's picture and the preview show it). A card's picture (`.img-thumb`) that doesn't load
+  is hidden until the link changes (it showed an empty frame). A picked file is read on the device and never uploaded, so it
   replaces the link (`url` ""), and its name is kept as `fileName` (a saved field): after a
   reload or in a preset the card, the parts placeholder and Save all say to pick it again; text → `buildHanTyped`
   when the render is `typed` (in every mode), else `hanziBodies` when the render is `hanzi` or the
@@ -1412,7 +1438,7 @@ generations; `presetImageUrls` walks a stack's picture links.
   receipt text in a fixed-width box, cut off mid-word); a part with nothing printable in it yet
   (a picture still decoding) is shown but not copyable. `missingPictures` lists every Glyph-art
   block, and every Real picture that prints (`realPrints`), with a source (a link or a picked file's name) that is not in the parts (still loading,
-  a link or file that can't be read, an expired upload, a file to pick again), and the parts
+  a link or file that can't be read, a picture that's gone (1.8.1), an expired upload, a file to pick again), and the parts
   show it in a red notice under the mode notice (`#pictureNote`, `pictureAlert`, one line each,
   "The picture in block 2 from the top …"): as long as another block printed, such a picture
   dropped out of the run with one live Copy and "One 100-bit cheer. Paste it into chat and send
@@ -1447,8 +1473,9 @@ generations; `presetImageUrls` walks a stack's picture links.
   "Uploading to ImgBB…", then "Uploaded to ImgBB ✓", or "Upload failed: " and the route's
   reason, the link field left as it was; 1.7.0 sent it to Catbox) writes the i.ibb.co link into
   the card's Image URL field, under a note beside the file picker that says anyone with the link
-  can see the picture until ImgBB deletes it a day later, and that the link then prints nothing,
-  in a saved preset too; the link and
+  can see the picture until ImgBB deletes it a day later, and that it is gone then and the card
+  will say so, in a saved preset too (1.8.1; 1.8.0 said "the link prints nothing", where the bot
+  would print ImgBB's "image not found" picture); the link and
   the status line are the BLOCK's (`block.url`, the runtime `block._status`) and the image
   card's `syncGlyph` shows them on every refresh, so an upload that lands after the cards were
   redrawn (add, move, ×, Undo, the expiry check) shows on the card on screen, not a detached
@@ -1530,8 +1557,8 @@ hand-written model of the receipt in this app. The pure core's width and height 
 choose sizes and split parts, and a browser test holds them to what `render()` reports.
 
 **The vendored block.** `public/index.html` carries `v/3.0.0/renderer.html` at
-`fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2` (version `202610150141`, Printer Bot 3.0.4, since
-1.8.0; 3.0.1's at `1049292` in 1.4.1, 3.0.0-beta.7's `v/3.0.0-beta.7/renderer.html` at `64afbfc`
+`d4800f82d2074246bb1141def6ba72d713811e2c` (version `202610150536`, Printer Bot 3.0.5, since
+1.8.1; 3.0.4's at `fae1b6d` in 1.8.0, 3.0.1's at `1049292` in 1.4.1, 3.0.0-beta.7's `v/3.0.0-beta.7/renderer.html` at `64afbfc`
 in 1.3.1, beta.6's at `b7f9991` in 1.3.0; 2.5.4's `v/2.5.0/renderer.html` at `b9f12b0` until 1.3.0)
 as inert text,
 `<script type="text/plain" id="sassytp-renderer" data-commit data-path data-version>`, placed
@@ -1624,14 +1651,16 @@ renderer, not this app, decides High Roller or plain, the box and the fade. A fr
 
 **The layout version.** The credit line above the parts (`#rendererCredit`) names the vendored
 layout, read at init from the block's own `data-version` and `data-path` ("Printer Bot
-3.0.0's layout v202610150141": 3.0.4 uses 3.0.0's page folder; `#rendererVersion`,
+3.0.0's layout v202610150536": 3.0.5 uses 3.0.0's page folder; `#rendererVersion`,
 `#rendererCompare`), and says to compare
 it with the Renderer version the streamer's dock shows under Updates: the bot can download a newer
 layout to the dock by itself (UPDATING.md, "Download updates" on by default). Layouts measured to
 print the app's messages the same on a roll are named as such, each with what differs
 (`SAME_PRINTS`; 1.4.1 named 3.0.0-beta.7's and 2.5.4's against 3.0.1's page). Since 1.8.0 none is:
 every layout before 3.0.4 prints each cheer's Cheer word, and the line ends "a Printer Bot older
-than 3.0.4 prints each cheer's Cheer word too." The line also says the preview uses this
+than 3.0.4 prints each cheer's Cheer word too." (3.0.4's own 202610150141 prints the app's messages
+on a roll as 3.0.5's does, by the diff of the two pages, and differs only in Letter's Large message;
+it isn't named, which would take the line past its 360 characters.) The line also says the preview uses this
 computer's fonts; what the thermal view is sits under its "What's this?". On a phone the line sits
 between the blocks and the parts, so a browser test holds it to 360 characters (1.2.0's length; at
 493, CI's fonts put the parts 414px below the blocks, past the phone test's 400).
@@ -1707,8 +1736,8 @@ in colour as drawn, no dots (`data-profile` on the canvas says which).
    an hour. Dev-only: never in CI, and no test imports it.
 2. For a beta, `NODE_USE_ENV_PROXY=1 node tools/vendor-renderer.mjs --prerelease` (see "A beta"
    below); for a stable release or anything else, `--ref <40-hex sha>` with `--path
-   v/X.Y.Z/renderer.html`, the folder `versions.json` names as `latest` (1.8.0: `--ref fae1b6d…
-   --path v/3.0.0/renderer.html`, 3.0.4's, which keeps 3.0.0's folder) (`NODE_USE_ENV_PROXY=1` only
+   v/X.Y.Z/renderer.html`, the folder `versions.json` names as `latest` (1.8.1: `--ref d4800f8…
+   --path v/3.0.0/renderer.html`, 3.0.5's, which keeps 3.0.0's folder) (`NODE_USE_ENV_PROXY=1` only
    matters behind a proxy). Then `node tools/vendor-renderer.mjs --check`. Without `--ref`, the tool (a plain write and
    `--check` alike) follows the commit the committed block names (its `data-commit` and
    `data-path`, and the upstream sha256 in its notice), so the check right after a correct
@@ -1863,13 +1892,15 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 ## Hard constraints: keep these true
 
 > **Exception (added by explicit request):** an optional image backend, `src/worker.js`:
-> `POST /upload` (stores an image in the `RW_IMG` KV namespace with a native 15-minute TTL,
-> 5 MB cap, image/* only), the image routes (`/<hex>.png` and legacy `/i/<hex>`, matched by
-> shape via `imageKeyFor`) and `GET /px?u=<url>`, an image proxy guarded by
-> `isPublicHttpUrl()` (public http(s) only, no loopback/private/link-local hosts, every
-> redirect hop re-validated; covered by `test/proxy.test.mjs`). **Without that guard `/px` is
-> an open relay / SSRF gadget. Do not loosen it.** `src/worker.js` and `wrangler.jsonc` stay
-> as they are unless the owner asks otherwise.
+> `GET /px?u=<url>`, an image proxy guarded by `isPublicHttpUrl()` (public http(s) only, no
+> loopback/private/link-local hosts, every redirect hop re-validated; covered by
+> `test/proxy.test.mjs`). **Without that guard `/px` is an open relay / SSRF gadget. Do not
+> loosen it.** `src/worker.js` and `wrangler.jsonc` stay as they are unless the owner asks
+> otherwise. (Until 1.8.1 the backend also had `POST /upload`, which kept a picture in the
+> `RW_IMG` KV namespace for 15 minutes behind a short link on `i.uwutoowo.com`, and the routes
+> that served it; the owner had them removed in 1.8.1: the app stopped using them in 1.8.0, and
+> `/upload` took a picture from anyone, with no hourly limit, writing to the KV namespace that
+> `/imgbb` keeps its counts in.)
 >
 > **Second exception (1.7.0 and 1.8.0, the owner's requests, 2026-10-14):** `POST /imgbb`. A Real
 > picture card's picked file, and since 1.8.0 a Real picture's turned or adjusted copy that prints,
@@ -1925,8 +1956,9 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
   and since 1.8.0 a Real picture's turned or adjusted copy that prints, drawn the same way; 1.7.0
   sent picked files to `/catbox`, and before that to `/upload` for a 15-minute link). Until 1.8.0 a
   third and a fourth baked the card's turned or adjusted picture through `/px` and `/upload`, for
-  the card's view only; the card now draws it on the device, and the page no longer calls `/upload`
-  (the Worker still serves it, and old minted links). Two fire without a dedicated click: typing a
+  the card's view only; the card now draws it on the device, and since 1.8.1 the Worker has no
+  `/upload` (old minted links in a saved preset load nothing, and the expiry check says so). Two
+  fire without a dedicated click: typing a
   picture link, and a copy that prints (in a High Roller cheer, once a Rotate, Brightness or
   Contrast change has rested 0.8 s, or when a saved copy is over 20 hours old). The preview and the
   Thermal preview fetch nothing. The vendored renderer
@@ -2030,9 +2062,10 @@ lives in `test-browser/` and is not in the default matcher.
 - **Playwright init scripts also run inside the sandboxed preview frames**, which have no
   `localStorage`: wrap storage access in try/catch and guard page-only patches with
   `window.parent === window`.
-- Anything needing the Worker (`/px`, `/upload`) is not faked; the browser tests use data: URLs
-  for pictures (`window.__rwPictureStub` stands a data: picture in for a link's read through
-  `/px`). Check those flows against `wrangler dev` by hand. `/imgbb` (1.8.0; `/catbox` in 1.7.0) is
+- The Worker itself doesn't run in the browser tests: they use data: URLs for pictures
+  (`window.__rwPictureStub` stands a data: picture in for a link's read through `/px`), and a
+  Playwright route stands in for `/px` where its answer matters (1.8.1: "upstream said 404" for a
+  picture that's gone). Check those flows against `wrangler dev` by hand. `/imgbb` (1.8.0; `/catbox` in 1.7.0) is
   stood in for by a Playwright route in the browser tests, and the route itself is driven in
   `test/imgbb.test.mjs` with a stubbed `fetch` as ImgBB and a fake KV: **no test, tool or hand
   check uploads to the real ImgBB (or Catbox)**, where an upload is public. (Once, on 2026-10-14,
@@ -2045,19 +2078,29 @@ lives in `test-browser/` and is not in the default matcher.
   place and kept declarations), makes a copy through a stood-in `/imgbb` (one upload once a slider
   rests, reused after a reload, made again past 20 hours, Try again after a refusal, nothing
   copyable meanwhile), and reads Han text's printed lines back with the tail's light cell last.
+- **Printer Bot 3.0.5 and a picture that's gone (1.8.1).** `test/bot305.test.mjs` holds
+  `letterLayoutFor` to 3.0.5's rule and reads the rule itself (`largePage: isHighRoller`,
+  `layoutFor`) off the vendored page; the MANDATORY contract test holds it to the layout the page
+  drew for every part (`#receipt-container.letter-message`) and asserts it saw both a large page
+  and a Large message printer's Scaled page for a cheer under the threshold. `goneWords` is unit
+  tested in `test/pictures.test.mjs`, and a browser test stands a "gone" `/px` in for a Real picture
+  and a Glyph-art picture (their cards, the parts' notice, the hidden card picture, and a link that
+  fails another way keeping its old words). `test/imgpath.test.mjs` holds the old upload paths to
+  the static site, and `test/proxy.test.mjs` holds `/px` to never reading KV.
 
 ## Deployment (Cloudflare Workers)
 
 - Workers Builds is connected. `src/worker.js` serves `public/` as
-  [static assets](https://developers.cloudflare.com/workers/static-assets/) and handles
-  `/upload`, the image routes and `/px`.
-- **Two custom domains, both declared in `wrangler.jsonc` `routes`:** `receipt.uwutoowo.com`
-  (the app) and `i.uwutoowo.com` (short host for uploaded links). Both must stay listed: once
-  routes are in config, config is the source of truth, and listing one invites a deploy to drop
-  the other.
-- `vars.RW_IMG_HOST` = `i.uwutoowo.com` makes `/upload` mint 39-character links. It falls back to
-  the request origin when unset. Only set it while that host really answers.
-- `kv_namespaces`: `RW_IMG` holds uploads with a native 15-minute TTL.
+  [static assets](https://developers.cloudflare.com/workers/static-assets/) and handles `/px`
+  and `/imgbb`.
+- **One custom domain, declared in `wrangler.jsonc` `routes`:** `receipt.uwutoowo.com`. Once
+  routes are in config, config is the source of truth: a deploy reconciles the Worker's routes to
+  the list, so anything that must stay reachable has to be listed. (`i.uwutoowo.com`, the short
+  host of `/upload`'s links, was listed until 1.8.1, which removed it with `/upload` and the
+  `RW_IMG_HOST` var on the owner's request; its deploy detaches the domain.)
+- `kv_namespaces`: `RW_IMG` holds `/imgbb`'s hourly counts (`upload-rate/…`). The ImgBB API key is
+  the Worker secret `IMGBB_KEY` (set in the dashboard or with `wrangler secret put`, never in
+  config); without it `/imgbb` answers "uploads are off right now".
 - CI validates every push and PR to `main` with `npx wrangler deploy --dry-run`; the workflow
   itself never deploys.
 - **Workers Builds does: every push to `main` auto-deploys to production within ~15 s.**

@@ -172,3 +172,23 @@ test("stackContext carries the sites to the builders", () => {
   eq(C.stackContext({ cheer: true, imageSites: ["imgbb", "imgur"] }).imageSites, ["imgur", "imgbb"]);
   eq(C.stackContext({ cheer: true }).imageSites, []);
 });
+
+test("1.8.1: a picture whose link answers “not found” says it's gone, and what the bot would print in its place", () => {
+  const ibb = "https://i.ibb.co/AbC1234/p.jpg", cat = "https://files.catbox.moe/abc123.png", other = "https://example.com/p.png";
+  // ImgBB deletes an upload a day after it was made, and its link then answers 404 with its own
+  // "image not found" picture, which the bot's Edge draws: sent anyway, that would print.
+  assert.equal(C.goneWords(ibb, "real"), "This picture is gone: ImgBB deletes an upload a day after it was made. "
+    + "Printer Bot would print ImgBB's “image not found” picture in its place, so this block prints nothing. "
+    + "Pick the file again to upload a new copy, or paste another link.");
+  // Catbox answers with a page, which the bot prints as [image].
+  assert.equal(C.goneWords(cat, "real"), "This picture is gone: Catbox answers “not found”. "
+    + "Printer Bot would print [image] in its place, so this block prints nothing. Paste another link, or pick the file to upload it to ImgBB.");
+  // Glyph-art never sends the link: no word of what the bot would print.
+  assert.equal(C.goneWords(ibb, "glyph"), "This picture is gone: ImgBB deletes an upload a day after it was made, so this block prints "
+    + "nothing. Pick the file instead, or paste another link.");
+  assert.equal(C.goneWords(other, "glyph"), "This picture is gone: its site answers “not found”, so this block prints nothing. "
+    + "Paste another link, or pick the file instead.");
+  // The parts' notice, after "isn't in these parts: ".
+  assert.match(C.goneWords(ibb, "alert"), /^it's gone from ImgBB, which deletes an upload a day after it was made\. Pick the file again or paste another link\.$/);
+  assert.match(C.goneWords(other, "alert"), /^its link answers “not found”, so the picture is gone\./);
+});

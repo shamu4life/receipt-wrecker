@@ -7,7 +7,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import worker, { imageKeyFor } from "../src/worker.js";
+import worker from "../src/worker.js";
 
 const ORIGIN = "https://receipt.uwutoowo.com";
 const KEY = "test-imgbb-key";
@@ -255,7 +255,7 @@ test("the old /catbox route is gone, the counters can never be served as a pictu
   const env = envOf();
   const res = await worker.fetch(new Request(ORIGIN + "/catbox", { method: "POST", headers: { origin: ORIGIN } }), env);
   assert.equal(await res.text(), "asset", "/catbox falls through to the static site");
-  assert.equal(imageKeyFor("/upload-rate/0123456789abcdef/123"), null);
-  assert.equal(imageKeyFor("/imgbb"), null);
+  // No route reads KV (1.8.1: the old picture routes are gone), so a counter's key as a path is the static site's.
+  assert.equal(await (await worker.fetch(new Request(ORIGIN + "/upload-rate/0123456789abcdef/123"), env)).text(), "asset");
   assert.equal(await (await worker.fetch(new Request(ORIGIN + "/robots.txt"), env)).text(), "asset");
 });

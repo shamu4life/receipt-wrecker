@@ -84,10 +84,10 @@ import { inflateSync } from "node:zlib";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..");
 
-// The same pin as tools/forkbench.mjs: printer-bot 3.0.4, its page v/3.0.0/renderer.html, receipt
-// page version 202610150141 (1.8.0; the app follows the newest release, beta or stable, since 1.3.0,
+// The same pin as tools/forkbench.mjs: printer-bot 3.0.5, its page v/3.0.0/renderer.html, receipt
+// page version 202610150536 (1.8.1; the app follows the newest release, beta or stable, since 1.3.0,
 // which vendored 3.0.0-beta.6 at b7f9991; 1.3.1 3.0.0-beta.7 at 64afbfc; 1.4.1 3.0.1 at 1049292;
-// 2.5.4's page was b9f12b0, v/2.5.0/renderer.html).
+// 1.8.0 3.0.4 at fae1b6d; 2.5.4's page was b9f12b0, v/2.5.0/renderer.html).
 const REPO_URL = "https://github.com/SassyTP/printer-bot";
 const RAW = "https://raw.githubusercontent.com/SassyTP/printer-bot/";
 const API = "https://api.github.com/repos/SassyTP/printer-bot";
@@ -95,9 +95,9 @@ const BETA_BRANCH = "beta";
 // A version as versions.json names one (core.prerelease "3.0.0-beta.7"), which becomes a folder name:
 // no slash, no "..".
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
-const PINNED_SHA = "fae1b6d90ad86cf86a6648d3d510b0d82fdb75a2";
+const PINNED_SHA = "d4800f82d2074246bb1141def6ba72d713811e2c";
 const PINNED_PATH = "v/3.0.0/renderer.html";
-const PINNED_SHA256 = "f4f4d5bbb25f352324261df90303ec3517617a49effd5610e644fd61734afa06";
+const PINNED_SHA256 = "94704db2b114e7646bb3130f0ebcc1078fc3b6d7d3c637878528da9e18e270cf";
 const DEFAULT_FILE = join(REPO, "public", "index.html");
 
 const BEGIN = "<!-- BEGIN vendored SassyTP printer-bot renderer: tools/vendor-renderer.mjs writes everything from here to END; do not edit by hand -->";

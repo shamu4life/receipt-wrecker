@@ -12,6 +12,66 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.8.1] - 2026-10-15
+
+### Changed
+
+- **The preview draws with Printer Bot 3.0.5's page** (`v/3.0.0/renderer.html` at `d4800f8`,
+  layout 202610150536), and the app follows its one change for a Twitch cheer: a Letter printer
+  set to **Large message** gives the large layout only to a cheer of the High Roller threshold or
+  more (`present()`'s new `layoutFor`). Any other cheer, below the threshold or every cheer while
+  High Roller is off, prints as Scaled like 80 mm does, with its 6 cm or so of room, and the app now
+  builds and previews it that way (`letterLayoutFor`); 1.8.0 built it for the 16 cm of the large
+  page, which 3.0.5 would cut. The amount decides, not the printer's Allow High Roller prints. A
+  free test is drawn as a High Roller cheer, so it keeps the large page. 3.0.5's other changes are
+  for YouTube (a Super Chat gets a cheer's header), gift subs, the dock and how Edge starts; its C#
+  draws, greys and dithers a cheer as 3.0.4's did. On a roll, 3.0.4's page prints the app's
+  messages exactly as 3.0.5's.
+
+### Added
+
+- **A picture whose link is gone says so.** When a picture's site answers "not found" (an ImgBB
+  upload a day after it was made, or a deleted Catbox picture), its card says the picture is gone
+  and why, the red notice above the parts says the same, and the block prints nothing. Measured
+  on 2026-10-15: ImgBB answers a missing picture with a 404 holding its own "image not found"
+  picture, which Chromium, the engine of the bot's Edge, draws as a picture, so sent anyway that
+  is what Printer Bot would print; a missing Catbox picture is a page, which the bot prints as
+  [image]. Imgur sends a deleted picture's link on to its own "removed" picture, which reads like
+  any other, so the card's picture and the preview show it. A link that can't be read for another
+  reason keeps the words it had, and a card's picture that doesn't load leaves no empty frame.
+
+### Removed
+
+- **The old `/upload` route and its short links** (the owner's decision). Since 1.8.0 the app
+  never called it (a Real picture's copy goes to ImgBB, and its card's picture is drawn on the
+  device), and it took a picture from anyone, with no hourly limit, for a 15-minute link on
+  `i.uwutoowo.com`, writing to the KV namespace `/imgbb` keeps its hourly counts in. Gone with it:
+  the routes that served its pictures (`/<hex>.png`, `/i/<hex>`), `/px`'s answer out of KV for
+  them, the `RW_IMG_HOST` var, and the `i.uwutoowo.com` domain, which this release's deploy
+  detaches from the Worker. Every link `/upload` made expired 15 minutes after it was made; one
+  still in a saved preset loads nothing, and the expiry check says so, as before. The `RW_IMG` KV
+  binding stays for `/imgbb`.
+
+### Fixed
+
+- A Real picture card's note beside the file picker said that after a day "the link prints
+  nothing"; it says the picture is gone then, and that the card will say so.
+- `CLAUDE.md` pointed five renderer references at the wrong lines (`present()`,
+  `shrinkPictures`, `photoRects`, `IMAGE_SITES` and `IMAGE_PATHS`, `imageSiteLink`), and its list of
+  the core's keys missed 16 that 1.8.0 added. The contributing guide, the security policy and the
+  pull request template still described `/upload` and four `fetch` call sites; they describe
+  `/px` and `/imgbb` now.
+
+### How sure
+
+- 306 unit tests and 100 browser tests. The contract test holds the app's Letter
+  layout to the one 3.0.5's page draws for every part, and saw both a large page and a Large
+  message printer's Scaled page; with 1.8.0's rule put back it fails ("the page drew no large
+  layout"). The new rule was broken on purpose seven ways, and six were caught; the seventh can't
+  change what is built (the High Roller test's cheer is always the threshold's). The gone-link
+  browser test fails on 1.8.0's code. Nothing was uploaded to the real ImgBB: what ImgBB, Imgur
+  and Catbox answer for a missing picture was read with GETs of made-up addresses.
+
 ## [1.8.0] - 2026-10-15
 
 ### Changed

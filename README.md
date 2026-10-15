@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.8.0](https://img.shields.io/badge/version-1.8.0-blue)](docs/CHANGELOG.md)
+[![Version 1.8.1](https://img.shields.io/badge/version-1.8.1-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -18,9 +18,9 @@ prints it as big as the paper allows on a printer driven by
 Receipt Wrecker is a single HTML file with no dependencies. You build a stack of blocks
 (text and pictures), it packs them into as few chat messages as it can, and you paste each
 one into Twitch chat as a cheer. The preview shows each message drawn by the bot's own
-receipt code: the newest Printer Bot release, 3.0.4, which leaves each cheer's `Cheer100` word
-out of what it prints. A streamer on an older Printer Bot prints that word too (a line above each
-High Roller part); everything else prints the same on a receipt printer.
+receipt code: the newest Printer Bot release, 3.0.5. Since 3.0.4 the bot leaves each cheer's
+`Cheer100` word out of what it prints; a streamer on an older Printer Bot prints that word too (a
+line above each High Roller part), and everything else the same on a receipt printer.
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
 > different printer bot (nutty.gg's). Everything made for that one is gone, and saved work
@@ -104,7 +104,9 @@ starts at, and the Letter printer's card as it is in the dock:
 - **Letter layout.** *Scaled like 80 mm* prints the roll's receipt on the page, larger: under
   its big profile picture a message gets about 6 cm of the page. *Large message* puts a small
   picture beside the name and gives the message most of the page, about 16 cm. It lays the
-  message out from the left, so a Big text or Glyph-art block centres itself there.
+  message out from the left, so a Big text or Glyph-art block centres itself there. Since Printer
+  Bot 3.0.5 only a cheer of the High Roller threshold or more gets Large message; a smaller one
+  prints Scaled like 80 mm, and the app builds and previews it that way.
 - **Image fit** (Large message only): how a picture from a link fills the space the words leave
   it. Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the
   space.
@@ -321,8 +323,9 @@ settings here.
 The easiest way (since 1.8.0): **pick a file on the card**. It goes to ImgBB through this site,
 and its `https://i.ibb.co/` link fills the card's Image URL field by itself (the streamer needs
 ImgBB switched on). The card says it first, beside the file picker: anyone with the link can see
-the picture until ImgBB deletes it, a day later; after that the link prints nothing, in a saved
-preset too. (It goes through this site's server, which uploads with the site owner's ImgBB key,
+the picture until ImgBB deletes it, a day later. After that it's gone, and the card says so, in a
+saved preset too (since 1.8.1: sent anyway, Printer Bot would print ImgBB's "image not found"
+picture in its place, so the block prints nothing). (It goes through this site's server, which uploads with the site owner's ImgBB key,
 so the key never reaches the page. The server takes only JPEG pictures from this page, 20 uploads
 an hour from one person. 1.7.0 uploaded to Catbox, until Catbox went down.)
 
@@ -371,7 +374,7 @@ where the bot's box cuts it off and any fade come from the bot's own code. The T
 the footer is a grey box here.
 
 The line above the parts names the layout the preview draws with: *Printer Bot 3.0.0's layout
-v202610150141* (Printer Bot 3.0.4 uses 3.0.0's layout). SassyTP's bot can download a newer layout
+v202610150536* (Printer Bot 3.0.5 uses 3.0.0's layout). SassyTP's bot can download a newer layout
 to the streamer's dock by itself, so if their dock shows another **Renderer** version under
 **Updates**, the preview may not match their printer. A Printer Bot older than 3.0.4 prints each
 cheer's `Cheer100` word too (a line above each High Roller part, and the word at the end of a plain
@@ -534,10 +537,12 @@ Storage is four `localStorage` keys, all optional: `rw_controls_v1` (settings),
 
 The repo is set up for **Cloudflare Workers**. [`src/worker.js`](src/worker.js) serves
 `public/` as [static assets](https://developers.cloudflare.com/workers/static-assets/) and
-handles `POST /upload`, the image links and the `/px` proxy. The config is
-[`wrangler.jsonc`](wrangler.jsonc): two custom domains in `routes` (both must stay listed),
-an `RW_IMG_HOST` var (a short host for upload links; leave it out until that host answers)
-and the `RW_IMG` KV namespace. A fork needs its own KV namespace and domains, or none.
+handles the `/px` proxy and `POST /imgbb` (a Real picture's upload to ImgBB). The config is
+[`wrangler.jsonc`](wrangler.jsonc): the custom domain in `routes` and the `RW_IMG` KV namespace,
+where `/imgbb` keeps its hourly counts. Uploads also need an ImgBB API key as the Worker secret
+`IMGBB_KEY` (`npx wrangler secret put IMGBB_KEY`); without it they say "uploads are off right
+now". A fork needs its own KV namespace and domain, or none. (1.8.1 removed the old `/upload`
+route, its picture links and their short host.)
 
 ```sh
 npx wrangler dev      # local preview with the Worker

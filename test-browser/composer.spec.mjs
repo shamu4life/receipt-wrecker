@@ -267,10 +267,13 @@ async function drawnPart(page, i, payload) {
 // is exactly what was sent. Plain parts print as text: the text must be the payload itself.
 // `sent` is what the bot keeps of the payload: since Printer Bot 3.0.4 it takes the Cheer word
 // out first (the core's printedMessage, the renderer's cheerWords), so callers pass that.
+// `large`: the page drew Letter's large layout (#receipt-container.letter-message), which since
+// Printer Bot 3.0.5 it decides itself, by the cheer's bits.
 function frameContract(frame, sent) {
   return frame.evaluate((sent) => {
-    const part = document.querySelector("#receipt-content > .part");
-    const out = { partClass: part ? part.className : "", problems: [], noOps: 0, violations: window.PrinterBot.violations() };
+    const part = document.querySelector("#receipt-content > .part"), rc = document.getElementById("receipt-container");
+    const out = { partClass: part ? part.className : "", problems: [], noOps: 0, violations: window.PrinterBot.violations(),
+                  large: !!(rc && rc.classList.contains("letter-message")) };
     if (!part) { out.problems.push("no part in the receipt"); return out; }
     if (!/\braw\b/.test(part.className)) {
       if (part.textContent !== sent) out.problems.push("plain text differs: " + JSON.stringify(part.textContent.slice(0, 80)));
@@ -867,7 +870,9 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, allowHighRoller: false },                      // 1.3.0: Printer Bot 3.0's switch off at 100 bits, read by the page itself
     // 1.6.0: a cheer of the Letter printer's bits, built for its page: Scaled like 80 mm (about 2
     // inches under the profile picture), Large message in colour (the blocks centred and coloured),
-    // and a plain cheer on Letter (23 Han cells a row), each cut at the end of its one page.
+    // and a plain cheer on Letter (23 Han cells a row), each cut at the end of its one page. A printer
+    // set to Large message prints that plain cheer Scaled like 80 mm (Printer Bot 3.0.5: the large
+    // page is for a cheer of the threshold or more).
     { ...SETTINGS, bits: 600, letterBits: 500 },
     { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", coloured: true },
     { ...SETTINGS, bits: 600, letterBits: 500, hrThreshold: 1000, letterLayout: "message" },
@@ -876,7 +881,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", bitsPerInch: 200 },
   ];
   const heights = [];
-  let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0;
+  let trimmedSeen = 0, rawSeen = 0, plainSeen = 0, noOps = 0, largeSeen = 0, scaledByBitsSeen = 0;
   const check = async (page, i, payload, want, s, label) => {
     const { frame, last, verdict } = await drawnPart(page, i, payload);
     const pe = C.previewEvent({ payload, bits: want.bits ?? s.bits, cheer: want.cheer ?? s.cheer, hrThreshold: s.hrThreshold, bitsPerInch: s.bitsPerInch,
@@ -892,6 +897,12 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     assert.deepEqual(k.problems, [], label + ": " + payload.slice(0, 80));
     assert.equal(k.violations, 0, label + ": a securitypolicyviolation in the frame");
     noOps += k.noOps;
+    // Since Printer Bot 3.0.5 a printer set to Large message gives the large page only to a cheer of
+    // the threshold or more (a free test is drawn as one): the app's letterLayoutFor must agree.
+    const large = !!last.options.pageHeightPx && C.letterLayoutFor({ letterLayout: s.letterLayout, cheer: want.cheer ?? s.cheer,
+                                                                     bits: want.bits ?? s.bits, hrThreshold: s.hrThreshold }) === "message";
+    assert.equal(k.large, large, label + ": the page drew " + (k.large ? "the large layout" : "no large layout"));
+    if (k.large) largeSeen++; else if (last.options.layout === "message") scaledByBitsSeen++;
     // The renderer, not the app, decides raw or plain: it must agree with the app's mode.
     const raw = /\braw\b/.test(k.partClass);
     if (raw) rawSeen++; else plainSeen++;
@@ -899,14 +910,14 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     // Cut only where the app itself said it would be. (Not for a face this browser can't draw: it
     // draws another font there, whose lines run longer, wrap and spill; only the markup is held.)
     if (want.markupOnly) return;
-    const cut = last.options.layout === "message" ? last.measure.partsPx > last.measure.contentPx + 1
+    const cut = k.large ? last.measure.partsPx > last.measure.contentPx + 1
       : !!r.trimmed || last.measure.fullPx > last.measure.contentPx + 1;
     if (cut) { trimmedSeen++; assert.ok(want.warned, label + ": the bot cuts a part the app expected to fit: " + JSON.stringify(r.trimmed)); }
     assert.ok(!/expected it to fit/.test(verdict), label + ": " + verdict);
     // As tall as the core predicted. (In Letter's Large message the box grows to fill the page,
     // so there the parts' own height is the message's.)
     if (want.contentPx != null) {
-      const shown = last.options.layout === "message" ? last.measure.partsPx : last.measure.fullPx;
+      const shown = k.large ? last.measure.partsPx : last.measure.fullPx;
       const d = shown - want.contentPx;
       heights.push({ label, d: Math.round(d * 100) / 100 });
       const under = /writing-mode:/.test(payload) ? HEIGHT_UNDER_SIDEWAYS : HEIGHT_OVER;
@@ -969,8 +980,9 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     await ctx.close();
   }
   // 1.6.0: both probes on Letter: the High Roller test at a threshold the Letter printer takes, and
-  // the Plain test one under a threshold above the Letter printer's bits, in Large message (in
-  // Scaled like 80 mm the page has room for its tones row only, and it sends that).
+  // the Plain test one under a threshold above the Letter printer's bits. Since Printer Bot 3.0.5 the
+  // Plain test prints Scaled like 80 mm in either layout, where the page has room for its tones row
+  // only, and it sends that.
   for (const letterLayout of ["scaled", "message"]) {
     const s = { ...SETTINGS, letterBits: 500, letterLayout, hrThreshold: 600 };
     const { page, ctx, errors } = await freshPage({ controls: s });
@@ -1025,6 +1037,8 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
   assert.ok(rawSeen > 20 && plainSeen > 4, "fixture: too few parts of each kind (" + rawSeen + " raw, " + plainSeen + " plain)");
   assert.ok(trimmedSeen > 0, "fixture: the length-limit config should make the bot cut a part the app warned about");
   assert.ok(noOps > 0, "fixture: no font shorthand reset was checked");
+  assert.ok(largeSeen > 0 && scaledByBitsSeen > 0, "fixture: Letter's large layout (" + largeSeen + ") and a Large message printer's "
+    + "Scaled page for a cheer under the threshold (" + scaledByBitsSeen + ") should both be drawn");
   if (process.env.RW_HEIGHTS) console.log(JSON.stringify(heights));
 });
 
@@ -3073,12 +3087,13 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // 1.8.0: the page is Printer Bot 3.0.4's (it uses 3.0.0's layout folder, so the line says 3.0.0).
-  // 3.0.4 leaves each cheer's Cheer word out, and every older layout prints it (1.4.1 named
-  // 3.0.0-beta.7's and 2.5.4's as printing the same as 3.0.1's), so the line names none and says what
-  // an older one adds.
-  assert.equal(v, "202610150141");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610150141, in this computer's fonts, which may differ from the streamer's\. /);
+  // 1.8.1: the page is Printer Bot 3.0.5's (it uses 3.0.0's layout folder, so the line says 3.0.0).
+  // Since 3.0.4 the bot leaves each cheer's Cheer word out, and every older layout prints it (1.4.1
+  // named 3.0.0-beta.7's and 2.5.4's as printing the same as 3.0.1's), so the line names none and
+  // says what an older one adds. (3.0.4's own layout prints the app's messages on a roll as 3.0.5's
+  // does; naming it would take the line past its 360 characters.)
+  assert.equal(v, "202610150536");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610150536, in this computer's fonts, which may differ from the streamer's\. /);
   assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match: a Printer Bot older than 3\.0\.4 prints each cheer's Cheer word too\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
@@ -3871,7 +3886,7 @@ test("1.8.0: picking a file on a Real picture card uploads it to ImgBB through t
     } });
   const card = cards(page).first();
   // Before anything is picked, the card says where the picture goes and what that means.
-  assert.match(await card.textContent(), /Picking a file uploads it to ImgBB \(i\.ibb\.co\) through this site, and its link fills in above\. Anyone with the link can see the picture until ImgBB deletes it, a day later: after that the link prints nothing, in a saved preset too\./);
+  assert.match(await card.textContent(), /Picking a file uploads it to ImgBB \(i\.ibb\.co\) through this site, and its link fills in above\. Anyone with the link can see the picture until ImgBB deletes it, a day later\. After that it's gone, and this card says so, in a saved preset too\./);
   await card.locator("input[type=file]").setInputFiles({ name: "big.png", mimeType: "image/png", buffer: big });
   await page.waitForFunction(() => /Uploaded to ImgBB ✓/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
   assert.equal(await card.locator("input[type=url]").inputValue(), link);
@@ -4077,6 +4092,39 @@ test("1.8.0: an upload this site or ImgBB refuses says why on the card, and leav
   await page.waitForFunction(() => /Upload failed/.test(document.querySelector("#blockList > .block-card").textContent), null, { timeout: 8000 });
   assert.match(await card.textContent(), /Upload failed: 20 uploads an hour is the most: try again later\./);
   assert.equal(await card.locator("input[type=url]").inputValue(), "https://example.com/kept.png");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("1.8.1: a picture whose link is gone says so on its card and above the parts, and its card shows no empty frame", async () => {
+  const GONE = "https://i.ibb.co/Gon1234/p.jpg", DOWN = "https://i.ibb.co/Dwn1234/p.jpg";
+  const blocks = [BIG({ id: 1, text: "HI" }), REAL({ id: 2, url: GONE }), GLYPH({ id: 3, url: GONE })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: { ...SETTINGS, imageSites: ["imgbb"] },
+    routes: async (c) => {
+      // What /px answers when the picture's site answers 404 (ImgBB, a day after an upload), and when
+      // it can't reach the site at all.
+      await c.route("**/px?u=*", (r) => r.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({
+        error: /Gon1234/.test(decodeURIComponent(r.request().url())) ? "upstream said 404" : "could not fetch that image" }) }));
+    } });
+  const real = cards(page).nth(1), glyph = cards(page).nth(2);
+  await page.waitForFunction(() => /This picture is gone/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  assert.match(await real.locator(".pic-note").textContent(), /^This picture is gone: ImgBB deletes an upload a day after it was made\. Printer Bot would print ImgBB's “image not found” picture in its place, so this block prints nothing\. Pick the file again to upload a new copy, or paste another link\./);
+  assert.match(await glyph.textContent(), /This picture is gone: ImgBB deletes an upload a day after it was made, so this block prints nothing\. Pick the file instead, or paste another link\./);
+  const note = await page.textContent("#pictureNote");
+  assert.match(note, /The picture in block 2 from the top isn't in these parts: it's gone from ImgBB, which deletes an upload a day after it was made\. Pick the file again or paste another link\./);
+  assert.match(note, /The picture in block 3 from the top isn't in these parts: it's gone from ImgBB/);
+  // The card's picture didn't load either: no empty frame in its place.
+  await page.waitForFunction(() => document.querySelectorAll("#blockList > .block-card")[1].querySelector(".img-thumb").hidden, null, { timeout: 8000 });
+  // Only the text prints.
+  await settled(page);
+  const got = await copyAll(page);
+  assert.equal(got.length, 1);
+  assert.ok(!/ibb\.co/.test(got[0]), got[0]);
+  // A link that can't be read for any other reason keeps the words it had.
+  await real.locator("input[type=url]").fill(DOWN);
+  await page.waitForFunction(() => /couldn't be read/.test(document.querySelectorAll("#blockList > .block-card")[1].textContent), null, { timeout: 8000 });
+  assert.match(await real.locator(".pic-note").textContent(), /^The picture couldn't be read\. Check the link\. Until then this block prints nothing\./);
+  assert.match(await page.textContent("#pictureNote"), /The picture in block 2 from the top isn't in these parts: its link can't be read\./);
   assert.deepEqual(errors, []);
   await ctx.close();
 });

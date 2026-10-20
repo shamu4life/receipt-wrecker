@@ -13,8 +13,11 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.8.1 (2026-10-15). Before 1.0.0 the tool targeted a different printer
-  bot (nutty.gg's); that support was removed.
+- Current version: 1.9.0 (2026-10-20). Before 1.0.0 the tool targeted a different printer
+  bot (nutty.gg's); that support was removed. 1.9.0 tracks the Printer Bot 3.2.0-beta.7
+  prerelease: a Real picture can be an Imgur/Catbox/ImgBB album or picture-page link (the first
+  picture is looked up), and the tool models two more printers a streamer can route big cheers
+  to, a Brother VC-500W sticker printer and a 4 x 6 in card printer.
 - No accounts, no analytics. The one third party it sends anything to is ImgBB: a file a viewer
   picks on a Real picture card, and a Real picture's adjusted copy (see Privacy).
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -149,6 +152,10 @@ operations call this project's own Cloudflare Worker, and two go on to ImgBB:
 
 - Pasting a picture link fetches the picture through an image proxy, because a browser canvas
   cannot read another site's pixels directly.
+- Pasting an Imgur/Catbox/ImgBB album or picture-page link (since 1.9.0) asks the Worker to look up
+  the album's first picture, the same lookup Printer Bot does at print time, so the preview shows
+  what will print. The Worker fetches only the fixed public pages of those three sites. The link
+  the viewer typed still goes out in the cheer unchanged; the lookup is only for the preview.
 - On a "Real picture" card, picking a file (since 1.8.0) redraws it on the device (at most 1600 px,
   a JPEG, without the photo's hidden details) and sends it through the Worker to ImgBB (i.ibb.co),
   whose link then fills the card's link field. The picture is public to anyone with the link until

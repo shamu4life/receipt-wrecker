@@ -12,6 +12,47 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.9.0] - 2026-10-20
+
+Catches the app up to the **Printer Bot 3.2.0-beta.7** prerelease (`v/3.2.0-beta.7/renderer.html` at
+`e05c032`, layout 202610191933), from the 3.0.5 page 1.8.1 vendored. The jump folds in every release
+between: 3.0.6–3.0.11, 3.1.0–3.1.1 and the 3.2.0 betas.
+
+### Changed
+
+- **The preview draws with Printer Bot 3.2.0-beta.7's page.** The app tracks the newest release, beta
+  or stable (since 1.3.0); the vendored renderer, its pins (`tools/vendor-renderer.mjs`,
+  `tools/forkbench.mjs`) and the preview's credit line all move to it. The renderer's regions the app
+  depends on changed only for the two features below.
+- **A removed cheermote takes one of its spaces (Printer Bot 3.0.6).** When the bot strips a cheer's
+  `Cheer100` (and any cheermote word) from the message, it now takes one of the spaces around it, so
+  no gap is left where it was (3.0.4/3.0.5 left both spaces); and a cheermote's number must be 1 to
+  100,000 with no leading zero, so `Cheer0`, `Cheer007` and `Cheer100001` stay as the viewer's words.
+  The app's `printedMessage` mirrors the renderer's reworked `cheerWords` exactly, so the Design T
+  tail and the High Roller lead stay right.
+
+### Added
+
+- **A Real picture can be an album or a picture page** (Printer Bot 3.0.11 and 3.1.0), not just a
+  direct link: an Imgur `/a/` or `/gallery/` link, a Catbox `catbox.moe/c/` collection, an ImgBB
+  `ibb.co/album/` album (with `?sort=`) or an `ibb.co/<id>` picture page, and the no-lookup forms the
+  bot rebuilds on its own (`imgur.com/<id>`, an `i.imgur.com/<id>` with no ending, a Catbox
+  thumbnail, `i.ibb.co.com`). Printer Bot looks the album's first picture up at print time; the app
+  asks its own Cloudflare Worker (`/resolve`, a faithful port of the bot's compiled resolver) to look
+  up the same one, so the preview shows what will print. **The viewer's link always goes out in the
+  cheer unchanged** (THE RULE): the lookup is only for the preview. An album with no picture prints
+  `[image]`; one whose first item is a video stays as text; the card says which.
+- **A sticker printer** (Printer Bot 3.2.0): a streamer can route big cheers to a Brother VC-500W
+  label printer's tape (9, 12, 19, 25 or 50 mm wide). A High Roller cheer prints centred on the tape,
+  capped at 16.5 inches; a smaller cheer prints on the tape as on a narrow roll. Set the bits its rule
+  starts at and the tape width under "A sticker printer".
+- **A 4 × 6 in card printer** (Printer Bot 3.2.0): a streamer can route big cheers to a 4 × 6 in card.
+  Printer Bot draws the whole message on **one card, shrinking it to fit**, so the size picked for text
+  is the proportion, not the final size; a non–High-Roller cheer prints the 80 mm roll scaled onto the
+  card. Set the bits its rule starts at and the image fit under "A 4 × 6 in card printer". The preview
+  shows what the card actually prints. When a cheer reaches more than one special printer (Letter,
+  sticker, card), the one with the highest bits threshold it meets wins.
+
 ## [1.8.1] - 2026-10-15
 
 ### Changed

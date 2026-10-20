@@ -35,17 +35,13 @@ test("pictureLink: a direct picture link, by the bot's own rules (imageSiteLink,
   no("http://i.imgur.com/abc.png", "https");
   no("https:/i.imgur.com/abc.png", "https");
   no("i.imgur.com/abc.png", "https");
-  // A page of the site is not the picture itself.
-  no("https://imgur.com/abc1234", "page");
-  no("https://imgur.com/a/abc1234", "page");
-  no("https://ibb.co/AbC123", "page");
-  no("https://catbox.moe/", "page");
-  // The right host, but not the shape of a direct picture link (an album, a video, an SVG, too short).
-  no("https://i.imgur.com/a/abc1234", "direct");
-  no("https://i.imgur.com/abc.gifv", "direct");
-  no("https://i.imgur.com/abc.svg", "direct");
-  no("https://i.imgur.com/ab.png", "direct");
-  no("https://i.ibb.co/abc.png", "direct");
+  // A site's host, but not a picture, an album or a picture page (a word, a video, an SVG, too short).
+  no("https://catbox.moe/", "notpic");
+  no("https://imgur.com/upload", "notpic");          // "upload" is a small-letter word, Imgur's own page
+  no("https://i.imgur.com/abc.gifv", "notpic");
+  no("https://i.imgur.com/abc.svg", "notpic");
+  no("https://i.imgur.com/ab.png", "notpic");
+  no("https://i.ibb.co/abc.png", "notpic");          // i.ibb.co needs /<id>/<name>.<ext>
   // No look-alike, no sub-domain, no other site.
   no("https://i.imgur.com.evil.example/abc.png", "site");
   no("https://evil.example/i.imgur.com/abc.png", "site");
@@ -55,9 +51,41 @@ test("pictureLink: a direct picture link, by the bot's own rules (imageSiteLink,
   no("https://a:b@i.imgur.com/abc.png", "userport");
   no("https://i.imgur.com:8443/abc.png", "userport");
   no("https://exa mple.com/x.png", "invalid");
-  // This channel's chat filter holds the word "font", in any letter case, so such a link can't go out.
+  // This channel's chat filter holds the word "font", in any letter case, so such a link can't go out —
+  // a direct link, or an album link.
   no("https://i.imgur.com/Font123.png", "font");
   no("https://i.ibb.co/AbC123/my-FONT.png", "font");
+  no("https://imgur.com/a/Font12", "font");
+});
+
+test("pictureLink: no-lookup forms resolve to a direct link, sent verbatim (the bot rebuilds them)", () => {
+  // imgur.com/<id> and i.imgur.com/<id> with no ending -> i.imgur.com/<id>.jpg; the link goes out as typed.
+  eq(C.pictureLink("https://imgur.com/AbC1234"),
+     { url: "https://imgur.com/AbC1234", site: "imgur", resolved: "https://i.imgur.com/AbC1234.jpg" });
+  eq(C.pictureLink("https://i.imgur.com/AbC1234"),
+     { url: "https://i.imgur.com/AbC1234", site: "imgur", resolved: "https://i.imgur.com/AbC1234.jpg" });
+  eq(C.pictureLink("https://m.imgur.com/AbC1234.png"),
+     { url: "https://m.imgur.com/AbC1234.png", site: "imgur", resolved: "https://i.imgur.com/AbC1234.png" });
+  // a Catbox thumbnail prints the file itself
+  eq(C.pictureLink("https://files.catbox.moe/thumbs/t_ab_cd-1.jpg"),
+     { url: "https://files.catbox.moe/thumbs/t_ab_cd-1.jpg", site: "catbox", resolved: "https://files.catbox.moe/ab_cd-1.jpg" });
+  // ImgBB's second domain is the same picture on i.ibb.co
+  eq(C.pictureLink("https://i.ibb.co.com/AbC123/p.png"),
+     { url: "https://i.ibb.co.com/AbC123/p.png", site: "imgbb", resolved: "https://i.ibb.co/AbC123/p.png" });
+});
+
+test("pictureLink: albums and picture pages are a lookup, sent verbatim", () => {
+  const lk = (raw) => C.pictureLink(raw);
+  eq(lk("https://imgur.com/a/AbC1234").lookup, { table: "imgurAlbums", kind: "album", site: "imgur", id: "AbC1234", key: "AbC1234", sort: "" });
+  eq(lk("https://imgur.com/gallery/title-AbC1234").lookup, { table: "imgurAlbums", kind: "album", site: "imgur", id: "AbC1234", key: "AbC1234", sort: "" });
+  eq(lk("https://i.imgur.com/a/AbC1234").lookup, { table: "imgurAlbums", kind: "album", site: "imgur", id: "AbC1234", key: "AbC1234", sort: "" });
+  eq(lk("https://catbox.moe/c/abc123").lookup, { table: "catboxAlbums", kind: "album", site: "catbox", id: "abc123", key: "abc123", sort: "" });
+  eq(lk("https://ibb.co/album/AbC12").lookup, { table: "imgbbAlbums", kind: "album", site: "imgbb", id: "AbC12", key: "AbC12", sort: "" });
+  eq(lk("https://ibb.co/album/AbC12?sort=date_asc").lookup, { table: "imgbbAlbums", kind: "album", site: "imgbb", id: "AbC12", key: "AbC12?sort=date_asc", sort: "date_asc" });
+  eq(lk("https://ibb.co/album/AbC12?sort=date_desc").lookup, { table: "imgbbAlbums", kind: "album", site: "imgbb", id: "AbC12", key: "AbC12", sort: "" });   // the album's own order, dropped
+  eq(lk("https://ibb.co/AbC123").lookup, { table: "imgbbPages", kind: "page", site: "imgbb", id: "AbC123", key: "AbC123", sort: "" });
+  // The viewer's link goes out verbatim; the app never rewrites it to the resolved picture.
+  eq([lk("https://imgur.com/a/AbC1234").url, lk("https://imgur.com/a/AbC1234").site], ["https://imgur.com/a/AbC1234", "imgur"]);
 });
 
 test("pictureLink: the sites are the bot's three, with its hosts and path shapes", () => {
@@ -148,7 +176,15 @@ test("realPictureForm: the picture in a High Roller cheer when its site is on, t
   eq(f(u, "raw", ["imgur"]), { form: "picture", link: { url: u, site: "imgur" }, way: "none" });
   eq(f(u, "raw", ["catbox", "imgbb"]), { form: "none", why: "site-off", site: "imgur" });
   eq(f(u, "raw", []), { form: "none", why: "site-off", site: "imgur" });
-  eq(f("https://imgur.com/abc1234", "raw", ["imgur"]), { form: "none", why: "page" });
+  // A no-lookup page form prints too (the bot rebuilds it); the link carries the resolved direct link.
+  eq(f("https://imgur.com/abc1234", "raw", ["imgur"]),
+     { form: "picture", link: { url: "https://imgur.com/abc1234", site: "imgur", resolved: "https://i.imgur.com/abc1234.jpg" }, way: "none" });
+  // An album is a picture too (its first picture is looked up): the link carries the lookup descriptor.
+  const al = f("https://imgur.com/a/abc1234", "raw", ["imgur"]);
+  assert.equal(al.form, "picture");
+  assert.equal(al.link.url, "https://imgur.com/a/abc1234");
+  eq(al.link.lookup, { table: "imgurAlbums", kind: "album", site: "imgur", id: "abc1234", key: "abc1234", sort: "" });
+  eq(f("https://imgur.com/a/abc1234", "raw", ["catbox"]), { form: "none", why: "site-off", site: "imgur" });
   eq(f("", "raw", ["imgur"]), { form: "none", why: "empty" });
   // Below the threshold any readable picture prints as the plain grid, wherever it is.
   eq(f(u, "plain", []), { form: "grid" });

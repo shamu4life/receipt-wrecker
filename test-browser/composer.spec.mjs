@@ -96,7 +96,8 @@ function installClipboardStub() {
 // test. (This is SassyTP's own defaults: threshold 25, no length limits, 80 mm.)
 const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
                    nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [],
-                   letterBits: 0, letterLayout: "scaled", letterFit: "fit", letterProfile: "bw" };
+                   letterBits: 0, letterLayout: "scaled", letterFit: "fit", letterProfile: "bw",
+                   stickerBits: 0, stickerTape: 50, cardBits: 0, cardFit: "fit" };
 // `blocks`, `presets` and `controls` seed rw_blocks_v1, rw_presets_v1 and rw_controls_v1
 // before the app's first load, the way a returning user's saved state is there before the
 // page runs; `controls` defaults to SETTINGS, and `controls: null` seeds nothing (a first
@@ -161,7 +162,8 @@ const len = (s) => Array.from(s).length;     // payloadLength's rule: code point
 const stackOptsOf = (s) => ({ cheer: s.cheer, bits: s.bits, noNonce: !s.nonce, hrThreshold: s.hrThreshold,
                               bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm,
                               allowHighRoller: s.allowHighRoller, imageSites: s.imageSites, letterBits: s.letterBits,
-                              letterLayout: s.letterLayout, letterFit: s.letterFit, letterProfile: s.letterProfile });
+                              letterLayout: s.letterLayout, letterFit: s.letterFit, letterProfile: s.letterProfile,
+                              stickerBits: s.stickerBits, stickerTape: s.stickerTape });
 // What a stack of big and sideways blocks sends, per the core, computed here in Node.
 function nodeBodies(block, ctx) {
   if (C.blockRender(block) === "typed") {
@@ -3087,13 +3089,11 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // 1.8.1: the page is Printer Bot 3.0.5's (it uses 3.0.0's layout folder, so the line says 3.0.0).
-  // Since 3.0.4 the bot leaves each cheer's Cheer word out, and every older layout prints it (1.4.1
-  // named 3.0.0-beta.7's and 2.5.4's as printing the same as 3.0.1's), so the line names none and
-  // says what an older one adds. (3.0.4's own layout prints the app's messages on a roll as 3.0.5's
-  // does; naming it would take the line past its 360 characters.)
-  assert.equal(v, "202610150536");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.0\.0's layout v202610150536, in this computer's fonts, which may differ from the streamer's\. /);
+  // The page is Printer Bot 3.2.0-beta.7's (its own layout folder, so the line says 3.2.0-beta.7).
+  // Since 3.0.4 the bot leaves each cheer's Cheer word out, and every older layout prints it, so the
+  // line names none and says what an older one adds.
+  assert.equal(v, "202610191933");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.2\.0-beta\.7's layout v202610191933, in this computer's fonts, which may differ from the streamer's\. /);
   assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match: a Printer Bot older than 3\.0\.4 prints each cheer's Cheer word too\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
@@ -3554,6 +3554,162 @@ test("1.5.0: a Real picture on an Imgur link, with Imgur ticked, sends the link 
   await ctx.close();
 });
 
+// ── Full album/page link support: an album or a picture page prints its first picture, which the
+// app's own Worker (/resolve, a faithful port of the bot's action) looks up so the preview shows
+// what will print. The viewer's link goes out verbatim; /resolve is stubbed, so no site is hit.
+const resolveRoute = (answer) => (ctx) => ctx.route("**/resolve?*", (r) =>
+  r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(answer) }));
+
+test("album link: an Imgur album sends the link verbatim; the preview looks up and draws its first picture", async () => {
+  const s = { ...SETTINGS, imageSites: ["imgur"] };
+  const album = "https://imgur.com/a/AlbuM1", resolved = "https://i.imgur.com/AbC1234.png";
+  const { page, ctx, errors, requests } = await freshPage({ blocks: [REAL({ id: 1, url: album })], controls: s, core: true,
+    eager: true, init: picStub({ [resolved]: PIC_WIDE }), routes: resolveRoute({ picture: "AbC1234.png" }) });
+  await settled(page);
+  // The viewer's album link goes out verbatim — never the resolved direct link (THE RULE).
+  const sent = "Cheer100 <div>" + album + "</div>";
+  assert.deepEqual(await copyAll(page), [sent]);
+  assert.match(await cards(page).first().locator(".pic-note").textContent(), /^Prints as the picture, about 65 × 32 mm · 1 cheer/);
+  // The frame's renderer resolved the album link in the message through the lookup table and drew the picture.
+  const { frame, last } = await drawnPart(page, 0, sent);
+  const img = await frame.evaluate(() => {
+    const i = document.querySelector("#receipt-content img.msg-image");
+    return i && { src: i.getAttribute("src").slice(0, 22), w: Math.round(i.getBoundingClientRect().width), h: Math.round(i.getBoundingClientRect().height) };
+  });
+  assert.deepEqual(img, { src: "data:image/png;base64,", w: 244, h: 122 });
+  assert.deepEqual(last.options.imgurAlbums, { AlbuM1: "AbC1234.png" });
+  assert.deepEqual(last.result.security, []);
+  assert.ok(!requests.some((u) => /imgur\.com/.test(u)), "the browser never asked imgur.com");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("album link: an ImgBB album passes imgbbAlbums; a Catbox collection passes catboxAlbums", async () => {
+  for (const [site, album, value, resolved, table] of [
+    ["imgbb", "https://ibb.co/album/AbC12", "aB3dE/p.png", "https://i.ibb.co/aB3dE/p.png", "imgbbAlbums"],
+    ["catbox", "https://catbox.moe/c/abc123", "pic1.png", "https://files.catbox.moe/pic1.png", "catboxAlbums"],
+  ]) {
+    const s = { ...SETTINGS, imageSites: [site] };
+    const { page, ctx, errors } = await freshPage({ blocks: [REAL({ id: 1, url: album })], controls: s, core: true,
+      eager: true, init: picStub({ [resolved]: PIC_WIDE }), routes: resolveRoute({ picture: value }) });
+    await settled(page);
+    const sent = "Cheer100 <div>" + album + "</div>";
+    assert.deepEqual(await copyAll(page), [sent], site);
+    const { last } = await drawnPart(page, 0, sent);
+    const want = {}; want[album.indexOf("/album/") >= 0 ? "AbC12" : "abc123"] = value;
+    assert.deepEqual(last.options[table], want, site);
+    assert.deepEqual(errors, [], site);
+    await ctx.close();
+  }
+});
+
+test("album link: an album with no picture prints nothing and the card says it would print [image]", async () => {
+  const s = { ...SETTINGS, imageSites: ["imgur"] };
+  const { page, ctx, errors } = await freshPage({ blocks: [REAL({ id: 1, url: "https://imgur.com/a/AlbuM1" })],
+    controls: s, routes: resolveRoute({ picture: "" }) });
+  await page.waitForFunction(() => {
+    const n = document.querySelector("#blockList .pic-note");
+    return n && /no picture Printer Bot can show/.test(n.textContent);
+  }, null, { timeout: 8000 });
+  assert.equal(await page.locator("#parts .part button").count(), 0);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── Sticker printer (Printer Bot 3.2.0): a High Roller cheer prints on Brother VC-500W tape ──
+test("sticker printer: a cheer of the sticker bits prints on the tape, the layout, tape and height as the renderer draws them", async () => {
+  const s = { ...SETTINGS, bits: 100, stickerBits: 100, stickerTape: 50 };
+  const blocks = [BIG({ id: 1 })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+  await settled(page);
+  const sent = await copyAll(page);
+  const want = await expectParts(page, blocks, s);
+  assert.deepEqual(sent, want.map((p) => p.payload));
+  assertTags(sent[0]);
+  const { frame, last } = await drawnPart(page, 0, sent[0]);
+  const info = await frame.evaluate(() => {
+    const rc = document.getElementById("receipt-container");
+    return { cls: rc.className, layout: window.__rwPreview.options.layout, tape: window.__rwPreview.options.tapeMm,
+             maxIn: window.__rwPreview.options.highRollerMaxInches, w: document.documentElement.clientWidth };
+  });
+  assert.equal(info.cls, "sticker");
+  assert.equal(info.layout, "sticker");
+  assert.equal(info.tape, 50);
+  assert.equal(info.maxIn, 16.5);
+  assert.equal(info.w, 189, "the 50 mm tape's CSS width");
+  assert.deepEqual(last.result.security, []);
+  // The payload matching expectParts already proves the Big-text sizing is the sticker's own (not
+  // 80 mm). The sticker's bordered box adds its own padding and border to the measured height, which
+  // the app's contentPx (the message content, for cheer-splitting) leaves out, as it does the roll's
+  // header; so the measured box is a little taller than contentPx, never shorter or clipped.
+  const extra = last.measure.fullPx - want[0].contentPx;
+  assert.ok(extra >= -1 && extra <= 14, "box chrome " + extra + "px (fullPx " + last.measure.fullPx + ", contentPx " + want[0].contentPx + ")");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("sticker printer: a cheer below the threshold prints the plain Han grid on the tape", async () => {
+  const s = { ...SETTINGS, bits: 10, hrThreshold: 25, stickerBits: 10, stickerTape: 50 };
+  const blocks = [BIG({ id: 1, text: "HELLO" })];   // below the threshold -> Han tiling
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+  await settled(page);
+  const sent = await copyAll(page);
+  const want = await expectParts(page, blocks, s);
+  assert.deepEqual(sent, want.map((p) => p.payload));
+  const { frame } = await drawnPart(page, 0, sent[0]);
+  // A plain cheer on a sticker prints as a narrow roll (the renderer strips the sticker layout).
+  const cls = await frame.evaluate(() => document.getElementById("receipt-container").className);
+  assert.doesNotMatch(cls, /\bsticker\b/);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+// ── 4 x 6 card printer (Printer Bot 3.2.0): a High Roller cheer prints on one card, zoomed to fit ──
+test("card printer: a cheer of the card bits prints on one 4 x 6 card, the renderer fitting it", async () => {
+  const s = { ...SETTINGS, bits: 100, cardBits: 100, cardFit: "fit" };
+  const blocks = [BIG({ id: 1 })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+  await settled(page);
+  const sent = await copyAll(page);
+  const want = await expectParts(page, blocks, s);
+  assert.deepEqual(sent, want.map((p) => p.payload));
+  assertTags(sent[0]);
+  assert.equal(sent.length, 1, "a card is always one cheer");
+  const { frame, last } = await drawnPart(page, 0, sent[0]);
+  const info = await frame.evaluate(() => {
+    const rc = document.getElementById("receipt-container");
+    return { card: rc.classList.contains("card"), layout: window.__rwPreview.options.layout,
+             pageH: window.__rwPreview.options.pageHeightPx, roll: window.__rwPreview.options.cardRollPx,
+             w: document.documentElement.clientWidth, height: window.__rwPreview.result.height };
+  });
+  assert.equal(info.card, true, "the card layout");
+  assert.equal(info.layout, "card");
+  assert.equal(info.pageH, 257);
+  assert.equal(info.roll, 272, "the 80 mm roll's width, for the cardfit fallback");
+  assert.equal(info.w, 400, "the card's CSS width");
+  assert.equal(info.height, 257, "one card high (the renderer zooms the message to fit)");
+  assert.deepEqual(last.result.security, []);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test("card printer: a cheer below the threshold prints the 80 mm roll scaled onto the card", async () => {
+  // cardBits <= bits < hrThreshold: it reaches the card but isn't a High Roller message, so the
+  // renderer draws the 80 mm roll and scales it onto the card (layoutFor's 'cardfit').
+  const s = { ...SETTINGS, bits: 10, hrThreshold: 25, cardBits: 10 };
+  const blocks = [BIG({ id: 1, text: "HELLO" })];
+  const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
+  await settled(page);
+  const { frame } = await drawnPart(page, 0, (await copyAll(page))[0]);
+  const cls = await frame.evaluate(() => document.getElementById("receipt-container").className);
+  // The renderer draws the 80 mm roll and scales it onto the card (class "card-fit"), not the High
+  // Roller card grid ("card" / "card-words").
+  assert.match(cls, /\bcard-fit\b/, "the 80 mm roll scaled onto the card");
+  assert.doesNotMatch(cls, /card-words/, "not the High Roller card layout");
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test("1.5.0: with Imgur not ticked the Real picture prints nothing, says what the streamer has to switch on, and the tick is saved", async () => {
   const blocks = [REAL({ id: 1 })];
   const { page, ctx, errors } = await freshPage({ blocks, init: picStub({ [IMGUR]: PIC_WIDE }) });
@@ -3604,13 +3760,14 @@ test("1.5.0: below the threshold a Real picture prints the plain Han grid, and i
   await ctx.close();
 });
 
-test("1.5.0: a link that isn't a direct picture link says why on the card, and sends nothing", async () => {
+test("1.5.0: a link that isn't a picture, album or page says why on the card, and sends nothing", async () => {
   const s = { ...SETTINGS, imageSites: ["imgur", "catbox", "imgbb"] };
   const cases = [
-    ["https://imgur.com/AbC1234", /^That's a page of the site, not the picture itself\. Open the picture and copy its own address/],
-    ["https://i.imgur.com/a/AbC1234", /^That isn't a direct link to a picture: it has to end in \.png, \.jpg, \.gif or \.webp/],
+    ["https://imgur.com/upload", /^That's a link on the site, but not a picture, an album or a picture page/],
+    ["https://i.imgur.com/abc.gifv", /^That's a link on the site, but not a picture, an album or a picture page/],
+    ["https://example.com/cat.png", /^Printer Bot prints pictures only from Imgur, Catbox and ImgBB links/],
     ["https://i.imgur.com/Font123.png", /^This link has the word “font” in it, which this channel's chat filter holds, so it can't go out\./],
-    ["", /^Pick a file below to upload it to ImgBB, or paste a direct link to the picture on Imgur, Catbox or ImgBB/],
+    ["", /^Pick a file below to upload it to ImgBB, or paste a link to a picture, an album or a picture page/],
   ];
   const blocks = cases.map(([url], i) => REAL({ id: i + 1, url }));
   const { page, ctx, errors } = await freshPage({ blocks, controls: s });

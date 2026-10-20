@@ -248,6 +248,22 @@
           <div class="hint letter-off" id="letterOff">(set the bits above first)</div>
           <details class="hint more"><summary>What's this?</summary><div>The Letter printer's card in the dock. Scaled like 80 mm prints the roll's receipt on the page, larger, which leaves a message about 6 cm under the profile picture. Large message gives the message most of the page, about 16 cm, and lays it out from the left, so a block here centres itself. Since Printer Bot 3.0.5 only a cheer of the High Roller threshold or more gets Large message: a smaller one prints Scaled like 80 mm. Image fit is how a picture from a link fills the space the message leaves it in Large message: Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the space. In Colour, Big text, Sideways text and Glyph-art can have colours (their cards show the pickers); Black and white prints text sharp and shades only pictures. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
         </div>
+        <div class="sticker-set" role="group" aria-labelledby="stickerSetLabel">
+          <div id="stickerSetLabel" class="composer-h">A sticker printer (Printer Bot 3.2)</div>
+          <label>Cheers of <input type="number" id="stickerBits" min="0" max="1000000" step="1" value="0" style="width:7em"> bits or more print on sticker tape</label>
+          <div class="hint field-note" id="stickerBitsNote" role="status" hidden></div>
+          <div class="hint">For a streamer with a Brother VC-500W sticker printer that big cheers go to: the amount its rule starts at (for example Bits ≥ 100). Every smaller cheer prints on the roll. 0 = no sticker printer. When a cheer reaches both this and the Letter printer, the higher amount wins.</div>
+          <label>Tape width: <select id="stickerTape" style="width:auto"><option value="9">9 mm</option><option value="12">12 mm</option><option value="19">19 mm</option><option value="25">25 mm</option><option value="50" selected>50 mm</option></select> <span id="stickerOff" class="letter-off">(set the bits above first)</span></label>
+          <details class="hint more"><summary>What's this?</summary><div>Printer Bot 3.2 can print a High Roller cheer on a Brother VC-500W label printer's tape (9, 12, 19, 25 or 50 mm wide), the message centred in a bordered box, capped at 16.5 inches of tape. A cheer that isn't a High Roller one prints on the tape as it would on a narrow roll. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
+        </div>
+        <div class="card-set" role="group" aria-labelledby="cardSetLabel">
+          <div id="cardSetLabel" class="composer-h">A 4 × 6 in card printer (Printer Bot 3.2)</div>
+          <label>Cheers of <input type="number" id="cardBits" min="0" max="1000000" step="1" value="0" style="width:7em"> bits or more print on a 4 × 6 in card</label>
+          <div class="hint field-note" id="cardBitsNote" role="status" hidden></div>
+          <div class="hint">For a streamer with a printer that prints big cheers on 4 × 6 in cards: the amount its rule starts at. Every smaller cheer prints on the roll. 0 = no card printer. When a cheer reaches this and another special printer, the higher amount wins.</div>
+          <label>Image fit: <select id="cardFit" style="width:auto"><option value="fit" selected>Fit</option><option value="fill">Fill</option><option value="stretch">Stretch</option></select> <span id="cardOff" class="letter-off">(set the bits above first)</span></label>
+          <details class="hint more"><summary>What's this?</summary><div>Printer Bot 3.2 can print a High Roller cheer on one 4 × 6 in card (landscape), the words beside the pictures. The card draws the whole message on one card, <strong>shrinking it to fit</strong> — so the size you pick for text is the proportion, not the final size; the card zooms the receipt down to one card and cuts only what still won't fit. A cheer that isn't a High Roller one prints the 80 mm roll's receipt scaled onto the card. Image fit is how a picture from a link fills the space the words leave it. The preview above shows what the card actually prints. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
+        </div>
       </div>
     </section>
   </div>
@@ -424,10 +440,42 @@
   var PAPERS = {
     80: { mm: 80, cssWidth: 272, contentW: 244, dots: 576, pxPerInch: 96, pagePx: 0 },
     58: { mm: 58, cssWidth: 181, contentW: 153, dots: 384, pxPerInch: 96, pagePx: 0 },
-    letter: { mm: "letter", cssWidth: 400, contentW: 372, dots: 2250, pxPerInch: 400 / 7.5, pagePx: 533 }
+    letter: { mm: "letter", cssWidth: 400, contentW: 372, dots: 2250, pxPerInch: 400 / 7.5, pagePx: 533, letter: true },
+    // A 4 x 6 in card (Printer Bot 3.2.0): 400 CSS px wide, 257 px tall (1680 dots, 71.4 px to the
+    // inch). The card draws any receipt on ONE card, zooming a High Roller message to fit (cardWords)
+    // or scaling an 80 mm roll onto it (the renderer's 'cardfit'), so the app BUILDS a card cheer as
+    // an 80 mm roll (contentW 244) and leaves the fitting to the renderer; `card` marks it so it is
+    // never a Letter page and never split by height (1 cheer, 1 card).
+    card: { mm: "card", cssWidth: 400, contentW: 244, dots: 1680, pxPerInch: 1680 / 5.6, pagePx: 257, card: true }
   };
-  function paperSpec(mm) { return mm === "letter" ? PAPERS.letter : Number(mm) === 58 ? PAPERS[58] : PAPERS[80]; }
-  // The roll's width (a setting): 58, or the 80 mm default; Letter is never a roll.
+  var CARD_ROOM_PX = 1e7;        // a card never splits by height: the renderer fits one card
+  // ── THE STICKER PRINTER (a Brother VC-500W, Printer Bot 3.2.0) ──
+  // The bot can print a High Roller cheer on VC-500W sticker tape (opts.layout "sticker"): the tape
+  // is 9, 12, 19, 25 or 50 mm wide (320 dpi: 112/150/240/313/630 dots), drawn on a page as many CSS
+  // px wide as round(dots / 320 x 96), the message centred on it in a bordered box. Every other
+  // receipt prints on the tape as on a narrow roll (the renderer's layoutFor strips the layout), so
+  // the app models a sticker as a narrow roll, capped at 16.5 inches (the bot forces
+  // highRollerMaxInches to under 16.5 for a sticker; 16.5 when it is off or larger).
+  var STICKER_TAPES = [9, 12, 19, 25, 50];
+  var STICKER_DOTS = { 9: 112, 12: 150, 19: 240, 25: 313, 50: 630 };
+  var STICKER_MAX_IN = 16.5;
+  function stickerTapeOf(v) { var n = typeof v === "number" ? v : parseInt(v, 10); return STICKER_TAPES.indexOf(n) >= 0 ? n : 50; }
+  function stickerSpec(tape) {
+    tape = stickerTapeOf(tape);
+    var cw = Math.round(STICKER_DOTS[tape] / 320 * 96);
+    // The styled box's inner text width (border-box): the container's 2%-of-tape padding each side,
+    // then the box's 1px border and 3%-of-tape padding each side (#receipt-container.sticker and
+    // .sticker #receipt-content in the vendored renderer).
+    var inner = cw - 2 * (cw * 0.02), contentW = Math.max(1, inner - 2 - 2 * (cw * 0.03));
+    return { mm: "sticker", tapeMm: tape, cssWidth: cw, contentW: contentW, dots: STICKER_DOTS[tape], pxPerInch: 96, pagePx: 0, sticker: true };
+  }
+  function paperSpec(mm, o) {
+    if (mm === "letter") return PAPERS.letter;
+    if (mm === "card") return PAPERS.card;
+    if (mm === "sticker") return stickerSpec(o && o.stickerTape);
+    return Number(mm) === 58 ? PAPERS[58] : PAPERS[80];
+  }
+  // The roll's width (a setting): 58, or the 80 mm default; Letter and a sticker are never a roll.
   function rollMmOf(mm) { return Number(mm) === 58 ? 58 : 80; }
   // Millimetres of paper in one CSS px of this paper's page.
   function mmPerPx(mm) { return 25.4 / paperSpec(mm).pxPerInch; }
@@ -476,7 +524,7 @@
     return o.cheer && t > 0 && allowsHighRoller(o) && cheerBits(o.bits) >= t ? "raw" : "plain";
   }
   // Whether the printer a cheer of these bits reaches prints High Roller cheers at all (1.6.0).
-  function allowsHighRoller(o) { return targetPaper(o) === "letter" || !o || o.allowHighRoller !== false; }
+  function allowsHighRoller(o) { var tp = targetPaper(o); return tp === "letter" || tp === "sticker" || tp === "card" || !o || o.allowHighRoller !== false; }
   // Whose switch it is, in words: the roll printer's, when the streamer has a Letter printer too.
   function hrPrinterWords(o) { return "The streamer's " + (letterBitsOf(o && o.letterBits) > 0 ? "roll printer" : "printer"); }
   // Which form the app BUILDS a stack in. A cheer builds what the bot will print
@@ -501,8 +549,15 @@
   // message too (pageLimit): `by` is then "page".
   function contentLimitPx(o) {
     o = o || {};
-    var paper = paperSpec(targetPaper(o)), ppi = paper.pxPerInch, ceiling = CONTENT_CEILING_PX * ppi / PX_PER_INCH;
+    var paper = paperSpec(targetPaper(o), o), ppi = paper.pxPerInch, ceiling = CONTENT_CEILING_PX * ppi / PX_PER_INCH;
+    // A card is one card: the renderer zooms a High Roller message to fit it and scales an 80 mm roll
+    // onto it, never splitting by height, so the app builds it as a single cheer and leaves the fit to
+    // the renderer (the preview shows the real card).
+    if (paper.card) return { px: CARD_ROOM_PX, by: "card", fades: true, leadPx: leadLinePx(o) };
     var bits = cheerBits(o.bits), bpi = bitsPerInchOf(o.bitsPerInch), cap = maxInchesOf(o.maxInches);
+    // A sticker is capped at 16.5 inches: the bot forces highRollerMaxInches to under 16.5, or 16.5
+    // when it is off or larger (OptionsFor). So a sticker always has a cap.
+    if (paper.sticker) cap = cap > 0 && cap < STICKER_MAX_IN ? cap : STICKER_MAX_IN;
     var bitsPx = null, capPx = null, px, lim;
     if (bpi > 0) { px = Math.floor(bits / bpi * ppi); if (isFinite(px)) bitsPx = Math.max(1, px); }
     if (cap > 0) capPx = Math.max(1, Math.floor(cap * ppi));
@@ -510,7 +565,7 @@
       lim = bitsPx === null ? { px: ceiling, by: "ceiling", fades: false }
         : bitsPx < ceiling ? { px: bitsPx, by: "bits", fades: true } : { px: ceiling, by: "ceiling", fades: true };
     } else lim = bitsPx !== null && bitsPx < capPx ? { px: bitsPx, by: "bits", fades: true } : { px: capPx, by: "cap", fades: true };
-    lim = paper.pagePx ? pageLimit(lim, o) : lim;
+    lim = paper.letter ? pageLimit(lim, o) : lim;
     lim.leadPx = leadLinePx(o);
     return lim;
   }
@@ -544,10 +599,19 @@
   }
   // The paper a cheer of these bits prints on: "letter", or the roll's 80 or 58. A free test is
   // built for the paper the real cheer would reach.
+  // The streamer may set up more than one special printer, each for cheers of its own bits or more
+  // (Letter, a sticker; a 4 x 6 card in 1.x). A cheer that reaches several prints on the one whose
+  // rule is most specific — the highest threshold it meets; a tie keeps the earlier (Letter). The
+  // roll takes everything else. (Printer Bot 3.2 can print one cheer on several printers at once; the
+  // app models the one the owner's rules send it to, as before.)
   function targetPaper(o) {
     o = o || {};
-    var lb = letterBitsOf(o.letterBits);
-    return lb > 0 && cheerBits(o.bits) >= lb ? "letter" : rollMmOf(o.paperMm);
+    var bits = cheerBits(o.bits), best = rollMmOf(o.paperMm), bestAt = 0;
+    var consider = function (key, at) { if (at > 0 && bits >= at && at > bestAt) { best = key; bestAt = at; } };
+    consider("letter", letterBitsOf(o.letterBits));
+    consider("sticker", letterBitsOf(o.stickerBits));
+    consider("card", letterBitsOf(o.cardBits));
+    return best;
   }
   // A Letter receipt is one page (3.0.0, present()): when it reaches past the page, the message box
   // gives back the excess (keeping an inch) and fades there. So the box holds the page less what the
@@ -615,11 +679,19 @@
     "seemsgood", "pride", "kappa", "frankerz", "heyguys", "dansgame", "elegiggle", "trihard", "kreygasm", "4head",
     "swiftrage", "notlikethis", "failfish", "vohiyo", "pjsalt", "mrdestructoid", "bday", "ripcheer", "shamrock",
     "bitboss", "streamlabs", "muxy", "holidaycheer", "goal", "anon", "charity"];
-  var BOT_CHEERMOTE_WORD = new RegExp("(^|\\s)(?:" + BOT_CHEERMOTES.join("|") + ")[0-9]{1,9}(?=\\s|$)", "gi");
+  // Since Printer Bot 3.0.6 (the renderer's cheerWords): a cheermote's number is its bits, 1 to
+  // 100,000 with no leading zero (Cheer0, Cheer007, Cheer100001 are the viewer's words and stay),
+  // and a cheermote goes together with ONE of the spaces around it, so no gap stays where it was.
+  // One that opens the message goes with the space after it (BOT_CHEERMOTE_LEAD, looped); every
+  // other goes with the space before it (BOT_CHEERMOTE_INNER). 3.0.4/3.0.5 left both spaces.
+  var BOT_CHEERMOTE_BITS = "(?:100000|[1-9][0-9]{0,4})";
+  var BOT_CHEERMOTE_LEAD = new RegExp("^(\\s*)(?:" + BOT_CHEERMOTES.join("|") + ")" + BOT_CHEERMOTE_BITS + "(?:\\s+|$)", "i");
+  var BOT_CHEERMOTE_INNER = new RegExp("\\s+(?:" + BOT_CHEERMOTES.join("|") + ")" + BOT_CHEERMOTE_BITS + "(?=\\s|$)", "gi");
   function printedMessage(m) {
     if (typeof m !== "string") return m;
     var said = m, before;
-    do { before = said; said = said.replace(BOT_CHEERMOTE_WORD, "$1"); } while (said !== before);
+    do { before = said; said = said.replace(BOT_CHEERMOTE_LEAD, "$1"); } while (said !== before);  // the cheermotes that open the message, one after the other
+    said = said.replace(BOT_CHEERMOTE_INNER, "");                                                   // every other one, with the space before it
     return said.trim() ? said : "";
   }
   // Whether a part carries the repeat number: `noNonce` when the options say (the stack's), else
@@ -656,11 +728,12 @@
     o = o || {};
     var lead = { cheer: !!o.cheer, bits: o.bits, noNonce: !!o.noNonce };
     var mode = o.mode === "raw" || o.mode === "plain" ? o.mode : buildMode(o);
-    var paper = paperSpec(targetPaper(o)), letter = paper.pagePx > 0;
+    var paper = paperSpec(targetPaper(o), o), letter = !!paper.letter, sticker = !!paper.sticker, card = !!paper.card;
     // A plain message gets the 1600px box (a length of paper: 16.7 inches on Letter, where the page
-    // ends it first, faded; the renderer cuts any viewer's message at the end of its page).
+    // ends it first, faded; the renderer cuts any viewer's message at the end of its page). A card is
+    // always one card (contentLimitPx returns its never-split limit, whatever the mode).
     var plainLim = { px: CONTENT_CEILING_PX * paper.pxPerInch / PX_PER_INCH, by: "ceiling", fades: false };
-    var limit = mode === "raw" ? contentLimitPx(o) : letter ? pageLimit(plainLim, o) : plainLim;
+    var limit = card || mode === "raw" ? contentLimitPx(o) : letter ? pageLimit(plainLim, o) : plainLim;
     var layout = letterLayoutFor(o), profile = letterProfileOf(o.letterProfile);
     var leadPx = leadLinePx(lead);
     limit.leadPx = leadPx;
@@ -668,6 +741,10 @@
              room: limit.px - leadPx, heightPx: limit.px - leadPx, leadPx: leadPx,
              budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
              cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce, imageSites: imageSitesOf(o.imageSites),
+             // On a sticker: its tape width. On a card: its image fit. Both let the notes and the
+             // preview name the printer (the renderer does the actual sticker/card layout).
+             sticker: sticker ? { tapeMm: paper.tapeMm } : null,
+             card: card ? { fit: letterFitOf(o.cardFit) } : null,
              // On Letter: its card's settings, with the layout this cheer gets (letterLayoutFor); Large
              // message lays the message out from the left, so a block centres itself (`center`); the
              // colour profile prints colours (`colour`).
@@ -822,28 +899,109 @@
     var list = Array.isArray(v) ? v : [];
     return PICTURE_SITES.map(function (s) { return s.id; }).filter(function (id) { return list.indexOf(id) >= 0; });
   }
-  // The link a Real picture sends: {url, site} for a direct picture link of one of the sites, else
-  // {why}: "empty", "https" (not typed as https://), "invalid", "userport", "page" (a page of the
-  // site, not the picture), "direct" (the site's host, but not a direct link's shape), "site"
-  // (another host), "long", or "font" (this channel's chat filter holds the word, in any case).
-  // Whether the streamer switched the site on is realPictureForm's question.
+  // ── Recognising a picture link (mirrors the bot's imageSiteLink + imgurLink / catboxLink /
+  // imgbbLink, Printer Bot 3.2.0-beta.7's renderer) ──
+  // A Real picture link of a site the streamer switched on is one of three things:
+  //   * a DIRECT picture link (i.imgur.com/<id>.<ext>, files.catbox.moe/<name>.<ext>,
+  //     i.ibb.co/<id>/<name>.<ext>): prints with no lookup;
+  //   * a NO-LOOKUP form the bot rebuilds to a direct link on its own (imgur.com/<id>, an
+  //     i.imgur.com/<id> with no ending, a Catbox thumbnail, i.ibb.co.com): still no lookup, so the
+  //     app resolves it the same deterministic way for the preview;
+  //   * an ALBUM or a picture PAGE (imgur /a/ /gallery/, catbox /c/, ibb.co/album/, ibb.co/<id>): the
+  //     bot looks the first picture up at print time (PbImgur/PbCatbox/PbImgbb) and the app asks its
+  //     own Worker (/resolve, the same logic) to look up the same one for the preview.
+  // Whichever it is, the viewer's link goes out in the cheer VERBATIM (THE RULE): the app never
+  // rewrites it to another host, name or encoding. A true direct link keeps the one normalisation the
+  // app has done since 1.5.0 (host lowercased, default port and query dropped) — the same host, no
+  // way past a filter.
+  var IMGUR_PAGE_HOSTS = ["imgur.com", "www.imgur.com", "m.imgur.com"];
+  var IMGUR_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
+  var IMGUR_ONE = /^\/([A-Za-z0-9]{5,7})(\.[A-Za-z]{3,4})?\/?$/;
+  var IMGUR_ALBUM = /^\/(a|gallery)\/(?:([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)-)?([A-Za-z0-9]{5,7})(\.[A-Za-z]{3,4})?\/?$/;
+  function imgurIdOk(id) { return /[A-Z0-9]/.test(id); }                 // an id has a capital or a digit; Imgur's own pages are small-letter words
+  function imgurExt(dotted) { var e = dotted ? dotted.slice(1).toLowerCase() : "jpg"; return IMGUR_EXTS.indexOf(e) >= 0 ? e : null; }
+  function imgurLink(host, path) {
+    var page = IMGUR_PAGE_HOSTS.indexOf(host) >= 0;
+    if (!page && host !== "i.imgur.com") return null;
+    var album = IMGUR_ALBUM.exec(path);
+    if (album) {
+      if (!imgurIdOk(album[3])) return null;
+      if (album[4] && (page ? album[1] === "gallery" || album[2] : album[2])) return null;    // imgur.com/gallery/<id>.<ext> and /<title>-<id>.<ext> are 404
+      if (album[4] && !imgurExt(album[4])) return null;
+      if (!page && album[2]) return null;                                                     // i.imgur.com has no title form
+      return { album: album[3] };
+    }
+    if (!page && PICTURE_SITES[0].path.test(path)) return { direct: path };                    // i.imgur.com/<id>.<ext>: the direct link
+    var one = IMGUR_ONE.exec(path);
+    if (!one || !imgurIdOk(one[1])) return null;
+    if (!page && one[2]) return null;                                                          // i.imgur.com/<id>.<ext> that is not a direct link
+    var ext = imgurExt(one[2]);
+    return ext ? { direct: "/" + one[1] + "." + ext } : null;
+  }
+  var CATBOX_THUMB = /^\/thumbs\/t_([A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp))$/i;
+  var CATBOX_ALBUM = /^\/c\/([A-Za-z0-9]{6})\/?$/;
+  function catboxLink(host, path) {
+    if (host === "files.catbox.moe") {
+      if (PICTURE_SITES[1].path.test(path)) return { direct: path };                           // the direct link
+      var thumb = CATBOX_THUMB.exec(path);
+      return thumb ? { direct: "/" + thumb[1] } : null;                                        // a thumbnail: the file itself
+    }
+    if (host !== "catbox.moe") return null;
+    var album = CATBOX_ALBUM.exec(path);
+    return album ? { album: album[1].toLowerCase() } : null;
+  }
+  var IMGBB_HOSTS = ["ibb.co", "www.ibb.co", "imgbb.com", "www.imgbb.com", "ibb.co.com"];
+  var IMGBB_USER_HOST = /^[a-z0-9][a-z0-9-]{0,62}\.imgbb\.com$/;
+  var IMGBB_ALBUM = /^\/album\/([A-Za-z0-9]{3,16})\/?$/;
+  var IMGBB_PAGE = /^\/([A-Za-z0-9]{5,10})\/?$/;
+  var IMGBB_SORT = /^[a-z]{1,12}_(?:asc|desc)$/;
+  function imgbbSort(sort) { return typeof sort === "string" && IMGBB_SORT.test(sort) && sort !== "date_desc" ? sort : ""; }
+  function imgbbHost(host) { return host === "i.ibb.co" || host === "i.ibb.co.com" || IMGBB_HOSTS.indexOf(host) >= 0 || IMGBB_USER_HOST.test(host); }
+  function imgbbLink(host, path, sort) {
+    if (host === "i.ibb.co" || host === "i.ibb.co.com") return PICTURE_SITES[2].path.test(path) ? { direct: path } : null;   // the direct link (either domain)
+    var main = IMGBB_HOSTS.indexOf(host) >= 0;
+    if (!main && !IMGBB_USER_HOST.test(host)) return null;
+    var album = IMGBB_ALBUM.exec(path);
+    if (album) { var s = imgbbSort(sort); return { album: s ? album[1] + "?sort=" + s : album[1] }; }
+    if (!main) return null;
+    var page = IMGBB_PAGE.exec(path);
+    return page && /[A-Z0-9]/.test(page[1]) ? { page: page[1] } : null;
+  }
+  var SITE_CANON_HOST = { imgur: "i.imgur.com", catbox: "files.catbox.moe", imgbb: "i.ibb.co" };
+  // Classify a Real picture link. For a recognised site it returns one of:
+  //   { url, site }               a true direct link (url = the normalised direct link to send);
+  //   { url, site, resolved }     a no-lookup form (url = the link to send, verbatim; resolved = the
+  //                               direct link the bot rebuilds, for the preview);
+  //   { url, site, lookup }       an album or picture page (url = the link to send, verbatim; lookup
+  //                               = { table, kind, site, id, key, sort } for /resolve).
+  // Otherwise { why }: empty, https, invalid, userport, site (no site owns the host), notpic (a site's
+  // host, but not a picture/album/page), long (the direct link is over 400 characters), or font (this
+  // channel's chat filter holds the word, in any case). Whether the site is switched on is
+  // realPictureForm's question.
   function pictureLink(raw) {
-    var text = String(raw == null ? "" : raw).trim(), u, i, s, url;
+    var text = String(raw == null ? "" : raw).trim(), u;
     if (!text) return { why: "empty" };
     if (!/^https:\/\//i.test(text)) return { why: "https" };
     try { u = new URL(text); } catch (e) { return { why: "invalid" }; }
     if (u.protocol !== "https:" || u.username || u.password || u.port) return { why: "userport" };
-    for (i = 0; i < PICTURE_SITES.length; i++) {
-      s = PICTURE_SITES[i];
-      if (s.pages.indexOf(u.hostname) >= 0) return { why: "page" };
-      if (s.hosts.indexOf(u.hostname) < 0) continue;
-      if (!s.path.test(u.pathname)) return { why: "direct" };
-      url = "https://" + u.hostname + u.pathname;
-      if (url.length > PICTURE_MAX_URL) return { why: "long" };
-      if (/font/i.test(url)) return { why: "font" };
-      return { url: url, site: s.id };
+    var host = u.hostname.toLowerCase(), path = u.pathname, site = null, link = null;
+    if (host === "i.imgur.com" || IMGUR_PAGE_HOSTS.indexOf(host) >= 0) { site = "imgur"; link = imgurLink(host, path); }
+    else if (host === "files.catbox.moe" || host === "catbox.moe") { site = "catbox"; link = catboxLink(host, path); }
+    else if (imgbbHost(host)) { site = "imgbb"; link = imgbbLink(host, path, u.searchParams.get("sort")); }
+    if (!site) return { why: "site" };
+    if (!link) return { why: "notpic" };
+    if (link.album !== undefined || link.page !== undefined) {
+      if (/font/i.test(text)) return { why: "font" };                                          // the chat filter holds the word, even in an album link
+      var kind = link.album !== undefined ? "album" : "page", key = link.album !== undefined ? link.album : link.page;
+      var id = key, sort = "", q = site === "imgbb" && kind === "album" ? key.indexOf("?sort=") : -1;
+      if (q >= 0) { id = key.slice(0, q); sort = key.slice(q + 6); }
+      var table = site === "imgur" ? "imgurAlbums" : site === "catbox" ? "catboxAlbums" : kind === "album" ? "imgbbAlbums" : "imgbbPages";
+      return { url: text, site: site, lookup: { table: table, kind: kind, site: site, id: id, key: key, sort: sort } };
     }
-    return { why: "site" };
+    var resolved = "https://" + SITE_CANON_HOST[site] + link.direct;
+    if (resolved.length > PICTURE_MAX_URL) return { why: "long" };
+    if (/font/i.test(resolved) || /font/i.test(text)) return { why: "font" };
+    return host === SITE_CANON_HOST[site] && link.direct === path ? { url: resolved, site: site } : { url: text, site: site, resolved: resolved };
   }
   // A picture whose site answers "not found" (1.8.1): the read through /px gets "upstream said 404"
   // (or 410), and this says so. ImgBB deletes an upload a day after it was made, and its link then
@@ -913,10 +1071,15 @@
       html = deg ? '<div style="rotate:180deg">' + url + "</div>" : LINE_OPEN + url + LINE_CLOSE;
       h = opts.shrinks ? Math.round(0.75 * ppi) + 2 * m : p.heightPx;
     }
-    return [{ html: html, chars: payloadLength(html), heightPx: h,
-              marginTop: mt, marginBottom: mb,
-              picture: { url: link.url, site: link.site, natW: natW, natH: natH, w: p.w, h: p.h, turned: deg,
-                         tall: h > bigRoom(opts.heightPx) + PX_EPS, shrinks: !!opts.shrinks } }];
+    var pr = { url: link.url, site: link.site, natW: natW, natH: natH, w: p.w, h: p.h, turned: deg,
+               tall: h > bigRoom(opts.heightPx) + PX_EPS, shrinks: !!opts.shrinks };
+    // A no-lookup form or an album/page sends the viewer's link (url) but the bot renders a DIFFERENT
+    // direct link (resolved); the preview keys the picture's copy by that, and an album carries the
+    // bot's lookup-table entry (lookup) so the frame resolves it the same way. A plain direct link
+    // has neither (resolved === url), so its record is unchanged.
+    if (link.resolved && link.resolved !== link.url) pr.resolved = link.resolved;
+    if (link.lookup) pr.lookup = link.lookup;
+    return [{ html: html, chars: payloadLength(html), heightPx: h, marginTop: mt, marginBottom: mb, picture: pr }];
   }
   // What a Real picture block prints: in a High Roller cheer its picture ("picture") when the link
   // is a direct picture link of a site the streamer switched on, else nothing ("none", and why:
@@ -3508,7 +3671,9 @@
              thermalDither: THERMAL_DITHERS.indexOf(s.thermalDither) >= 0 ? s.thermalDither : "floyd",
              allowHighRoller: s.allowHighRoller !== false, imageSites: imageSitesOf(s.imageSites),
              letterBits: letterBitsOf(s.letterBits), letterLayout: letterLayoutOf(s.letterLayout),
-             letterFit: letterFitOf(s.letterFit), letterProfile: letterProfileOf(s.letterProfile) };
+             letterFit: letterFitOf(s.letterFit), letterProfile: letterProfileOf(s.letterProfile),
+             stickerBits: letterBitsOf(s.stickerBits), stickerTape: stickerTapeOf(s.stickerTape),
+             cardBits: letterBitsOf(s.cardBits), cardFit: letterFitOf(s.cardFit) };
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
@@ -3941,11 +4106,22 @@
     // height of a page, and with the Large message layout `layout` and `imageFit`. The page itself
     // gives the large page only to a cheer of the threshold or more (3.0.5's layoutFor), as the app's
     // letterLayoutFor has it.
-    var paper = paperSpec(targetPaper(o));
+    // A sticker printer (Printer Bot 3.2.0) is told its tape and the sticker layout, and the bot forces
+    // its maximum length to under 16.5 inches (16.5 when off or larger), as OptionsFor does.
+    var paper = paperSpec(targetPaper(o), o);
+    var maxIn = maxInchesOf(o.maxInches);
+    if (paper.sticker) maxIn = maxIn > 0 && maxIn < STICKER_MAX_IN ? maxIn : STICKER_MAX_IN;
     var options = { highRollerBits: o.cheer === false ? 1 : t,
-                    highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxInchesOf(o.maxInches), hideLinks: false,
+                    highRollerBitsPerInch: bitsPerInchOf(o.bitsPerInch), highRollerMaxInches: maxIn, hideLinks: false,
                     allowHighRoller: hr, pxPerInch: paper.pxPerInch, imageSites: hr ? imageSitesOf(o.imageSites) : [] };
-    if (paper.pagePx) {
+    if (paper.sticker) { options.layout = "sticker"; options.tapeMm = paper.tapeMm; }
+    else if (paper.card) {
+      // A 4 x 6 card (Printer Bot 3.2.0): the card layout, its image fit, the card's height, and the
+      // 80 mm roll's width and inch for the receipt the card scales onto a non-High-Roller cheer.
+      options.layout = "card"; options.imageFit = letterFitOf(o.cardFit);
+      options.pageHeightPx = paper.pagePx; options.cardRollPx = PAPERS[80].cssWidth; options.cardRollPxPerInch = PAPERS[80].pxPerInch;
+    }
+    else if (paper.pagePx) {
       options.pageHeightPx = paper.pagePx;
       if (letterLayoutOf(o.letterLayout) === "message") { options.layout = "message"; options.imageFit = letterFitOf(o.letterFit); }
     }
@@ -4227,12 +4403,17 @@
     // anywhere, twice per Copy) started the same read through /px again, and the card said
     // "Reading the picture…" for ever.
     var decodeSeq = 0;
-    function decodeGlyphImage(block, file) {
-      var key = ++decodeSeq, src = file ? "file:" + (file.name || "upload") : block.url;
+    // Read a picture into block._img. `srcUrl` is the address to read (default block.url); a Real
+    // picture whose link is an album, a page or another no-lookup form reads the DIRECT link the bot
+    // would (resolvePicture), not the link the viewer typed. block._imgSrc is the address _img was
+    // read from, so a stale _img is re-read when the address changes.
+    function decodeGlyphImage(block, file, srcUrl) {
+      var readUrl = srcUrl || block.url;
+      var key = ++decodeSeq, src = file ? "file:" + (file.name || "upload") : readUrl;
       block._decoding = true; block._decodeKey = key; delete block._decodeFailed; delete block._gone;
       var p = file
         ? Promise.resolve(URL.createObjectURL(file))
-        : fetch(proxied(block.url), { credentials: "omit" }).then(function (r) {
+        : fetch(proxied(readUrl), { credentials: "omit" }).then(function (r) {
             if (r.ok) return r.blob();
             // /px passes the picture's site answering 404 or 410 on as "upstream said 404": gone.
             return r.json().then(function (j) { return !!j && /^upstream said (404|410)$/.test(j.error); }, function () { return false; })
@@ -4247,7 +4428,7 @@
         });
       }).then(function (im) {
         if (block._decodeKey !== key) return;
-        block._img = im; block._decoding = false; delete block._rot; saveBlocks(); refresh();
+        block._img = im; block._imgSrc = readUrl; block._decoding = false; delete block._rot; saveBlocks(); refresh();
       })["catch"](function (e) {
         if (block._decodeKey !== key) return;
         block._decoding = false; block._decodeFailed = src;
@@ -4312,20 +4493,74 @@
       return buildGlyphBodies(glyphOpts(block).tier, grid, { budget: ctx.budget, heightPx: ctx.room, paperMm: ctx.paperMm,
                                                              center: look.center, color: look.color });
     }
+    // Looking an album or a picture page up (full album/page link support). A direct or no-lookup
+    // form the app resolves itself (pictureLink); an album or picture page needs the bot's own
+    // lookup, which the app's Worker does the same way (/resolve). Runtime fields, like the decode's:
+    // _resolve ({ link, kind: "pic"|"none"|"video", url, table, key, value } for the current link),
+    // _resolving (a lookup in flight), _resolveLink / _resolveKey (which lookup), _resolveFailed
+    // (a link whose lookup didn't answer; not asked again until the link changes). The viewer's link
+    // still goes out verbatim; this is preview-only.
+    var resolveSeq = 0;
+    function resolvePicture(block) {
+      var rl = pictureLink(block.url);
+      if (!rl.lookup) return;
+      var link = block.url, lk = rl.lookup;
+      if (block._resolve && block._resolve.link === link) return;          // done
+      if (block._resolving && block._resolveLink === link) return;         // in flight
+      if (block._resolveFailed === link) return;                           // failed; wait for the link to change
+      var key = ++resolveSeq;
+      block._resolving = true; block._resolveLink = link; block._resolveKey = key;
+      var qs = "site=" + encodeURIComponent(lk.site) + "&id=" + encodeURIComponent(lk.id)
+        + (lk.site === "imgbb" ? "&kind=" + encodeURIComponent(lk.kind) + (lk.sort ? "&sort=" + encodeURIComponent(lk.sort) : "") : "");
+      fetch("/resolve?" + qs, { credentials: "omit" }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (block._resolveKey !== key) return;
+          block._resolving = false;
+          if (!j) { block._resolveFailed = link; refresh(); return; }
+          if (j.stay) block._resolve = { link: link, kind: "video" };
+          else if (j.picture === "") block._resolve = { link: link, kind: "none" };
+          else if (typeof j.picture === "string" && j.picture)
+            block._resolve = { link: link, kind: "pic", url: "https://" + SITE_CANON_HOST[lk.site] + "/" + j.picture, table: lk.table, key: lk.key, value: j.picture };
+          else { block._resolveFailed = link; refresh(); return; }
+          refresh();                                                       // realPictureBodies decodes _resolve.url next pass
+        })["catch"](function () {
+          if (block._resolveKey !== key) return;
+          block._resolving = false; block._resolveFailed = link; refresh();
+        });
+    }
+    // The direct link the preview reads/sizes/keys a Real picture by (the viewer's link goes out
+    // verbatim regardless): a direct or no-lookup form is rebuilt deterministically; an album or page
+    // is looked up (resolvePicture). { url, lookup? } when ready, else { state }: "resolving",
+    // "failed", "nopic" ([image]), "video" (the first item is a video) or "why" (not a picture link).
+    function realReadInfo(block) {
+      var rl = pictureLink(block.url);
+      if (rl.lookup) {
+        resolvePicture(block);
+        var rv = block._resolve && block._resolve.link === block.url ? block._resolve : null;
+        if (!rv) return { state: block._resolveFailed === block.url ? "failed" : "resolving" };
+        if (rv.kind !== "pic") return { state: rv.kind === "video" ? "video" : "nopic" };
+        return { url: rv.url, lookup: { table: rv.table, key: rv.key, value: rv.value } };
+      }
+      if (rl.url) return { url: rl.resolved || rl.url };
+      return { state: "why", why: rl.why };
+    }
     // A Real picture (1.5.0): in a High Roller cheer, its link as a picture link (realPictureForm:
-    // a direct link of a site the streamer switched on), sized from the picture itself; in a plain
-    // cheer, where the bot prints a link as text, the plain Han grid of the picture. Both read the
-    // picture as a Glyph-art picture is read (decodeGlyphImage, through our own Worker), once.
-    // Its card's settings print (1.8.0): a turn alone in the message, around the link (turnWay
-    // "css"); Brightness or Contrast, or Letter, through the copy (requestTurnedCopy): until it is
-    // made the body waits, and a copy that failed sends nothing (the card says why).
+    // a link of a site the streamer switched on), sized from the picture itself; in a plain cheer,
+    // where the bot prints a link as text, the plain Han grid of the picture. The direct link is read
+    // as a Glyph-art picture is read (decodeGlyphImage, through our own Worker), once; an album or
+    // page is looked up first (realReadInfo). Its card's settings print (1.8.0): a turn alone in the
+    // message, around the link (turnWay "css"); Brightness or Contrast, or Letter, through the copy
+    // (requestTurnedCopy): until it is made the body waits, and a copy that failed sends nothing.
     function realPictureBodies(block, ctx) {
       var turn = realTurn(block);
       var f = realPictureForm({ url: block.url, mode: ctx.mode, imageSites: ctx.imageSites, turn: turn, letter: !!ctx.letter,
                                 turnedUrl: turnedCopyUrl(block, Date.now()) });
-      if (f.form === "none" || (!block._img && !block.url)) return [];
-      if (!block._img) {
-        if (!block._decoding && block._decodeFailed !== block.url) decodeGlyphImage(block);
+      if (f.form === "none" || !block.url) return [];
+      var read = realReadInfo(block);
+      if (read.state === "resolving") return [{ html: "", chars: 0, heightPx: 0, waiting: true, preview: { kind: "grid", grid: "(looking up the album's first picture…)" } }];
+      if (read.state) return [];                                           // failed / nopic / video / why: the card says what happened
+      if (!block._img || block._imgSrc !== read.url) {
+        if (!block._decoding && block._decodeFailed !== read.url) decodeGlyphImage(block, null, read.url);
         return [{ html: "", chars: 0, heightPx: 0, waiting: true, preview: { kind: "grid", grid: "(decoding image…)" } }];
       }
       if (f.form === "grid") {
@@ -4345,8 +4580,13 @@
         var sz = turnedSize(natW, natH, turn.deg);
         return buildPictureBodies(f.link, sz.w, sz.h, po);
       }
+      // The viewer's link (f.link.url) goes out verbatim; the preview resolves it (read.url) and, for
+      // an album or page, carries the bot's lookup table entry (read.lookup) so the frame resolves it
+      // the same way.
+      var plink = { url: f.link.url, site: f.link.site, resolved: read.url };
+      if (read.lookup) plink.lookup = read.lookup;
       if (f.way === "css") po.deg = turn.deg;
-      return buildPictureBodies(f.link, natW, natH, po);
+      return buildPictureBodies(plink, natW, natH, po);
     }
     // Turn one composer block into its ordered BODIES for the stack context `ctx`.
     //  - Below the streamer's High Roller threshold (ctx.mode "plain") the bot prints the
@@ -4409,7 +4649,7 @@
     // puts that value back and says so beside it (streamerNotes). A negative threshold silently
     // became the default 25, which flipped every block between plain and High Roller; a negative
     // bits per inch or maximum length silently turned it off (final review 2).
-    var STREAMER_FIELDS = ["hrThreshold", "bitsPerInch", "maxInches", "letterBits"], lastStreamer = {}, streamerNotes = {};
+    var STREAMER_FIELDS = ["hrThreshold", "bitsPerInch", "maxInches", "letterBits", "stickerBits", "cardBits"], lastStreamer = {}, streamerNotes = {};
     function streamerEntryOk(raw) { var n = parseFloat(raw); return isFinite(n) && n >= 0; }
     function getSettings() {
       var v = function (el) { return el ? el.value : undefined; };
@@ -4424,7 +4664,9 @@
         nonce: !!(els.cheerNonce && els.cheerNonce.checked), thermalView: !!(els.thermalView && els.thermalView.checked),
         thermalDither: v(els.thermalDither), allowHighRoller: !(els.allowHighRoller && !els.allowHighRoller.checked),
         imageSites: (els.imageSites || []).filter(function (el) { return el.checked; }).map(function (el) { return el.value; }),
-        letterBits: sv("letterBits"), letterLayout: v(els.letterLayout), letterFit: v(els.letterFit), letterProfile: v(els.letterProfile)
+        letterBits: sv("letterBits"), letterLayout: v(els.letterLayout), letterFit: v(els.letterFit), letterProfile: v(els.letterProfile),
+        stickerBits: sv("stickerBits"), stickerTape: v(els.stickerTape),
+        cardBits: sv("cardBits"), cardFit: v(els.cardFit)
       });
       if (okBits) lastBits = s.bits;
       STREAMER_FIELDS.forEach(function (id) { if (els[id] && streamerEntryOk(els[id].value)) lastStreamer[id] = s[id]; });
@@ -4438,15 +4680,18 @@
       var shown = id === "hrThreshold" ? (s.hrThreshold > 0 ? bitsWord(s.hrThreshold) : "0 (High Roller off)")
         : id === "bitsPerInch" ? (s.bitsPerInch > 0 ? String(s.bitsPerInch) : "0 (off)")
         : id === "letterBits" ? (s.letterBits > 0 ? bitsWord(s.letterBits) : "0 (no Letter printer)")
+        : id === "stickerBits" ? (s.stickerBits > 0 ? bitsWord(s.stickerBits) : "0 (no sticker printer)")
+        : id === "cardBits" ? (s.cardBits > 0 ? bitsWord(s.cardBits) : "0 (no card printer)")
         : (s.maxInches > 0 ? s.maxInches + (s.maxInches === 1 ? " inch" : " inches") : "0 (off)");
       var name = id === "hrThreshold" ? "the threshold" : id === "bitsPerInch" ? "bits per inch"
-        : id === "letterBits" ? "the Letter printer's bits" : "the maximum length";
+        : id === "letterBits" ? "the Letter printer's bits" : id === "stickerBits" ? "the sticker printer's bits"
+        : id === "cardBits" ? "the card printer's bits" : "the maximum length";
       if (!streamerEntryOk(raw)) {
         return (raw === "" ? name.charAt(0).toUpperCase() + name.slice(1) + " can't be empty"
                            : "“" + raw + "” isn't a number of 0 or more") + ", so it stays at " + shown + ".";
       }
       if (id === "hrThreshold" && n > HR_MAX) return "The bot's highest threshold is 1,000,000 bits, so it is set to that.";
-      if (id === "letterBits" && n > HR_MAX) return "1,000,000 bits is the most this app takes here, so it is set to that.";
+      if ((id === "letterBits" || id === "stickerBits" || id === "cardBits") && n > HR_MAX) return "1,000,000 bits is the most this app takes here, so it is set to that.";
       if (id === "maxInches" && n > MAX_CAP_INCHES) return "The bot's longest maximum length is " + MAX_CAP_INCHES + " inches, so it is set to that.";
       return "";
     }
@@ -4466,7 +4711,8 @@
       var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !getNonce(), hrThreshold: s.hrThreshold,
         bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm, allowHighRoller: s.allowHighRoller,
         imageSites: s.imageSites, letterBits: s.letterBits, letterLayout: s.letterLayout, letterFit: s.letterFit,
-        letterProfile: s.letterProfile }, k;
+        letterProfile: s.letterProfile, stickerBits: s.stickerBits, stickerTape: s.stickerTape,
+        cardBits: s.cardBits, cardFit: s.cardFit }, k;
       for (k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -4577,6 +4823,10 @@
       if (els.letterLayout) els.letterLayout.value = s.letterLayout;
       if (els.letterFit) els.letterFit.value = s.letterFit;
       if (els.letterProfile) els.letterProfile.value = s.letterProfile;
+      if (els.stickerBits) els.stickerBits.value = String(s.stickerBits);
+      if (els.stickerTape) els.stickerTape.value = String(s.stickerTape);
+      if (els.cardBits) els.cardBits.value = String(s.cardBits);
+      if (els.cardFit) els.cardFit.value = s.cardFit;
     }
     // The Letter printer's card (1.6.0): its layout, image fit and profile mean nothing until it has
     // an amount (0 = no Letter printer), and the image fit only in Large message. Disabled, not
@@ -4590,6 +4840,18 @@
       var off = document.getElementById("letterOff"), fitOff = document.getElementById("letterFitOff");
       if (off) off.hidden = on;
       if (fitOff) fitOff.hidden = !on || s.letterLayout === "message";
+      syncStickerUi();
+    }
+    // The sticker printer's tape width and the card printer's image fit are disabled until their
+    // bits are set (0 = no such printer).
+    function syncStickerUi() {
+      if (!els || !els.stickerBits) return;
+      var s = getSettings(), sOn = letterBitsOf(s.stickerBits) > 0, cOn = letterBitsOf(s.cardBits) > 0;
+      if (els.stickerTape) els.stickerTape.disabled = !sOn;
+      if (els.cardFit) els.cardFit.disabled = !cOn;
+      var sOff = document.getElementById("stickerOff"), cOff = document.getElementById("cardOff");
+      if (sOff) sOff.hidden = sOn;
+      if (cOff) cOff.hidden = cOn;
     }
 
     // ── THE PREVIEW: SassyTP's own receipt page ─────────────────────────────
@@ -4936,10 +5198,27 @@
         if (!b.picture) return;
         for (var i = 0; i < blocks.length; i++) {
           if (blocks[i].id !== b.blockId) continue;
-          var url = b.picture.url !== pictureLink(blocks[i].url).url ? turnedPictureCopy(blocks[i]) : pictureCopy(blocks[i]);
-          if (url) out[b.picture.url] = url;
+          var copy = b.picture.url !== pictureLink(blocks[i].url).url ? turnedPictureCopy(blocks[i]) : pictureCopy(blocks[i]);
+          // The bot sets the <img> src to the DIRECT link it rebuilds or looks up (b.picture.resolved
+          // for a no-lookup form or an album), not the link in the message; key the copy by that.
+          if (copy) out[b.picture.resolved || b.picture.url] = copy;
           break;
         }
+      });
+      return out;
+    }
+    // The bot's lookup tables (full album/page link support), built from the pictures in this part
+    // that were looked up: opts.imgurAlbums / catboxAlbums / imgbbAlbums / imgbbPages, each
+    // { <key>: <value> }, exactly as the bot's action passes them so the frame's renderer resolves
+    // the album link in the message the same way. "" (a looked-up album with no picture) never
+    // reaches here: realReadInfo drops it before a body is built.
+    function albumTables(item) {
+      var out = null;
+      (item.bodies || []).forEach(function (b) {
+        var lk = b.picture && b.picture.lookup;
+        if (!lk) return;
+        out = out || {};
+        (out[lk.table] = out[lk.table] || {})[lk.key] = lk.value;
       });
       return out;
     }
@@ -4964,10 +5243,16 @@
       var pe = previewEvent({ payload: item.payload, bits: pcheer.bits, cheer: pcheer.cheer, hrThreshold: s.hrThreshold,
                               bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, allowHighRoller: s.allowHighRoller,
                               imageSites: s.imageSites, paperMm: s.paperMm, letterBits: s.letterBits,
-                              letterLayout: s.letterLayout, letterFit: s.letterFit });
-      var p = paperSpec(targetPaper({ bits: pcheer.bits, letterBits: s.letterBits, paperMm: s.paperMm }));
-      var layout = p.pagePx ? letterLayoutFor({ letterLayout: s.letterLayout, cheer: pcheer.cheer, bits: pcheer.bits, hrThreshold: s.hrThreshold }) : "";
-      var ck = p.mm + layout;
+                              letterLayout: s.letterLayout, letterFit: s.letterFit,
+                              stickerBits: s.stickerBits, stickerTape: s.stickerTape, cardBits: s.cardBits, cardFit: s.cardFit });
+      // Album/page links: hand the frame the bot's lookup tables for this part (opts.imgurAlbums …),
+      // so the renderer resolves the album link in the message to the same first picture. Part of pe,
+      // so a change in what was looked up re-renders (pe is in the request key below).
+      var tables = albumTables(item);
+      if (tables) for (var tk in tables) if (Object.prototype.hasOwnProperty.call(tables, tk)) pe.options[tk] = tables[tk];
+      var p = paperSpec(targetPaper({ bits: pcheer.bits, letterBits: s.letterBits, stickerBits: s.stickerBits, cardBits: s.cardBits, paperMm: s.paperMm }), { stickerTape: s.stickerTape });
+      var layout = p.letter ? letterLayoutFor({ letterLayout: s.letterLayout, cheer: pcheer.cheer, bits: pcheer.bits, hrThreshold: s.hrThreshold }) : "";
+      var ck = p.mm + (p.tapeMm || "") + layout;
       var pictures = partPictures(item);
       if (pc.frame) pc.frame.style.width = p.cssWidth + "px";
       pc.el.classList.toggle("on-page", !!p.pagePx);
@@ -4979,8 +5264,8 @@
         pc.el.setAttribute("data-render", "pending");
         if (!pc.frame) {
           // A Letter receipt is at most a page, and in Large message always one.
-          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[ck] || (p.pagePx ? LETTER_CHROME_PX[layout] : 230 + avatarExtraPx(p.mm)))));
-          if (p.pagePx) est = layout === "message" ? p.pagePx : Math.min(p.pagePx, est);
+          var est = Math.max(120, Math.round((item.contentPx || 0) + (chromePx[ck] || (p.letter ? LETTER_CHROME_PX[layout] : p.card ? 0 : 230 + avatarExtraPx(p.mm)))));
+          if (p.pagePx) est = layout === "message" ? p.pagePx : Math.min(p.pagePx, est);   // a card (never-split contentPx) caps at its own height here
           if (!pc.wait) { pc.wait = mkEl("div", { "class": "rcpt-wait" }, "Drawing the preview…"); pc.stage.insertBefore(pc.wait, pc.stage.firstChild); }
           pc.wait.style.width = p.cssWidth + "px";
           pc.wait.style.height = est + "px";
@@ -6358,6 +6643,7 @@
         block.url = url; block._img = null; delete block.turned;
         if (urlInput) urlInput.value = url;
         delete block.fileName; delete block._decodeFailed; delete block._turnFailed;
+        delete block._resolve; delete block._resolveFailed; delete block._imgSrc;
         decodeGlyphImage(block, blob);
         setStatus("Uploaded to ImgBB ✓"); saveBlocks(); refresh();
       });
@@ -6458,7 +6744,11 @@
       // A copy that prints (1.8.0) that couldn't be made is asked for again only from here.
       var retry = mkEl("button", { type: "button", "class": "retry-copy" }, "Try again");
       retry.hidden = true;
-      retry.addEventListener("click", function () { delete block._turnFailed; delete block._turnError; makeTurnedCopy(block); });
+      retry.addEventListener("click", function () {
+        var hadResolve = block._resolveFailed === block.url;
+        delete block._turnFailed; delete block._turnError; delete block._resolveFailed;
+        if (hadResolve) refresh(); else makeTurnedCopy(block);        // re-look-up an album, or re-make the copy
+      });
       picNote.appendChild(retry);
       realWrap.appendChild(picNote);
       var toGlyph = mkEl("button", { type: "button" }, "Switch to Glyph-art");
@@ -6489,16 +6779,22 @@
       // the picture on or off. Until the picture is read, a CSS filter stands in for Brightness
       // and Contrast.
       var syncThumb = function () {
-        var u = block.imgKind === "real" ? (block.url || "") : "", t = realTurn(block), drawn = !!u && hasTurn(t) && !!block._img;
-        var want = drawn ? "turn:" + turnKey(u, t) : u ? "url:" + u : "";
+        var u = block.imgKind === "real" ? (block.url || "") : "", t = realTurn(block);
+        // An album, a picture page or any no-lookup form (pl.lookup / pl.resolved) can't be read as
+        // an image through /px, so its thumbnail is the resolved picture drawn from block._img, once
+        // it has been looked up and decoded. Every other link (a direct link, or one /px can try) the
+        // <img> loads itself, as before.
+        var pl = u ? pictureLink(u) : null, nonDirect = !!(pl && (pl.lookup || pl.resolved));
+        var drawn = !!u && !!block._img && (hasTurn(t) || nonDirect);
+        var want = drawn ? "turn:" + turnKey(u, t) + ":" + (block._imgSrc || "") : !nonDirect && u ? "url:" + u : "";
         thumb.style.filter = u && !drawn && (t.br || t.ct) ? "brightness(" + (100 + t.br) + "%) contrast(" + (100 + t.ct) + "%)" : "";
         if (want !== thumbKey) {
           thumbKey = want; thumbTries = 0;
           if (drawn) { thumbSrc = turnedCanvas(block._img, t, 440).toDataURL("image/jpeg", 0.85); thumb.src = thumbSrc; }
-          else if (u) { thumbSrc = u; thumb.src = isMintedImageUrl(u) ? u : proxied(u); }
+          else if (u && !nonDirect) { thumbSrc = u; thumb.src = isMintedImageUrl(u) ? u : proxied(u); }
           else { thumbSrc = ""; thumb.removeAttribute("src"); }
         }
-        thumb.hidden = !u || thumbSrc === thumbBroken;
+        thumb.hidden = !u || thumbSrc === thumbBroken || (nonDirect && !block._img);
       };
       costSyncs.push(syncThumb);
       realWrap.appendChild(mkEl("div", { "class": "hint" },
@@ -6653,20 +6949,27 @@
       // picture and its size in a High Roller cheer, the plain grid below the threshold, or why it
       // prints nothing (realPictureForm's reasons), with a button to the setting that fixes it.
       var REAL_WHY = {
-        empty: "Pick a file below to upload it to ImgBB, or paste a direct link to the picture on Imgur, Catbox or ImgBB: the "
-          + "address of the picture itself, ending in .png, .jpg, .gif or .webp. Anyone with the link can see the picture.",
+        empty: "Pick a file below to upload it to ImgBB, or paste a link to a picture, an album or a picture page on Imgur, "
+          + "Catbox or ImgBB. Anyone with the link can see the picture.",
         https: "This prints only from a link that starts with https://.",
         invalid: "That isn't a web address.",
         userport: "A link with a user name or a port number doesn't print as a picture.",
-        page: "That's a page of the site, not the picture itself. Open the picture and copy its own address: Imgur's start "
-          + "https://i.imgur.com/, ImgBB's https://i.ibb.co/ and Catbox's https://files.catbox.moe/.",
-        direct: "That isn't a direct link to a picture: it has to end in .png, .jpg, .gif or .webp (an album, a video or an SVG "
-          + "doesn't print).",
+        notpic: "That's a link on the site, but not a picture, an album or a picture page, so it can't print. A direct picture "
+          + "link ends in .png, .jpg, .gif or .webp; an album or a picture page prints the first picture it holds.",
         site: "Printer Bot prints pictures only from Imgur, Catbox and ImgBB links, so this one can't print as a picture. "
           + "Switch to Glyph-art to print it as characters.",
         long: "That link is longer than Printer Bot takes (400 characters).",
         font: "This link has the word “font” in it, which this channel's chat filter holds, so it can't go out. "
           + "Switch to Glyph-art to print it as characters."
+      };
+      // The album/page states realReadInfo reports while the first picture is being looked up or when
+      // there is none (full album/page link support).
+      var REAL_LOOKUP = {
+        resolving: "Looking up the album's first picture (Printer Bot does this at print time too, which takes up to 3 seconds)…",
+        failed: "Couldn't look up the album's first picture. Check the link, or Try again. Until then this block prints nothing.",
+        nopic: "This album has no picture Printer Bot can show, so it would print “[image]”. Use a link to the picture itself.",
+        video: "The first item of this album is a video, so Printer Bot leaves the link as text — it doesn't print as a picture. "
+          + "Use a link to a picture."
       };
       var siteName = function (id) {
         for (var i = 0; i < PICTURE_SITES.length; i++) if (PICTURE_SITES[i].id === id) return PICTURE_SITES[i].name;
@@ -6687,6 +6990,10 @@
         var grid = where.own.filter(function (b) { return b.hanzi || b.glyph; });
         var n = where.inParts.length || 1;
         var count = noRoom ? "prints nothing (see below)" : ctx.cheer ? cheersOf(n) : n === 1 ? "1 message" : n + " messages";
+        // An album or a picture page being looked up, or with no picture / a video first (full
+        // album/page link support): realReadInfo drives it, the same lookup realPictureBodies uses.
+        var read = f.form !== "none" ? realReadInfo(block) : null;
+        var looking = read && (read.state === "failed" || read.state === "nopic" || read.state === "video");
         if (f.form === "none") {
           if (f.why === "site-off") {
             var nm = siteName(f.site);
@@ -6696,6 +7003,8 @@
                 + "Images in messages). Once it has, tick " + nm + " under Pictures from links."));
             fix = { id: "imageSite-" + f.site, label: "Go to Pictures from links" };
           } else lines.push(REAL_WHY[f.why] || REAL_WHY.site);
+        } else if (read && read.state && read.state !== "why") {
+          lines.push(REAL_LOOKUP[read.state] || REAL_WHY.notpic);
         } else if (pic) {
           var pmm = mmPerPx(ctx.paperMm), fitName = { fit: "Fit", fill: "Fill", stretch: "Stretch" };
           lines.push(ctx.letter && ctx.letter.layout === "message"
@@ -6743,8 +7052,8 @@
             + (t > 0 && !hrOff && st.imageSites.length && raiseOffered() ? " Picking Real picture raises Bits per cheer to " + bitsWord(t) + ", or offers to." : ""));
         }
         var pl = partLines(where, parts, noRoom);
-        writeNote(picText, lines.concat(pl.warn), pl.fine.concat(fine), where.over || f.form === "none" || failed);
-        retry.hidden = !failed;
+        writeNote(picText, lines.concat(pl.warn), pl.fine.concat(fine), where.over || f.form === "none" || failed || looking);
+        retry.hidden = !(failed || (read && read.state === "failed"));
         var fk = fix ? fix.id : "";
         if (fk !== picFixKey) { picFixKey = fk; picFix.textContent = ""; if (fix) picFix.appendChild(fixButton(fix)); }
       };
@@ -6759,6 +7068,7 @@
       url.addEventListener("input", function () {
         block.url = url.value; block._img = null; delete block.turned;
         delete block.fileName; delete block._decodeFailed; delete block._turnFailed;
+        delete block._resolve; delete block._resolveFailed; delete block._imgSrc;   // a new link: look it up afresh
         // A new read for a glyph-art link; otherwise the read in flight is for the old link.
         if (block.imgKind === "glyph" && block.url) decodeGlyphImage(block);
         else cancelDecode(block);
@@ -6776,6 +7086,7 @@
           // The file is now the picture: the link it replaces goes, so a reload can't quietly
           // bring back a different picture, and its name stays so the card can ask for it again.
           block.url = ""; url.value = ""; block._img = null; delete block.turned;
+          delete block._resolve; delete block._resolveFailed; delete block._imgSrc;
           block.fileName = String(f.name || "the file").slice(0, 120);
           setStatus("");
           decodeGlyphImage(block, f);
@@ -7500,6 +7811,10 @@
         letterLayout: document.getElementById("letterLayout"),
         letterFit: document.getElementById("letterFit"),
         letterProfile: document.getElementById("letterProfile"),
+        stickerBits: document.getElementById("stickerBits"),
+        stickerTape: document.getElementById("stickerTape"),
+        cardBits: document.getElementById("cardBits"),
+        cardFit: document.getElementById("cardFit"),
         presetName: document.getElementById("presetName"),
         presetSave: document.getElementById("presetSave"),
         presetList: document.getElementById("presetList"),
@@ -7542,7 +7857,8 @@
       window.addEventListener("message", onPreviewMessage);
 
       [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm, els.allowHighRoller,
-       els.letterBits, els.letterLayout, els.letterFit, els.letterProfile].forEach(function (el) {
+       els.letterBits, els.letterLayout, els.letterFit, els.letterProfile, els.stickerBits, els.stickerTape,
+       els.cardBits, els.cardFit].forEach(function (el) {
         if (!el) return;
         // Cheer-ready gates the repeat number, and the bits and the threshold decide whether
         // the stack prints its High Roller or its plain forms.
@@ -7629,6 +7945,7 @@
       PAPERS: PAPERS, paperSpec: paperSpec, BASE_PX: BASE_PX, BASE_LH: BASE_LH, LEAD_LINE_PX: LEAD_LINE_PX,
       // Letter (1.6.0).
       mmPerPx: mmPerPx, targetPaper: targetPaper, LETTER_CHROME_PX: LETTER_CHROME_PX, letterBitsOf: letterBitsOf,
+      stickerSpec: stickerSpec, stickerTapeOf: stickerTapeOf, STICKER_MAX_IN: STICKER_MAX_IN,
       letterLayoutFor: letterLayoutFor, goneWords: goneWords, colourOf: colourOf, letterDither: letterDither, blockLook: blockLook, allowsHighRoller: allowsHighRoller,
       boxWords: boxWords, tallWords: tallWords,
       CONTENT_CEILING_PX: CONTENT_CEILING_PX, PX_PER_INCH: PX_PER_INCH, MAX_CAP_INCHES: MAX_CAP_INCHES,
@@ -7656,6 +7973,7 @@
       FACE_IDS: FACE_IDS, faceOf: faceOf, faceIdOf: faceIdOf, FACE_PROBE: FACE_PROBE, faceMatches: faceMatches,
       // Picture links (1.5.0).
       PICTURE_SITES: PICTURE_SITES, PICTURES_PER_CHEER: PICTURES_PER_CHEER, imageSitesOf: imageSitesOf, pictureLink: pictureLink,
+      imgurLink: imgurLink, catboxLink: catboxLink, imgbbLink: imgbbLink,
       picturePrint: picturePrint, buildPictureBodies: buildPictureBodies, realPictureForm: realPictureForm,
       // Sideways (High Roller).
       SIDE_DIRS: SIDE_DIRS, SIDE_MIN_PX: SIDE_MIN_PX, SIDE_MAX_PX: SIDE_MAX_PX, sideOpen: sideOpen, sidePad: sidePad,
@@ -7695,8 +8013,8 @@
 <!--
   The receipt preview is drawn by SassyTP's printer-bot renderer (MIT): the receipt page the bot
   itself prints from, kept here as inert text and loaded into one sandboxed frame per part.
-  Source: https://github.com/SassyTP/printer-bot  path v/3.0.0/renderer.html  commit d4800f82d2074246bb1141def6ba72d713811e2c
-  (renderer version 202610150536, upstream file sha256 94704db2b114e7646bb3130f0ebcc1078fc3b6d7d3c637878528da9e18e270cf)
+  Source: https://github.com/SassyTP/printer-bot  path v/3.2.0-beta.7/renderer.html  commit e05c0325e779b33fc9166ec201b6adef539b247b
+  (renderer version 202610191933, upstream file sha256 66b344eb7b00fccc189328e75625cafae887c9952633af2fb8f9f1c79d6e6f3c)
 
   MIT License
 
@@ -7725,7 +8043,7 @@
   logo; (2) the page's Content-Security-Policy is a no-network policy; (3) every closing script tag
   is written with a backslash before its slash, undone when the app reads the block.
 -->
-<script type="text/plain" id="sassytp-renderer" data-commit="d4800f82d2074246bb1141def6ba72d713811e2c" data-path="v/3.0.0/renderer.html" data-version="202610150536">
+<script type="text/plain" id="sassytp-renderer" data-commit="e05c0325e779b33fc9166ec201b6adef539b247b" data-path="v/3.2.0-beta.7/renderer.html" data-version="202610191933">
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7735,7 +8053,7 @@
 <!-- RW-EDIT 2 (Receipt Wrecker): this policy replaces the page's own. Nothing loads from the network (no connections, images only from data: URLs) and no frame, form or object; inline scripts are allowed instead of the renderer script's hash, so the preview's glue script can run next to it. -->
 <!-- RW-EDIT 3 (Receipt Wrecker): every closing script tag in this copy is written with a backslash before its slash, so the page can sit inside Receipt Wrecker's own page as inert text. The app takes the backslash out again before it loads the page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
-<meta name="printer-bot-renderer" content="202610150536">
+<meta name="printer-bot-renderer" content="202610191933">
 <style>
 /*
  * Printer Bot receipt
@@ -8258,6 +8576,268 @@ img.msg-image {
 	object-fit: fill;
 }
 
+
+/* ---- the sticker layout of a Brother VC-500W (3.2.0) -------------------------------------------------------------------------------------------------------------------- */
+
+/* renderer.js gives the receipt the class sticker when the printer is a sticker printer (the action sends layout "sticker") and the receipt is a High Roller message (every other
+   receipt prints on the tape as it does on a narrow roll), and sets --pb-w, the width of the tape in CSS px (189 on 50 mm tape, 94 on 25 mm). Every size below is a share of it,
+   so the same sticker comes out on every tape, smaller or larger. The sticker comes out of the printer lengthwise, its top first, and reads upright as it comes out: the viewer's
+   picture as a small circle at the left with the kind of the event, the amount and the name beside it in three small lines, then the date centred under them, the message in a
+   thin frame, and then the pictures of the message, each as wide as the tape in its own orientation: the head takes as little as the words need, so the photo gets the tape.
+   The sticker is as long as that takes.
+   This is the owner's second design, of 17 October 2026, after the first stickers printed (the first ran the lines along the tape with the message upside down, which was too
+   small on 25 mm tape); the orientations and sizes live here alone. */
+#receipt-container.sticker {
+	display: block;
+	padding: calc(var(--pb-w, 189px) * 0.02);
+	text-align: center;
+}
+
+.sticker .rule,
+.sticker #receipt-banner,
+.sticker #receipt-tail,
+.sticker #receipt-footer {
+	display: none;
+}
+
+/* the head, kept small so that the photo gets the tape: the viewer's picture at the left (a quarter of the width), beside it three lines of one small size: the kind of the
+   event with the amount (renderer.js puts both into #receipt-kind and the amount's own line is hidden), the name, then the date and the time */
+.sticker #receipt-header {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	grid-template-areas: "pic kind" "pic name" "pic date";
+	column-gap: calc(var(--pb-w, 189px) * 0.03);
+	row-gap: 0;
+	align-items: center;
+	justify-items: start;
+	height: auto;
+}
+
+.sticker #receipt-avatar {
+	grid-area: pic;
+	width: calc(var(--pb-w, 189px) * 0.24);
+	margin: 0;
+	border-width: 2px;
+	transform: none;
+}
+
+.sticker #receipt-title,
+.sticker #receipt-title.big {
+	display: none;
+}
+
+.sticker #receipt-subtitle,
+.sticker #receipt-kind,
+.sticker #receipt-date {
+	display: block;
+	writing-mode: horizontal-tb;
+	margin: 0;
+	max-height: none;
+	max-width: 100%;
+	overflow: hidden;
+	line-height: 1.4;
+	letter-spacing: 0.01em;
+	text-align: left;
+	text-transform: none;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+	font-size: calc(var(--pb-w, 189px) * 0.055);
+	font-weight: 400;
+}
+
+.sticker #receipt-kind { grid-area: kind; font-weight: 700; white-space: normal; }      /* the kind and the amount wrap onto a second line on a narrow tape rather than be cut */
+.sticker #receipt-subtitle { grid-area: name; }
+.sticker #receipt-date { grid-area: date; }
+
+/* the words of the message: a framed box across the tape, as tall as the words need, read like the rest */
+.sticker #receipt-content {
+	box-sizing: border-box;
+	display: block;
+	margin-top: calc(var(--pb-w, 189px) * 0.02);
+	padding: calc(var(--pb-w, 189px) * 0.02) calc(var(--pb-w, 189px) * 0.03);
+	border: 1px solid #000;
+	font-size: calc(var(--pb-w, 189px) * 0.065);
+	line-height: 1.25;
+	text-align: center;
+	transform: none;
+	max-height: none !important;
+	overflow: visible;
+}
+
+.sticker #receipt-content .part.message::before,
+.sticker #receipt-content .part.message::after {
+	content: none;
+}
+
+/* the pictures of the message, under the frame: each as wide as the tape, in its own orientation, one under the other (renderer.js stickerArrange) */
+#receipt-sticker-pictures {
+	display: block;
+	width: 100%;
+	margin-top: calc(var(--pb-w, 189px) * 0.02);
+}
+
+#receipt-sticker-pictures .sticker-pic {
+	position: static;
+	width: 100%;
+	margin: 0 0 calc(var(--pb-w, 189px) * 0.02);
+	overflow: visible;
+	font-size: calc(var(--pb-w, 189px) * 0.065);     /* the words [image] of a picture that did not come */
+}
+
+#receipt-sticker-pictures img.msg-image {
+	position: static;
+	display: block;
+	width: 100%;
+	height: auto;
+	margin: 0;
+	max-width: 100%;
+	max-height: none !important;
+	object-fit: fill;
+	transform: none;
+}
+
+/* ---- a card of 4 x 6 inches in landscape (3.2.0-beta.2) ---------------------------------------------------------------------------------------------------------------------- */
+
+/* renderer.js gives a High Roller message on a card the class card (the action sends layout "card" for a printer on that paper), and sets --pb-w and --pb-h, the width and the height
+   of the card in CSS px (400 and 257: 5.6 by 3.6 inches of paper). Every size below is a share of the width. The words of the message are in a narrow column at the left, under the
+   viewer's picture, the kind of the event, the amount, the name and the date; the pictures of the message take the rest of the card, side by side, set as Image fit says (fit-fit,
+   fit-fill, fit-stretch). A card with no picture (card-words) gives the message the place of the pictures, in larger type. renderer.js shrinks the words to fit (cardWords).
+   Every other receipt on a card (card-fit) is the receipt of an 80 mm roll, which renderer.js makes as large as the card allows (cardFit): it has no rule here. */
+#receipt-container.card {
+	display: grid;
+	grid-template-columns: 15% minmax(0, 1fr);
+	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-areas: "head pics" "words pics";
+	column-gap: calc(var(--pb-w, 400px) * 0.02);
+	box-sizing: border-box;
+	width: 100%;
+	height: var(--pb-h, 257px);
+	padding: 0;
+	overflow: hidden;
+	text-align: left;
+}
+
+.card .rule,
+.card #receipt-banner,
+.card #receipt-tail,
+.card #receipt-footer {
+	display: none;
+}
+
+/* the head: the viewer's picture as wide as the column, then the kind of the event, the amount, the name and the date, one under the other */
+.card #receipt-header {
+	grid-area: head;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: calc(var(--pb-w, 400px) * 0.004);
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	text-align: left;
+}
+
+.card #receipt-avatar {
+	width: 100%;
+	margin: 0 0 calc(var(--pb-w, 400px) * 0.008);
+	border-width: 1px;
+}
+
+.card #receipt-kind,
+.card #receipt-title,
+.card #receipt-title.big,
+.card #receipt-subtitle,
+.card #receipt-date,
+.card #receipt-test-mark {
+	display: block;
+	margin: 0;
+	padding: 0;
+	font-size: calc(var(--pb-w, 400px) * 0.021);
+	font-weight: 400;
+	line-height: 1.2;
+	letter-spacing: 0;
+	text-align: left;
+	text-transform: none;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.card #receipt-kind,
+.card #receipt-title,
+.card #receipt-title.big {
+	font-weight: 700;
+}
+
+/* the words of the message, under the head; they fill what the column has left */
+.card #receipt-content {
+	grid-area: words;
+	min-width: 0;
+	min-height: 0;
+	max-width: none;
+	margin: calc(var(--pb-w, 400px) * 0.01) 0 0;
+	padding: 0;
+	overflow: hidden;
+	font-size: calc(var(--pb-w, 400px) * 0.024);
+	line-height: 1.25;
+	text-align: left;
+}
+
+/* the pictures of the message, side by side in the rest of the card, each as tall as the card */
+.card #receipt-card-pictures {
+	grid-area: pics;
+	display: flex;
+	flex-direction: row;
+	gap: calc(var(--pb-w, 400px) * 0.01);
+	min-width: 0;
+	height: 100%;
+}
+
+.card .card-pic {
+	flex: 1 1 0;
+	min-width: 0;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	font-size: calc(var(--pb-w, 400px) * 0.024);      /* the words [image] of a picture that did not come */
+}
+
+.card .card-pic img.msg-image {
+	display: block;
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	max-height: none !important;
+	margin: 0;
+	object-fit: contain;
+}
+
+.card.fit-fill .card-pic img.msg-image {
+	object-fit: cover;
+}
+
+.card.fit-stretch .card-pic img.msg-image {
+	object-fit: fill;
+}
+
+/* a card with no picture: the message takes the place of the pictures, in larger type */
+#receipt-container.card.card-words {
+	grid-template-areas: "head words" "head words";
+}
+
+.card.card-words #receipt-content {
+	margin: 0;
+	font-size: calc(var(--pb-w, 400px) * 0.05);
+}
+
+/* 3.2.0-beta.2: the TEST mark of a test print at the end of a sticker (renderer.js, stickerArrange: a sticker shows no footer, where the mark is on a roll) */
+.sticker #receipt-test-mark {
+	margin: calc(var(--pb-w, 189px) * 0.02) 0 0;
+	font-size: calc(var(--pb-w, 189px) * 0.055);
+	text-align: center;
+}
+
 </style>
 <style id="theme"></style>
 </head>
@@ -8338,7 +8918,7 @@ img.msg-image {
 window.PrinterBot = (function () {
     'use strict';
 
-    const VERSION = '202610150536';
+    const VERSION = '202610191933';
     // RW-EDIT 1 (Receipt Wrecker): the Twitch, YouTube and Kick logos (trademarks of their owners, outside the MIT licence) are replaced by one plain grey box the size of the Twitch logo (336 x 112 px), so the footer keeps its size.
     const ICONS = {"twitch":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","youtube":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","kick":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII="};
     // 3.0.5: the picture of a YouTube receipt that has none (the samples, a typed test, a viewer with no picture): a grey person drawn here, so nothing is downloaded.
@@ -8588,7 +9168,7 @@ window.PrinterBot = (function () {
         const r = vetUrl(v, TRUSTED_IMAGE_HOSTS);
         if (r.url || !activeImageSites.size) return r;
         const hit = imageSiteLink(v, activeImageSites);                 // not an emote host: a picture of a site that is switched on for this receipt
-        return hit ? { url: hit.url, site: hit.site } : r;
+        return hit ? (hit.failed ? { url: '', failed: true } : { url: hit.url, site: hit.site }) : r;      // (3.0.11: an address the action looked up and found no picture for: "[image]")
     }
     const trustedImageUrl = (value) => vetImage(value).url;
 
@@ -8614,12 +9194,125 @@ window.PrinterBot = (function () {
         catbox: /^\/[A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp)$/i,                                                                 // files.catbox.moe/<name>.<ext>
         imgbb: /^\/[A-Za-z0-9]{3,16}\/(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2}){1,120}\.(?:png|jpe?g|gif|webp)$/i,                       // i.ibb.co/<id>/<name>.<ext>
     };
+    // 3.0.11 (the owner, 16 October 2026: viewers paste the page of a picture or of an album instead of the direct link, and pay for a picture that never prints). Every form of
+    // an Imgur link that Imgur itself answers for (checked against imgur.com on 16 October 2026) is one of three things (imgurLink):
+    //   * ONE picture, with no lookup: i.imgur.com/<id> (Imgur sends it to the page of the picture), imgur.com/<id> and imgur.com/<id>.<ext> (also www. and m., which Imgur sends
+    //     to imgur.com). It is asked for at i.imgur.com/<id>.<ext>: .jpg when the link names no extension, as Imgur sends the picture whatever extension is asked (a PNG asked
+    //     for as .jpg comes back as image/png). The id is 5 to 7 letters and digits with at least one capital or digit: Imgur's own pages (/upload, /privacy, /removed) are words
+    //     in small letters and stay text.
+    //   * an ALBUM (Imgur calls it a post): imgur.com/a/<id>, /a/<id>.<ext> (Imgur sends it to /a/<id>), /a/<title>-<id>, /gallery/<id>, /gallery/<title>-<id> (also www. and m.),
+    //     i.imgur.com/a/<id>(.<ext>) and i.imgur.com/gallery/<id>(.<ext>) (Imgur sends both to the album). The id of an album is not the id of its pictures, so only a lookup can
+    //     tell which picture it holds: the action looks up the first picture of each album of a High Roller message before the print (PbImgur, Imgur's list of the album's
+    //     pictures, else the album's preview picture) and gives the page opts.imgurAlbums, { <album id>: '<picture id>.<ext>' }, with '' for an album it could not look up. The
+    //     page prints the first picture only, never the rest of the album; '' prints "[image]"; an album the action did not name (it found no picture, the first item is a
+    //     video, or the lookup was not made) stays text. /a/<title>-<id>.<ext> and /gallery/<id>.<ext> on imgur.com are no address (Imgur answers 404) and stay text.
+    //   * anything else on Imgur (a tag, a user page, a video, a word) stays text.
+    // The page never fetches imgur.com (its policy and Edge's host rules do not let it): every picture comes from i.imgur.com, the one host of the site, and the address built
+    // here then goes through the rule of the direct links (IMAGE_PATHS.imgur) like any other.
+    const IMGUR_PAGE_HOSTS = ['imgur.com', 'www.imgur.com', 'm.imgur.com'];
+    const IMGUR_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
+    const IMGUR_ONE = /^\/([A-Za-z0-9]{5,7})(\.[A-Za-z]{3,4})?\/?$/;                              // /<id>, /<id>.<ext>, either with a slash after it
+    const IMGUR_ALBUM = /^\/(a|gallery)\/(?:([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)-)?([A-Za-z0-9]{5,7})(\.[A-Za-z]{3,4})?\/?$/;     // /a/<id>, /a/<title>-<id>, /gallery/..., an extension
+    const IMGUR_PICTURE = /^[A-Za-z0-9]{5,10}\.(?:png|jpe?g|gif|webp)$/;                        // what the action may name as the first picture of an album
+    const imgurId = (id) => /[A-Z0-9]/.test(id);                                                 // an id has a capital or a digit; Imgur's own pages are words in small letters
+    const imgurExt = (dotted) => { const e = dotted ? dotted.slice(1).toLowerCase() : 'jpg'; return IMGUR_EXTS.includes(e) ? e : null; };
+    // { direct: '/<id>.<ext>' } for one picture, { album: '<id>' } for an album, null for anything else. host is lower case (URL), path is the path of the address.
+    function imgurLink(host, path) {
+        const page = IMGUR_PAGE_HOSTS.includes(host);
+        if (!page && host !== 'i.imgur.com') return null;
+        const album = IMGUR_ALBUM.exec(path);
+        if (album) {
+            if (!imgurId(album[3])) return null;
+            if (album[4] && (page ? album[1] === 'gallery' || album[2] : album[2])) return null;      // imgur.com/gallery/<id>.<ext> and /<title>-<id>.<ext> are 404 at Imgur
+            if (album[4] && !imgurExt(album[4])) return null;
+            if (!page && album[2]) return null;                                                     // i.imgur.com has no title form
+            return { album: album[3] };
+        }
+        if (!page && IMAGE_PATHS.imgur.test(path)) return { direct: path };                        // i.imgur.com/<id>.<ext>: the direct link, as before
+        const one = IMGUR_ONE.exec(path);
+        if (!one || !imgurId(one[1])) return null;
+        if (!page && one[2]) return null;                                                          // i.imgur.com/<id>.<ext> that is not a direct link (a video, an odd ending)
+        const ext = imgurExt(one[2]);
+        return ext ? { direct: '/' + one[1] + '.' + ext } : null;
+    }
+    // 3.1.0 (the owner, 16 October 2026): an album of Catbox or ImgBB, and the page of one ImgBB picture, print their first picture as an Imgur album does (checked against catbox.moe
+    // and ibb.co on 16 October 2026; DEVELOPMENT.md, section 10, has every form and what Catbox and ImgBB answer for it):
+    //   * Catbox (catboxLink): files.catbox.moe/<name>.<ext> is the direct link, as before. files.catbox.moe/thumbs/t_<name>.<ext> is the small copy that the page of an album
+    //     shows (and that "copy image address" gives there): it prints the file itself, files.catbox.moe/<name>.<ext>, with no lookup. catbox.moe/c/<id> is an album (Catbox calls
+    //     it a collection; <id> is 6 letters and digits in any case, read in small letters): the action looks up its first file. A slash after it and a query are accepted and
+    //     dropped, though Catbox itself answers 404 for them (the owner: a viewer's slip, rare but real). Any other address of Catbox stays text.
+    //   * ImgBB (imgbbLink): i.ibb.co/<id>/<name>.<ext> is the direct link, as before, and i.ibb.co.com/<id>/<name>.<ext> (ImgBB's second domain) is the same picture, asked for at
+    //     i.ibb.co. ibb.co/album/<id> is an album (also www.ibb.co, imgbb.com, www.imgbb.com, ibb.co.com and a user's <name>.imgbb.com; a slash after it): the action looks up the
+    //     first picture as the album shows it, the newest by default, or the first in the order that the link's ?sort= names (a word, then _asc or _desc). ibb.co/<id> (the
+    //     "viewer link" ImgBB gives after an upload; also www.ibb.co, imgbb.com, www.imgbb.com and ibb.co.com, a slash after it; <id> is 5 to 10 letters and digits with a capital
+    //     or a digit) is the page of one picture: the action looks up its original. The delete link (ibb.co/<id>/<code>), the embed codes and the sub-albums of an album
+    //     (/album/<id>/embeds, /sub), a user's page and anything else stay text.
+    // The action's answers come as opts.catboxAlbums ({ <id>: '<name>.<ext>' }), opts.imgbbAlbums ({ <id> or <id>?sort=<sort>: '<id>/<name>.<ext>' }) and opts.imgbbPages
+    // ({ <id>: '<id>/<name>.<ext>' }), with '' for no picture ("[image]"); a link with no entry stays text. The pictures still come only from files.catbox.moe and i.ibb.co.
+    const CATBOX_THUMB = /^\/thumbs\/t_([A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp))$/i;       // files.catbox.moe/thumbs/t_<name>.<ext>
+    const CATBOX_ALBUM = /^\/c\/([A-Za-z0-9]{6})\/?$/;                                           // catbox.moe/c/<id>, a slash after it
+    const CATBOX_PICTURE = /^[A-Za-z0-9_-]{3,40}\.(?:png|jpe?g|gif|webp)$/i;                     // what the action may name as the first file of a Catbox album
+    // { direct: '/<name>.<ext>' } for a file, { album: '<id>' } for an album, null for anything else. host is lower case (URL), path is the path of the address.
+    function catboxLink(host, path) {
+        if (host === 'files.catbox.moe') {
+            if (IMAGE_PATHS.catbox.test(path)) return { direct: path };                           // files.catbox.moe/<name>.<ext>: the direct link, as before
+            const thumb = CATBOX_THUMB.exec(path);
+            return thumb ? { direct: '/' + thumb[1] } : null;                                     // the thumbnail: the file itself
+        }
+        if (host !== 'catbox.moe') return null;
+        const album = CATBOX_ALBUM.exec(path);
+        return album ? { album: album[1].toLowerCase() } : null;
+    }
+    const IMGBB_HOSTS = ['ibb.co', 'www.ibb.co', 'imgbb.com', 'www.imgbb.com', 'ibb.co.com'];      // the hosts of ImgBB's pages
+    const IMGBB_USER_HOST = /^[a-z0-9][a-z0-9-]{0,62}\.imgbb\.com$/;                             // a user's own subdomain: it shows the user's albums, no page of one picture
+    const IMGBB_ALBUM = /^\/album\/([A-Za-z0-9]{3,16})\/?$/;                                       // /album/<id>, a slash after it
+    const IMGBB_PAGE = /^\/([A-Za-z0-9]{5,10})\/?$/;                                               // /<id>, a slash after it
+    const IMGBB_SORT = /^[a-z]{1,12}_(?:asc|desc)$/;                                               // ?sort=date_asc, name_desc ...
+    const IMGBB_PICTURE = /^[A-Za-z0-9]{3,16}\/(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2}){1,120}\.(?:png|jpe?g|gif|webp)$/i;      // what the action may name: '<id>/<name>.<ext>'
+    const imgbbHost = (host) => host === 'i.ibb.co' || host === 'i.ibb.co.com' || IMGBB_HOSTS.includes(host) || IMGBB_USER_HOST.test(host);
+    // The sort of an album link as the action reads it: '' for none, for another shape, and for date_desc (the order an album shows anyway)
+    const imgbbSort = (sort) => typeof sort === 'string' && IMGBB_SORT.test(sort) && sort !== 'date_desc' ? sort : '';
+    // { direct: '/<id>/<name>.<ext>' }, { album: '<id>' or '<id>?sort=<sort>' }, { page: '<id>' }, null for anything else. sort is the first ?sort= of the address (URLSearchParams).
+    function imgbbLink(host, path, sort) {
+        if (host === 'i.ibb.co' || host === 'i.ibb.co.com') return IMAGE_PATHS.imgbb.test(path) ? { direct: path } : null;      // the direct link (on either domain)
+        const main = IMGBB_HOSTS.includes(host);
+        if (!main && !IMGBB_USER_HOST.test(host)) return null;
+        const album = IMGBB_ALBUM.exec(path);
+        if (album) { const s = imgbbSort(sort); return { album: s ? album[1] + '?sort=' + s : album[1] }; }
+        if (!main) return null;
+        const page = IMGBB_PAGE.exec(path);
+        return page && /[A-Z0-9]/.test(page[1]) ? { page: page[1] } : null;                       // an id has a capital or a digit; ImgBB's own pages are words in small letters
+    }
+    // 3.0.11, 3.1.0: the action's answers for the receipt that is being built (lookupsOf): Imgur albums, Catbox albums, ImgBB albums and pages of one ImgBB picture
+    const NO_LOOKUPS = { imgur: new Map(), catbox: new Map(), imgbbAlbum: new Map(), imgbbPage: new Map() };
+    let activeLookups = NO_LOOKUPS;
+    // One table of the options, checked: a key of the shape `key`, a value that is '' or of the shape `value`. At most 16 entries; anything else is ignored.
+    function lookupTable(o, key, value) {
+        const out = new Map();
+        if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
+        for (const k of Object.keys(o).slice(0, 16)) {
+            const v = o[k];
+            if (key.test(k) && typeof v === 'string' && (v === '' || value.test(v))) out.set(k, v);
+        }
+        return out;
+    }
+    // The tables of opts: imgurAlbums (3.0.11), catboxAlbums, imgbbAlbums and imgbbPages (3.1.0)
+    function lookupsOf(opts) {
+        const o = opts || {};
+        return {
+            imgur: lookupTable(o.imgurAlbums, /^[A-Za-z0-9]{5,7}$/, IMGUR_PICTURE),
+            catbox: lookupTable(o.catboxAlbums, /^[a-z0-9]{6}$/, CATBOX_PICTURE),
+            imgbbAlbum: lookupTable(o.imgbbAlbums, /^[A-Za-z0-9]{3,16}(?:\?sort=[a-z]{1,12}_(?:asc|desc))?$/, IMGBB_PICTURE),
+            imgbbPage: lookupTable(o.imgbbPages, /^[A-Za-z0-9]{5,10}$/, IMGBB_PICTURE),
+        };
+    }
     const MAX_MESSAGE_IMAGES = 3;                        // pictures in one message
     const MAX_MESSAGE_IMAGE_INCHES = 4;                  // the tallest a picture in a message prints, in inches of paper
     const MAX_MESSAGE_IMAGE_PIXELS = 32 * 1024 * 1024;   // a picture with more pixels than this is not shown (a 12 or 24 megapixel photo is far below, a receipt prints 576 dots across at most, and 32 million pixels are 134 MB once decoded)
     const MAX_MESSAGE_IMAGE_URL = 400;                   // characters of an address
     let activeImageSites = new Set();                    // the sites that are on for the receipt that is being built (see show). Empty between receipts
     const sitePictures = new WeakSet();                  // the <img> elements of a High Roller message whose address is a picture of an image site (set by copyAttributes, never by the viewer)
+    const failedAlbumImages = new WeakSet();             // 3.0.11: the <img> elements whose address the action looked up and found no picture for (set by copyAttributes): "[image]"
     let pictureShown = false;                            // a picture of an image site was put on the page since it was last put at rest: rest() says so, and the action then empties the browser's cache
 
     // The ids of opts.imageSites that this page knows (it has the site and a rule for it). Anything else in the list is ignored.
@@ -8631,18 +9324,47 @@ window.PrinterBot = (function () {
         return out;
     }
 
-    // { url, site } for an address that is a direct picture link of one of the sites in `enabled` (a Set of ids), else null. `url` is the rebuilt address.
-    function imageSiteLink(raw, enabled) {
+    // { url, site } for an address that is a direct picture link of one of the sites in `enabled` (a Set of ids), else null. `url` is the rebuilt address. 3.0.11: an address
+    // that the action looked up and found no picture for gives { url: '', site, failed: true } ("[image]" where it stood). `lookups` are the action's tables (lookupsOf);
+    // the page uses the ones of the receipt that is being built.
+    function imageSiteLink(raw, enabled, lookups) {
         if (!enabled || !enabled.size) return null;
         const text = String(raw ?? '').trim();
         if (!/^https:\/\//i.test(text)) return null;                    // typed as https:// (the address parser also takes https:/host and https:\\host, which no viewer writes)
         let u;
         try { u = new URL(text); } catch { return null; }
         if (u.protocol !== 'https:' || u.username || u.password || u.port) return null;
+        let host = u.hostname, path = u.pathname;
+        const tables = lookups || activeLookups;
+        // every form of a link of Imgur (imgurLink, 3.0.11), Catbox and ImgBB (catboxLink, imgbbLink, 3.1.0): one picture, or the table and the key of a lookup
+        let kind = null, link = null, table = null, key = null;
+        if (enabled.has('imgur') && (host === 'i.imgur.com' || IMGUR_PAGE_HOSTS.includes(host))) {
+            kind = 'imgur'; link = imgurLink(host, path); host = 'i.imgur.com';
+            if (link && link.album !== undefined) { table = tables.imgur; key = link.album; }
+        }
+        else if (enabled.has('catbox') && (host === 'files.catbox.moe' || host === 'catbox.moe')) {
+            kind = 'catbox'; link = catboxLink(host, path); host = 'files.catbox.moe';
+            if (link && link.album !== undefined) { table = tables.catbox; key = link.album; }
+        }
+        else if (enabled.has('imgbb') && imgbbHost(host)) {
+            kind = 'imgbb'; link = imgbbLink(host, path, u.searchParams.get('sort')); host = 'i.ibb.co';
+            if (link && link.album !== undefined) { table = tables.imgbbAlbum; key = link.album; }
+            else if (link && link.page !== undefined) { table = tables.imgbbPage; key = link.page; }
+        }
+        if (kind) {
+            if (!link) return null;
+            if (table) {
+                if (!table.has(key)) return null;                                         // not looked up (or the first item is a video): stays text
+                const first = table.get(key);
+                if (first === '') return { url: '', site: kind, failed: true };          // looked up, no picture: "[image]"
+                path = '/' + first;
+            }
+            else path = link.direct;
+        }
         for (const site of IMAGE_SITES) {
-            if (!enabled.has(site.id) || !own(IMAGE_PATHS, site.id) || !site.hosts.includes(u.hostname)) continue;
-            if (!IMAGE_PATHS[site.id].test(u.pathname)) return null;
-            const url = 'https://' + u.hostname + u.pathname;
+            if (!enabled.has(site.id) || !own(IMAGE_PATHS, site.id) || !site.hosts.includes(host)) continue;
+            if (!IMAGE_PATHS[site.id].test(path)) return null;
+            const url = 'https://' + host + path;
             return url.length <= MAX_MESSAGE_IMAGE_URL ? { url, site: site.id } : null;
         }
         return null;
@@ -8663,7 +9385,7 @@ window.PrinterBot = (function () {
             const trail = /[.,;:!?)\]}>'"]+$/.exec(token);
             const hit = images < most ? imageSiteLink(trail ? token.slice(0, token.length - trail[0].length) : token, enabled) : null;
             add(text.slice(from, m.index));
-            if (hit) { images++; pieces.push({ image: hit.url }); }
+            if (hit) { images++; pieces.push({ image: hit.url }); }       // (3.0.11: '' for an address the action looked up and found no picture for, which prints "[image]")
             else add(hide ? '[link]' : token);
             from = m.index + token.length;
         }
@@ -8697,7 +9419,7 @@ window.PrinterBot = (function () {
     // Builds the pieces of a message into `div`: text as text nodes, a picture as an <img> that is a block of its own. An address that failed a moment ago is "[image]" at once.
     // The element for one picture of a message: an <img> made here (never markup of the viewer), or the text "[image]" when this address failed a moment ago.
     function messageImageElement(url, opts) {
-        if (isBadImage(url)) return document.createTextNode('[image]');
+        if (!url || isBadImage(url)) return document.createTextNode('[image]');       // (no address: the action looked it up and found no picture, 3.0.11)
         const large = largeLayoutPx(opts) !== null;                    // in the large layout a picture is as tall as the space the message has left (receipt.css), so it gets no height of its own
         const img = document.createElement('img');
         img.className = 'msg-image';
@@ -8831,7 +9553,8 @@ window.PrinterBot = (function () {
             if (name === 'style') copyStyle(src, el);
             else if (tag === 'img' && name === 'src') {
                 const v = vetImage(value);
-                if (!v.url) securityNotes.add(v.host ? hostNote('image', v) : 'untrusted image');
+                if (!v.url && v.failed) failedAlbumImages.add(el);                                           // 3.0.11: the action looked it up and found no picture: "[image]", not a refusal
+                else if (!v.url) securityNotes.add(v.host ? hostNote('image', v) : 'untrusted image');
                 else if (v.inline) { el.setAttribute('src', v.url); securityNotes.add('inline image'); }          // tiny inline picture: allowed, and unusual enough to log
                 else if (!isBadImage(v.url)) {                                                                // (an emote that already failed or hung is left out)
                     el.setAttribute('src', v.url);
@@ -8878,7 +9601,7 @@ window.PrinterBot = (function () {
             const el = document.createElement(tag);
             budget.nodes++;
             copyAttributes(n, el, tag);
-            if (tag === 'img') { if (el.hasAttribute('src')) { clampImage(el); into.appendChild(el); } continue; }
+            if (tag === 'img') { if (el.hasAttribute('src')) { clampImage(el); into.appendChild(el); } else if (failedAlbumImages.has(el)) into.appendChild(document.createTextNode('[image]')); continue; }
             if (tag !== 'br' && tag !== 'hr') {
                 if (depth < MAX_DEPTH) copyChildren(n, el, depth + 1, budget); else securityNotes.add('too deep');
             }
@@ -8957,6 +9680,23 @@ window.PrinterBot = (function () {
     // (fit-fill, fit-fit, fit-stretch) and nothing else: the pictures get their size from the space the message has, and `object-fit` does the rest.
     const IMAGE_FITS = ['fill', 'fit', 'stretch'];
     function imageFitOf(opts) { const v = opts ? opts.imageFit : undefined; return IMAGE_FITS.indexOf(v) >= 0 ? v : 'fit'; }
+
+    // 3.2.0: the sticker layout of a Brother VC-500W. The action sends opts.layout === 'sticker' for a sticker printer, with the tape in mm (tapeMm). Only the exact text counts. The layout is
+    // used for a High Roller message (a cheer at or above the threshold, a YouTube High Roller Super Chat, on a printer that allows it: viewOf says styled); every other receipt prints on
+    // the tape as on a narrow roll (layoutFor strips the layout). Nothing a viewer writes ever reaches this.
+    function stickerLayoutOn(opts) { return !!opts && opts.layout === 'sticker'; }
+    const STICKER_KINDS = { twitch: 'Twitch Cheer', youtube: 'YouTube Super Chat', kick: 'Kick' };      // the kind of the event, from the platform of the receipt
+
+    // 3.2.0-beta.2: a card of 4 x 6 inches in landscape. The action sends opts.layout === 'card' for a printer on that paper, with the height of the card (pageHeightPx) and the width and the
+    // inch of an 80 mm roll (cardRollPx, cardRollPxPerInch). A High Roller message (viewOf: styled) is laid out as a card (cardArrange, receipt.css): its words in a narrow column at the left,
+    // its pictures side by side in the rest, set as Image fit says, and with no picture its message takes the rest. Every other receipt is the receipt of an 80 mm roll: layoutFor gives it the
+    // options of the roll (layout 'cardfit', with the card's height kept in cardPagePx), and present() makes it as large as the card allows, upright and in the middle (cardFit). Only the
+    // exact texts count; nothing a viewer writes ever reaches this.
+    const CARD_MAX_PAGE_PX = 1000;                   // a card is 257 CSS px high; a height beyond this cannot be a card the action sends, so the layout is not used for it
+    const CARD_MIN_WORDS_PX = 5;                     // the smallest type the words of a card shrink to (5 CSS px is 0.07 inch on a card) before what is left is cut
+    function cardLayoutOn(opts) { const page = opts && opts.layout === 'card' ? pageHeightPx(opts) : null; return page !== null && page <= CARD_MAX_PAGE_PX; }
+    function cardFitOn(opts) { return !!opts && opts.layout === 'cardfit' && Number.isFinite(opts.cardPagePx) && opts.cardPagePx >= 100 && opts.cardPagePx <= CARD_MAX_PAGE_PX; }
+    function cardRollPxOf(opts) { const v = opts ? opts.cardRollPx : NaN; return Number.isFinite(v) && v >= 100 && v <= 1000 ? v : 272; }
 
     function highRollerMaxHeight(bits, opts) {
         return lengthLimit(bits, opts ? Number(opts.highRollerBitsPerInch) : 0, 'bits', opts);
@@ -9318,11 +10058,19 @@ window.PrinterBot = (function () {
     const CHEERMOTE_NAMES = ['cheer', 'doodlecheer', 'biblethump', 'cheerwhal', 'corgo', 'scoops', 'uni', 'showlove', 'party', 'seemsgood', 'pride', 'kappa', 'frankerz', 'heyguys', 'dansgame',
         'elegiggle', 'trihard', 'kreygasm', '4head', 'swiftrage', 'notlikethis', 'failfish', 'vohiyo', 'pjsalt', 'mrdestructoid', 'bday', 'ripcheer', 'shamrock', 'bitboss', 'streamlabs', 'muxy',
         'holidaycheer', 'goal', 'anon', 'charity'];
-    const CHEERMOTE_WORD = new RegExp('(^|\\s)(?:' + CHEERMOTE_NAMES.join('|') + ')[0-9]{1,9}(?=\\s|$)', 'gi');
+    // 3.0.6: a cheermote goes together with one of the spaces around it, so no space stays where it was (3.0.4 left them: "Cheer100 Hello" printed as "“ Hello”", with a gap after
+    // the opening quote, and "Hello Cheer100 there" with two spaces). One that opens the message goes with the space after it; any other goes with the space before it, and the space after it
+    // stays between the words around it. The viewer's own spaces away from a cheermote stay as typed.
+    // A cheermote's number is its bits, 1 to 100,000 (Twitch's Get Cheermotes: the tiers are 1 to 100000, and "the minimum Bits value of the last tier is the maximum number of Bits
+    // you can cheer using this Cheermote"), written with no leading zero: Cheer0, Cheer007 and Cheer100001 are words of the viewer and stay.
+    const CHEERMOTE_BITS = '(?:100000|[1-9][0-9]{0,4})';
+    const CHEERMOTE_LEAD = new RegExp('^(\\s*)(?:' + CHEERMOTE_NAMES.join('|') + ')' + CHEERMOTE_BITS + '(?:\\s+|$)', 'i');
+    const CHEERMOTE_INNER = new RegExp('\\s+(?:' + CHEERMOTE_NAMES.join('|') + ')' + CHEERMOTE_BITS + '(?=\\s|$)', 'gi');
     function cheerWords(value) {
         if (typeof value !== 'string') return value;
         let said = value, before;
-        do { before = said; said = said.replace(CHEERMOTE_WORD, '$1'); } while (said !== before);     // twice for two cheermotes side by side: the space between them belongs to one match
+        do { before = said; said = said.replace(CHEERMOTE_LEAD, '$1'); } while (said !== before);     // the cheermotes that open the message, one after the other
+        said = said.replace(CHEERMOTE_INNER, '');                                                    // every other one, with the space before it
         return said.trim() ? said : '';
     }          // cleaned (and, if asked, link-free) in show(), where the options are known
     const cap = (s) => String(s ?? '').replace(/^./, c => c.toUpperCase());
@@ -10183,17 +10931,130 @@ window.PrinterBot = (function () {
     // inch of this paper) and --pb-page-h (the height of a page in CSS px), both from numbers that were checked above. The date line moves from the footer into the header. Every receipt
     // starts from the layout it had before this one: nothing is left over.
     function applyLayout(opts) {
-        const container = $('receipt-container'), page = largeLayoutPx(opts);
+        const container = $('receipt-container'), page = largeLayoutPx(opts), sticker = stickerLayoutOn(opts), card = cardLayoutOn(opts), cardFit = cardFitOn(opts);
         container.classList.toggle('letter-message', page !== null);
+        container.classList.toggle('sticker', sticker);
+        container.classList.toggle('card', card);                                  // 3.2.0-beta.2: a High Roller message on a card of 4 x 6 in
+        container.classList.toggle('card-fit', cardFit);                           // ... and every other receipt on it, as on an 80 mm roll
+        container.classList.remove('card-words');                                  // (cardArrange: a card with no picture)
+        container.style.width = cardFit ? cardRollPxOf(opts) + 'px' : '';         // the receipt on a card is as wide as on the roll
         container.style.minHeight = '';                                 // fitNames may have given the receipt of a long list a floor of its own
         container.style.transform = ''; container.style.transformOrigin = '';       // and present() may have made the last receipt smaller to fit its page
         for (const logo of Array.from(container.querySelectorAll(':scope > .page-logo'))) container.removeChild(logo);       // and the logos of the pages of the last list (addPageLogos)
-        for (const f of IMAGE_FITS) container.classList.toggle('fit-' + f, page !== null && imageFitOf(opts) === f);
+        for (const old of Array.from(container.querySelectorAll('#receipt-sticker-pictures, #receipt-card-pictures, #receipt-kind'))) old.remove();   // and what the last sticker or card added (stickerArrange, cardArrange)
+        for (const f of IMAGE_FITS) container.classList.toggle('fit-' + f, (page !== null || card) && imageFitOf(opts) === f);
         if (page !== null) { container.style.setProperty('--pb-in', pxPerInch(opts) + 'px'); container.style.setProperty('--pb-page-h', Math.floor(page) + 'px'); }
         else { container.style.removeProperty('--pb-in'); container.style.removeProperty('--pb-page-h'); }
-        const date = $('receipt-date'), home = page !== null ? $('receipt-header') : $('receipt-footer');
+        if (sticker || card) container.style.setProperty('--pb-w', Math.max(1, document.documentElement.clientWidth) + 'px'); else container.style.removeProperty('--pb-w');
+        if (card) container.style.setProperty('--pb-h', Math.floor(pageHeightPx(opts)) + 'px'); else container.style.removeProperty('--pb-h');       // the height of the card     // the width of the tape, which every size of the sticker is a share of
+        const date = $('receipt-date'), home = page !== null || sticker || card ? $('receipt-header') : $('receipt-footer');
         if (date.parentNode !== home) home.appendChild(date);
         testMark(opts);
+    }
+
+    // 3.2.0: the sticker layout, once the receipt is built (show): the kind of the event goes into the head after the picture (the head is a reversed row, so it reads right to left:
+    // the picture, the kind, the amount, the name, the time), and the pictures of the message leave the message box for a box of their own under the frame of the words, each as wide
+    // as the tape (the stylesheet; stickerPictures tidies the box once they have loaded, present).
+    function stickerArrange(content, model, opts) {
+        const header = $('receipt-header'), avatar = $('receipt-avatar');
+        const kind = document.createElement('div');
+        kind.id = 'receipt-kind';
+        // the first line beside the picture: the kind of the event and the amount ("Twitch Cheer · 100 bits"); the amount's own line (#receipt-title) is hidden by the stylesheet
+        const kindText = model.highRoller && model.highRoller.youtube ? STICKER_KINDS.youtube : (STICKER_KINDS[model.icon] || '');
+        const amount = ($('receipt-title').textContent || '').trim().replace(/\bBITS\b/, 'bits');
+        kind.textContent = kindText + (amount ? ' \u00b7 ' + amount : '');
+        header.insertBefore(kind, avatar.nextSibling);
+        hoistSitePictures(content, opts);                                                       // the pictures of the sites, out of the styled text (as in the large layout)
+        const pics = Array.from(content.querySelectorAll(':scope > .part.pictures'));
+        const imgs = [];
+        for (const part of pics) { for (const img of Array.from(part.querySelectorAll('img.msg-image'))) imgs.push(img); part.remove(); }
+        const mark = $('receipt-test-mark');
+        if (!imgs.length) { if (mark) $('receipt-container').appendChild(mark); return; }      // 3.2.0-beta.2: a sticker shows no footer: the TEST mark of a test print goes to its end
+        const box = document.createElement('div');
+        box.id = 'receipt-sticker-pictures';
+        for (const img of imgs) {
+            const wrap = document.createElement('div');
+            wrap.className = 'sticker-pic';
+            img.style.removeProperty('max-height');                                            // the limit of a roll (MAX_MESSAGE_IMAGE_INCHES): a sticker's picture is as wide as the tape, whatever its height
+            wrap.appendChild(img);
+            box.appendChild(wrap);
+        }
+        $('receipt-container').appendChild(box);
+        if (mark) $('receipt-container').appendChild(mark);
+    }
+
+    // The pictures of a sticker, once loaded: each one is drawn as wide as the tape in its own orientation (the stylesheet), so nothing is left to do for a picture that came. A picture
+    // that did not come (dropMessageImage made it the text "[image]") keeps its box with those words, as on a roll; a box that holds nothing at all is taken away.
+    function cardArrange(content, model, opts) {
+        const header = $('receipt-header'), avatar = $('receipt-avatar'), container = $('receipt-container');
+        const kind = document.createElement('div');
+        kind.id = 'receipt-kind';
+        kind.textContent = model.highRoller && model.highRoller.youtube ? STICKER_KINDS.youtube : (STICKER_KINDS[model.icon] || '');
+        header.insertBefore(kind, avatar.nextSibling);
+        const mark = $('receipt-test-mark');
+        if (mark) header.appendChild(mark);                                        // a card shows no footer: the TEST mark of a test print goes to the end of the head
+        hoistSitePictures(content, opts);                                          // the pictures of the sites, out of the styled text (as in the large layout)
+        const imgs = [];
+        for (const part of Array.from(content.querySelectorAll(':scope > .part.pictures'))) { for (const img of Array.from(part.querySelectorAll('img.msg-image'))) imgs.push(img); part.remove(); }
+        if (!imgs.length) { container.classList.add('card-words'); return; }
+        const box = document.createElement('div');
+        box.id = 'receipt-card-pictures';
+        for (const img of imgs) {
+            const wrap = document.createElement('div');
+            wrap.className = 'card-pic';
+            img.style.removeProperty('max-height');                                // the limit of a roll (MAX_MESSAGE_IMAGE_INCHES): on a card a picture takes its share of the card
+            wrap.appendChild(img);
+            box.appendChild(wrap);
+        }
+        container.appendChild(box);
+    }
+
+    // The pictures of a card, once loaded: a box that holds nothing at all is taken away (a picture that did not come keeps "[image]" in its box, as on a roll), and a card that is left
+    // with no picture gets the layout of a card with none (card-words)
+    function cardPictures() {
+        const box = $('receipt-card-pictures');
+        if (!box) return;
+        for (const wrap of Array.from(box.children)) if (!wrap.querySelector('img.msg-image') && wrap.textContent.trim() === '') wrap.remove();
+        if (!box.children.length) { box.remove(); $('receipt-container').classList.add('card-words'); }
+    }
+
+    // The words of a card shrink until they fit their place (the column at the left, or the rest of the card when there is no picture; a High Roller limit of the dock, a max-height of the
+    // box, makes the place smaller), down to CARD_MIN_WORDS_PX; what still does not fit is cut, and fades out like every other cut. The parts are zoomed, not given a smaller type: a
+    // styled message carries sizes of its own. Returns what was cut as present() reports it, or null.
+    function cardWords(opts) {
+        const box = $('receipt-content');
+        const fits = () => box.scrollHeight <= box.clientHeight + 1;
+        const base = parseFloat(getComputedStyle(box).fontSize) || 10;
+        let zoom = 1;
+        while (!fits() && base * zoom > CARD_MIN_WORDS_PX + 0.01) {
+            zoom = Math.max(CARD_MIN_WORDS_PX / base, zoom * 0.9);
+            for (const part of Array.from(box.children)) part.style.zoom = String(zoom);
+        }
+        if (fits()) return null;
+        box.classList.add('cut');
+        const inches = (px) => Math.round(px / pxPerInch(opts) * 100) / 100;
+        return { limitIn: inches(box.clientHeight), fullIn: inches(box.scrollHeight), by: 'page' };
+    }
+
+    // The receipt of an 80 mm roll on a card (layout 'cardfit'): drawn as on the roll (applyLayout gave it the roll's width), it is made as large as the card allows, upright, and put in the
+    // middle of the card. Returns the share of its size it was made smaller to, in percent (1 to 99), or 0 when it kept its size or was made larger.
+    function cardFit(opts) {
+        const container = $('receipt-container');
+        const cardW = Math.max(1, document.documentElement.clientWidth), cardH = opts.cardPagePx;
+        const r = container.getBoundingClientRect();
+        const w = Math.max(1, r.width), h = Math.max(1, r.height);
+        const scale = Math.min(cardW / w, cardH / h);
+        const x = (cardW - w * scale) / 2 - r.left, y = (cardH - h * scale) / 2 - r.top;
+        container.style.transformOrigin = '0 0';
+        container.style.transform = 'translate(' + x + 'px, ' + y + 'px) scale(' + scale + ')';
+        return scale < 0.995 ? Math.max(1, Math.round(scale * 100)) : 0;
+    }
+
+    function stickerPictures() {
+        const box = $('receipt-sticker-pictures');
+        if (!box) return;
+        for (const wrap of Array.from(box.children)) if (!wrap.querySelector('img.msg-image') && wrap.textContent.trim() === '') wrap.remove();
+        if (!box.children.length) box.remove();
     }
 
     // 3.0.4: a receipt that the dock's test print made from values the person typed says TEST at the bottom of its footer (the owner's choice: such a receipt can never pass for a
@@ -10266,18 +11127,21 @@ window.PrinterBot = (function () {
         }
         else if (ceilingScale !== 1 && Number.isFinite(ceilingScaled)) content.style.setProperty('max-height', ceilingScaled + 'px', 'important');
         const sites = enabledImageSites(opts);                             // 3.0.1: a picture comes only from a High Roller message (a part with rich content), and only while that part is built
+        const lookups = lookupsOf(opts);                                   // 3.0.11, 3.1.0: the pictures the action looked up for the links of the message (albums, ImgBB pages)
         try {
             for (const p of parts) {
                 const div = document.createElement('div');
                 div.className = 'part ' + (p.kind || 'text') + (p.left ? ' left' : '');
-                if (p.rich != null) { activeImageSites = sites; const rich = sanitizeRich(p.rich); pictureLinksInRich(rich, opts); activeImageSites = new Set(); div.appendChild(rich); }     // High Roller: the allow-listed copy goes in, the original markup stays out
+                if (p.rich != null) { activeImageSites = sites; activeLookups = lookups; const rich = sanitizeRich(p.rich); pictureLinksInRich(rich, opts); activeImageSites = new Set(); activeLookups = NO_LOOKUPS; div.appendChild(rich); }     // High Roller: the allow-listed copy goes in, the original markup stays out
                 else if (p.list && (pageHeightPx(opts) !== null || p.list.perPage > 0)) fillList(div, p.list, pageHeightPx(opts) !== null, p.html);     // a gift list or an order on Letter paper, a gift list on a roll: names that present() sets in columns (fitNames, rollColumns)
                 else if (p.text != null) div.textContent = p.text;             // viewer text: text only
                 else div.innerHTML = p.html;                                   // our own templates (viewer values already cleaned and esc()'d)
                 content.appendChild(div);
             }
-        } finally { activeImageSites = new Set(); }
+        } finally { activeImageSites = new Set(); activeLookups = NO_LOOKUPS; }
         if (largeLayoutPx(opts) !== null) hoistSitePictures(content, opts);
+        if (stickerLayoutOn(opts)) stickerArrange(content, model, opts);          // 3.2.0
+        if (cardLayoutOn(opts)) cardArrange(content, model, opts);                // 3.2.0-beta.2
 
         const hasIcon = !!(model.icon && ICONS[model.icon]);
         if (hasIcon) icon.src = ICONS[model.icon]; else icon.removeAttribute('src');
@@ -10564,6 +11428,7 @@ window.PrinterBot = (function () {
         if (icon) icon.removeAttribute('src');
         for (const id of ['receipt-title', 'receipt-subtitle', 'receipt-content', 'receipt-banner', 'receipt-tail']) { const el = $(id); if (el) el.textContent = ''; }
         for (const logo of Array.from(document.querySelectorAll('#receipt-container > .page-logo'))) logo.remove();       // the logos of the pages of a long list (addPageLogos)
+        for (const el of Array.from(document.querySelectorAll('#receipt-sticker-pictures, #receipt-card-pictures, #receipt-kind'))) el.remove();  // the pictures and the kind of a sticker (3.2.0, stickerArrange)
         testMark(null);                                                       // and the TEST line of a test print with typed values
         return hadPicture ? 2 : true;
     }
@@ -10610,7 +11475,28 @@ window.PrinterBot = (function () {
     // a printer that does not allow High Roller prints still gets the large page, with its plain message. Every other receipt prints as a printer set to Scaled prints it. Only a handler
     // sets largePage, so event data cannot ask for the large layout.
     function layoutFor(model, opts) {
-        if (!opts || opts.layout !== 'message' || model.largePage === true) return opts;
+        if (!opts) return opts;
+        // 3.2.0: the sticker layout is for a High Roller message that prints as one on this printer (viewOf: styled); every other receipt prints on the tape as on a narrow roll
+        if (opts.layout === 'sticker') {
+            if (viewOf(model, opts).styled === true) return opts;
+            const plain = Object.assign({}, opts);
+            delete plain.layout;
+            return plain;
+        }
+        // 3.2.0-beta.2: on a card of 4 x 6 in a High Roller message gets the card layout; every other receipt is the receipt of an 80 mm roll, drawn with the roll's options (its inch, no
+        // page) and made as large as the card allows (cardFit), the card's height kept in cardPagePx
+        if (opts.layout === 'card') {
+            if (viewOf(model, opts).styled === true) return opts;
+            const roll = Object.assign({}, opts);
+            roll.layout = 'cardfit';
+            roll.cardPagePx = pageHeightPx(opts);
+            const inch = Number(opts.cardRollPxPerInch);
+            roll.pxPerInch = Number.isFinite(inch) && inch >= 24 && inch <= 400 ? inch : PX_PER_INCH;
+            delete roll.pageHeightPx;
+            delete roll.imageFit;
+            return roll;
+        }
+        if (opts.layout !== 'message' || model.largePage === true) return opts;
         const scaled = Object.assign({}, opts);
         delete scaled.layout;                                                     // (Image fit applies only with the large layout)
         return scaled;
@@ -10622,6 +11508,9 @@ window.PrinterBot = (function () {
         const avatarUrl = show(model, opts);
         await settle(avatarUrl);
         enforceImageLimit();
+        if (stickerLayoutOn(opts)) stickerPictures();                              // 3.2.0: the box of a sticker's pictures, now that they have loaded
+        const card = cardLayoutOn(opts), cardFitted = cardFitOn(opts);             // 3.2.0-beta.2: a card of 4 x 6 in
+        if (card) cardPictures();
 
         // Check whether the message is longer than its bits-per-inch limit (after images have loaded, since they change the height).
         // A cut message fades out at the bottom so it doesn't stop mid-line. The log says how much was left out.
@@ -10636,13 +11525,13 @@ window.PrinterBot = (function () {
         // In the layout of a roll scaled to the page the pictures give back what they can first (shrinkPictures), in the large layout they already have. The action holds a picture of a page to
         // one page as well (PbLetter), which is the wall for what this cannot reach, such as a theme that makes the header taller than the page.
         const box = $('receipt-content');
-        const pagePx = pageHeightPx(opts);
+        const pagePx = card ? null : pageHeightPx(opts);                           // a card fits its words itself (cardWords, below)
         // A gift list is the one receipt that takes more than one page: names set in columns, up to NAMES_PER_PAGE to a page (fitNames). Its pages are the page limit below.
         const nameBox = box.querySelector(':scope > .part.names');
         const pages = nameBox && pagePx !== null ? fitNames(nameBox, opts) : 1;
         if (pages > 1) await addPageLogos(pages, opts);
         if (nameBox && pagePx === null) rollColumns(nameBox);
-        let limited = view.maxPx != null;
+        let limited = !card && view.maxPx != null;
         // Only what a viewer wrote (a message, a list of names) is cut at the end of the page: its words are the part that can go. Every other receipt (a Hype Train, a subscription) has nothing
         // that may be cut, and is made smaller as a whole below if it is still too tall.
         const cuttable = view.styled || box.querySelector(':scope > .part.message') !== null || nameBox !== null;
@@ -10687,6 +11576,8 @@ window.PrinterBot = (function () {
             }
         }
 
+        if (card) trimmed = cardWords(opts);
+
         // What no cut can reach (a Hype Train receipt: its drawing, its picture and its lists are all there is) is made smaller as a whole, to the same proportions, until it is the
         // pages it has: a receipt on Letter paper is one page and is never chopped in the middle of a picture. Only the picture changes, nothing of the receipt is left out.
         let fitted = 0, fitHeight = 0;
@@ -10701,12 +11592,14 @@ window.PrinterBot = (function () {
             }
         }
 
+        if (cardFitted) fitted = cardFit(opts);
         const fresh = {};
         for (const k of Object.keys(avatarFresh)) { fresh[k] = avatarFresh[k]; delete avatarFresh[k]; }
         // A gift list or an order's item list reports the real page height. The action photographs a page taller than its window in tiles.
         // Every other receipt is cut at MAX_RECEIPT_HEIGHT.
-        const pageHeight = fitted ? Math.ceil(fitHeight) : Math.ceil(document.documentElement.getBoundingClientRect().height);
-        const longList = $('receipt-content').classList.contains('roomy');
+        const cardHeight = card ? Math.floor(pageHeightPx(opts)) : cardFitted ? Math.floor(opts.cardPagePx) : 0;          // a card is always one card high
+        const pageHeight = cardHeight > 0 ? cardHeight : fitted ? Math.ceil(fitHeight) : Math.ceil(document.documentElement.getBoundingClientRect().height);
+        const longList = cardHeight === 0 && $('receipt-content').classList.contains('roomy');
         return {
             ok: true, avatars: fresh, trimmed,
             height: longList ? pageHeight : Math.min(MAX_RECEIPT_HEIGHT, pageHeight),
@@ -10749,9 +11642,18 @@ window.PrinterBot = (function () {
         emoteHosts: () => TRUSTED_IMAGE_HOSTS.slice(),
         largeLayoutPx: (opts) => largeLayoutPx(opts),
         imageFitOf: (opts) => imageFitOf(opts),
+        stickerLayoutOn: (opts) => stickerLayoutOn(opts),
+        cardLayoutOn: (opts) => cardLayoutOn(opts),                                // 3.2.0-beta.2
+        cardFitOn: (opts) => cardFitOn(opts),                          // 3.2.0
+        stickerKinds: () => Object.assign({}, STICKER_KINDS),
         imageSites: () => JSON.parse(JSON.stringify(IMAGE_SITES)),
         imagePathIds: () => Object.keys(IMAGE_PATHS),
-        imageSiteLink: (raw, ids) => imageSiteLink(raw, new Set(Array.isArray(ids) ? ids : [])),
+        imageSiteLink: (raw, ids, lookups) => imageSiteLink(raw, new Set(Array.isArray(ids) ? ids : []), lookupsOf(lookups)),
+        // 3.0.11: what the page makes of an Imgur address: { direct } (one picture), { album } (needs the action's lookup) or null; the action's own reading must agree (PbImgur)
+        imgurLink: (raw) => { try { const u = new URL(String(raw)); return /^https:\/\//i.test(String(raw).trim()) && u.protocol === 'https:' && !u.username && !u.password && !u.port ? imgurLink(u.hostname, u.pathname) : null; } catch { return null; } },
+        // 3.1.0: the same for Catbox and ImgBB: { direct }, { album } (Catbox, ImgBB), { page } (ImgBB) or null; the action's own reading must agree (PbCatbox, PbImgbb)
+        catboxLink: (raw) => { try { const u = new URL(String(raw)); return /^https:\/\//i.test(String(raw).trim()) && u.protocol === 'https:' && !u.username && !u.password && !u.port ? catboxLink(u.hostname, u.pathname) : null; } catch { return null; } },
+        imgbbLink: (raw) => { try { const u = new URL(String(raw)); return /^https:\/\//i.test(String(raw).trim()) && u.protocol === 'https:' && !u.username && !u.password && !u.port ? imgbbLink(u.hostname, u.pathname, u.searchParams.get('sort')) : null; } catch { return null; } },
         messagePieces: (text, opts) => { const e = enabledImageSites(opts); return e.size ? messagePieces(plainText(text, null), opts, e) : [{ text: plainText(text, opts) }]; },
         enabledImageSites: (opts) => Array.from(enabledImageSites(opts)),
         displayName, replaceLinks, formatDate, flattenMarkup,

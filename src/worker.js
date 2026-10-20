@@ -328,10 +328,202 @@ async function handleImgbb(request, env, url) {
   return sameSiteJson({ url: link });
 }
 
+// ── /resolve (album & page image links) ──
+// A Real picture link that is an Imgur/Catbox/ImgBB ALBUM or PAGE (not a direct picture link) has no
+// picture in the URL itself, so Printer Bot's action looks the album's first picture up at print time
+// and hands the renderer opts.imgurAlbums / catboxAlbums / imgbbAlbums / imgbbPages. This route is a
+// faithful port of that action's logic (PbImgur / PbCatbox / PbImgbb / PbLookups in the bot's compiled
+// core, Printer Bot 3.2.0-beta.7), so the app's preview can resolve the same first picture and show
+// what will print. The app classifies the link itself and asks for ONE site + id (+ kind/sort for
+// ImgBB); this route builds the fixed upstream URL from a tightly-validated id, so there is no
+// user-controlled host and no SSRF. Read-only, no key, no state (the app caches); every upstream GET
+// is capped in bytes and shares the bot's 3-second budget, follows no redirect, and counts only a
+// 200. It returns one of:
+//   { picture: "<value>" }  the first picture, in the shape the renderer's lookup tables use
+//                           ("<hash>.<ext>" imgur, "<name>.<ext>" catbox, "<id>/<name>.<ext>" imgbb);
+//                           the app builds the direct link (i.imgur.com / files.catbox.moe / i.ibb.co).
+//   { picture: "" }         looked up, no picture: the renderer prints "[image]".
+//   { stay: true }          the first item is a video (imgur/catbox): the link stays as text, no entry.
+// The app sends only a validated id, but this re-validates every id as a second line of defence.
+const RESOLVE_BUDGET_MS = 3000;
+const RESOLVE_UA = "receipt-wrecker (+https://receipt.uwutoowo.com) image-link resolver";
+const IMGUR_LIST_BYTES = 65536, PAGE_BYTES = 524288;
+
+// Fetch like the bot's PbLookups.Get: no redirect, status 200 only, byte-capped, inside the budget.
+async function lookGet(target, maxBytes, deadline) {
+  const left = deadline - Date.now();
+  if (left < 250) return null;                                  // the bot leaves at least 250 ms a lookup
+  let res;
+  try {
+    res = await fetch(target, {
+      redirect: "manual",
+      headers: { "user-agent": RESOLVE_UA, accept: "text/html,application/json,*/*" },
+      signal: AbortSignal.timeout(left),
+    });
+  } catch (e) { return null; }
+  if (res.status !== 200) return null;
+  if (+(res.headers.get("content-length") || 0) > maxBytes) return null;
+  const buf = await res.arrayBuffer();                          // content-length can lie or be absent
+  if (buf.byteLength > maxBytes) return null;
+  return new TextDecoder("utf-8").decode(buf);
+}
+
+const META_CONTENT = /\bcontent\s*=\s*["']([^"']*)["']/i;
+function metaContent(html, tagRe) {                             // PbLookups.MetaContent: first tag's content
+  tagRe.lastIndex = 0;
+  let m;
+  while ((m = tagRe.exec(html))) { const c = META_CONTENT.exec(m[0]); if (c) return c[1]; }
+  return null;
+}
+
+// Imgur (PbImgur): the album's list of pictures (hit.json), else the album's preview picture (og).
+const IMGUR_HASH = /^[A-Za-z0-9]{5,10}$/, IMGUR_EXTDOT = /^\.[a-z0-9]{2,5}$/;
+const IMAGE_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
+const IMGUR_OG_TAG = /<meta\b[^>]*\bproperty\s*=\s*["']og:(image|video)["'][^>]*>/ig;
+const IMGUR_OG_PIC = /^https:\/\/i\.imgur\.com\/([A-Za-z0-9]{5,10})\.(jpg|jpeg|png|gif|webp)(?:\?[A-Za-z0-9=&]*)?$/i;
+async function resolveImgur(id, deadline) {
+  const list = await lookGet("https://imgur.com/ajaxalbums/getimages/" + id + "/hit.json", IMGUR_LIST_BYTES, deadline);
+  if (list != null) {
+    let j = null; try { j = JSON.parse(list); } catch (e) { j = null; }
+    const arr = j && j.data && Array.isArray(j.data.images) ? j.data.images : null;
+    if (arr && arr.length) {
+      const first = arr[0] || {};
+      const hash = typeof first.hash === "string" ? first.hash : null;
+      const ext = typeof first.ext === "string" ? first.ext.toLowerCase() : null;
+      if (hash && IMGUR_HASH.test(hash) && ext && IMGUR_EXTDOT.test(ext)) {
+        if (IMAGE_EXTS.indexOf(ext.slice(1)) < 0) return { stay: true };    // a video: the link stays text
+        return { picture: hash + ext };
+      }
+    }
+  }
+  const page = await lookGet("https://imgur.com/a/" + id, PAGE_BYTES, deadline);
+  if (page != null) {
+    IMGUR_OG_TAG.lastIndex = 0;
+    let m, pic = null;
+    while ((m = IMGUR_OG_TAG.exec(page))) {
+      if (m[1].toLowerCase() === "video") return { stay: true };
+      const c = META_CONTENT.exec(m[0]), hit = c ? IMGUR_OG_PIC.exec(c[1]) : null;
+      if (pic == null && hit) pic = hit[1] + "." + hit[2].toLowerCase();
+    }
+    if (pic) return { picture: pic };
+  }
+  return { picture: "" };                                        // could not look it up: [image]
+}
+
+// Catbox (PbCatbox): the first file of the collection page.
+const CATBOX_LISTSTART = /<div\b[^>]*\bclass\s*=\s*["']imagelist["']/i;
+const CATBOX_BOXSTART = /<div\b[^>]*\bclass\s*=\s*["']imagecontainer["']/i;
+const CATBOX_FIRSTLINK = /<a\b[^>]*\bhref\s*=\s*["']([^"']*)["']/i;
+const CATBOX_FIRSTSHOWN = /<(?:a|video|audio|source|img)\b[^>]*?\b(?:href|src)\s*=\s*["']([^"']*)["']/i;
+const CATBOX_FILEURL = /^https:\/\/files\.catbox\.moe\/([^"'/?#\s<>]+)$/i;
+const CATBOX_NAME = /^[A-Za-z0-9_-]{3,40}$/;
+function catboxAfter(html, startRe, pickRe) {
+  const s = startRe.exec(html);
+  if (!s) return null;
+  const p = pickRe.exec(html.slice(s.index));
+  if (!p) return null;
+  const f = CATBOX_FILEURL.exec(p[1]);
+  return f ? f[1] : null;
+}
+async function resolveCatbox(id, deadline) {
+  const html = await lookGet("https://catbox.moe/c/" + id, PAGE_BYTES, deadline);
+  let file = html == null ? null : catboxAfter(html, CATBOX_LISTSTART, CATBOX_FIRSTLINK);
+  if (file == null && html != null) file = catboxAfter(html, CATBOX_BOXSTART, CATBOX_FIRSTSHOWN);
+  if (file == null) return { picture: "" };                      // no file on the page: [image]
+  const dot = file.lastIndexOf("."), ext = dot < 0 ? "" : file.slice(dot + 1).toLowerCase();
+  if (IMAGE_EXTS.indexOf(ext) < 0) return { stay: true };        // not a picture: the link stays text
+  if (!CATBOX_NAME.test(file.slice(0, dot))) return { picture: "" };   // not of the expected shape: [image]
+  return { picture: file };
+}
+
+// ImgBB (PbImgbb): the first picture of an album, or an ImgBB page's own picture.
+const IMGBB_PICTURE_URL = /^https:\/\/i\.ibb\.co\/([A-Za-z0-9]{3,16})\/([^/?#]+)\.(png|jpe?g|gif|webp)$/i;
+const IMGBB_NAME = /^(?:[A-Za-z0-9_.~-]|%[0-9A-Fa-f]{2}){1,120}$/;
+const IMGBB_LISTITEM = /<div\b[^>]*\bclass\s*=\s*"list-item\b[^"]*"[^>]*>/ig;
+const IMGBB_IMAGETYPE = /\bdata-type\s*=\s*"image"/i;
+const IMGBB_DATAOBJECT = /\bdata-object\s*=\s*'([^']*)'/i;
+const IMGBB_OGIMAGE = /<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*>/ig;
+const IMGBB_IMAGESRC = /<link\b[^>]*\brel\s*=\s*["']image_src["'][^>]*>/i;
+const IMGBB_HREF = /\bhref\s*=\s*["']([^"']*)["']/i;
+function imgbbPictureOf(url) {                                   // PbImgbb.PictureOf
+  const m = IMGBB_PICTURE_URL.exec(url || "");
+  if (!m) return null;
+  const name = IMGBB_NAME.test(m[2]) ? m[2] : "image";
+  return m[1] + "/" + name + "." + m[3];
+}
+function imgbbOriginalOf(encoded) {                             // PbImgbb.OriginalOf: data-object JSON .image.url
+  try {
+    const obj = JSON.parse(decodeURIComponent(encoded));
+    const u = obj && obj.image && typeof obj.image.url === "string" ? obj.image.url : null;
+    return u ? imgbbPictureOf(u) : null;
+  } catch (e) { return null; }
+}
+async function resolveImgbbAlbum(id, sort, deadline) {
+  const html = await lookGet("https://ibb.co/album/" + id + (sort ? "?sort=" + sort : ""), PAGE_BYTES, deadline);
+  if (html == null) return { picture: "" };
+  IMGBB_LISTITEM.lastIndex = 0;
+  let m;
+  while ((m = IMGBB_LISTITEM.exec(html))) {
+    if (IMGBB_IMAGETYPE.test(m[0])) {
+      const d = IMGBB_DATAOBJECT.exec(m[0]), pic = d ? imgbbOriginalOf(d[1]) : null;
+      return { picture: pic || "" };                             // first image item decides (matches the bot's break)
+    }
+  }
+  const og = metaContent(html, IMGBB_OGIMAGE), pic = og ? imgbbPictureOf(og) : null;
+  return { picture: pic || "" };
+}
+async function resolveImgbbPage(id, deadline) {
+  const html = await lookGet("https://ibb.co/" + id, PAGE_BYTES, deadline);
+  if (html == null) return { picture: "" };
+  const og = metaContent(html, IMGBB_OGIMAGE);
+  let pic = og ? imgbbPictureOf(og) : null;
+  if (pic == null) {
+    const link = IMGBB_IMAGESRC.exec(html), href = link ? IMGBB_HREF.exec(link[0]) : null;
+    if (href) pic = imgbbPictureOf(href[1]);
+  }
+  return { picture: pic || "" };
+}
+
+// The id shapes the app may send (and the bot accepts): re-validated here so a malformed id never
+// reaches an upstream fetch.
+const RESOLVE_ID = {
+  imgur: /^[A-Za-z0-9]{5,7}$/, catbox: /^[a-z0-9]{6}$/,
+  imgbbAlbum: /^[A-Za-z0-9]{3,16}$/, imgbbPage: /^[A-Za-z0-9]{5,10}$/,
+};
+const RESOLVE_SORT = /^[a-z]{1,12}_(?:asc|desc)$/;
+const HAS_ALNUM_CAP = (s) => /[A-Z0-9]/.test(s);                 // an id has a capital or a digit (imgur/imgbb page)
+
+async function handleResolve(url) {
+  const site = url.searchParams.get("site") || "";
+  const id = url.searchParams.get("id") || "";
+  const kind = url.searchParams.get("kind") || "";
+  const deadline = Date.now() + RESOLVE_BUDGET_MS;
+  let out = null;
+  if (site === "imgur") {
+    if (!RESOLVE_ID.imgur.test(id) || !HAS_ALNUM_CAP(id)) return json({ error: "bad id" }, 400);
+    out = await resolveImgur(id, deadline);
+  } else if (site === "catbox") {
+    if (!RESOLVE_ID.catbox.test(id)) return json({ error: "bad id" }, 400);
+    out = await resolveCatbox(id, deadline);
+  } else if (site === "imgbb" && kind === "album") {
+    if (!RESOLVE_ID.imgbbAlbum.test(id)) return json({ error: "bad id" }, 400);
+    let sort = url.searchParams.get("sort") || "";
+    if (sort && (!RESOLVE_SORT.test(sort) || sort === "date_desc")) sort = "";
+    out = await resolveImgbbAlbum(id, sort, deadline);
+  } else if (site === "imgbb" && kind === "page") {
+    if (!RESOLVE_ID.imgbbPage.test(id) || !HAS_ALNUM_CAP(id)) return json({ error: "bad id" }, 400);
+    out = await resolveImgbbPage(id, deadline);
+  } else {
+    return json({ error: "bad site or kind" }, 400);
+  }
+  return json(out);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/imgbb") return handleImgbb(request, env, url);
+    if (url.pathname === "/resolve") return handleResolve(url);
     if (url.pathname === "/px") return handleProxy(url);
     return env.ASSETS.fetch(request);   // the static site (index.html, etc.)
   },

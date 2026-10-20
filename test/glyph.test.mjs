@@ -175,8 +175,9 @@ test("Design T: header, rows of exactly C cells, the token LAST, alone in its ch
   assert.equal(parts[0].lead, "");
   assert.ok(!/[ A-Za-z<>]/.test(parts[0].payload.slice(0, -(C.DESIGN_T_TAIL + " Cheer24").length)), "no space, Latin or markup inside the grid");
   // Printer Bot 3.0.4 prints it without the Cheer word: the grid, then the tail's light cell (the
-  // closing quote mark joins it on a line of its own).
-  assert.equal(C.printedMessage(parts[0].payload), b[0].html + " ");
+  // closing quote mark joins it on a line of its own). Since 3.0.6 the token goes with the space
+  // before it (the trail's), so no trailing space stays after the tail's light cell.
+  assert.equal(C.printedMessage(parts[0].payload), b[0].html);
   assert.ok(!parts[0].payload.includes("　"));
 });
 

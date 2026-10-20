@@ -10,26 +10,35 @@ import { loadCore } from "./_harness.mjs";
 const C = loadCore();
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, (msg || "") + ": " + a + " vs " + b);
 
-test("printedMessage is the renderer's cheerWords: a cheermote word of its own goes, anything else stays", () => {
-  assert.equal(C.printedMessage("Cheer100 <div>HI</div>"), " <div>HI</div>");
-  assert.equal(C.printedMessage("Cheer100 07 <div>HI</div>"), " 07 <div>HI</div>", "the repeat number stays");
-  assert.equal(C.printedMessage("丶丶丶 Cheer24"), "丶丶丶 ", "a plain part keeps the space before its token");
-  assert.equal(C.printedMessage("丶丶 丶 Cheer24 07"), "丶丶 丶  07");
-  assert.equal(C.printedMessage("CHEER5 hi"), " hi", "in any capitals");
-  assert.equal(C.printedMessage("Kappa50 Cheer100 hi"), "  hi", "two side by side");
+test("printedMessage is the renderer's cheerWords: a cheermote word of its own goes with one of its spaces, anything else stays", () => {
+  // Since 3.0.6 a cheermote goes together with ONE of the spaces around it, so no gap stays: one
+  // that opens the message goes with the space after it, any other with the space before it.
+  assert.equal(C.printedMessage("Cheer100 <div>HI</div>"), "<div>HI</div>", "a leading cheermote takes the space after it");
+  assert.equal(C.printedMessage("Cheer100 07 <div>HI</div>"), "07 <div>HI</div>", "the repeat number stays, no gap before it");
+  assert.equal(C.printedMessage("丶丶丶 Cheer24"), "丶丶丶", "a plain part's token goes with the space before it");
+  assert.equal(C.printedMessage("丶丶 丶 Cheer24 07"), "丶丶 丶 07", "no double space is left behind");
+  assert.equal(C.printedMessage("CHEER5 hi"), "hi", "in any capitals");
+  assert.equal(C.printedMessage("Kappa50 Cheer100 hi"), "hi", "two side by side");
   assert.equal(C.printedMessage("Cheer100"), "", "a message of cheermotes alone is no message");
   assert.equal(C.printedMessage(C.LEAD_GUARD + "<div>HI</div>"), C.LEAD_GUARD + "<div>HI</div>", "LEAD_GUARD stays");
-  for (const kept of ["<div>Cheer100</div>", "Cheer", "Cheer100x", "Win10", "xCheer100", "Cheer1234567890", "hi Cheer100<div>"]) {
+  // 3.0.6: the number is bits, 1 to 100,000 with no leading zero; anything else is the viewer's word.
+  for (const kept of ["<div>Cheer100</div>", "Cheer", "Cheer100x", "Win10", "xCheer100", "Cheer1234567890",
+                      "hi Cheer100<div>", "Cheer0 x", "Cheer007 x", "Cheer100001 x"]) {
     assert.equal(C.printedMessage(kept), kept, kept);
   }
+  assert.equal(C.printedMessage("x Cheer100000 y"), "x y", "100000 is the top of the last tier");
 });
 
-test("BOT_CHEERMOTES is the vendored renderer's own CHEERMOTE_NAMES", () => {
+test("BOT_CHEERMOTES is the vendored renderer's own CHEERMOTE_NAMES, taken out as cheerWords does", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   const m = /const CHEERMOTE_NAMES = \[([^\]]*)\]/.exec(html);
   assert.ok(m, "the vendored renderer names its cheermotes");
   assert.deepEqual([...C.BOT_CHEERMOTES], Array.from(m[1].matchAll(/'([^']+)'/g), (x) => x[1]));
-  assert.ok(/said\.replace\(CHEERMOTE_WORD, '\$1'\)/.test(html), "and takes them out as printedMessage does");
+  // 3.0.6: the bits pattern, and the two-phase strip (leading cheermotes looped, keeping the lead
+  // whitespace; then every other one with the space before it).
+  assert.ok(/const CHEERMOTE_BITS = '\(\?:100000\|\[1-9\]\[0-9\]\{0,4\}\)'/.test(html), "the renderer's bits pattern");
+  assert.ok(/said\.replace\(CHEERMOTE_LEAD, '\$1'\)/.test(html), "takes leading cheermotes out, keeping the lead whitespace");
+  assert.ok(/said\.replace\(CHEERMOTE_INNER, ''\)/.test(html), "and every other one with the space before it");
 });
 
 test("the lead's line: none for a cheer since 3.0.4, one with the repeat number or in a free test", () => {
@@ -50,7 +59,7 @@ test("the lead's line: none for a cheer since 3.0.4, one with the repeat number 
   const [p] = C.packStackBodies([body], k), [q] = C.packStackBodies([body], n);
   eq3(p.leadPx, p.contentPx, p.heightPx, [0, 100, 100]);
   assert.equal(q.leadPx, 21.6); near(q.contentPx, 121.6);
-  assert.equal(C.printedMessage(p.payload), " <div>A</div>", "3.0.4 prints the body alone");
+  assert.equal(C.printedMessage(p.payload), "<div>A</div>", "the body alone (3.0.6 takes the lead's space too)");
   function eq3(a, b, c, want) { assert.deepEqual([a, b, c], want); }
 });
 

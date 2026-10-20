@@ -10,9 +10,13 @@ or a picture into a Twitch chat message that prints big on a streamer's thermal 
 printer. The printer is driven by **SassyTP's printer-bot** (MIT,
 <https://github.com/SassyTP/printer-bot>), a Streamer.bot action that draws every cheer on a
 receipt page in headless Edge and prints a screenshot of it. The app targets the newest Printer
-Bot release (3.0 since 1.3.0), 3.0.5 since 1.8.1. Since 3.0.4 the bot leaves each cheer's Cheer
-word out of what it prints; an older bot prints that word too, and nothing else differently on a
-roll (see "The target").
+Bot release (3.0 since 1.3.0), the **3.2.0-beta.7** prerelease since 1.9.0. Since 3.0.4 the bot
+leaves each cheer's Cheer word out of what it prints (since 3.0.6 it takes one of the word's
+surrounding spaces too, so no gap stays); an older bot prints that word too, and nothing else
+differently on a roll (see "The target"). Since 1.9.0 a Real picture can be an Imgur/Catbox/ImgBB
+album or picture-page link (the first picture is looked up through the Worker's `/resolve`), and
+the app models two more printers a streamer can route big cheers to: a Brother VC-500W sticker
+printer and a 4 × 6 in card printer, alongside the roll and Letter printers.
 
 The bot prints a cheer in one of two ways, and the whole app follows from that:
 
@@ -46,14 +50,27 @@ logos (trademarks outside the licence).
 
 ## The target, with evidence
 
-Since 1.3.0 the app targets the newest Printer Bot release, beta or stable: **3.0.5** since
-1.8.1 (3.0.0 went stable on 2026-10-14, 3.0.1 to 3.0.4 followed within a day, and 3.0.5 on
-2026-10-15; `versions.json` names no prerelease). The facts below were read from
-`v/3.0.0/renderer.html` (3.0.5 keeps 3.0.0's page folder) at commit
-`d4800f82d2074246bb1141def6ba72d713811e2c` (renderer `VERSION` `202610150536`, line 611) and from
-the action's C#, which ships in the same repo as the Streamer.bot import (`import.txt` for the
-stable release; `import.prerelease.txt` for a beta; base64 of `SBAE` + gzip, decode it to read the
-code). Line numbers are for that file at that commit. Re-check them whenever the pin moves. 3.0.5's
+Since 1.3.0 the app targets the newest Printer Bot release, beta or stable: the **3.2.0-beta.7**
+prerelease since 1.9.0, from `v/3.2.0-beta.7/renderer.html` at commit
+`e05c0325e779b33fc9166ec201b6adef539b247b` (renderer `VERSION` `202610191933`, upstream sha256
+`66b344eb…`). The action's C# ships as the Streamer.bot import (`import.txt` for a stable release,
+`import.prerelease.txt` for a beta; base64 of `SBAE` + gzip → a JSON export, but the image-site
+resolver lives in the **compiled** `core/api1/prerelease/core-*.bin`, a .NET assembly you can
+decompile with `ilspycmd` — that is how `PbImgur` / `PbCatbox` / `PbImgbb` / `PbLookups` and the
+`/resolve` Worker port were read; keep the decompiled copy under the gitignored `.render/`, never
+commit it).
+
+> **Line-number caveat (1.9.0).** The detailed line numbers in the rest of this section and in
+> "What the page decides" were written against the **3.0.5** pin (`v/3.0.0/renderer.html` @
+> `d4800f8`, `VERSION 202610150536`) and have NOT all been re-derived for the beta.7 pin. 1.9.0
+> moved the pin and verified only the regions the app depends on (via `tools/upstream-watch.mjs`
+> and the contract test): the two that changed are the `safety` section (album/page links) and
+> `show()`/`present()` (the sticker and card layouts, plus the album lookups), and the `cheerWords`
+> change (3.0.6) just outside the watched regions. Treat the old line numbers as approximate and
+> re-check against the vendored block before relying on one.
+
+What 3.0.5 was (kept for history; 3.0.0 went stable 2026-10-14, 3.0.1–3.0.4 within a day, 3.0.5 on
+2026-10-15): 3.0.5's
 C# draws, greys and dithers a cheer and builds its raster as beta.7's did: `OptionsFor`, `ToGray`,
 `class Ditherer` and the `setDeviceMetricsOverride` call are character for character 3.0.1's
 (decoded for 1.8.0 and again for 1.8.1, where the C# changed only how Edge starts and how YouTube
@@ -403,7 +420,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/` | The deployed site. Cloudflare serves only this directory. |
 | `public/index.html` | The app, plus the vendored renderer block. |
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
-| `src/worker.js` | The Worker: static assets, the `/px` image proxy and (1.8.0) `POST /imgbb`. **Changed only on the owner's requests:** unchanged from before 1.0.0 until 1.7.0, which added an upload route (`/catbox`); 1.8.0 replaced it with `/imgbb` when Catbox went down; 1.8.1 removed the old `POST /upload` and its picture routes (`/<hex>.png`, legacy `/i/<hex>`, and `/px`'s answer out of KV for them), which the app stopped using in 1.8.0 and which took a picture from anyone. `test/imgbb.test.mjs` holds `/imgbb` to its guards with a fake ImgBB; `test/imgpath.test.mjs` holds the old paths to the static site. |
+| `src/worker.js` | The Worker: static assets, the `/px` image proxy, (1.8.0) `POST /imgbb` and (1.9.0) `GET /resolve`. **Changed only on the owner's requests:** unchanged from before 1.0.0 until 1.7.0, which added an upload route (`/catbox`); 1.8.0 replaced it with `/imgbb` when Catbox went down; 1.8.1 removed the old `POST /upload` and its picture routes; 1.9.0 added `/resolve` (album/page first-picture lookup, a faithful port of the bot's `PbImgur`/`PbCatbox`/`PbImgbb`, host-locked so there is no SSRF). `test/imgbb.test.mjs` holds `/imgbb` to its guards with a fake ImgBB; `test/resolve.test.mjs` holds `/resolve` with stubbed upstream; `test/imgpath.test.mjs` holds the old paths to the static site. |
 | `wrangler.jsonc` | Workers config: `main`, the app's custom domain in `routes` (1.8.1 removed `i.uwutoowo.com` and the `RW_IMG_HOST` var with `/upload`), the `RW_IMG` KV binding (`/imgbb`'s hourly counts). Changed only on the owner's requests. |
 | `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.8.1. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
@@ -1556,9 +1573,10 @@ The preview does not model the receipt; it **is** the bot's receipt page. There 
 hand-written model of the receipt in this app. The pure core's width and height models only
 choose sizes and split parts, and a browser test holds them to what `render()` reports.
 
-**The vendored block.** `public/index.html` carries `v/3.0.0/renderer.html` at
-`d4800f82d2074246bb1141def6ba72d713811e2c` (version `202610150536`, Printer Bot 3.0.5, since
-1.8.1; 3.0.4's at `fae1b6d` in 1.8.0, 3.0.1's at `1049292` in 1.4.1, 3.0.0-beta.7's `v/3.0.0-beta.7/renderer.html` at `64afbfc`
+**The vendored block.** `public/index.html` carries `v/3.2.0-beta.7/renderer.html` at
+`e05c0325e779b33fc9166ec201b6adef539b247b` (version `202610191933`, Printer Bot 3.2.0-beta.7, since
+1.9.0; 3.0.5's `v/3.0.0/renderer.html` at `d4800f8` in 1.8.1, 3.0.4's at `fae1b6d` in 1.8.0,
+3.0.1's at `1049292` in 1.4.1, 3.0.0-beta.7's `v/3.0.0-beta.7/renderer.html` at `64afbfc`
 in 1.3.1, beta.6's at `b7f9991` in 1.3.0; 2.5.4's `v/2.5.0/renderer.html` at `b9f12b0` until 1.3.0)
 as inert text,
 `<script type="text/plain" id="sassytp-renderer" data-commit data-path data-version>`, placed
@@ -1902,6 +1920,19 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 > `/upload` took a picture from anyone, with no hourly limit, writing to the KV namespace that
 > `/imgbb` keeps its counts in.)
 >
+> **Third exception (1.9.0, the owner's request): `GET /resolve`.** Full album/page image-link
+> support. A Real picture link that is an Imgur/Catbox/ImgBB album or picture page has no picture in
+> the URL; the bot looks up the album's first picture at print time (`PbImgur`/`PbCatbox`/`PbImgbb`
+> in the compiled core), so the app's preview asks this route to look up the same one. It is a
+> **faithful port of that decompiled logic** (see `src/worker.js`): the app sends only a validated
+> `site` + `id` (+ `kind`/`sort`), and the route builds the fixed upstream URL itself
+> (`imgur.com/ajaxalbums/getimages/<id>/hit.json` and `/a/<id>`, `catbox.moe/c/<id>`,
+> `ibb.co/album/<id>` and `ibb.co/<id>`), so there is **no user-controlled host and no SSRF**; every
+> upstream GET is byte-capped, follows no redirect, counts only a 200, and shares a 3-second budget.
+> Read-only, no key, no state. `test/resolve.test.mjs` holds it with stubbed upstream; **no test ever
+> hits the real Imgur/Catbox/ImgBB.** The viewer's link still goes out in the cheer unchanged (THE
+> RULE); the lookup is for the preview only. Do not loosen the host-locking or the id validation.
+>
 > **Second exception (1.7.0 and 1.8.0, the owner's requests, 2026-10-14):** `POST /imgbb`. A Real
 > picture card's picked file, and since 1.8.0 a Real picture's turned or adjusted copy that prints,
 > goes to ImgBB (i.ibb.co) through this route, and the link comes back in one step (a picked file's
@@ -1948,13 +1979,17 @@ node tools/payload.mjs '{"kind":"big","text":"HELLO","paper":58}' \
 - **One file.** No build step, no framework, no external resources: system font stacks, no web
   fonts, no CDN, no external images. Don't split the file for tooling.
 - **Zero runtime dependencies.** Dev tooling (Wrangler, Playwright, the tools) does not ship.
-- **Network calls go only to our own Worker, and there are no new ones.** The app's script has
-  **two** `fetch` call sites, both same-origin: one `/px` (`decodeGlyphImage`, which reads a
-  pasted picture link for glyph-art and, since 1.5.0, a Real picture's link for its size, its
-  plain grid, its card's picture and its copy) and one `/imgbb` (`postPicture`: a file picked on a
-  Real picture card, redrawn on the device at most 1600 px on its longer side as a JPEG on white,
-  and since 1.8.0 a Real picture's turned or adjusted copy that prints, drawn the same way; 1.7.0
-  sent picked files to `/catbox`, and before that to `/upload` for a 15-minute link). Until 1.8.0 a
+- **Network calls go only to our own Worker.** The app's script has **three** same-origin `fetch`
+  call sites: `/px` (`decodeGlyphImage`, which reads a pasted picture link for glyph-art and, since
+  1.5.0, a Real picture's link for its size, its plain grid, its card's picture and its copy),
+  `/imgbb` (`postPicture`: a file picked on a Real picture card, redrawn on the device at most 1600
+  px on its longer side as a JPEG on white, and since 1.8.0 a Real picture's turned or adjusted copy
+  that prints, drawn the same way; 1.7.0 sent picked files to `/catbox`, and before that to
+  `/upload`), and (1.9.0) `/resolve` (`resolvePicture`: the first picture of a Real picture's
+  Imgur/Catbox/ImgBB album or picture page, for the preview only — the viewer's link still goes out
+  verbatim). All three hit only this Worker; the Worker's own outbound fetches go to the fixed emote
+  CDNs / image sites (`/px`), ImgBB (`/imgbb`), or the fixed Imgur/Catbox/ImgBB pages (`/resolve`).
+  Until 1.8.0 a
   third and a fourth baked the card's turned or adjusted picture through `/px` and `/upload`, for
   the card's view only; the card now draws it on the device, and since 1.8.1 the Worker has no
   `/upload` (old minted links in a saved preset load nothing, and the expiry check says so). Two

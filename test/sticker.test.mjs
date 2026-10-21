@@ -66,3 +66,19 @@ test("normalizeControls carries the sticker printer's settings", () => {
   assert.equal(d.stickerBits, 0);
   assert.equal(d.stickerTape, 50);
 });
+
+test("a High Roller sticker builds for the tape; a plain one builds as an 80 mm roll (3.2.0 stickerfit)", () => {
+  // High Roller: centred on the tape at its own size, so the narrow sticker content width.
+  const hr = C.stackContext({ cheer: true, bits: 100, hrThreshold: 25, stickerBits: 100, stickerTape: 50, noNonce: true });
+  assert.equal(hr.mode, "raw");
+  assert.equal(hr.paperMm, "sticker");
+  assert.ok(hr.contentW < 200, "the narrow 50 mm tape box, not the 80 mm roll's 244");
+  eq(hr.sticker, { tapeMm: 50 });
+  // Plain: the 80 mm roll scaled onto the tape, so built as an 80 mm roll (244 px, 15 Han columns).
+  const plain = C.stackContext({ cheer: true, bits: 10, hrThreshold: 25, stickerBits: 10, stickerTape: 50, noNonce: true });
+  assert.equal(plain.mode, "plain");
+  assert.equal(plain.paperMm, 80, "built as an 80 mm roll");
+  assert.equal(plain.contentW, 244);
+  assert.equal(C.hanziCols(plain.contentW), 15, "the roll's 15 columns, so the grid wraps in stickerfit's roll box");
+  eq(plain.sticker, { tapeMm: 50 }, "still named a sticker for the notes/preview");
+});

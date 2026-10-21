@@ -3089,11 +3089,11 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // The page is Printer Bot 3.2.0-beta.7's (its own layout folder, so the line says 3.2.0-beta.7).
+  // The page is Printer Bot 3.2.0's (its own layout folder, so the line says 3.2.0).
   // Since 3.0.4 the bot leaves each cheer's Cheer word out, and every older layout prints it, so the
   // line names none and says what an older one adds.
-  assert.equal(v, "202610191933");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.2\.0-beta\.7's layout v202610191933, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.equal(v, "202610202210");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.2\.0's layout v202610202210, in this computer's fonts, which may differ from the streamer's\. /);
   assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match: a Printer Bot older than 3\.0\.4 prints each cheer's Cheer word too\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,
@@ -3648,7 +3648,9 @@ test("sticker printer: a cheer of the sticker bits prints on the tape, the layou
   await ctx.close();
 });
 
-test("sticker printer: a cheer below the threshold prints the plain Han grid on the tape", async () => {
+test("sticker printer: a cheer below the threshold prints the 80 mm roll scaled onto the tape (stickerfit)", async () => {
+  // Printer Bot 3.2.0: a non-High-Roller sticker cheer is the 80 mm roll made as wide as the tape
+  // (layout 'stickerfit'), so the app builds it as an 80 mm roll and the renderer scales it.
   const s = { ...SETTINGS, bits: 10, hrThreshold: 25, stickerBits: 10, stickerTape: 50 };
   const blocks = [BIG({ id: 1, text: "HELLO" })];   // below the threshold -> Han tiling
   const { page, ctx, errors } = await freshPage({ blocks, controls: s, core: true, eager: true });
@@ -3656,10 +3658,15 @@ test("sticker printer: a cheer below the threshold prints the plain Han grid on 
   const sent = await copyAll(page);
   const want = await expectParts(page, blocks, s);
   assert.deepEqual(sent, want.map((p) => p.payload));
+  // Built as an 80 mm roll, not the narrow tape: identical to the same cheer on a plain 80 mm roll
+  // (stickerBits 0 → routes to the roll), so the Han grid's 15 columns match stickerfit's roll box.
+  const roll = await expectPage(page, blocks, { ...s, stickerBits: 0 });
+  assert.deepEqual(sent, roll, "plain sticker builds as the 80 mm roll");
   const { frame } = await drawnPart(page, 0, sent[0]);
-  // A plain cheer on a sticker prints as a narrow roll (the renderer strips the sticker layout).
+  // The renderer draws the 80 mm roll scaled onto the tape (class "sticker-fit"), not the High Roller
+  // sticker layout ("sticker" with the bordered box).
   const cls = await frame.evaluate(() => document.getElementById("receipt-container").className);
-  assert.doesNotMatch(cls, /\bsticker\b/);
+  assert.match(cls, /\bsticker-fit\b/, "the 80 mm roll scaled onto the tape");
   assert.deepEqual(errors, []);
   await ctx.close();
 });

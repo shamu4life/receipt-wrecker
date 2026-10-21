@@ -13,9 +13,9 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.9.0 (2026-10-20). Before 1.0.0 the tool targeted a different printer
-  bot (nutty.gg's); that support was removed. 1.9.0 tracks the Printer Bot 3.2.0-beta.7
-  prerelease: a Real picture can be an Imgur/Catbox/ImgBB album or picture-page link (the first
+- Current version: 1.9.1 (2026-10-21). Before 1.0.0 the tool targeted a different printer
+  bot (nutty.gg's); that support was removed. 1.9.x tracks Printer Bot 3.2.0 (stable since
+  2026-10-20): a Real picture can be an Imgur/Catbox/ImgBB album or picture-page link (the first
   picture is looked up), and the tool models two more printers a streamer can route big cheers
   to, a Brother VC-500W sticker printer and a 4 x 6 in card printer.
 - No accounts, no analytics. The one third party it sends anything to is ImgBB: a file a viewer

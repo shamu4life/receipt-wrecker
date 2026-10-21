@@ -12,6 +12,28 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.9.1] - 2026-10-21
+
+Catches the app up from the **3.2.0-beta.7** prerelease to the **3.2.0** stable release
+(`v/3.2.0/renderer.html` at `0b2793e`, layout 202610202210), released 2026-10-20 — beta.8 and
+beta.9 polish on top of beta.7.
+
+### Changed
+
+- **The preview draws with Printer Bot 3.2.0's page** (the stable release). Re-vendored; pins moved
+  in `tools/vendor-renderer.mjs` + `tools/forkbench.mjs`. Of the regions the app depends on, the only
+  behavioural change for the app is the sticker fallback below.
+- **A plain cheer on a sticker is built as the 80 mm roll** (Printer Bot 3.2.0-beta.9's `stickerfit`):
+  a non–High-Roller sticker cheer now prints the 80 mm roll's receipt made as wide as the tape
+  (before, it printed as a roll as narrow as the tape). So the app builds such a cheer as an 80 mm
+  roll — the Han grid's 15 columns match the roll box the renderer scales onto the tape — instead of
+  the narrow tape width, which would have mis-wrapped the grid. A High Roller sticker cheer is
+  unchanged (centred on the tape at its own size). This mirrors the 4 × 6 card's `cardfit` fallback.
+- Other 3.2.0 renderer changes need no app change (they are renderer-internal and the preview picks
+  them up on re-vendor): `[image]` placeholders hoisted on Letter/card/sticker, `photoRects` reading
+  the card/sticker picture boxes, `viewOf`/`cardWords`/`#receipt-avatar` tweaks, and the removal of
+  `hideLinks`→`[link]` (the app always sends `hideLinks:false`) and `subtitleHtml` (unused).
+
 ## [1.9.0] - 2026-10-20
 
 Catches the app up to the **Printer Bot 3.2.0-beta.7** prerelease (`v/3.2.0-beta.7/renderer.html` at

@@ -729,6 +729,13 @@
     var lead = { cheer: !!o.cheer, bits: o.bits, noNonce: !!o.noNonce };
     var mode = o.mode === "raw" || o.mode === "plain" ? o.mode : buildMode(o);
     var paper = paperSpec(targetPaper(o), o), letter = !!paper.letter, sticker = !!paper.sticker, card = !!paper.card;
+    // A non-High-Roller sticker cheer prints as the 80 mm roll made as wide as the tape (Printer Bot
+    // 3.2.0's 'stickerfit', the renderer's STICKER_ROLL_PX), so it is BUILT as an 80 mm roll — the Han
+    // grid wraps at the roll's 15 columns and the renderer scales it to the tape. A High Roller
+    // sticker cheer is centred on the tape at its own size (the narrow sticker spec, kept above). The
+    // tape width is still carried in `sticker` below so the notes and the preview name it.
+    var stickerTapeMm = sticker ? paper.tapeMm : 0;
+    if (sticker && mode === "plain") paper = PAPERS[80];
     // A plain message gets the 1600px box (a length of paper: 16.7 inches on Letter, where the page
     // ends it first, faded; the renderer cuts any viewer's message at the end of its page). A card is
     // always one card (contentLimitPx returns its never-split limit, whatever the mode).
@@ -743,7 +750,7 @@
              cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce, imageSites: imageSitesOf(o.imageSites),
              // On a sticker: its tape width. On a card: its image fit. Both let the notes and the
              // preview name the printer (the renderer does the actual sticker/card layout).
-             sticker: sticker ? { tapeMm: paper.tapeMm } : null,
+             sticker: sticker ? { tapeMm: stickerTapeMm } : null,
              card: card ? { fit: letterFitOf(o.cardFit) } : null,
              // On Letter: its card's settings, with the layout this cheer gets (letterLayoutFor); Large
              // message lays the message out from the left, so a block centres itself (`center`); the
@@ -8013,8 +8020,8 @@
 <!--
   The receipt preview is drawn by SassyTP's printer-bot renderer (MIT): the receipt page the bot
   itself prints from, kept here as inert text and loaded into one sandboxed frame per part.
-  Source: https://github.com/SassyTP/printer-bot  path v/3.2.0-beta.7/renderer.html  commit e05c0325e779b33fc9166ec201b6adef539b247b
-  (renderer version 202610191933, upstream file sha256 66b344eb7b00fccc189328e75625cafae887c9952633af2fb8f9f1c79d6e6f3c)
+  Source: https://github.com/SassyTP/printer-bot  path v/3.2.0/renderer.html  commit 0b2793e723f4cf146ca84316defbb5be1c9fa4fe
+  (renderer version 202610202210, upstream file sha256 973c58a3c5487cdb638f928bf89bf606d18773d908b73bba947879bfc756e216)
 
   MIT License
 
@@ -8043,7 +8050,7 @@
   logo; (2) the page's Content-Security-Policy is a no-network policy; (3) every closing script tag
   is written with a backslash before its slash, undone when the app reads the block.
 -->
-<script type="text/plain" id="sassytp-renderer" data-commit="e05c0325e779b33fc9166ec201b6adef539b247b" data-path="v/3.2.0-beta.7/renderer.html" data-version="202610191933">
+<script type="text/plain" id="sassytp-renderer" data-commit="0b2793e723f4cf146ca84316defbb5be1c9fa4fe" data-path="v/3.2.0/renderer.html" data-version="202610202210">
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8053,7 +8060,7 @@
 <!-- RW-EDIT 2 (Receipt Wrecker): this policy replaces the page's own. Nothing loads from the network (no connections, images only from data: URLs) and no frame, form or object; inline scripts are allowed instead of the renderer script's hash, so the preview's glue script can run next to it. -->
 <!-- RW-EDIT 3 (Receipt Wrecker): every closing script tag in this copy is written with a backslash before its slash, so the page can sit inside Receipt Wrecker's own page as inert text. The app takes the backslash out again before it loads the page. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; object-src 'none'">
-<meta name="printer-bot-renderer" content="202610191933">
+<meta name="printer-bot-renderer" content="202610202210">
 <style>
 /*
  * Printer Bot receipt
@@ -8175,6 +8182,14 @@ html, body {
 		width: calc(100% + 2 * var(--pb-avatar-bleed, 10px));
 		margin-left: calc(-1 * var(--pb-avatar-bleed, 10px));
 		margin-right: calc(-1 * var(--pb-avatar-bleed, 10px));
+	}
+
+	/* 3.2.0-beta.9: the receipt of an 80 mm roll on a sticker printer (sticker-fit, renderer.js stickerFit) is laid out 272 px wide in a page as narrow as the tape, which this rule
+	   reads as 58 mm paper: it keeps the picture of the 80 mm roll. :where() leaves the rule as specific as the one above, so a theme's own picture size still wins, as on the roll. */
+	:where(.sticker-fit) #receipt-avatar {
+		width: min(var(--pb-avatar, 13.875em), 100%);
+		margin-left: auto;
+		margin-right: auto;
 	}
 }
 
@@ -8580,7 +8595,8 @@ img.msg-image {
 /* ---- the sticker layout of a Brother VC-500W (3.2.0) -------------------------------------------------------------------------------------------------------------------- */
 
 /* renderer.js gives the receipt the class sticker when the printer is a sticker printer (the action sends layout "sticker") and the receipt is a High Roller message (every other
-   receipt prints on the tape as it does on a narrow roll), and sets --pb-w, the width of the tape in CSS px (189 on 50 mm tape, 94 on 25 mm). Every size below is a share of it,
+   receipt, sticker-fit since 3.2.0-beta.9, is the receipt of an 80 mm roll made as wide as the tape by renderer.js, stickerFit: it has no rule here), and sets --pb-w, the width of
+   the tape in CSS px (189 on 50 mm tape, 94 on 25 mm). Every size below is a share of it,
    so the same sticker comes out on every tape, smaller or larger. The sticker comes out of the printer lengthwise, its top first, and reads upright as it comes out: the viewer's
    picture as a small circle at the left with the kind of the event, the amount and the name beside it in three small lines, then the date centred under them, the message in a
    thin frame, and then the pictures of the message, each as wide as the tape in its own orientation: the head takes as little as the words need, so the photo gets the tape.
@@ -8902,7 +8918,7 @@ img.msg-image {
 //                                                           event, so a Hype Train tally counts it once whichever printers allow High Roller.
 //                                    allowYouTubeHighRoller boolean, default false (3.0.2). true = this printer prints a YouTube High Roller Super Chat (see youtubeHighRoller)
 //                                                           with its styled message; anything else prints it as an ordinary Super Chat. Off unless the action says true.
-//                                    youtubeHighRoller      { amount, currency, perInch } (3.0.2), only for a Super Chat that the action found to be a YouTube High Roller
+//                                    youtubeHighRoller      { amount, perInch } (3.0.2), only for a Super Chat that the action found to be a YouTube High Roller
 //                                                           one: its amount in the streamer's currency (the action converts it, the page decides nothing about money) and the
 //                                                           amount per inch, the length limit (0 = none of its own). highRollerMaxInches and the built-in ceiling apply as for a cheer.
 //                                    pxPerInch              number, default 96 (3.0.0-beta.5). How many CSS px are one inch of paper at this paper size: 96 on a roll,
@@ -8918,7 +8934,7 @@ img.msg-image {
 window.PrinterBot = (function () {
     'use strict';
 
-    const VERSION = '202610191933';
+    const VERSION = '202610202210';
     // RW-EDIT 1 (Receipt Wrecker): the Twitch, YouTube and Kick logos (trademarks of their owners, outside the MIT licence) are replaced by one plain grey box the size of the Twitch logo (336 x 112 px), so the footer keeps its size.
     const ICONS = {"twitch":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","youtube":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII=","kick":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAVAAAABwCAAAAABtWHeHAAAApElEQVR42u3QMQ0AAAgDsAX/0hCFiT0krYRmqZpQJVSoUKEIFSoUoUKFIlSoUKEIFSoUoUKFIlSoUIQKFSoUoUKFIlSoUIQKFYpQoUKFIlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlSoUIQKFYpQoUIRKlQoQoUKFYpQoUIRKlQoQoUKRahQoUIRKlQoQoUKRahQoQgVKlQoQoUKRahQoQgV+s0BrCMMrtBkMGMAAAAASUVORK5CYII="};
     // 3.0.5: the picture of a YouTube receipt that has none (the samples, a typed test, a viewer with no picture): a grey person drawn here, so nothing is downloaded.
@@ -9313,6 +9329,7 @@ window.PrinterBot = (function () {
     let activeImageSites = new Set();                    // the sites that are on for the receipt that is being built (see show). Empty between receipts
     const sitePictures = new WeakSet();                  // the <img> elements of a High Roller message whose address is a picture of an image site (set by copyAttributes, never by the viewer)
     const failedAlbumImages = new WeakSet();             // 3.0.11: the <img> elements whose address the action looked up and found no picture for (set by copyAttributes): "[image]"
+    const badImageTexts = new WeakMap();                 // 3.2.0-beta.8: the words [image] that stand for a picture whose address failed a moment ago -> that address (messageImageElement)
     let pictureShown = false;                            // a picture of an image site was put on the page since it was last put at rest: rest() says so, and the action then empties the browser's cache
 
     // The ids of opts.imageSites that this page knows (it has the site and a rule for it). Anything else in the list is ignored.
@@ -9370,12 +9387,9 @@ window.PrinterBot = (function () {
         return null;
     }
 
-    // A cleaned message as a list of pieces: { text } and { image: url }. A link to a picture of a switched-on site is a picture piece (with at most MAX_MESSAGE_IMAGES to a message,
-    // and the punctuation that ends a sentence after it is dropped); every other link stays text, or "[link]" when the dock hides links. The text pieces are the message
-    // without those links, in order.
-    function messagePieces(text, opts, enabled, limit) {
-        const most = limit === undefined ? MAX_MESSAGE_IMAGES : limit;
-        const hide = !!(opts && opts.hideLinks === true);
+    // A cleaned message as a list of pieces: { text } and { image: url }. A link to a picture of a switched-on site is a picture piece (with at most `most` of them, the room the message
+    // has left of MAX_MESSAGE_IMAGES, and the punctuation that ends a sentence after it is dropped); every other link stays text. The text pieces are the message without those links, in order.
+    function messagePieces(text, enabled, most) {
         const pieces = [];
         const add = (s) => { if (!s) return; const last = pieces[pieces.length - 1]; if (last && last.text !== undefined) last.text += s; else pieces.push({ text: s }); };
         const re = new RegExp(LINK_PATTERN.source, 'gi');
@@ -9386,7 +9400,7 @@ window.PrinterBot = (function () {
             const hit = images < most ? imageSiteLink(trail ? token.slice(0, token.length - trail[0].length) : token, enabled) : null;
             add(text.slice(from, m.index));
             if (hit) { images++; pieces.push({ image: hit.url }); }       // (3.0.11: '' for an address the action looked up and found no picture for, which prints "[image]")
-            else add(hide ? '[link]' : token);
+            else add(token);
             from = m.index + token.length;
         }
         add(text.slice(from));
@@ -9419,7 +9433,8 @@ window.PrinterBot = (function () {
     // Builds the pieces of a message into `div`: text as text nodes, a picture as an <img> that is a block of its own. An address that failed a moment ago is "[image]" at once.
     // The element for one picture of a message: an <img> made here (never markup of the viewer), or the text "[image]" when this address failed a moment ago.
     function messageImageElement(url, opts) {
-        if (!url || isBadImage(url)) return document.createTextNode('[image]');       // (no address: the action looked it up and found no picture, 3.0.11)
+        if (!url) return document.createTextNode('[image]');                          // (no address: the action looked it up and found no picture, 3.0.11)
+        if (isBadImage(url)) { const words = document.createTextNode('[image]'); badImageTexts.set(words, url); return words; }
         const large = largeLayoutPx(opts) !== null;                    // in the large layout a picture is as tall as the space the message has left (receipt.css), so it gets no height of its own
         const img = document.createElement('img');
         img.className = 'msg-image';
@@ -9451,7 +9466,7 @@ window.PrinterBot = (function () {
         while (walker.nextNode()) nodes.push(walker.currentNode);
         for (const node of nodes) {
             if (room <= 0) break;
-            const pieces = messagePieces(node.data, null, activeImageSites, room);
+            const pieces = messagePieces(node.data, activeImageSites, room);
             const found = pieces.filter(p => p.image !== undefined).length;
             if (!found) continue;
             room -= found;
@@ -9464,18 +9479,28 @@ window.PrinterBot = (function () {
     // 3.0.0: in the large layout a picture of an image site in a High Roller message is not left inside the styled text, where it would be a thumbnail of 64 px at the place the viewer put it.
     // It is taken out and set after the message like the picture of a plain message (at most MAX_MESSAGE_IMAGES, in the order they came): a frame that takes the space the words leave, and the
     // choice of the printer (fill, fit or stretch) says what the picture does inside it. The styled text keeps everything else it had. Pictures of another kind (emotes) stay where they are.
-    function hoistSitePictures(content, opts) {
+    // withBad (3.2.0-beta.8, a sticker and a card): the words [image] of a link whose address failed a moment ago (badImageTexts) go along in their place among the pictures, so the
+    // second print within the memory of bad pictures has them in the box of the pictures as the first one had (the audit of 19 October: they stayed in the words)
+    function hoistSitePictures(content, opts, withBad) {
         const urls = [];
         let first = null;                                                                                   // the styled part that held the first picture, and whether words came before it
-        for (const img of Array.from(content.querySelectorAll('.part.raw img'))) {
-            if (!sitePictures.has(img) && !img.classList.contains('msg-image')) continue;                  // a picture of a site (an <img> tag, or a link that became one): not an emote
+        let nodes = Array.from(content.querySelectorAll('.part.raw img'));
+        if (withBad) {
+            const marks = [];
+            const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+            while (walker.nextNode()) if (badImageTexts.has(walker.currentNode) && walker.currentNode.parentNode.closest('.part.raw')) marks.push(walker.currentNode);
+            if (marks.length) nodes = nodes.concat(marks).sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);       // in the order of the message
+        }
+        for (const img of nodes) {
+            const mark = img.nodeType === Node.TEXT_NODE;
+            if (!mark && !sitePictures.has(img) && !img.classList.contains('msg-image')) continue;         // a picture of a site (an <img> tag, or a link that became one): not an emote
             if (first === null) {
-                const part = img.closest('.part.raw');
+                const part = (mark ? img.parentNode : img).closest('.part.raw');
                 const before = document.createRange();
                 before.setStart(part, 0); before.setEndBefore(img);
                 first = { part, wordsFirst: before.toString().trim().length > 0 };
             }
-            const src = img.getAttribute('src');
+            const src = mark ? badImageTexts.get(img) : img.getAttribute('src');
             img.remove();
             if (src && urls.length < MAX_MESSAGE_IMAGES) urls.push(src);
         }
@@ -9637,14 +9662,14 @@ window.PrinterBot = (function () {
         return threshold > 0 && Number(bits) >= threshold;
     }
 
-    // 3.0.2: the YouTube High Roller part of the options, checked: { amount, currency, perInch } with an amount above 0, or null (no such Super Chat, or a value that is no number).
+    // 3.0.2: the YouTube High Roller part of the options, checked: { amount, perInch } with an amount above 0, or null (no such Super Chat, or a value that is no number).
     // The action sets it only for a Super Chat whose amount, in the streamer's currency, reached the YouTube High Roller amount; event data never reaches it.
     function youtubeHighRollerOf(opts) {
         const y = opts && opts.youtubeHighRoller;
         if (!y || typeof y !== 'object' || Array.isArray(y)) return null;
         const amount = Number(y.amount), perInch = Number(y.perInch);
         if (!Number.isFinite(amount) || amount <= 0) return null;
-        return { amount, perInch: Number.isFinite(perInch) && perInch > 0 ? perInch : 0, currency: /^[A-Z]{3}$/.test(String(y.currency)) ? String(y.currency) : '' };
+        return { amount, perInch: Number.isFinite(perInch) && perInch > 0 ? perInch : 0 };
     }
 
     // Length limit for a High Roller message: "bits per inch" from the dock's Advanced section. A cheer may print
@@ -9676,15 +9701,19 @@ window.PrinterBot = (function () {
         const page = opts && opts.layout === 'message' ? pageHeightPx(opts) : null;
         return page !== null && page <= LARGE_LAYOUT_MAX_PAGE_PX ? page : null;
     }
-    // 3.0.0: how a picture of a message is set in the large layout. Only these three texts count, anything else is the default, fill. The choice reaches the stylesheet as a class of the receipt
+    // 3.0.0: how a picture of a message is set in the large layout. Only these three texts count, anything else is the default, fit. The choice reaches the stylesheet as a class of the receipt
     // (fit-fill, fit-fit, fit-stretch) and nothing else: the pictures get their size from the space the message has, and `object-fit` does the rest.
     const IMAGE_FITS = ['fill', 'fit', 'stretch'];
     function imageFitOf(opts) { const v = opts ? opts.imageFit : undefined; return IMAGE_FITS.indexOf(v) >= 0 ? v : 'fit'; }
 
-    // 3.2.0: the sticker layout of a Brother VC-500W. The action sends opts.layout === 'sticker' for a sticker printer, with the tape in mm (tapeMm). Only the exact text counts. The layout is
-    // used for a High Roller message (a cheer at or above the threshold, a YouTube High Roller Super Chat, on a printer that allows it: viewOf says styled); every other receipt prints on
-    // the tape as on a narrow roll (layoutFor strips the layout). Nothing a viewer writes ever reaches this.
+    // 3.2.0: the sticker layout of a Brother VC-500W. The action sends opts.layout === 'sticker' for a sticker printer (the tape's width is the width of the page). Only the exact text counts. The layout is
+    // used for a High Roller message (a cheer at or above the threshold, a YouTube High Roller Super Chat, on a printer that allows it: viewOf says styled). Nothing a viewer writes ever reaches this.
+    // 3.2.0-beta.9 (the owner, 20 October 2026: an ordinary cheer on 25 mm tape printed as on a roll as narrow as the tape, its name and its words split in the middle, 156 mm long): every
+    // other receipt is the receipt of an 80 mm roll (STICKER_ROLL_PX), laid out exactly as on the roll and made as wide as the tape (stickerFit), as a card makes it as large as the card
+    // allows. layoutFor gives it the layout 'stickerfit'; the owner chose the 80 mm receipt to scale over the 58 mm one on previews. Until then layoutFor took the layout away.
     function stickerLayoutOn(opts) { return !!opts && opts.layout === 'sticker'; }
+    function stickerFitOn(opts) { return !!opts && opts.layout === 'stickerfit'; }
+    const STICKER_ROLL_PX = 272;                     // the receipt of an 80 mm roll is 272 CSS px wide (PbPaper.Roll(80): 576 dots at 96 CSS px to the inch, as the inch of a sticker)
     const STICKER_KINDS = { twitch: 'Twitch Cheer', youtube: 'YouTube Super Chat', kick: 'Kick' };      // the kind of the event, from the platform of the receipt
 
     // 3.2.0-beta.2: a card of 4 x 6 inches in landscape. The action sends opts.layout === 'card' for a printer on that paper, with the height of the card (pageHeightPx) and the width and the
@@ -10027,7 +10056,7 @@ window.PrinterBot = (function () {
     // ------------------------------------------------------------------
     // Event handlers. Each returns a receipt model, or null to print nothing:
     //   avatar        image URL ('' = no avatar)         avatarSquare   true = no round crop
-    //   title/titleHtml, subtitle/subtitleHtml           (text is escaped, *Html is used as-is)
+    //   title/titleHtml, subtitle                         (text is escaped, titleHtml is used as-is)
     //   titleBig      larger title (used for money amounts)
     //   content       a part or a list of parts (below); nothing = no content area
     //   icon          'twitch' | 'youtube' | 'kick'
@@ -10460,7 +10489,6 @@ window.PrinterBot = (function () {
         }
         for (const c of step.cheers) hypeCredit(t, c[0], c[1], c[2], false);
         const ev = { __source: HYPE_SOURCES[step.kind], id: HYPE_SAMPLE_ID, level: step.level, startedAt: new Date(t.startedAt).toISOString(), trainType: t.sampleType };
-        if (step.kind === 'levelup') ev.prevLevel = step.level - 1;
         if (step.top) {
             const top = hypeTopOfStep(step);
             ev['top.bits.userName'] = top.login; ev['top.bits.user'] = top.name; ev['top.bits.total'] = top.bits;
@@ -10924,20 +10952,21 @@ window.PrinterBot = (function () {
             const limit = yt ? amountMaxHeight(yt, opts) : highRollerMaxHeight(model.highRoller.bits, opts);
             return { content: model.content, maxPx: limit ? limit.px : null, by: limit ? limit.by : null, ignoreCeiling: limit ? limit.ignoreCeiling : false, styled: true };
         }
-        return { content: model.content, maxPx: model.contentMaxHeight != null ? model.contentMaxHeight : null, by: model.contentLimitBy, ignoreCeiling: !!model.contentIgnoreCeiling };
+        return { content: model.content, maxPx: null, by: null, ignoreCeiling: false };
     }
 
     // The layout of this receipt (3.0.0-beta.10). In the large layout of a Letter page the receipt gets the class letter-message and two variables that receipt.css reads: --pb-in (CSS px to the
     // inch of this paper) and --pb-page-h (the height of a page in CSS px), both from numbers that were checked above. The date line moves from the footer into the header. Every receipt
     // starts from the layout it had before this one: nothing is left over.
     function applyLayout(opts) {
-        const container = $('receipt-container'), page = largeLayoutPx(opts), sticker = stickerLayoutOn(opts), card = cardLayoutOn(opts), cardFit = cardFitOn(opts);
+        const container = $('receipt-container'), page = largeLayoutPx(opts), sticker = stickerLayoutOn(opts), card = cardLayoutOn(opts), cardFit = cardFitOn(opts), stickerFit = stickerFitOn(opts);
         container.classList.toggle('letter-message', page !== null);
         container.classList.toggle('sticker', sticker);
+        container.classList.toggle('sticker-fit', stickerFit);                     // 3.2.0-beta.9: every other receipt on a sticker printer, as on an 80 mm roll
         container.classList.toggle('card', card);                                  // 3.2.0-beta.2: a High Roller message on a card of 4 x 6 in
         container.classList.toggle('card-fit', cardFit);                           // ... and every other receipt on it, as on an 80 mm roll
         container.classList.remove('card-words');                                  // (cardArrange: a card with no picture)
-        container.style.width = cardFit ? cardRollPxOf(opts) + 'px' : '';         // the receipt on a card is as wide as on the roll
+        container.style.width = cardFit ? cardRollPxOf(opts) + 'px' : stickerFit ? STICKER_ROLL_PX + 'px' : '';       // the receipt on a card or a sticker is as wide as on the roll
         container.style.minHeight = '';                                 // fitNames may have given the receipt of a long list a floor of its own
         container.style.transform = ''; container.style.transformOrigin = '';       // and present() may have made the last receipt smaller to fit its page
         for (const logo of Array.from(container.querySelectorAll(':scope > .page-logo'))) container.removeChild(logo);       // and the logos of the pages of the last list (addPageLogos)
@@ -10946,7 +10975,7 @@ window.PrinterBot = (function () {
         if (page !== null) { container.style.setProperty('--pb-in', pxPerInch(opts) + 'px'); container.style.setProperty('--pb-page-h', Math.floor(page) + 'px'); }
         else { container.style.removeProperty('--pb-in'); container.style.removeProperty('--pb-page-h'); }
         if (sticker || card) container.style.setProperty('--pb-w', Math.max(1, document.documentElement.clientWidth) + 'px'); else container.style.removeProperty('--pb-w');
-        if (card) container.style.setProperty('--pb-h', Math.floor(pageHeightPx(opts)) + 'px'); else container.style.removeProperty('--pb-h');       // the height of the card     // the width of the tape, which every size of the sticker is a share of
+        if (card) container.style.setProperty('--pb-h', Math.floor(pageHeightPx(opts)) + 'px'); else container.style.removeProperty('--pb-h');       // the height of the card
         const date = $('receipt-date'), home = page !== null || sticker || card ? $('receipt-header') : $('receipt-footer');
         if (date.parentNode !== home) home.appendChild(date);
         testMark(opts);
@@ -10964,10 +10993,10 @@ window.PrinterBot = (function () {
         const amount = ($('receipt-title').textContent || '').trim().replace(/\bBITS\b/, 'bits');
         kind.textContent = kindText + (amount ? ' \u00b7 ' + amount : '');
         header.insertBefore(kind, avatar.nextSibling);
-        hoistSitePictures(content, opts);                                                       // the pictures of the sites, out of the styled text (as in the large layout)
+        hoistSitePictures(content, opts, true);                                                 // the pictures of the sites, out of the styled text (as in the large layout)
         const pics = Array.from(content.querySelectorAll(':scope > .part.pictures'));
         const imgs = [];
-        for (const part of pics) { for (const img of Array.from(part.querySelectorAll('img.msg-image'))) imgs.push(img); part.remove(); }
+        for (const part of pics) { pictureItems(part, imgs); part.remove(); }
         const mark = $('receipt-test-mark');
         if (!imgs.length) { if (mark) $('receipt-container').appendChild(mark); return; }      // 3.2.0-beta.2: a sticker shows no footer: the TEST mark of a test print goes to its end
         const box = document.createElement('div');
@@ -10975,7 +11004,7 @@ window.PrinterBot = (function () {
         for (const img of imgs) {
             const wrap = document.createElement('div');
             wrap.className = 'sticker-pic';
-            img.style.removeProperty('max-height');                                            // the limit of a roll (MAX_MESSAGE_IMAGE_INCHES): a sticker's picture is as wide as the tape, whatever its height
+            if (img.style) img.style.removeProperty('max-height');                             // the limit of a roll (MAX_MESSAGE_IMAGE_INCHES): a sticker's picture is as wide as the tape, whatever its height
             wrap.appendChild(img);
             box.appendChild(wrap);
         }
@@ -10983,8 +11012,6 @@ window.PrinterBot = (function () {
         if (mark) $('receipt-container').appendChild(mark);
     }
 
-    // The pictures of a sticker, once loaded: each one is drawn as wide as the tape in its own orientation (the stylesheet), so nothing is left to do for a picture that came. A picture
-    // that did not come (dropMessageImage made it the text "[image]") keeps its box with those words, as on a roll; a box that holds nothing at all is taken away.
     function cardArrange(content, model, opts) {
         const header = $('receipt-header'), avatar = $('receipt-avatar'), container = $('receipt-container');
         const kind = document.createElement('div');
@@ -10993,20 +11020,30 @@ window.PrinterBot = (function () {
         header.insertBefore(kind, avatar.nextSibling);
         const mark = $('receipt-test-mark');
         if (mark) header.appendChild(mark);                                        // a card shows no footer: the TEST mark of a test print goes to the end of the head
-        hoistSitePictures(content, opts);                                          // the pictures of the sites, out of the styled text (as in the large layout)
+        hoistSitePictures(content, opts, true);                                    // the pictures of the sites, out of the styled text (as in the large layout)
         const imgs = [];
-        for (const part of Array.from(content.querySelectorAll(':scope > .part.pictures'))) { for (const img of Array.from(part.querySelectorAll('img.msg-image'))) imgs.push(img); part.remove(); }
+        for (const part of Array.from(content.querySelectorAll(':scope > .part.pictures'))) { pictureItems(part, imgs); part.remove(); }
         if (!imgs.length) { container.classList.add('card-words'); return; }
         const box = document.createElement('div');
         box.id = 'receipt-card-pictures';
         for (const img of imgs) {
             const wrap = document.createElement('div');
             wrap.className = 'card-pic';
-            img.style.removeProperty('max-height');                                // the limit of a roll (MAX_MESSAGE_IMAGE_INCHES): on a card a picture takes its share of the card
+            if (img.style) img.style.removeProperty('max-height');                 // the limit of a roll (MAX_MESSAGE_IMAGE_INCHES): on a card a picture takes its share of the card
             wrap.appendChild(img);
             box.appendChild(wrap);
         }
         container.appendChild(box);
+    }
+
+    // 3.2.0-beta.8 (the audit of 19 October): what a part of pictures holds for a sticker or a card, in its order: its pictures, and the words [image] of an address that failed a moment
+    // ago (messageImageElement), which get a box of their own as a picture that did not come does (before, only the pictures were taken and those words were lost)
+    function pictureItems(part, items) {
+        const walker = document.createTreeWalker(part, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+            const n = walker.currentNode;
+            if (n.nodeType === Node.TEXT_NODE ? badImageTexts.has(n) : n.matches('img.msg-image')) items.push(n);
+        }
     }
 
     // The pictures of a card, once loaded: a box that holds nothing at all is taken away (a picture that did not come keeps "[image]" in its box, as on a roll), and a card that is left
@@ -11020,8 +11057,8 @@ window.PrinterBot = (function () {
 
     // The words of a card shrink until they fit their place (the column at the left, or the rest of the card when there is no picture; a High Roller limit of the dock, a max-height of the
     // box, makes the place smaller), down to CARD_MIN_WORDS_PX; what still does not fit is cut, and fades out like every other cut. The parts are zoomed, not given a smaller type: a
-    // styled message carries sizes of its own. Returns what was cut as present() reports it, or null.
-    function cardWords(opts) {
+    // styled message carries sizes of its own. Returns what was cut as present() reports it, or null. by: what the High Roller limit of the box is ('bits', 'amount' or 'cap'; null: none).
+    function cardWords(opts, by) {
         const box = $('receipt-content');
         const fits = () => box.scrollHeight <= box.clientHeight + 1;
         const base = parseFloat(getComputedStyle(box).fontSize) || 10;
@@ -11033,7 +11070,18 @@ window.PrinterBot = (function () {
         if (fits()) return null;
         box.classList.add('cut');
         const inches = (px) => Math.round(px / pxPerInch(opts) * 100) / 100;
-        return { limitIn: inches(box.clientHeight), fullIn: inches(box.scrollHeight), by: 'page' };
+        // 3.2.0-beta.8 (the audit of 19 October): the limit of the dock cut the words when it made their place smaller than the card gives them (the place with the max-height of the
+        // limit taken away); the end of the card did otherwise. Before, a card always said 'page'.
+        let cutBy = 'page';
+        const limit = box.style.getPropertyValue('max-height');
+        if (by && limit) {
+            const shown = box.clientHeight;
+            box.style.removeProperty('max-height');
+            const place = box.clientHeight;
+            box.style.setProperty('max-height', limit, 'important');
+            if (place > shown + 1) cutBy = by === 'cap' || by === 'amount' ? by : 'bits';
+        }
+        return { limitIn: inches(box.clientHeight), fullIn: inches(box.scrollHeight), by: cutBy };
     }
 
     // The receipt of an 80 mm roll on a card (layout 'cardfit'): drawn as on the roll (applyLayout gave it the roll's width), it is made as large as the card allows, upright, and put in the
@@ -11050,6 +11098,19 @@ window.PrinterBot = (function () {
         return scale < 0.995 ? Math.max(1, Math.round(scale * 100)) : 0;
     }
 
+    // 3.2.0-beta.9: the receipt of an 80 mm roll on a sticker printer (layout 'stickerfit'): drawn as on the roll (applyLayout gave it the roll's width), it is made as wide as the tape (the
+    // page's width), every part at the same share, from the top left corner. Returns the length of the sticker then, in whole CSS px. It is not reported as made smaller (`fit`): on a
+    // sticker this is the layout of every such receipt, and the action's line for a receipt made smaller speaks of a page of Letter paper or a card.
+    function stickerFit() {
+        const container = $('receipt-container');
+        const scale = Math.max(1, document.documentElement.clientWidth) / Math.max(1, container.getBoundingClientRect().width);
+        container.style.transformOrigin = '0 0';
+        container.style.transform = 'scale(' + scale + ')';
+        return Math.max(1, Math.ceil(container.getBoundingClientRect().bottom));
+    }
+
+    // The pictures of a sticker, once loaded: each one is drawn as wide as the tape in its own orientation (the stylesheet), so nothing is left to do for a picture that came. A picture
+    // that did not come (dropMessageImage made it the text "[image]") keeps its box with those words, as on a roll; a box that holds nothing at all is taken away.
     function stickerPictures() {
         const box = $('receipt-sticker-pictures');
         if (!box) return;
@@ -11099,13 +11160,12 @@ window.PrinterBot = (function () {
 
         if (model.titleBig) title.classList.add('big');
         if (model.titleHtml != null) title.innerHTML = model.titleHtml; else title.textContent = model.title ?? '';
-        if (model.subtitleHtml != null) subtitle.innerHTML = model.subtitleHtml; else subtitle.textContent = model.subtitle ?? '';
+        subtitle.textContent = model.subtitle ?? '';
 
         // content: one part or a list of parts ({ kind: text | lead | message | raw, left } plus html | text | rich).
         // Nothing = no content area
         const view = viewOf(model, opts);
         const parts = [].concat(view.content || []).filter(Boolean)
-            .map(p => typeof p === 'string' ? { html: p } : p)
             .map(p => p.kind === 'message' && p.value != null ? messagePart(p.value, opts) : p)
             .filter(p => p.html || p.text || p.rich);
         $('receipt-rule-top').style.display = parts.length ? '' : 'none';
@@ -11121,7 +11181,7 @@ window.PrinterBot = (function () {
         const ceilingScaled = /px$/.test(ceiling) ? parseFloat(ceiling) * ceilingScale : Infinity;
         if (view.maxPx != null) {
             // The bits-per-inch limit can only tighten the box: the built-in ceiling (or a larger/smaller one set in theme.css) still applies.
-            // The dock's maximum length is the final word, so when it is set (contentIgnoreCeiling) it replaces that ceiling.
+            // The dock's maximum length is the final word, so when it is set (view.ignoreCeiling) it replaces that ceiling.
             // Applied as !important so a theme's own "max-height: ... !important" can't quietly switch the limit off.
             content.style.setProperty('max-height', Math.min(view.maxPx, view.ignoreCeiling ? Infinity : ceilingScaled) + 'px', 'important');
         }
@@ -11476,12 +11536,13 @@ window.PrinterBot = (function () {
     // sets largePage, so event data cannot ask for the large layout.
     function layoutFor(model, opts) {
         if (!opts) return opts;
-        // 3.2.0: the sticker layout is for a High Roller message that prints as one on this printer (viewOf: styled); every other receipt prints on the tape as on a narrow roll
+        // 3.2.0: the sticker layout is for a High Roller message that prints as one on this printer (viewOf: styled); every other receipt is the receipt of an 80 mm roll made as wide as
+        // the tape (3.2.0-beta.9, stickerFit; until then it printed as on a roll as narrow as the tape). The sticker's inch is the roll's (96 CSS px), so every other option stays.
         if (opts.layout === 'sticker') {
             if (viewOf(model, opts).styled === true) return opts;
-            const plain = Object.assign({}, opts);
-            delete plain.layout;
-            return plain;
+            const roll = Object.assign({}, opts);
+            roll.layout = 'stickerfit';
+            return roll;
         }
         // 3.2.0-beta.2: on a card of 4 x 6 in a High Roller message gets the card layout; every other receipt is the receipt of an 80 mm roll, drawn with the roll's options (its inch, no
         // page) and made as large as the card allows (cardFit), the card's height kept in cardPagePx
@@ -11576,7 +11637,7 @@ window.PrinterBot = (function () {
             }
         }
 
-        if (card) trimmed = cardWords(opts);
+        if (card) trimmed = cardWords(opts, view.maxPx != null ? view.by : null);
 
         // What no cut can reach (a Hype Train receipt: its drawing, its picture and its lists are all there is) is made smaller as a whole, to the same proportions, until it is the
         // pages it has: a receipt on Letter paper is one page and is never chopped in the middle of a picture. Only the picture changes, nothing of the receipt is left out.
@@ -11593,12 +11654,13 @@ window.PrinterBot = (function () {
         }
 
         if (cardFitted) fitted = cardFit(opts);
+        const stickerHeight = stickerFitOn(opts) ? stickerFit() : 0;               // 3.2.0-beta.9: the receipt of an 80 mm roll made as wide as the tape, and the length it has then
         const fresh = {};
         for (const k of Object.keys(avatarFresh)) { fresh[k] = avatarFresh[k]; delete avatarFresh[k]; }
         // A gift list or an order's item list reports the real page height. The action photographs a page taller than its window in tiles.
         // Every other receipt is cut at MAX_RECEIPT_HEIGHT.
         const cardHeight = card ? Math.floor(pageHeightPx(opts)) : cardFitted ? Math.floor(opts.cardPagePx) : 0;          // a card is always one card high
-        const pageHeight = cardHeight > 0 ? cardHeight : fitted ? Math.ceil(fitHeight) : Math.ceil(document.documentElement.getBoundingClientRect().height);
+        const pageHeight = cardHeight > 0 ? cardHeight : stickerHeight > 0 ? stickerHeight : fitted ? Math.ceil(fitHeight) : Math.ceil(document.documentElement.getBoundingClientRect().height);
         const longList = cardHeight === 0 && $('receipt-content').classList.contains('roomy');
         return {
             ok: true, avatars: fresh, trimmed,
@@ -11624,8 +11686,12 @@ window.PrinterBot = (function () {
             };
             const avatar = $('receipt-avatar');
             if (avatar.getAttribute('src') && avatar.style.display !== 'none' && getComputedStyle(avatar).display !== 'none') add(avatar);
-            const images = Array.from($('receipt-content').querySelectorAll('img')).filter(img => img.getAttribute('src') && getComputedStyle(img).display !== 'none');
-            if (images.length > PHOTO_RECT_MAX) add($('receipt-content'));
+            // 3.2.0-beta.8: a card and a sticker move the pictures of the message into a box of their own after the content (cardArrange, stickerArrange), so the boxes
+            // are read as well; before, a black and white card printed its pictures without the picture style (the audit of 19 October)
+            const boxes = ['receipt-content', 'receipt-card-pictures', 'receipt-sticker-pictures'].map(id => $(id)).filter(el => el);
+            const images = [];
+            for (const box of boxes) for (const img of Array.from(box.querySelectorAll('img'))) if (img.getAttribute('src') && getComputedStyle(img).display !== 'none') images.push(img);
+            if (images.length > PHOTO_RECT_MAX) boxes.forEach(add);
             else images.forEach(add);
         } catch (e) { /* no list: the action then treats the whole picture as one */ }
         return out;
@@ -11642,10 +11708,6 @@ window.PrinterBot = (function () {
         emoteHosts: () => TRUSTED_IMAGE_HOSTS.slice(),
         largeLayoutPx: (opts) => largeLayoutPx(opts),
         imageFitOf: (opts) => imageFitOf(opts),
-        stickerLayoutOn: (opts) => stickerLayoutOn(opts),
-        cardLayoutOn: (opts) => cardLayoutOn(opts),                                // 3.2.0-beta.2
-        cardFitOn: (opts) => cardFitOn(opts),                          // 3.2.0
-        stickerKinds: () => Object.assign({}, STICKER_KINDS),
         imageSites: () => JSON.parse(JSON.stringify(IMAGE_SITES)),
         imagePathIds: () => Object.keys(IMAGE_PATHS),
         imageSiteLink: (raw, ids, lookups) => imageSiteLink(raw, new Set(Array.isArray(ids) ? ids : []), lookupsOf(lookups)),
@@ -11654,9 +11716,7 @@ window.PrinterBot = (function () {
         // 3.1.0: the same for Catbox and ImgBB: { direct }, { album } (Catbox, ImgBB), { page } (ImgBB) or null; the action's own reading must agree (PbCatbox, PbImgbb)
         catboxLink: (raw) => { try { const u = new URL(String(raw)); return /^https:\/\//i.test(String(raw).trim()) && u.protocol === 'https:' && !u.username && !u.password && !u.port ? catboxLink(u.hostname, u.pathname) : null; } catch { return null; } },
         imgbbLink: (raw) => { try { const u = new URL(String(raw)); return /^https:\/\//i.test(String(raw).trim()) && u.protocol === 'https:' && !u.username && !u.password && !u.port ? imgbbLink(u.hostname, u.pathname, u.searchParams.get('sort')) : null; } catch { return null; } },
-        messagePieces: (text, opts) => { const e = enabledImageSites(opts); return e.size ? messagePieces(plainText(text, null), opts, e) : [{ text: plainText(text, opts) }]; },
-        enabledImageSites: (opts) => Array.from(enabledImageSites(opts)),
-        displayName, replaceLinks, formatDate, flattenMarkup,
+        displayName, replaceLinks, formatDate,
         shareCuts, gapRooms: () => Object.assign({}, GAP_ROOM),
         largerAvatarUrl, variants: () => ({ misses: Array.from(variantMisses.entries()), lull: Array.from(variantLull.entries()) }),
         allowedCss: () => Array.from(ALLOWED_CSS),
@@ -11669,7 +11729,7 @@ window.PrinterBot = (function () {
         // what the C# side holds of each sample for a test print that follows the rules (Routing.SampleEvent): the events of SAMPLES, and the event kind and level of each Hype Train step
         sampleEvents: () => JSON.parse(JSON.stringify(SAMPLES)),
         hypeStepEvents: () => HYPE_STEPS.map(x => ({ name: x.name, source: HYPE_SOURCES[x.kind], level: x.level })),
-        fmtNum, fmtElapsed,
+        fmtNum,
         limits: () => ({ AVATAR_LOOKUP_BUDGET_MS, AVATAR_BACKGROUND_TIMEOUT_MS, AVATAR_TTL_MS, AVATAR_STALE_MS, NEGATIVE_TTL_MS, NOT_FOUND_TTL_MS, AVATAR_IMAGE_WAIT_MS, EMOTE_WAIT_MS,
                          MAX_PINNED_IMAGES, MAX_NAME_CHARS, MAX_VARIANTS, MAX_VIEWER_IMAGE_PX, MAX_DATA_IMAGE_CHARS, MAX_MESSAGE_IMAGES, MAX_MESSAGE_IMAGE_INCHES, MAX_MESSAGE_IMAGE_PIXELS, MAX_MESSAGE_IMAGE_URL, VARIANT_PX, VARIANT_WAIT_MS, VARIANT_MIN_PX, VARIANT_LULL_AFTER, VARIANT_LULL_MS }),
     };

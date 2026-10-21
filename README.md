@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.9.0](https://img.shields.io/badge/version-1.9.0-blue)](docs/CHANGELOG.md)
+[![Version 1.9.1](https://img.shields.io/badge/version-1.9.1-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -18,7 +18,7 @@ prints it as big as the paper allows on a printer driven by
 Receipt Wrecker is a single HTML file with no dependencies. You build a stack of blocks
 (text and pictures), it packs them into as few chat messages as it can, and you paste each
 one into Twitch chat as a cheer. The preview shows each message drawn by the bot's own
-receipt code: the newest Printer Bot release, the 3.2.0-beta.7 prerelease. Since 3.0.4 the bot
+receipt code: the newest Printer Bot release, 3.2.0. Since 3.0.4 the bot
 leaves each cheer's `Cheer100` word out of what it prints; a streamer on an older Printer Bot
 prints that word too (a line above each High Roller part), and everything else the same on a
 receipt printer. Since 3.0.6 a cheermote word takes one of the spaces around it when the bot

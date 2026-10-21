@@ -29,8 +29,10 @@ test("letterLayoutFor: Large message only for a cheer of the High Roller thresho
 test("the vendored page decides as letterLayoutFor does: largePage is isHighRoller, and layoutFor drops the layout without it", () => {
   const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   assert.ok(html.includes("largePage: isHighRoller(d.bits, opts)"), "the TwitchCheer handler's largePage");
-  assert.ok(/function layoutFor\(model, opts\) \{\s*if \(!opts \|\| opts\.layout !== 'message' \|\| model\.largePage === true\) return opts;/.test(html),
-            "present()'s layoutFor keeps the layout only for a model with largePage");
+  // Since 3.2.0 layoutFor also handles the sticker and card layouts, so its message check is a line
+  // of its own after them; it still keeps the message layout only for a model with largePage.
+  assert.ok(html.includes("if (opts.layout !== 'message' || model.largePage === true) return opts;"),
+            "present()'s layoutFor keeps the message layout only for a model with largePage");
   assert.ok(html.includes("const opts = layoutFor(model, options);"), "and present() lays the receipt out with it");
 });
 

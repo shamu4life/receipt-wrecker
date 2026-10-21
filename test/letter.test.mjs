@@ -12,7 +12,7 @@ const PPI = 400 / 7.5;
 const r4 = (x) => Math.round(x * 1e4) / 1e4;
 
 test("the Letter page: 400 CSS px wide (372 for the message), 2250 dots, 53.3 px to the inch, a page of 533 px", () => {
-  eq(C.paperSpec("letter"), { mm: "letter", cssWidth: 400, contentW: 372, dots: 2250, pxPerInch: PPI, pagePx: 533 });
+  eq(C.paperSpec("letter"), { mm: "letter", cssWidth: 400, contentW: 372, dots: 2250, pxPerInch: PPI, pagePx: 533, letter: true });
   eq(C.paperSpec(80), { mm: 80, cssWidth: 272, contentW: 244, dots: 576, pxPerInch: 96, pagePx: 0 });
   eq(C.paperSpec(58), { mm: 58, cssWidth: 181, contentW: 153, dots: 384, pxPerInch: 96, pagePx: 0 });
   assert.ok(Math.abs(C.mmPerPx("letter") - 25.4 * 7.5 / 400) < 1e-12, "a Letter CSS px is 0.47625 mm");

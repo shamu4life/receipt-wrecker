@@ -93,7 +93,10 @@ test("realPictureForm: a turn prints the link where its site is on; a copy needs
   assert.deepEqual([made.form, made.way, made.link.url, made.source.url], ["picture", "copy", COPY, IMGUR], "the source's own site needn't be on");
   assert.equal(raw({ turn: C.realTurn({ rotate: 90 }), letter: true, imageSites: ["imgbb"] }).way, "copy", "on Letter a turn is a copy too");
   assert.equal(C.realPictureForm({ url: IMGUR, mode: "plain", turn: C.realTurn({ adjBright: 10 }) }).form, "grid", "below the threshold, the grid");
-  assert.equal(raw({ url: "https://imgur.com/AbC1234", turn: C.realTurn({ adjBright: 10 }), imageSites: ["imgbb"] }).why, "page", "the source must still be a picture link");
+  // The source need only be a recognised picture link; a no-lookup page form (imgur.com/<id>) is one.
+  assert.equal(raw({ url: "https://imgur.com/AbC1234", turn: C.realTurn({ adjBright: 10 }), imageSites: ["imgbb"] }).form, "picture");
+  // A link that is no picture at all still prints nothing.
+  assert.equal(raw({ url: "https://imgur.com/upload", turn: C.realTurn({ adjBright: 10 }), imageSites: ["imgbb"] }).why, "notpic", "the source must still be a picture link");
 });
 
 test("Import never takes a copy that prints from outside: a block's `turned` is dropped, and the copy is made here from the block's own picture", () => {

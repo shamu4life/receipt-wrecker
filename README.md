@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.9.1](https://img.shields.io/badge/version-1.9.1-blue)](docs/CHANGELOG.md)
+[![Version 1.10.0](https://img.shields.io/badge/version-1.10.0-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
@@ -27,7 +27,7 @@ removes it, so no gap is left behind.
 Since 1.9.0 a Real picture can be an **Imgur, Catbox or ImgBB album or picture-page link**, not just
 a direct link: Printer Bot looks up the album's first picture at print time, and the app shows the
 same one in the preview. The app also models two more Printer Bot 3.2 printers a streamer can send
-big cheers to — a **Brother VC-500W sticker** printer and a **4 × 6 in card** printer — alongside the
+big cheers to: a **Brother VC-500W sticker** printer and a **4 × 6 in card** printer, alongside the
 roll and Letter printers.
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
@@ -83,7 +83,7 @@ A viewer can't see these from chat. Ask the streamer, or leave the defaults (Sas
 | **Maximum length** | 0 (off) | When set (up to 40 inches), it caps how long a High Roller message prints. |
 | **Allow High Roller prints** (Printer Bot 3.0) | on | Printer Bot 3.0 has this switch for each printer. Off, that printer prints every cheer as plain text, however many bits, so every block prints in its plain form. Printer Bot 2.5 has no such switch: leave it on. With a Letter printer, this is the roll printer's switch. |
 | **Pictures from links** (Printer Bot 3.0) | none | The image sites the streamer switched on in the dock. See [Real picture](#real-picture-from-an-imgur-catbox-or-imgbb-link-since-150). |
-| **A Letter printer** (Printer Bot 3.0) | none (0) | The bits a second printer's rule starts at, for a streamer who prints big cheers on Letter paper, with that printer's layout, image fit and print profile. See [Letter paper and colour](#letter-paper-and-colour-since-160). |
+| **A Letter printer** (Printer Bot 3.0) | none (0) | The bits a second printer's rule starts at, for a streamer who prints big cheers on Letter paper, with that printer's layout, image fit and print profile. See [Letter paper and color](#letter-paper-and-color-since-160). |
 
 With both length settings at 0, a message gets the bot's 1600 px box, about 42 cm, and
 anything taller is cut off with no warning. The app splits a tall stack into more cheers so
@@ -102,7 +102,7 @@ inch or maximum length would leave nothing to print after the repeat number's li
 (the card says why). After an Undo, or if you lower the amount again
 yourself, it only offers.
 
-### Letter paper and colour (since 1.6.0)
+### Letter paper and color (since 1.6.0)
 
 Printer Bot 3.0 can print on **Letter paper** through an ordinary printer, and the streamer's
 rules can send big cheers there and the rest to the roll (a rule like *Twitch: Cheer where
@@ -118,18 +118,25 @@ starts at, and the Letter printer's card as it is in the dock:
 - **Image fit** (Large message only): how a picture from a link fills the space the words leave
   it. Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the
   space.
-- **Print profile.** *Black and white* prints text sharp and shades only pictures. *Colour*
-  prints the page as it looks, and lets Big text and Sideways text have a **text colour** and a
-  **background colour**, and Glyph-art's characters a colour (the pickers are on their cards).
+- **Print profile.** *Black and white* prints text sharp and shades only pictures. *Color*
+  prints the page as it looks, and lets Big text, Sideways text and Rich text have a **text color**
+  and a **background color**, and Glyph-art's characters a color (the pickers are on their cards).
+  The sticker and card printers have the same Print profile (since 1.10.0); the roll is always
+  black and white.
 
 A cheer of that many bits or more is built for the Letter page: 7.5 inches wide (Big text up to
 about 2.7 times as large on paper as on 80 mm, Han tiling 23 characters a row), one page a
 cheer, with the streamer's bits per inch and maximum length measured in inches of the page. A
 message too tall for the page goes into more cheers, as on the roll. The cards' sizes and the
-parts say which paper a cheer prints on, and the preview draws the Letter page. Colours go out
-only on a Letter printer in colour; on the roll and in black and white a block keeps its colours
-for a cheer that prints them, and sends none. The app takes the Letter printer's Allow High
-Roller prints and Allow images as on, their defaults.
+parts say which paper a cheer prints on, and the preview draws the Letter page. Colors go out
+only on a color printer (a Letter, sticker or card printer set to Color); on the roll and in black
+and white a block keeps its colors for a cheer that prints them, and sends none. The app takes the
+Letter printer's Allow High Roller prints and Allow images as on, their defaults.
+
+The **sticker** and **card** printers (since 1.9.0) take the same Print profile (since 1.10.0).
+Printer Bot's stock bot dithers the Brother VC-500W sticker printer to black and white; the app
+treats it as full color (which the owner's printer is) when its profile is set to Color, so a
+streamer whose bot dithers the sticker can leave it on Black and white (the default).
 
 ---
 
@@ -197,7 +204,7 @@ needs (Comic Sans MS's capitals dip below the line, Georgia's 3, 4, 5, 7 and 9 h
 the same text can take a different number of cheers in another font. A few letters draw a little
 past their own space (the hook of a j, the arm of an f), so a line that starts or ends with one is
 sized a touch smaller, to keep that ink on the paper.
-Emoji are allowed and print as grey dots (the printer has no colour). Invisible
+Emoji are allowed and print as grey dots (the printer has no color). Invisible
 characters from copy-paste (zero-width spaces and the like) are left out, and the card says
 so.
 
@@ -233,6 +240,23 @@ Bottom to top uses `writing-mode: sideways-lr`, which needs Edge 132 or newer on
 streamer's PC. If UP lies flat on the [High Roller test](#test-cheaply-first), their Edge is
 older: use Top to bottom. (On an old Edge, Top to bottom's form turned with `rotate:180deg`
 would look the same; the app doesn't build that, because the bot runs on a current Edge.)
+
+### Rich text (High Roller, since 1.10.0)
+
+Like Big text, but **each line is its own row** — give each line its own size, and, on a color
+printer, its own text and background color. Add a line for each row you want. Each row prints as
+its own styled `<div>` (the same shape Big text's "Each" layout uses), a size and the `\66ont`
+escape a row:
+
+```text
+Cheer600 <div style="\66ont:700 72px/.8 Arial;color:#c00000;background-color:#fff2a8">TOP LINE</div><div style="\66ont:700 36px/.8 Arial;color:#0050c8">and small</div>
+```
+
+An empty row prints nothing, and a line too wide for the paper wraps or is cut off (give it a
+smaller size). Rich text needs a High Roller cheer, like Big text: picking it below the threshold
+raises Bits per cheer, and left below it the bot prints plain text, so the block prints as Han
+tiling. Colors print only on a color printer (a Letter, sticker or card printer set to Color);
+elsewhere the sizes print and the colors wait. It adds no new token, tag or property.
 
 ### Han tiling (plain text, any cheer)
 
@@ -421,7 +445,7 @@ or sideways lines land a dot or two off where the bot puts them. Small character
 differently there than on the print (in Crisp a stroke can vanish in the thermal view and
 still print), so judge those with the thermal view off. A cheer for a Letter printer shows its
 page at the printer's 300 dots to the inch, scaled to the column: in black and white the bot
-prints text sharp and shades only pictures, and in colour it prints the page as drawn.
+prints text sharp and shades only pictures, and in color it prints the page as drawn.
 
 ---
 

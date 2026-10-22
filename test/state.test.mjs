@@ -16,7 +16,7 @@ const C = loadCore();
 const DEFAULTS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
                    nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [],
                    letterBits: 0, letterLayout: "scaled", letterFit: "fit", letterProfile: "bw",
-                   stickerBits: 0, stickerTape: 50, cardBits: 0, cardFit: "fit" };
+                   stickerBits: 0, stickerTape: 50, stickerProfile: "bw", cardBits: 0, cardFit: "fit", cardProfile: "bw" };
 
 test("normalizeControls: nothing saved is the defaults (SassyTP's own: threshold 25, no limits, 80 mm)", () => {
   for (const s of [null, undefined, {}, "junk", 7, []]) eq(C.normalizeControls(s), DEFAULTS, JSON.stringify(s));
@@ -26,11 +26,11 @@ test("normalizeControls: every field validated, strings from the form read as nu
   eq(C.normalizeControls({ cheer: false, bits: "25", hrThreshold: "0", bitsPerInch: "12.5", maxInches: "10",
                            paperMm: "58", nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false,
                            imageSites: ["imgbb", "imgur"], letterBits: "500", letterLayout: "message", letterFit: "stretch", letterProfile: "color",
-                           stickerBits: "100", stickerTape: "25", cardBits: "250", cardFit: "fill" }),
+                           stickerBits: "100", stickerTape: "25", stickerProfile: "color", cardBits: "250", cardFit: "fill", cardProfile: "color" }),
      { cheer: false, bits: 25, hrThreshold: 0, bitsPerInch: 12.5, maxInches: 10, paperMm: 58,
        nonce: true, thermalView: true, thermalDither: "atkinson", allowHighRoller: false, imageSites: ["imgur", "imgbb"],
        letterBits: 500, letterLayout: "message", letterFit: "stretch", letterProfile: "color", stickerBits: 100, stickerTape: 25,
-       cardBits: 250, cardFit: "fill" });
+       stickerProfile: "color", cardBits: 250, cardFit: "fill", cardProfile: "color" });
   const n = (o) => C.normalizeControls(o);
   // Bits: any whole number from 1 (the old >= 100 floor is gone); junk is 100.
   assert.equal(n({ bits: 1 }).bits, 1);
@@ -62,12 +62,12 @@ test("normalizeControls: an old blob's fields are ignored, and only the 1.0.0 fi
   eq(out, { ...DEFAULTS, thermalView: true });
 });
 
-test("blockRender: big, sideways, hanzi and typed by name; anything else is big", () => {
-  for (const r of ["big", "sideways", "hanzi", "typed"]) assert.equal(C.blockRender({ render: r }), r);
+test("blockRender: big, sideways, rich, hanzi and typed by name; anything else is big", () => {
+  for (const r of ["big", "sideways", "rich", "hanzi", "typed"]) assert.equal(C.blockRender({ render: r }), r);
   for (const junk of [{}, { render: "giant" }, { render: "type" }, { render: "BIG" }, { render: null }, null, undefined]) {
     assert.equal(C.blockRender(junk), "big", JSON.stringify(junk));
   }
-  eq(C.TEXT_RENDERS, ["big", "sideways", "hanzi", "typed"]);
+  eq(C.TEXT_RENDERS, ["big", "sideways", "rich", "hanzi", "typed"]);
 });
 
 test("glyphOpts and hanziWeightOf clamp whatever a preset hands them", () => {

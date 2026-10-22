@@ -9,6 +9,9 @@ package-lock.json
 # Local browser-automation scratch (Playwright MCP)
 .playwright-mcp/
 
+# Playwright's own output directory for the browser suite (traces, failure screenshots).
+test-results/
+
 # Bench scratch: tools/forkbench.mjs writes its screenshots and reports here, and
 # caches the pinned copy of SassyTP's renderer page (never commit it) under
 # .render/sassytp/. Keeping it in one ignored directory stops stray PNG/JSON artifacts

@@ -27,7 +27,7 @@ const jpeg = ({ before = [], after = [] } = {}) => new Uint8Array([
   0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd0, 0x78,
   0xff, 0xd9, ...after]);
 const JPEG = jpeg();
-// What the page really sends: a picture from Chromium's canvas encoder (with its colour profile).
+// What the page really sends: a picture from Chromium's canvas encoder (with its color profile).
 const CANVAS_JPEG = new Uint8Array(readFileSync(new URL("./fixtures/chromium-canvas.jpg", import.meta.url)));
 
 function fakeKv() {
@@ -139,7 +139,7 @@ test("/imgbb walks the JPEG the way a decoder does: no comments, no unknown segm
   ];
   for (const [what, body] of refused) assert.equal((await call({ body, imgbb: ib })).res.status, 415, what);
   assert.equal(ib.calls.length, 0);
-  // A real encoder's picture, colour profile and all, goes through; and so does one with a little APPn data.
+  // A real encoder's picture, color profile and all, goes through; and so does one with a little APPn data.
   assert.equal((await call({ body: CANVAS_JPEG, imgbb: ib })).res.status, 200, "Chromium's canvas JPEG");
   assert.equal((await call({ body: jpeg({ before: seg(0xe2, new Array(3000).fill(7)) }), imgbb: ib })).res.status, 200);
 });

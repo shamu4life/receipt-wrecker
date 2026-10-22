@@ -13,11 +13,13 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.9.1 (2026-10-21). Before 1.0.0 the tool targeted a different printer
-  bot (nutty.gg's); that support was removed. 1.9.x tracks Printer Bot 3.2.0 (stable since
+- Current version: 1.10.0 (2026-10-21). Before 1.0.0 the tool targeted a different printer
+  bot (nutty.gg's); that support was removed. 1.9.x–1.10.x track Printer Bot 3.2.0 (stable since
   2026-10-20): a Real picture can be an Imgur/Catbox/ImgBB album or picture-page link (the first
   picture is looked up), and the tool models two more printers a streamer can route big cheers
-  to, a Brother VC-500W sticker printer and a 4 x 6 in card printer.
+  to, a Brother VC-500W sticker printer and a 4 x 6 in card printer. Since 1.10.0 the sticker and
+  card printers have a color profile too (not the Letter printer alone), and a Rich text block
+  gives each line its own size and color.
 - No accounts, no analytics. The one third party it sends anything to is ImgBB: a file a viewer
   picks on a Real picture card, and a Real picture's adjusted copy (see Privacy).
 - Each message is at most 500 characters, Twitch's limit. Longer work is split across
@@ -72,6 +74,11 @@ threshold's cheer reaches the Letter printer, which the block then says.
   `padding-bottom` so the bot's box doesn't cut it). Top to bottom (read by turning the receipt
   anticlockwise) or bottom to top (turn it clockwise; needs Edge 132 or newer on the
   streamer's PC).
+- Rich text (High Roller, since 1.10.0): like Big text, but each line is its own row with its own
+  size and, on a color printer, its own text and background color. Each row prints as its own styled
+  div (one `\66ont` size a row); an empty row prints nothing, and a line too wide for the paper wraps
+  or is cut off. Needs a High Roller cheer, like Big text; below the threshold it prints as Han
+  tiling. It adds no new token, tag or property.
 - Glyph-art (High Roller): a picture as a grid of characters: Han characters in a square
   grid, ASCII letters or block characters in Courier New rows, or Braille.
 - Han text as typed (plain text, any cheer): the Han characters the user types or pastes,
@@ -86,10 +93,12 @@ threshold's cheer reaches the Letter printer, which the block then says.
   15 characters per line on 80 mm paper (9 on 58 mm, 23 on a Letter page), with the cheer word at the end. Below
   the High Roller threshold, Big text and Sideways text print in this form automatically, and a
   glyph-art picture as a plain grid of Han characters.
-- Colour (since 1.6.0, a Letter printer in its colour profile only): a text colour and a
-  background colour for Big text and Sideways text, and a colour for Glyph-art's characters, as
-  `color:` and `background-color:` declarations. On the roll and in black and white no colour
-  goes out.
+- Color (since 1.6.0 the Letter printer, since 1.10.0 the sticker and card printers too, each in
+  its color profile): a text color and a background color for Big text, Sideways text and Rich text
+  (Rich text per line), and a color for Glyph-art's characters, as `color:` and `background-color:`
+  declarations. On the roll and in black and white no color goes out. (Printer Bot's stock bot
+  dithers the Brother VC-500W sticker printer to black and white; the tool treats it as full color,
+  which the owner's printer is, when its profile is set to Color.)
 - Two one-cheer tests: a High Roller test (one cheer at the threshold) and a Plain test (one
   bit under it, or 1 bit when High Roller is off or the printer doesn't allow High Roller
   prints), each built for the paper its bits reach.
@@ -128,7 +137,7 @@ on a receipt printer. The tool builds for a receipt printer and, since 1.6.0, on
 Letter printer (3.0's further printers per cheer are not modelled); a cheer for the Letter printer
 is drawn on the bot's Letter page, in the layout picked. A thermal view
 shows the receipt at the printer's dot width with the bot's own dither methods; on a Letter page,
-at 300 dots to the inch, with only the pictures shaded in black and white, or as drawn in colour. Each part's
+at 300 dots to the inch, with only the pictures shaded in black and white, or as drawn in color. Each part's
 preview is drawn when it scrolls near the screen, one at a time, so a long stack stays quick.
 The preview names the layout version it draws with (the renderer's own VERSION), so a viewer
 can compare it with the Renderer version the streamer's dock shows. The circle where the bot puts

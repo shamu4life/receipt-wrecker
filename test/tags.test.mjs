@@ -25,10 +25,10 @@ function everyPayload(mm) {
   for (const k of [C.stackContext({ cheer: true, bits: 100, noNonce: true, paperMm: mm }),
                    C.stackContext({ cheer: true, bits: 100, bitsPerInch: 25, paperMm: mm }),
                    C.stackContext({ cheer: false, paperMm: mm }),
-                   // 1.6.0: a cheer on the Letter printer, in Large message (centred) and in colour.
+                   // 1.6.0: a cheer on the Letter printer, in Large message (centred) and in color.
                    C.stackContext({ cheer: true, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", paperMm: mm })]) {
     const o = { budget: k.budget, heightPx: k.room, contentW: k.contentW,
-                ...(k.colour ? { center: k.center, color: "#C00000", bg: "#ffff00" } : {}) };
+                ...(k.color ? { center: k.center, color: "#C00000", bg: "#ffff00" } : {}) };
     const add = (what, bodies) => {
       bodies.forEach((b) => out.push([what + " body", b.html]));
       C.packStackBodies(bodies, k).forEach((p) => out.push([what + " payload", p.payload]));
@@ -38,6 +38,11 @@ function everyPayload(mm) {
         for (const flip of [false, true]) add("big " + layout + (flip ? " flipped" : ""), C.buildBigBodies(t, { ...o, layout, flip }));
       }
       for (const dir of ["down", "up"]) add("side " + dir, C.buildSideBodies(t, { ...o, dir }));
+      // 1.10.0: Rich text — each row a styled div, with its own size and (on a color printer) its
+      // own colors. A row carrying a picture tag or the word "font" must still arrive escaped.
+      add("rich", C.buildRichBodies([{ text: t, px: 60, color: k.color ? "#C00000" : "", bg: k.color ? "#ffff00" : "" },
+                                     { text: t, px: 90 }], { face: o.face, center: k.color ? k.center : false, color: !!k.color,
+                                     paperMm: k.paperMm, budget: k.budget, heightPx: k.room, contentW: k.contentW }));
       // 1.4.0: every face but Arial Bold (above), whose family name is new text in the message.
       for (const face of C.FACE_IDS.slice(1)) {
         for (const flip of [false, true]) add("big " + face + (flip ? " flipped" : ""), C.buildBigBodies(t, { ...o, layout: "auto", flip, face }));
@@ -49,7 +54,7 @@ function everyPayload(mm) {
     for (const tier of ["cjk", "ascii", "asciifull", "safe", "braille"]) {
       const ramp = tier === "braille" ? ["\u2800", "⠁", "⣿"] : tier === "cjk" ? cjk : C.getTier(tier).ramp.concat(["<", ">", "&"]);
       add("glyph " + tier, C.buildGlyphBodies(tier, grid(tier === "cjk" ? 16 : 24, 30, ramp), { paperMm: k.paperMm, budget: k.budget, heightPx: k.room,
-        ...(k.colour ? { center: k.center, color: "#C00000" } : {}) }));
+        ...(k.color ? { center: k.center, color: "#C00000" } : {}) }));
     }
     const cols = C.hanziCols(k.contentW);
     add("plain Han tiling", C.buildDesignT(grid(cols, 40, cjk), { mode: k.mode, paperMm: k.paperMm, cheer: k.cheer, bits: k.bits, limitPx: k.limit.px }));

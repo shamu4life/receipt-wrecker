@@ -97,7 +97,7 @@ function installClipboardStub() {
 const SETTINGS = { cheer: true, bits: 100, hrThreshold: 25, bitsPerInch: 0, maxInches: 0, paperMm: 80,
                    nonce: false, thermalView: false, thermalDither: "floyd", allowHighRoller: true, imageSites: [],
                    letterBits: 0, letterLayout: "scaled", letterFit: "fit", letterProfile: "bw",
-                   stickerBits: 0, stickerTape: 50, cardBits: 0, cardFit: "fit" };
+                   stickerBits: 0, stickerTape: 50, stickerProfile: "bw", cardBits: 0, cardFit: "fit", cardProfile: "bw" };
 // `blocks`, `presets` and `controls` seed rw_blocks_v1, rw_presets_v1 and rw_controls_v1
 // before the app's first load, the way a returning user's saved state is there before the
 // page runs; `controls` defaults to SETTINGS, and `controls: null` seeds nothing (a first
@@ -170,8 +170,8 @@ function nodeBodies(block, ctx) {
     return Array.from(C.buildHanTyped(block.text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
                                                     noNonce: ctx.noNonce, limitPx: ctx.limit.px }));
   }
-  // 1.6.0: the paper's scale, and the block's look (centred in Letter's Large message, its colours
-  // on Letter in colour).
+  // 1.6.0: the paper's scale, and the block's look (centred in Letter's Large message, its colors
+  // on Letter in color).
   const look = C.blockLook(block, ctx);
   if (C.blockRender(block) === "sideways") {
     const o = C.sideOpts(block);
@@ -224,7 +224,13 @@ async function expectParts(page, blocks, s = SETTINGS, digits = null) {
       } else if (K.blockRender(b) === "typed") {
         bodies = K.buildHanTyped(b.text, plainOpts(ctx.mode));
       } else if (K.blockRender(b) === "hanzi" || ctx.mode === "plain") {
-        bodies = K.buildDesignT(K.designTTextGrid(K.bigClean(b.text).text, ctx.paperMm, K.hanziWeightOf(b.hanziWeight)), plainOpts(ctx.mode));
+        // Rich text keeps its words in richLines; its plain fallback reads them as one block.
+        const htext = K.blockRender(b) === "rich" ? K.richText(b) : b.text;
+        bodies = K.buildDesignT(K.designTTextGrid(K.bigClean(htext).text, ctx.paperMm, K.hanziWeightOf(b.hanziWeight)), plainOpts(ctx.mode));
+      } else if (K.blockRender(b) === "rich") {
+        const ro = K.richOpts(b);
+        bodies = K.buildRichBodies(ro.lines, { face: ro.face, center: look.center, color: !!ctx.color,
+                                               paperMm: ctx.paperMm, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
       } else if (K.blockRender(b) === "sideways") {
         const o = K.sideOpts(b);
         bodies = K.buildSideBodies(b.text, { dir: o.dir, size: o.size, face: o.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW,
@@ -610,6 +616,11 @@ const EVERY_MODE = () => [
   BIG({ id: 24, text: "jeff", bigLayout: "lines", bigSize: "fit1" }),
   { id: 25, type: "text", render: "sideways", sideDir: "down", sideSize: "fit1", text: "stuff" },
   { id: 26, type: "text", render: "sideways", sideDir: "up", sideSize: "fit1", text: "just" },
+  // 1.10.0: Rich text, a size and a color per line (each row its own styled div). The colors print
+  // only on a color printer: in the Letter-color config they go out, elsewhere the sizes alone do.
+  { id: 28, type: "text", render: "rich", richLines: [
+    { text: "TOP LINE", px: 72, color: "#c00000", bg: "#fff2a8" },
+    { text: "and small", px: 36, color: "#0050c8", bg: "" } ] },
   { id: 8, type: "text", render: "hanzi", text: "HI", hanziWeight: 400 },
   // 1.2.0: Han text as typed, a pasted mosaic of 300 Han characters (20 rows on 80 mm, 34 on 58 mm).
   { id: 27, type: "text", render: "typed", text: MOSAIC },
@@ -871,12 +882,12 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
     { ...SETTINGS, cheer: false },                                // a free test, drawn as a High Roller cheer
     { ...SETTINGS, allowHighRoller: false },                      // 1.3.0: Printer Bot 3.0's switch off at 100 bits, read by the page itself
     // 1.6.0: a cheer of the Letter printer's bits, built for its page: Scaled like 80 mm (about 2
-    // inches under the profile picture), Large message in colour (the blocks centred and coloured),
+    // inches under the profile picture), Large message in color (the blocks centred and colored),
     // and a plain cheer on Letter (23 Han cells a row), each cut at the end of its one page. A printer
     // set to Large message prints that plain cheer Scaled like 80 mm (Printer Bot 3.0.5: the large
     // page is for a cheer of the threshold or more).
     { ...SETTINGS, bits: 600, letterBits: 500 },
-    { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", coloured: true },
+    { ...SETTINGS, bits: 600, letterBits: 500, letterLayout: "message", letterProfile: "color", colored: true },
     { ...SETTINGS, bits: 600, letterBits: 500, hrThreshold: 1000, letterLayout: "message" },
     // Large message under a length limit (3 inches): the bot's box fills the page, so it reports a
     // cut even where the fade falls below the message; only the message's own height counts.
@@ -929,7 +940,7 @@ test("MANDATORY: every mode's Copy payload through the app's vendored PrinterBot
   for (const s of configs) {
     // Under the length limits, one letter set at 400px is taller than the bot's box (288px for
     // 300 bits at 100 bits per inch): the app warns about it, and the bot must cut that part.
-    const every = s.coloured ? EVERY_MODE().map((b) => ({ ...b, color: "#c00000", ...(b.type === "text" ? { bg: "#fff2a8" } : {}) })) : EVERY_MODE();
+    const every = s.colored ? EVERY_MODE().map((b) => ({ ...b, color: "#c00000", ...(b.type === "text" ? { bg: "#fff2a8" } : {}) })) : EVERY_MODE();
     const blocks = withPic(s.bitsPerInch ? [...every, BIG({ id: 20, text: "I", bigLayout: "lines", bigSize: 400 })] : every);
     const { page, ctx, errors, requests } = await freshPage({ blocks, controls: s, core: true, eager: true });
     await settled(page);
@@ -1483,7 +1494,7 @@ test("round 3: phone layout puts the preview under the blocks; every card contro
   const unlabelled = await page.evaluate(() => Array.from(document.querySelectorAll("#blockList textarea, #blockList select, #blockList input"))
     .filter((el) => !(el.labels && el.labels.length) && !el.getAttribute("aria-label")).map((el) => el.outerHTML.slice(0, 80)));
   assert.deepEqual(unlabelled, []);
-  // (Exact: 1.6.0's "Text colour" picker is labelled too.)
+  // (Exact: 1.6.0's "Text color" picker is labelled too.)
   assert.equal(await cards(page).first().getByLabel("Text", { exact: true }).count(), 1, "the Text label names the textarea");
   assert.equal(await cards(page).first().getByLabel("Layout").count(), 1);
   for (const name of ["Move block up", "Move block down", "Remove block"]) assert.equal(await cards(page).first().getByRole("button", { name }).count(), 1, name);
@@ -3899,46 +3910,46 @@ test("1.6.0: a cheer of the Letter printer's bits is built for its page: Copy is
   }
 });
 
-test("1.6.0: colours: the pickers show for a Letter printer in colour, say whether this cheer prints them, and the bot keeps them", async () => {
+test("1.6.0: colors: the pickers show for a Letter printer in color, say whether this cheer prints them, and the bot keeps them", async () => {
   const s = { ...SETTINGS, letterBits: 500, letterProfile: "color", letterLayout: "message" };
   const blocks = [BIG({ id: 1, text: "HELLO" }), { id: 2, type: "image", imgKind: "glyph", url: "PIC", tier: "cjk", cols: 16, dither: true, contrast: 128, invert: false, rotate: 0 }];
   const { page, ctx, errors } = await freshPage({ blocks: withPic(blocks), controls: s, core: true, eager: true });
   await settled(page);
   const card = cards(page).first(), gcard = cards(page).nth(1);
-  // A 100-bit cheer prints on the roll: the pickers show, and say the colours wait for the Letter printer.
-  assert.equal(await card.locator(".colour-wrap").isVisible(), true);
-  assert.match(await card.locator(".colour-hint").textContent(), /Colours print only on the Letter printer, which takes cheers of 500 bits or more: this 100-bit cheer prints on the roll/);
+  // A 100-bit cheer prints on the roll: the pickers show, and say the colors wait for the Letter printer.
+  assert.equal(await card.locator(".color-wrap").isVisible(), true);
+  assert.match(await card.locator(".color-hint").textContent(), /Colors print only on the Letter printer, which takes cheers of 500 bits or more: this 100-bit cheer prints on the roll/);
   await card.locator(".chk-color").check();
   await card.locator(".inp-color").evaluate((el) => { el.value = "#0050c8"; el.dispatchEvent(new Event("input", { bubbles: true })); });
   await card.locator(".chk-bg").check();
   await gcard.locator(".chk-color").check();
   assert.equal((await stored(page, "rw_blocks_v1"))[0].color, "#0050c8");
-  // On the roll no colour goes out.
+  // On the roll no color goes out.
   for (const p of await copyAll(page)) assert.doesNotMatch(p, /color:/);
   // At the Letter printer's bits it does, centred, and the bot keeps every declaration.
   await commit(page, "#bitsAmount", "600");
   await settled(page);
-  assert.match(await card.locator(".colour-hint").textContent(), /This cheer prints on the Letter printer, in colour/);
+  assert.match(await card.locator(".color-hint").textContent(), /This cheer prints on the Letter printer, in color/);
   const got = await copyAll(page), saved = await stored(page, "rw_blocks_v1");
   assert.deepEqual(got, (await expectParts(page, withPic(saved), { ...s, bits: 600 })).map((w) => w.payload));
   assert.match(got[0], /;text-align:center;color:#0050c8;background-color:#fff2a8">/);
-  assert.ok(got.some((p) => /line-height:1;text-align:center;color:#c00000>/.test(p)), "the Glyph-art grid in its colour");
+  assert.ok(got.some((p) => /line-height:1;text-align:center;color:#c00000>/.test(p)), "the Glyph-art grid in its color");
   for (let i = 0; i < got.length; i++) {
     assertTags(got[i]);
     const { frame } = await drawnPart(page, i, got[i]);
     const k = await frameContract(frame, C.printedMessage(got[i]));
     assert.deepEqual(k.problems, [], "part " + (i + 1));
   }
-  // Black and white: the pickers go, the block keeps its colours, and none goes out.
+  // Black and white: the pickers go, the block keeps its colors, and none goes out.
   await page.selectOption("#letterProfile", "bw");
-  assert.equal(await card.locator(".colour-wrap").isVisible(), false);
+  assert.equal(await card.locator(".color-wrap").isVisible(), false);
   for (const p of await copyAll(page)) assert.doesNotMatch(p, /color:/);
   assert.equal((await stored(page, "rw_blocks_v1"))[0].color, "#0050c8");
   assert.deepEqual(errors, []);
   await ctx.close();
 });
 
-test("1.6.0: the print view of a Letter page: 2250 dots across; black and white shades only the pictures, colour is the page as drawn", async () => {
+test("1.6.0: the print view of a Letter page: 2250 dots across; black and white shades only the pictures, color is the page as drawn", async () => {
   const blocks = [BIG({ id: 1, text: "HI", color: "#c00000" })];
   const counts = {};
   for (const letterProfile of ["bw", "color"]) {
@@ -3981,6 +3992,81 @@ test("1.6.0: the print view of a Letter page: 2250 dots across; black and white 
   assert.ok(counts.bw.avatar.black > 1000 && counts.bw.avatar.white > 1000, "the picture is shaded: " + JSON.stringify(counts.bw.avatar));
   assert.equal(counts.bw.logo.black, 0, "a light grey outside the pictures prints nothing: " + JSON.stringify(counts.bw.logo));
   assert.ok(counts.color.red > 1000 && counts.color.grey > 1000, JSON.stringify(counts.color));
+});
+
+test("1.10.0: a card or sticker printer set to Color prints colors too, like the Letter printer, and the bot keeps them", async () => {
+  for (const [bitsField, profField, name] of [["#cardBits", "#cardProfile", "card"], ["#stickerBits", "#stickerProfile", "sticker"]]) {
+    const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" })], controls: SETTINGS, core: true, eager: true });
+    await settled(page);
+    const card = cards(page).first();
+    // No color printer yet: the Big text card's color row is hidden.
+    assert.equal(await card.locator(".color-wrap").isVisible(), false, name + " before");
+    await page.fill(bitsField, "500");
+    await page.selectOption(profField, "color");
+    await settled(page);
+    // Now a color printer exists: the pickers show. A 100-bit cheer is still on the roll, no color.
+    assert.equal(await card.locator(".color-wrap").isVisible(), true, name);
+    await card.locator(".chk-color").check();
+    await card.locator(".inp-color").evaluate((el) => { el.value = "#0050c8"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+    await settled(page);
+    for (const p of await copyAll(page)) assert.doesNotMatch(p, /color:/, name + " on the roll prints no color");
+    // At the printer's bits the color prints, and the bot keeps it.
+    await commit(page, "#bitsAmount", "600");
+    await settled(page);
+    const got = await copyAll(page);
+    assert.ok(got.some((p) => /;color:#0050c8">/.test(p)), name + " prints the color");
+    for (let i = 0; i < got.length; i++) {
+      assertTags(got[i]);
+      const { frame } = await drawnPart(page, i, got[i]);
+      const k = await frameContract(frame, C.printedMessage(got[i]));
+      assert.deepEqual(k.problems, [], name + " part " + (i + 1));
+    }
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  }
+});
+
+test("1.10.0: Rich text — a size and color per line, each row its own styled div, matched byte for byte and kept by the bot", async () => {
+  const controls = { ...SETTINGS, bits: 600, letterBits: 500, letterProfile: "color" };
+  const { page, ctx, errors } = await freshPage({ blocks: [BIG({ id: 1, text: "HELLO" })], controls, core: true, eager: true });
+  await settled(page);
+  const card = cards(page).first();
+  // Switch to Rich text: the one textarea goes, the per-line rows come, seeded from the text.
+  await card.locator(".sel-render").selectOption("rich");
+  await settled(page);
+  assert.equal(await card.locator("textarea").isVisible(), false, "the textarea hides for Rich");
+  assert.equal(await card.locator(".rich-row").count(), 1, "seeded one row from the text");
+  assert.equal(await card.locator(".rich-row .rich-text").first().inputValue(), "HELLO");
+  // Give row 1 a size and a text color, then add a second line.
+  const size1 = card.locator(".rich-row .rich-size").first();
+  await size1.fill("72"); await size1.dispatchEvent("change");
+  await card.locator(".rich-row .rich-chk-color").first().check();
+  await card.locator(".rich-row .rich-color").first().evaluate((el) => { el.value = "#c00000"; el.dispatchEvent(new Event("input", { bubbles: true })); });
+  await card.locator(".rich-add").click();
+  await settled(page);
+  assert.equal(await card.locator(".rich-row").count(), 2, "Add line adds a row");
+  await card.locator(".rich-row .rich-text").nth(1).fill("world");
+  const size2 = card.locator(".rich-row .rich-size").nth(1);
+  await size2.fill("36"); await size2.dispatchEvent("change");
+  await settled(page);
+  // Copy is exactly what the core builds, each row its own styled div.
+  const got = await copyAll(page), saved = await stored(page, "rw_blocks_v1");
+  assert.deepEqual(got, (await expectParts(page, saved, controls)).map((w) => w.payload));
+  assert.ok(got.some((p) => /\\66ont:700 72px\/[.0-9]+ Arial;color:#c00000">HELLO</.test(p)), "row 1 at 72px in color");
+  assert.ok(got.some((p) => /\\66ont:700 36px\/[.0-9]+ Arial">world</.test(p)), "row 2 at 36px, no color set");
+  // Through the vendored renderer: raw, no security notes, the colors kept.
+  for (let i = 0; i < got.length; i++) {
+    assertTags(got[i]);
+    const { frame } = await drawnPart(page, i, got[i]);
+    const k = await frameContract(frame, C.printedMessage(got[i]));
+    assert.deepEqual(k.problems, [], "part " + (i + 1));
+  }
+  // On the roll (100 bits) the sizes print but the colors wait.
+  await commit(page, "#bitsAmount", "100");
+  await settled(page);
+  for (const p of await copyAll(page)) assert.doesNotMatch(p, /color:/, "no color off a color printer");
+  assert.deepEqual(errors, []);
+  await ctx.close();
 });
 
 test("1.6.0: the Letter printer prints High Roller whatever the roll printer's switch says; a raise onto it says so", async () => {

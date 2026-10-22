@@ -16,7 +16,11 @@ surrounding spaces too, so no gap stays); an older bot prints that word too, and
 differently on a roll (see "The target"). Since 1.9.0 a Real picture can be an Imgur/Catbox/ImgBB
 album or picture-page link (the first picture is looked up through the Worker's `/resolve`), and
 the app models two more printers a streamer can route big cheers to: a Brother VC-500W sticker
-printer and a 4 × 6 in card printer, alongside the roll and Letter printers.
+printer and a 4 × 6 in card printer, alongside the roll and Letter printers. Since 1.10.0 (two
+owner-requested features, not a bot catch-up) the sticker and card printers have a color profile
+too, not the Letter printer alone — the sticker's treated as full color on purpose, overriding the
+stock bot's `IsColor` (see "Color" under the Letter printer) — and a **Rich text** block gives each
+line its own size and color.
 
 The bot prints a cheer in one of two ways, and the whole app follows from that:
 
@@ -188,7 +192,7 @@ What the page decides:
   (1078) walks the CSSOM, which hands out longhands: font-*, line-height, letter-spacing,
   text-align, the white-space longhands, word-break, overflow-wrap, writing-mode,
   text-orientation, transform/rotate/scale/translate, width/height, margins, paddings,
-  display, position, colours, borders), `CSS_VALUE_ALLOWED` (738-746; position only static,
+  display, position, colors, borders), `CSS_VALUE_ALLOWED` (738-746; position only static,
   relative or absolute; a display allow-list) and `CSS_VALUE_FORBIDDEN` (748; `url(`,
   backslashes, `<`, `>`, `var(`, `attr(`, comments and more). `class` and `id` are dropped,
   except an img's `emote` or `bits` class. Pictures load only from the Twitch, Kick, BTTV, 7TV
@@ -289,12 +293,21 @@ gives the large layout only to a big cheer, below):
   rectangles `render()` lists in `photos` (`photoRects`, 2993-3008: the profile picture and the
   message's images, in CSS px, padded 2 dots), a plain `< 128` threshold, so text stays sharp;
   inside, serpentine Floyd-Steinberg (even rows left to right) or Atkinson, and nothing in Crisp.
-  Colour: the page as drawn, 24-bit, no dots.
-- **Colour** (the owner's picks, 2026-10-14: text colour, background colour, Glyph-art in a
-  colour): a block's `color` and `bg` fields, read through `colourOf` (`#rrggbb`) and `blockLook`
-  (only on Letter in the colour profile, `stackContext`'s `colour`), go out as `;color:#rrggbb` and
-  `;background-color:#rrggbb` on the block's own styled div (Glyph-art: `color` only). Both are on
-  `ALLOWED_CSS` and literal.
+  Color: the page as drawn, 24-bit, no dots.
+- **Color** (the owner's picks, 2026-10-14: text color, background color, Glyph-art in a
+  color): a block's `color` and `bg` fields, read through `colorOf` (`#rrggbb`) and `blockLook`
+  (only when the cheer prints in color, `stackContext`'s `color`), go out as `;color:#rrggbb` and
+  `;background-color:#rrggbb` on the block's own styled div (Glyph-art: `color` only; Rich text: a
+  color per line). Both are on `ALLOWED_CSS` and literal.
+  - **Which printers print color (1.10.0).** `stackContext`'s `color` is `printsInColor(o)`: true
+    when the cheer's target printer (Letter, sticker or card, `targetPaper`) is in its color profile
+    (`letterProfile` / `stickerProfile` / `cardProfile` through `letterProfileOf`). The roll is always
+    black and white. 1.6.0 had color on the Letter printer alone; 1.10.0 gave the sticker and card
+    printers their own color profile, and the sticker's is treated as full color **on purpose**:
+    Printer Bot's stock `IsColor()` (`(IsLetter() || IsCard()) && mode=="windows" && printProfile=="color"`,
+    from the decompiled core) dithers the VC-500W, but the owner's sticker printer prints full color,
+    so the app overrides that and sends the colors when `stickerProfile` is `"color"`. A streamer whose
+    bot dithers the sticker leaves it on `"bw"` (the default).
 
 ## The field record: this channel's chat filter
 
@@ -349,10 +362,10 @@ through. What is known about the channel this was built for:
   link, and the card offers Glyph-art.
 - **Not known.** Whether the list blocks anything else 1.0.0 uses (`<div`, `<pre`, `style=`),
   or what later releases added: a picture link (1.5.0), and `color:`, `background-color:` and
-  `text-align:` (1.6.0, only in a cheer for a Letter printer: Large message's centring, the colour
-  profile's colours). Nobody has said so. Don't change the design on a guess: the free chat test
+  `text-align:` (1.6.0, only in a cheer for a Letter printer: Large message's centring, the color
+  profile's colors). Nobody has said so. Don't change the design on a guess: the free chat test
   (Cheer-ready off) is how a user finds out. These are literal tokens: if the list holds one, it
-  is the moderators saying no, and the block prints without it (no colour) or not at all, never
+  is the moderators saying no, and the block prints without it (no color) or not at all, never
   with the word disguised.
 
 What follows from that, as rules:
@@ -424,7 +437,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `public/llms.txt`, `robots.txt`, `sitemap.xml` | Ship with the site. `llms.txt` describes current behaviour; keep it current. |
 | `src/worker.js` | The Worker: static assets, the `/px` image proxy, (1.8.0) `POST /imgbb` and (1.9.0) `GET /resolve`. **Changed only on the owner's requests:** unchanged from before 1.0.0 until 1.7.0, which added an upload route (`/catbox`); 1.8.0 replaced it with `/imgbb` when Catbox went down; 1.8.1 removed the old `POST /upload` and its picture routes; 1.9.0 added `/resolve` (album/page first-picture lookup, a faithful port of the bot's `PbImgur`/`PbCatbox`/`PbImgbb`, host-locked so there is no SSRF). `test/imgbb.test.mjs` holds `/imgbb` to its guards with a fake ImgBB; `test/resolve.test.mjs` holds `/resolve` with stubbed upstream; `test/imgpath.test.mjs` holds the old paths to the static site. |
 | `wrangler.jsonc` | Workers config: `main`, the app's custom domain in `routes` (1.8.1 removed `i.uwutoowo.com` and the `RW_IMG_HOST` var with `/upload`), the `RW_IMG` KV binding (`/imgbb`'s hourly counts). Changed only on the owner's requests. |
-| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.8.1. No runtime deps. |
+| `package.json` | Dev-only: `npm test`, `npm run test:browser`, `npm run payload`, `npm run bench`, Wrangler `dev` / `deploy`. Version 1.10.0. No runtime deps. |
 | `test/` | Node `node:test` suite: extracts the app's script and unit-tests the pure core. `test/fixtures/arial-1.3.json` pins Arial Bold's messages as 1.3.1 sent them (see Faces). |
 | `test-browser/` | Playwright tests of the real page (`npm run test:browser`), including the MANDATORY contract test against the vendored renderer. Not part of `npm test`. |
 | `tools/forkbench.mjs` | The bench: renders a message through SassyTP's real receipt page (pinned commit) in Chromium and dithers it with the C# Ditherer port. |
@@ -471,13 +484,13 @@ that has to be exported (only `designTTextGrid` and `glyphGrid`, for the browser
 `var name = function …` expression inside the guard.
 
 An inert hook at the end (`if (typeof module !== "undefined" && module.exports)`) hands the
-test harness **198 keys**. Regenerate the list instead of trusting this one:
+test harness **215 keys**. Regenerate the list instead of trusting this one:
 `node -e 'import("./test/_harness.mjs").then(({loadCore})=>console.log(Object.keys(loadCore())))'`
 
 `TIERS`, `getTier`, `sampleLuma`, `quantizeTone`, `ditherFloydSteinberg`, `lumaToDots`,
 `packBraille`, `render`, `payloadLength`, `withinBudget`, `MAX_CHARS`, `makeNonce`,
 `cheerBits`, `bitsWord`, `PAPERS`, `paperSpec`, `BASE_PX`, `BASE_LH`, `LEAD_LINE_PX`,
-`mmPerPx`, `targetPaper`, `LETTER_CHROME_PX`, `letterBitsOf`, `letterLayoutFor`, `colourOf`, `letterDither`, `blockLook`,
+`mmPerPx`, `targetPaper`, `LETTER_CHROME_PX`, `letterBitsOf`, `letterLayoutFor`, `letterProfileOf`, `printsInColor`, `colorOf`, `letterDither`, `blockLook`,
 `allowsHighRoller`, `boxWords`, `tallWords`, `CONTENT_CEILING_PX`, `PX_PER_INCH`, `MAX_CAP_INCHES`, `HR_DEFAULT`, `HR_MAX`,
 `hrThresholdOf`, `bitsPerInchOf`, `maxInchesOf`, `printMode`, `buildMode`, `contentLimitPx`, `bitsRaiseFor`, `partsTally`, `raiseNote`,
 `LEAD_GUARD`, `buildLead`, `leadLength`, `buildTrail`, `trailLength`, `stackContext`,
@@ -485,7 +498,7 @@ test harness **198 keys**. Regenerate the list instead of trusting this one:
 `BIG_W`, `BIG_W_DEFAULT`, `BIG_W_EMOJI`, `BIG_W_WIDE`, `BIG_LAYOUTS`, `BIG_CAP_EM`, `MM_PER_PX`, `bigCapCm`,
 `bigOpen`, `BIG_CLOSE`, `FONT_PROP`, `bigClean`, `bigGraphemes`, `bigGraphemesFallback`, `bigLineEm`,
 `bigFitPx`, `BIG_EDGE`, `bigEdge`, `bigEdgeEm`, `bigLineHeight`, `bigWrapWords`, `bigWrapCount`, `bigWrapWordsOf`, `bigLines`, `bigSizeOf`, `bigOpts`, `bigCheerCount`, `bigPlan`,
-`bigFit`, `buildBigBodies`, `bigReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `FACE_PROBE`, `faceMatches`, `PICTURE_SITES`, `PICTURES_PER_CHEER`,
+`bigFit`, `buildBigBodies`, `bigReport`, (Rich text, 1.10.0) `RICH_DEFAULT_PX`, `richPxOf`, `richLineOf`, `richLinesOf`, `richOpts`, `richText`, `richHasContent`, `buildRichBodies`, `richReport`, `cheerWords`, `CHEER_GLOBALS`, `FACE_IDS`, `faceOf`, `faceIdOf`, `FACE_PROBE`, `faceMatches`, `PICTURE_SITES`, `PICTURES_PER_CHEER`,
 `imageSitesOf`, `pictureLink`, `picturePrint`, `buildPictureBodies`, `realPictureForm`, `SIDE_DIRS`,
 `SIDE_MIN_PX`, `SIDE_MAX_PX`, `sideOpen`, `sidePad`, `sideWidthPx`, `sideLines`, `sideSizeOf`,
 `sideOpts`, `sidePlan`, `sideFit`, `buildSideBodies`, `sideReport`, `GLYPH_FORMS`,
@@ -527,7 +540,7 @@ Everything built for a cheer is built for that paper: `stackContext`'s `paper`, 
 `limit`; `contentLimitPx` measures lengths at its `pxPerInch` and, on Letter, takes the page's room
 (`pageLimit`: `PAPERS.letter.pagePx` less `LETTER_CHROME_PX[layout]`, at least an inch; `by:
 "page"`); a plain cheer on Letter gets the page's room too. `stackContext` also carries `letter`
-(`{layout, fit, profile}` or null), `center` (Letter's Large message) and `colour` (Letter's colour
+(`{layout, fit, profile}` or null), `center` (Letter's Large message) and `color` (Letter's color
 profile). Sizes said in words follow it: `bigCapCm(px, face, paperMm)`, and `withFace`'s fifth
 argument (`paperScaleOf(opts)`, from `opts.paperMm`) sets `curMm`, which `lenWords`, `boxWords`,
 the side report's lengths and the probes' notes read. `hrThresholdOf` (0..1,000,000, junk → 25),
@@ -561,8 +574,8 @@ don't apply to plain text, which starts with a Han glyph.
 **`stackContext(o)`**: everything a stack is built against, in one object, so the body
 builders, the packer and the card labels read the same numbers: `{mode, paper, paperMm,
 contentW, limit, room, heightPx, leadPx, budget, trail, cheer, bits, noNonce, imageSites, letter,
-center, colour}` (the last three 1.6.0's: the Letter printer's card or null, its Large message's
-centring and its colour profile; `paper` is the one the cheer's bits reach, `targetPaper`). `room`
+center, color}` (the last three 1.6.0's: the Letter printer's card or null, its Large message's
+centring and its color profile; `paper` is the one the cheer's bits reach, `targetPaper`). `room`
 (= `heightPx`) is the box less the lead's line, `leadPx` (`leadLinePx`, also put on the box as
 `limit.leadPx`; `contentLimitPx` puts it there too, and `limitLeadPx` reads it, 21.6 for a box made
 by hand); `budget` is 500 less the lead. `o.mode` overrides the
@@ -660,7 +673,7 @@ security notes (the resets it drops change nothing that prints).
   20 lines of "WWW WWW WWW" at 48px are 60 printed lines, it said 40.
 - `bigClean` drops what prints nothing (`BIG_INVISIBLE`: the BMP Default_Ignorable set, the
   C0/C1 controls, U+FFF0-FFFB) but keeps emoji with their joiner and presentation selectors
-  (Edge draws colour emoji; they dither to grey dots). CR, CRLF, U+2028/2029 → newline; U+2800
+  (Edge draws color emoji; they dither to grey dots). CR, CRLF, U+2028/2029 → newline; U+2800
   → space. It reports what it dropped. `bigGraphemes` uses `Intl.Segmenter` with a fallback.
 - `bigLines(text, layout)`: `stack` is one grapheme a line with each whitespace run as one
   blank line (a word gap); `lines` and `each` keep the lines as typed.
@@ -870,6 +883,24 @@ property name uses the `\66ont` escape, as big text does; see the field record.
   against big text's line-height .8, a sideways column's whole font box), so nearly every big
   and sideways part lists sides there with its ink well clear. Until 1.0.0's final review the
   verdict was the box one, and it called almost every correct big or sideways print clipped.
+
+**Rich text (High Roller, 1.10.0).** Big text's "each" layout with a style per line: each row is
+its own styled div, at its own size and, on a color printer in its color profile, its own text and
+background color. The block keeps its rows in `richLines` (a saved field): `[{text, px, color,
+bg}]`, read through `richLineOf` (text as one line, newlines → spaces; `px` through `richPxOf`,
+20..400 or `RICH_DEFAULT_PX` 48; `color`/`bg` through `colorOf`) and `richLinesOf` (an absent/empty
+list gives one empty row). `richOpts` → `{face, lines}`. `buildRichBodies(lines, opts)` builds each
+non-empty row by running it through `buildBigBodies` as a one-line block with that row's size and
+(when `opts.color`) its colors, so the measuring, wrapping, kerning, faces, escaping and the
+`\66ont` escape are all Big text's — rich text adds no new token, tag or property. Each body carries
+a `rich` record `{row, px, color, bg}` beside buildBigBodies' own `big`. An empty row prints
+nothing; a row too tall for the box chunks as Big text does (and is flagged `big.tall`). Colors
+print only when `stackContext`'s `color` (`printsInColor`) is set; on the roll or in black and
+white the sizes print and no color goes out. Below the threshold the block prints plain, as Han
+tiling of `richText(block)` (the rows joined, a line a row), like Big text. `richReport(bodies,
+opts)` is the card note: the rows' capitals in cm (a range when they differ), cheers and bits, and
+Big text's warnings (a line too wide, too long, or taller than the box). `richHasContent` is
+`blockHasContent`'s test for a rich block.
 
 **Faces (1.4.0).** Big and Sideways text print in the face the block picks (its `face`, read
 through `faceIdOf` in `bigOpts` and `sideOpts`; junk is `"arial"`). `FACE_IDS`: arial, arialblack,
@@ -1217,11 +1248,13 @@ imported JSON and form controls (as strings), so everything reads them through t
 explicit `true`), `thermalView` (off), `thermalDither` (`floyd`), `allowHighRoller` (on; only an
 explicit `false` turns it off, 1.2.0), `imageSites` (none; 1.5.0), and the Letter printer's
 `letterBits` (0, none), `letterLayout` (`scaled` | `message`), `letterFit` (`fit` | `fill` |
-`stretch`) and `letterProfile` (`bw` | `color`) (1.6.0); `paperMm` stays a roll's, 80 or 58;
-unknown fields are ignored, so the next save drops them), `blockRender` (`big` | `sideways` | `hanzi` | `typed`, junk → `big`),
-`bigOpts`, `sideOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700), and a block's look (1.6.0):
-`blockLook(block, ctx)` reads its `color` and `bg` through `colourOf` (`#rrggbb`, lower case, else
-"") and gives them only on Letter in colour, with `center` in Large message; `blockStyle` turns
+`stretch`) and `letterProfile` (`bw` | `color`) (1.6.0), and (1.10.0) `stickerProfile` and
+`cardProfile` (`bw` | `color`, the sticker and card printers' color profiles); `paperMm` stays a
+roll's, 80 or 58;
+unknown fields are ignored, so the next save drops them), `blockRender` (`big` | `sideways` | `rich` | `hanzi` | `typed`, junk → `big`),
+`bigOpts`, `sideOpts`, `richOpts`, `glyphOpts`, `hanziWeightOf` (400 or 700), and a block's look (1.6.0):
+`blockLook(block, ctx)` reads its `color` and `bg` through `colorOf` (`#rrggbb`, lower case, else
+"") and gives them only when the cheer prints in color (`printsInColor`), with `center` in Large message; `blockStyle` turns
 that into the declarations the builders append (`curStyle`, set through `withFace`'s fourth
 argument). `modeNotice` is the notice
 above the parts (a free test, or why the stack prints plain and how to change it).
@@ -1324,13 +1357,21 @@ generations; `presetImageUrls` walks a stack's picture links.
   it, `#letterBitsNote`, like the threshold), `#letterLayout`, `#letterFit` and `#letterProfile`,
   disabled while the bits are 0 (`#letterOff`) and the fit outside Large message (`#letterFitOff`),
   by `syncLetterUi` (from `syncModeUi`). The Bits hint says where this cheer prints.
-- **Colour pickers (1.6.0).** `colourRow(block, label, field, default)`: a checkbox (`.chk-color` /
-  `.chk-bg`) that turns the field on or off ("" when off) and an `<input type="color">`
-  (`.inp-color` / `.inp-bg`, named by `aria-label`). Big and Sideways text have a text colour and a
-  background colour, Glyph-art a colour (its characters only). `syncColour` shows the row while the
-  streamer has a Letter printer in colour and the block can carry one, and its hint says whether
-  THIS cheer prints them (on the Letter printer in colour; on Letter but plain; or on the roll).
-  The block keeps its colours either way. The fields are saved block fields.
+- **Color pickers (1.6.0, generalized 1.10.0).** `colorRow(block, label, field, default)`: a
+  checkbox (`.chk-color` / `.chk-bg`) that turns the field on or off ("" when off) and an
+  `<input type="color">` (`.inp-color` / `.inp-bg`, named by `aria-label`). Big and Sideways text
+  have a text color and a background color, Glyph-art a color (its characters only). `syncColor`
+  shows the row while the streamer has ANY color printer (Letter, sticker or card in its color
+  profile) and the block can carry one, and its hint says whether THIS cheer prints them (on the
+  printer it reaches, in color; reaching it but plain; or waiting). `colorPrinterState(ctx, what)`
+  is the shared gate + hint (factored out so Rich text's per-row pickers use it too). The block
+  keeps its colors either way. The fields are saved block fields.
+- **Rich text's per-row pickers (1.10.0).** A Rich text block's card shows per-line rows
+  (`.rich-row`: `.rich-text`, `.rich-size`, and a `.rich-colors` holding two `richColorPicker`
+  pickers writing to the ROW object, plus `.rich-remove`), with `.rich-add` to add a line.
+  `renderRichRows` builds them; `syncRichColors` (run from `syncText` each refresh) shows or hides
+  the per-row color pickers and the shared `.rich-color-hint` for the current printer without
+  rebuilding the rows (so typing keeps focus). The rows are saved as the block's `richLines`.
 - **Allow High Roller prints (1.2.0).** The checkbox `#allowHighRoller` under the streamer's
   settings mirrors Printer Bot 3.0's per-printer switch (on by default; 2.5 has none, so it says to
   leave it on). Off: `printMode` builds plain, so every block prints its plain form, as with
@@ -1725,7 +1766,7 @@ placeholder prints as dots in Detailed and Soft and not at all in Crisp. **A Let
 is rasterised at 2250 dots (scale 5.625) and shown at the column's width: in black and white
 through `letterDither` (the C# `AddRowsMasked`: a plain threshold outside the rectangles
 `render()` lists in `photos`, the select's dither inside them; the grey logo box prints nothing),
-in colour as drawn, no dots (`data-profile` on the canvas says which).
+in color as drawn, no dots (`data-profile` on the canvas says which).
 
 ### "SassyTP shipped a new version"
 
@@ -2048,19 +2089,25 @@ lives in `test-browser/` and is not in the default matcher.
 - **The tag test** (`test/tags.test.mjs`, AMENDMENT B1): every builder and both probes, at 80
   and 58 mm, with ordinary and hostile input, send only `div` and `pre` with only `style`,
   never a forbidden tag (a `<br>` included) in any case, and never a message starting with
-  `<`. Big and Sideways text run in every face too.
+  `<`. Big and Sideways text run in every face too, and Rich text (1.10.0) with hostile row text.
+- **Rich text, and card/sticker color** (`test/rich.test.mjs`, 1.10.0): `richPxOf`, `richLineOf`,
+  `richLinesOf`, `richText`, `richHasContent`; `buildRichBodies` (one styled div a non-empty row,
+  colors only on a color printer, centred in Large message, a tall row flagged); `richReport`; and
+  `printsInColor` / `stackContext.color` on the Letter, sticker and card printers. `test/card.test.mjs`
+  and `test/sticker.test.mjs` pin each printer's spec and its `profile` on the stack context.
 - **The faces** (`test/faces.test.mjs`): Arial Bold's 859 fixture cases, byte for byte; every
   face's tables, family, weight, line heights, width fit (kerning included), cap height, sideways
   width rule, centring and run length, worked out from the tables independently; the WGL4 widths
   (`wide`), the pair an f makes with a space in a line, the wrap and a sideways run, and
   `faceMatches`.
 - **The MANDATORY contract test** (browser suite): every mode's Copy payload (big auto, lines,
-  stack, each and upside down; sideways down and up; glyph cjk, ascii, blocks, braille; plain
+  stack, each and upside down; sideways down and up; rich text, two rows at different sizes with a
+  color per row (1.10.0); glyph cjk, ascii, blocks, braille; plain
   Han tiling; plain CJK picture; a pasted mosaic in Han text as typed; both probes; a Han and an
   emoji run at a fixed size too wide for the paper, each followed by another block) at 80 and 58 mm, above and below the threshold,
   with the streamer's length limits, as a free test, with Printer Bot 3.0's Allow High
   Roller prints off at 100 bits (read by the vendored 3.0 page itself), and (1.6.0) on a Letter
-  printer in Scaled like 80 mm, in Large message in colour (every block coloured, centred where
+  printer in Scaled like 80 mm, in Large message in color (every block colored, centred where
   it should be) and plain at 23 cells a row, plus both probes on Letter in both layouts (in Large
   message the parts' own height, `partsPx`, is compared, since the box fills the page, and a cut
   there is `partsPx` over the box; one config puts Large message under a bits-per-inch length),
@@ -2172,6 +2219,11 @@ lives in `test-browser/` and is not in the default matcher.
   included). To put such an escape in a file, write a doubled backslash and normalise it
   afterwards, or edit with a script that builds the backslash itself (Python's `chr(92)`); then
   scan the diff for invisible characters that landed literally.
+- **American spelling** (owner, emphatic): write `color`, never `colour`, in every identifier,
+  comment, UI string and doc. 1.10.0 renamed the app's British spellings (`colourOf` → `colorOf`,
+  `.colour-row` → `.color-row`, `stackContext.colour` → `.color`, and so on); the only `colour` left
+  is the one inside the vendored renderer block, which is SassyTP's own code and must stay verbatim.
+  `test/letter.test.mjs` keeps one British `"colour"` on purpose, as junk input a sanitizer rejects.
 - Licensed under **MIT** (`LICENSE`). The vendored renderer keeps SassyTP's MIT notice.
 
 ## Working in this repo

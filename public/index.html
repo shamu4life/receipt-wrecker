@@ -31,8 +31,18 @@
 .pic-sites { margin-bottom: .75rem; }
 .letter-set { margin-top: 1rem; }
 .letter-set .letter-off { font-size: .8rem; opacity: .7; }
-.colour-row { display: flex; align-items: center; gap: .6em; margin: .3rem 0; }
-.colour-row input[type="color"] { width: 3em; height: 1.8em; padding: 0; border: 1px solid #888; background: none; }
+.color-row { display: flex; align-items: center; gap: .6em; margin: .3rem 0; }
+.color-row input[type="color"] { width: 3em; height: 1.8em; padding: 0; border: 1px solid #888; background: none; }
+.rich-rows { display: flex; flex-direction: column; gap: .4rem; margin: .3rem 0; }
+.rich-row { display: flex; flex-wrap: wrap; align-items: center; gap: .4em; }
+.rich-row .rich-text { flex: 1 1 10em; min-width: 8em; }
+.rich-row .rich-size { width: 4.5em; }
+.rich-size-lab { white-space: nowrap; }
+.rich-colors { display: flex; align-items: center; gap: .4em; }
+.rich-pick { display: inline-flex; align-items: center; gap: .2em; }
+.rich-pick input[type="color"] { width: 2.4em; height: 1.6em; padding: 0; border: 1px solid #888; background: none; }
+.rich-remove { padding: 0 .5em; line-height: 1.6; }
+.rich-add { margin: .2rem 0; }
 .controls .pic-sites label { display: inline-block; margin: .3rem 1.25em 0 0; }
   .controls input[type="range"] { width: 100%; }
   .controls input[type="text"], .controls input[type="number"], .controls textarea { width: 100%; box-sizing: border-box; font: inherit; }
@@ -179,7 +189,7 @@
       </label>
       <label class="thermal-toggle">Thermal dither: <select id="thermalDither"><option value="floyd" selected>Detailed</option><option value="atkinson">Soft</option><option value="threshold">Crisp</option></select> <span id="thermalDitherOff" class="dither-off">(turn on the thermal preview first)</span></label>
       <div class="hint" id="rendererCredit">The preview is drawn by SassyTP's printer-bot renderer (MIT)<span id="rendererVersion"></span>, in this computer's fonts, which may differ from the streamer's.<span id="rendererCompare"></span></div>
-      <details class="hint more"><summary>What's this?</summary><div>The preview is the receipt page the bot itself prints from, and the thermal view is what the printer gets, give or take fonts. The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on). A cheer for the streamer's Letter printer shows its page at the printer's 300 dots to the inch, scaled to the column: in black and white the bot prints text sharp and shades only pictures, and in colour it prints the page as it looks, with no dots.</div></details>
+      <details class="hint more"><summary>What's this?</summary><div>The preview is the receipt page the bot itself prints from, and the thermal view is what the printer gets, give or take fonts. The grey box in the footer is where the Twitch logo goes. The thermal view is drawn one pixel per printer dot, so it shows larger than the preview, and then scaled to fit the column: on a narrow window, or a screen that isn't high-density, some rows and columns of dots are skipped on screen. Zoom the page in to see every dot. Big and sideways text and plain Han tiling come out within a dot or two of the bot's. Small character grids on 58 mm, and Braille, do not: their thin strokes and texture here can differ from the print (in Crisp a stroke can vanish here and still print), so judge those with the thermal view off. Pick the dither the streamer's dock is set to (the Thermal dither menu works while the thermal view is on). A cheer for the streamer's Letter printer shows its page at the printer's 300 dots to the inch, scaled to the column: in black and white the bot prints text sharp and shades only pictures, and in color it prints the page as it looks, with no dots.</div></details>
       <div id="parts"></div>
       <div class="meta">
         <button type="button" id="hrProbeBtn">High Roller test</button>
@@ -244,9 +254,9 @@
           <div class="hint">For a streamer with a second printer, on Letter paper, that big cheers go to: the amount its rule starts at, as on its card in the dock (for example Bits ≥ 500). Every smaller cheer prints on the roll. 0 = no Letter printer. A cheer on Letter is built for its page: 7.5 inches wide, one page a cheer.</div>
           <label>Letter layout: <select id="letterLayout" style="width:auto"><option value="scaled" selected>Scaled like 80 mm</option><option value="message">Large message</option></select></label>
           <label>Image fit: <select id="letterFit" style="width:auto"><option value="fit" selected>Fit</option><option value="fill">Fill</option><option value="stretch">Stretch</option></select> <span id="letterFitOff" class="letter-off">(Large message only)</span></label>
-          <label>Print profile: <select id="letterProfile" style="width:auto"><option value="bw" selected>Black and white</option><option value="color">Colour</option></select></label>
+          <label>Print profile: <select id="letterProfile" style="width:auto"><option value="bw" selected>Black and white</option><option value="color">Color</option></select></label>
           <div class="hint letter-off" id="letterOff">(set the bits above first)</div>
-          <details class="hint more"><summary>What's this?</summary><div>The Letter printer's card in the dock. Scaled like 80 mm prints the roll's receipt on the page, larger, which leaves a message about 6 cm under the profile picture. Large message gives the message most of the page, about 16 cm, and lays it out from the left, so a block here centres itself. Since Printer Bot 3.0.5 only a cheer of the High Roller threshold or more gets Large message: a smaller one prints Scaled like 80 mm. Image fit is how a picture from a link fills the space the message leaves it in Large message: Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the space. In Colour, Big text, Sideways text and Glyph-art can have colours (their cards show the pickers); Black and white prints text sharp and shades only pictures. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
+          <details class="hint more"><summary>What's this?</summary><div>The Letter printer's card in the dock. Scaled like 80 mm prints the roll's receipt on the page, larger, which leaves a message about 6 cm under the profile picture. Large message gives the message most of the page, about 16 cm, and lays it out from the left, so a block here centres itself. Since Printer Bot 3.0.5 only a cheer of the High Roller threshold or more gets Large message: a smaller one prints Scaled like 80 mm. Image fit is how a picture from a link fills the space the message leaves it in Large message: Fit shows all of it, Fill covers the space and crops the rest, Stretch draws it to the space. In Color, Big text, Sideways text and Glyph-art can have colors (their cards show the pickers); Black and white prints text sharp and shades only pictures. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
         </div>
         <div class="sticker-set" role="group" aria-labelledby="stickerSetLabel">
           <div id="stickerSetLabel" class="composer-h">A sticker printer (Printer Bot 3.2)</div>
@@ -254,7 +264,8 @@
           <div class="hint field-note" id="stickerBitsNote" role="status" hidden></div>
           <div class="hint">For a streamer with a Brother VC-500W sticker printer that big cheers go to: the amount its rule starts at (for example Bits ≥ 100). Every smaller cheer prints on the roll. 0 = no sticker printer. When a cheer reaches both this and the Letter printer, the higher amount wins.</div>
           <label>Tape width: <select id="stickerTape" style="width:auto"><option value="9">9 mm</option><option value="12">12 mm</option><option value="19">19 mm</option><option value="25">25 mm</option><option value="50" selected>50 mm</option></select> <span id="stickerOff" class="letter-off">(set the bits above first)</span></label>
-          <details class="hint more"><summary>What's this?</summary><div>Printer Bot 3.2 can print a High Roller cheer on a Brother VC-500W label printer's tape (9, 12, 19, 25 or 50 mm wide), the message centred in a bordered box, capped at 16.5 inches of tape. A cheer that isn't a High Roller one prints on the tape as it would on a narrow roll. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
+          <label>Print profile: <select id="stickerProfile" style="width:auto"><option value="bw" selected>Black and white</option><option value="color">Color</option></select></label>
+          <details class="hint more"><summary>What's this?</summary><div>Printer Bot 3.2 can print a High Roller cheer on a Brother VC-500W label printer's tape (9, 12, 19, 25 or 50 mm wide), the message centred in a bordered box, capped at 16.5 inches of tape. A cheer that isn't a High Roller one prints on the tape as it would on a narrow roll. The VC-500W is a full-color printer: stock Printer Bot dithers it to black and white, but if yours prints in color, set Color here and Big text, Sideways text and Glyph-art can carry colors (their cards show the pickers). Leave it on Black and white to match the stock bot. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
         </div>
         <div class="card-set" role="group" aria-labelledby="cardSetLabel">
           <div id="cardSetLabel" class="composer-h">A 4 × 6 in card printer (Printer Bot 3.2)</div>
@@ -262,7 +273,8 @@
           <div class="hint field-note" id="cardBitsNote" role="status" hidden></div>
           <div class="hint">For a streamer with a printer that prints big cheers on 4 × 6 in cards: the amount its rule starts at. Every smaller cheer prints on the roll. 0 = no card printer. When a cheer reaches this and another special printer, the higher amount wins.</div>
           <label>Image fit: <select id="cardFit" style="width:auto"><option value="fit" selected>Fit</option><option value="fill">Fill</option><option value="stretch">Stretch</option></select> <span id="cardOff" class="letter-off">(set the bits above first)</span></label>
-          <details class="hint more"><summary>What's this?</summary><div>Printer Bot 3.2 can print a High Roller cheer on one 4 × 6 in card (landscape), the words beside the pictures. The card draws the whole message on one card, <strong>shrinking it to fit</strong> — so the size you pick for text is the proportion, not the final size; the card zooms the receipt down to one card and cuts only what still won't fit. A cheer that isn't a High Roller one prints the 80 mm roll's receipt scaled onto the card. Image fit is how a picture from a link fills the space the words leave it. The preview above shows what the card actually prints. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
+          <label>Print profile: <select id="cardProfile" style="width:auto"><option value="bw" selected>Black and white</option><option value="color">Color</option></select></label>
+          <details class="hint more"><summary>What's this?</summary><div>Printer Bot 3.2 can print a High Roller cheer on one 4 × 6 in card (landscape), the words beside the pictures. The card draws the whole message on one card, <strong>shrinking it to fit</strong> — so the size you pick for text is the proportion, not the final size; the card zooms the receipt down to one card and cuts only what still won't fit. A cheer that isn't a High Roller one prints the 80 mm roll's receipt scaled onto the card. Image fit is how a picture from a link fills the space the words leave it. In Color, Big text, Sideways text and Glyph-art can have colors (their cards show the pickers); Black and white prints text sharp and shades only pictures. The preview above shows what the card actually prints. The app takes the printer's Allow High Roller prints and Allow images as on, their defaults.</div></details>
         </div>
       </div>
     </section>
@@ -574,7 +586,7 @@
   // Letter printer for cheers of `letterBits` bits or more and the roll for the rest (a rule such as
   // "Twitch: Cheer where Bits >= 500" on one card and "< 500" on the other). 0 means no Letter
   // printer. Its card has a layout (Scaled like 80 mm, the default, or Large message), an image fit
-  // (Large message only) and a print profile (black and white, the default, or colour). Its Allow
+  // (Large message only) and a print profile (black and white, the default, or color). Its Allow
   // High Roller prints and Allow images are taken as their defaults, on.
   var LETTER_LAYOUTS = ["scaled", "message"], LETTER_FITS = ["fit", "fill", "stretch"], LETTER_PROFILES = ["bw", "color"];
   function letterBitsOf(v) {
@@ -584,6 +596,20 @@
   function letterLayoutOf(v) { return LETTER_LAYOUTS.indexOf(v) >= 0 ? v : "scaled"; }
   function letterFitOf(v) { return LETTER_FITS.indexOf(v) >= 0 ? v : "fit"; }
   function letterProfileOf(v) { return LETTER_PROFILES.indexOf(v) >= 0 ? v : "bw"; }
+  // Whether a cheer of these bits prints in color. Each special printer carries its own print
+  // profile (bw, the default, or color); the roll is always black and white. Printer Bot's stock
+  // rule only lets Letter and the 4 x 6 card print color (its IsColor() dithers the VC-500W
+  // sticker to black and white), but the owner has confirmed their sticker printer prints full
+  // color, so the app treats a sticker in its color profile as color too and sends the colors;
+  // the streamer who dithers can leave the sticker on black and white. o = the settings.
+  function printsInColor(o) {
+    o = o || {};
+    var paper = targetPaper(o);
+    if (paper === "letter") return letterProfileOf(o.letterProfile) === "color";
+    if (paper === "card") return letterProfileOf(o.cardProfile) === "color";
+    if (paper === "sticker") return letterProfileOf(o.stickerProfile) === "color";
+    return false;
+  }
   // The layout a cheer really gets on the Letter printer. Printer Bot 3.0.5 (present()'s layoutFor,
   // the bot's author's rule): a printer set to Large message gives its large page only to a cheer of
   // at least the High Roller threshold (the TwitchCheer handler's largePage: isHighRoller). A smaller
@@ -748,15 +774,16 @@
              room: limit.px - leadPx, heightPx: limit.px - leadPx, leadPx: leadPx,
              budget: MAX_CHARS - leadLength(lead), trail: trailLength(lead),
              cheer: lead.cheer, bits: cheerBits(o.bits), noNonce: lead.noNonce, imageSites: imageSitesOf(o.imageSites),
-             // On a sticker: its tape width. On a card: its image fit. Both let the notes and the
-             // preview name the printer (the renderer does the actual sticker/card layout).
-             sticker: sticker ? { tapeMm: stickerTapeMm } : null,
-             card: card ? { fit: letterFitOf(o.cardFit) } : null,
+             // On a sticker: its tape width and print profile. On a card: its image fit and print
+             // profile. Both let the notes and the preview name the printer (the renderer does the
+             // actual sticker/card layout).
+             sticker: sticker ? { tapeMm: stickerTapeMm, profile: letterProfileOf(o.stickerProfile) } : null,
+             card: card ? { fit: letterFitOf(o.cardFit), profile: letterProfileOf(o.cardProfile) } : null,
              // On Letter: its card's settings, with the layout this cheer gets (letterLayoutFor); Large
-             // message lays the message out from the left, so a block centres itself (`center`); the
-             // colour profile prints colours (`colour`).
+             // message lays the message out from the left, so a block centres itself (`center`). Any
+             // color printer in its color profile prints colors (`color`, printsInColor).
              letter: letter ? { layout: layout, fit: letterFitOf(o.letterFit), profile: profile } : null,
-             center: letter && layout === "message", colour: letter && profile === "color" };
+             center: letter && layout === "message", color: printsInColor(o) };
   }
   // Pack an ordered list of Body objects into parts, one cheer each. Body = {html, chars,
   // heightPx}. Greedy: keep adding to the current part while BOTH the char budget (minus the
@@ -1315,7 +1342,7 @@
   var MIGRATION_BACKUP_NAME = "Before 1.0.0";
   // The text renders: "big" and "sideways" (High Roller cheers), "hanzi" (Han tiling, plain text,
   // which prints at any cheer size) and, since 1.2.0, "typed" (Han text as typed, plain text too).
-  var TEXT_RENDERS = ["big", "sideways", "hanzi", "typed"];
+  var TEXT_RENDERS = ["big", "sideways", "rich", "hanzi", "typed"];
   // Which render a TEXT block uses. Absent or unknown reads as "big", the default: by the
   // time a block reaches the card or the builders, migrateBlocks has already turned every
   // older render into one of the three, so this only ever meets junk from a hand-edited
@@ -1641,7 +1668,7 @@
   // selectors, the variation selectors), U+FFF0-FFFB and the C0/C1 control codes (tab and
   // newline are whitespace and stay). In a stack each one was a line of its own; in a line it
   // is width the fit pays for and the paper never shows. EXCEPT inside an emoji: Edge draws
-  // colour emoji (as grey dots after the dither), so emoji are kept, and the joiner (U+200D)
+  // color emoji (as grey dots after the dither), so emoji are kept, and the joiner (U+200D)
   // and presentation selectors (U+FE0E/FE0F) that build an emoji sequence stay with it.
   // CR, CRLF and U+2028/2029 become "\n"; U+2800 (a braille blank people paste as a space
   // Twitch will not trim) becomes a space. `dropped` lists each character that went, once,
@@ -1928,21 +1955,21 @@
   function paperScaleOf(o) { return o && o.paperMm != null ? mmPerPx(o.paperMm) : null; }
   // A block's own declarations after its font (1.6.0), in its open tag: `;text-align:center` on
   // Letter's Large message layout, which lays the message out from the left (the roll centres it),
-  // and in Letter's colour profile its colours, as #rrggbb (colourOf): `;color:` and, behind its
+  // and in Letter's color profile its colors, as #rrggbb (colorOf): `;color:` and, behind its
   // text, `;background-color:`. Literal tokens, each on the bot's style allow-list. null when opts
   // name none of them, which keeps the caller's (withFace).
   var curStyle = "";
-  function colourOf(v) { return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : ""; }
+  function colorOf(v) { return typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : ""; }
   // A block's look on the paper its cheer prints on (1.6.0), from its saved fields `color` and `bg`
-  // and the stack context: centred in Large message (`center`), and its colours only on Letter in
-  // the colour profile (`colour`): the roll and black and white print no colour.
+  // and the stack context: centred in Large message (`center`), and its colors only on Letter in
+  // the color profile (`color`): the roll and black and white print no color.
   function blockLook(block, ctx) {
     var b = block || {}, c = ctx || {};
-    return { center: !!c.center, color: c.colour ? colourOf(b.color) : "", bg: c.colour ? colourOf(b.bg) : "" };
+    return { center: !!c.center, color: c.color ? colorOf(b.color) : "", bg: c.color ? colorOf(b.bg) : "" };
   }
   function blockStyle(o, bg) {
     if (!o || (o.center === undefined && o.color === undefined && o.bg === undefined)) return null;
-    var c = colourOf(o.color), b = bg === false ? "" : colourOf(o.bg);
+    var c = colorOf(o.color), b = bg === false ? "" : colorOf(o.bg);
     return (o.center ? ";text-align:center" : "") + (c ? ";color:" + c : "") + (b ? ";background-color:" + b : "");
   }
   // Text -> printed lines, after bigClean.
@@ -2756,9 +2783,98 @@
         + "Pick a smaller size to keep " + (one ? "it" : "them") + " whole.");
     }
     if (g.flip && cheers > 1) out.push("Upside down, the pieces go out last first, so the tape reads in order once you turn it over.");
-    if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
+    if (g.emoji) out.push("Emoji print as grey dots: the printer has no color.");
     out = out.concat(drop);
     return out.concat(cheerWordNotes(words, "remove it, put it on a line of its own, or set Layout to Stack the letters.", !!opts.free)).join("\n");
+  }
+
+  // ── RICH TEXT (High Roller, 1.10.0): a size and a color per line ──
+  // Rich text is Big text's "each" layout with its own style per line: each row the user adds is
+  // its own styled <div>, at its own size (px), and on a color printer in its color profile its
+  // own text and background color. One row is one line; it wraps inside its div if the paper is too
+  // narrow, as Big text's "Lines" does, and an empty row prints nothing. The block keeps its rows
+  // as `richLines` (a saved field): [{text, px, color, bg}]. Each row is built by the big-text
+  // builder as a one-line block with that row's size and colors, so the measuring, wrapping,
+  // kerning, faces, escaping and the \66ont escape are all Big text's — rich text adds no new
+  // token, tag or property. Colors print only on a color printer (printsInColor, via stackContext's
+  // `color`); on the roll or in black and white the rows print their sizes and no color.
+  var RICH_DEFAULT_PX = 48;
+  function richPxOf(v) {
+    var n = typeof v === "number" ? Math.round(v) : (typeof v === "string" ? parseInt(v, 10) : NaN);
+    return isFinite(n) ? Math.max(BIG_MIN_PX, Math.min(BIG_MAX_PX, n)) : RICH_DEFAULT_PX;
+  }
+  // One row, read through sanitizers. The text is a single line (any newline becomes a space, as
+  // Big text's Lines collapses whitespace), so a row is always one line.
+  function richLineOf(line) {
+    var l = line && typeof line === "object" ? line : {};
+    return { text: typeof l.text === "string" ? l.text.replace(/[\r\n]+/g, " ") : "",
+             px: richPxOf(l.px), color: colorOf(l.color), bg: colorOf(l.bg) };
+  }
+  // A block's rows. An absent or empty richLines gives one empty row, so a fresh Rich text block
+  // always has a row to type in.
+  function richLinesOf(block) {
+    var b = block && typeof block === "object" ? block : {};
+    var arr = Array.isArray(b.richLines) ? b.richLines : [];
+    var out = arr.map(richLineOf);
+    return out.length ? out : [richLineOf({})];
+  }
+  function richOpts(block) {
+    return { face: faceIdOf(block && block.face), lines: richLinesOf(block) };
+  }
+  // The rows' text as one block (a line a row), for the plain-cheer Han tiling fallback: below the
+  // threshold a color printer still prints plain, so Rich text prints as Han tiling, like Big text.
+  function richText(block) {
+    return richLinesOf(block).map(function (l) { return l.text; }).join("\n");
+  }
+  function richHasContent(block) {
+    return richLinesOf(block).some(function (l) { return /\S/.test(bigClean(l.text).text); });
+  }
+  // buildRichBodies(lines, opts) -> Body[]. opts = {face, center, color (whether colors print),
+  // paperMm, budget, heightPx, contentW}. Each non-empty row is one body (a styled div at its
+  // size and colors); a row too tall for the box may chunk into more, as Big text does. Each body
+  // carries a `rich` record {row, px, color, bg} for the card, beside buildBigBodies' own `big`.
+  function buildRichBodies(lines, opts) {
+    opts = opts || {};
+    var rows = (lines || []).map(richLineOf), out = [];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (!/\S/.test(bigClean(r.text).text)) continue;   // an empty row prints nothing
+      var sub = buildBigBodies(r.text, { layout: "lines", size: r.px, face: opts.face, flip: false,
+        center: opts.center, color: opts.color ? r.color : undefined, bg: opts.color ? r.bg : undefined,
+        paperMm: opts.paperMm, budget: opts.budget, heightPx: opts.heightPx, contentW: opts.contentW });
+      for (var j = 0; j < sub.length; j++) { sub[j].rich = { row: i, px: r.px, color: r.color, bg: r.bg }; out.push(sub[j]); }
+    }
+    return out;
+  }
+  // The Rich text card's note: the rows' capitals in cm (a range when they differ), the cheers and
+  // bits, and the same warnings Big text gives (a line too wide, too long, or taller than the box).
+  function richReport(bodies, opts) {
+    opts = opts || {};
+    var bs = (bodies || []).filter(function (b) { return b && b.big; });
+    if (!bs.length) return "Add a line and type something to print it.";
+    return withFace(bs[0].big.face, function () {
+      var out = [], pxs = [], tall = false, fits = true, over = false, emoji = false;
+      bs.forEach(function (b) {
+        var g = b.big;
+        pxs.push(g.px || (b.rich && b.rich.px) || 0);
+        if (g.tall) tall = true;
+        if (!g.fits) fits = false;
+        if (g.over) over = true;
+        if (g.emoji) emoji = true;
+      });
+      var cheers = typeof opts.cheers === "number" && opts.cheers > 0 ? opts.cheers : 1;
+      var ink = pxs.filter(function (p) { return p > 0; });
+      var lo = bigCapCm(Math.min.apply(null, ink)).toFixed(1), hi = bigCapCm(Math.max.apply(null, ink)).toFixed(1);
+      var noRoom = !opts.free && boxNoRoom(opts.limit);
+      var size = lo === hi ? "Capitals ≈ " + hi + " cm" : "Capitals ≈ " + lo + "–" + hi + " cm";
+      out.push(noRoom ? NO_ROOM_SUMMARY
+        : size + " · " + costWords(cheers, opts.bits, !!opts.free, !fits, noRoom, tall && !opts.free, false));
+      if (!fits && !noRoom) out.push("A line is too wide for the paper at its size, so it wraps or is cut off. Give that line a smaller size.");
+      if (over) out.push("One line is too long for a single Twitch message on its own, so that cheer would be rejected. Shorten it.");
+      if (tall && !noRoom) out.push(tallWords("One line", opts.limit, BIG_MIN_PX * parseFloat(curFace.lhCaps)));
+      if (emoji) out.push("Emoji print as grey dots: the printer has no color.");
+      return out.join("\n");
+    }, [], null, paperScaleOf(opts));
   }
 
   // ── SIDEWAYS (High Roller): the words run down the tape ──
@@ -3202,7 +3318,7 @@
       out.push(tallWords("One letter", opts.limit, SIDE_MIN_PX * (g.widestEm || 0) + 0.5));
     }
     if (g.dir === "up" && cheers > 1) out.push("Read bottom to top, so the pieces go out last first: the tape reads in order once you turn it.");
-    if (g.emoji) out.push("Emoji print as grey dots: the printer has no colour.");
+    if (g.emoji) out.push("Emoji print as grey dots: the printer has no color.");
     out = out.concat(drop);
     return out.concat(cheerWordNotes(words, "remove it, or put it on a line of its own.", !!opts.free)).join("\n");
   }
@@ -3680,7 +3796,9 @@
              letterBits: letterBitsOf(s.letterBits), letterLayout: letterLayoutOf(s.letterLayout),
              letterFit: letterFitOf(s.letterFit), letterProfile: letterProfileOf(s.letterProfile),
              stickerBits: letterBitsOf(s.stickerBits), stickerTape: stickerTapeOf(s.stickerTape),
-             cardBits: letterBitsOf(s.cardBits), cardFit: letterFitOf(s.cardFit) };
+             stickerProfile: letterProfileOf(s.stickerProfile),
+             cardBits: letterBitsOf(s.cardBits), cardFit: letterFitOf(s.cardFit),
+             cardProfile: letterProfileOf(s.cardProfile) };
   }
   // Han tiling's stroke weight: 400, or 700 for anything else.
   function hanziWeightOf(w) { return Number(w) === 400 ? 400 : 700; }
@@ -4608,15 +4726,25 @@
     function renderBlockBodies(block, ctx) {
       ctx = ctx || stackContext({ cheer: true });
       if (block.type === "image") return block.imgKind === "glyph" ? glyphImageBodies(block, ctx) : realPictureBodies(block, ctx);
-      var text = block.text || "", r = blockRender(block);
+      var r = blockRender(block);
+      // Rich text keeps its rows in richLines; its plain-cheer fallback (Han tiling) and Han text as
+      // typed read the rows as one block of text (a line a row).
+      var text = r === "rich" ? richText(block) : (block.text || "");
       if (r === "typed") {
         return buildHanTyped(text, { mode: ctx.mode, paperMm: ctx.paperMm, cheer: ctx.cheer, bits: ctx.bits,
                                      noNonce: ctx.noNonce, limitPx: ctx.limit.px });
       }
       if (r === "hanzi" || ctx.mode === "plain") return hanziBodies(text, block, ctx);
-      // Its look on the paper (1.6.0): centred in Letter's Large message, coloured in its colour
-      // profile. A sideways column centres itself (margin:auto), so it takes only the colours.
+      // Its look on the paper (1.6.0): centred in Letter's Large message, colored in its color
+      // profile. A sideways column centres itself (margin:auto), so it takes only the colors.
       var look = blockLook(block, ctx);
+      if (r === "rich") {
+        var ro = richOpts(block);
+        // Rich text's colors are per row, not the block's one color, so it reads ctx.color (whether
+        // this cheer's printer prints color) rather than blockLook's color.
+        return buildRichBodies(ro.lines, { face: ro.face, center: look.center, color: !!ctx.color,
+                                           paperMm: ctx.paperMm, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+      }
       if (r === "sideways") {
         var so = sideOpts(block);
         return buildSideBodies(text, { dir: so.dir, size: so.size, face: so.face, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW,
@@ -4672,8 +4800,8 @@
         thermalDither: v(els.thermalDither), allowHighRoller: !(els.allowHighRoller && !els.allowHighRoller.checked),
         imageSites: (els.imageSites || []).filter(function (el) { return el.checked; }).map(function (el) { return el.value; }),
         letterBits: sv("letterBits"), letterLayout: v(els.letterLayout), letterFit: v(els.letterFit), letterProfile: v(els.letterProfile),
-        stickerBits: sv("stickerBits"), stickerTape: v(els.stickerTape),
-        cardBits: sv("cardBits"), cardFit: v(els.cardFit)
+        stickerBits: sv("stickerBits"), stickerTape: v(els.stickerTape), stickerProfile: v(els.stickerProfile),
+        cardBits: sv("cardBits"), cardFit: v(els.cardFit), cardProfile: v(els.cardProfile)
       });
       if (okBits) lastBits = s.bits;
       STREAMER_FIELDS.forEach(function (id) { if (els[id] && streamerEntryOk(els[id].value)) lastStreamer[id] = s[id]; });
@@ -4718,8 +4846,8 @@
       var s = getSettings(), o = { cheer: s.cheer, bits: s.bits, noNonce: !getNonce(), hrThreshold: s.hrThreshold,
         bitsPerInch: s.bitsPerInch, maxInches: s.maxInches, paperMm: s.paperMm, allowHighRoller: s.allowHighRoller,
         imageSites: s.imageSites, letterBits: s.letterBits, letterLayout: s.letterLayout, letterFit: s.letterFit,
-        letterProfile: s.letterProfile, stickerBits: s.stickerBits, stickerTape: s.stickerTape,
-        cardBits: s.cardBits, cardFit: s.cardFit }, k;
+        letterProfile: s.letterProfile, stickerBits: s.stickerBits, stickerTape: s.stickerTape, stickerProfile: s.stickerProfile,
+        cardBits: s.cardBits, cardFit: s.cardFit, cardProfile: s.cardProfile }, k;
       for (k in (extra || {})) o[k] = extra[k];
       return o;
     }
@@ -4832,8 +4960,10 @@
       if (els.letterProfile) els.letterProfile.value = s.letterProfile;
       if (els.stickerBits) els.stickerBits.value = String(s.stickerBits);
       if (els.stickerTape) els.stickerTape.value = String(s.stickerTape);
+      if (els.stickerProfile) els.stickerProfile.value = s.stickerProfile;
       if (els.cardBits) els.cardBits.value = String(s.cardBits);
       if (els.cardFit) els.cardFit.value = s.cardFit;
+      if (els.cardProfile) els.cardProfile.value = s.cardProfile;
     }
     // The Letter printer's card (1.6.0): its layout, image fit and profile mean nothing until it has
     // an amount (0 = no Letter printer), and the image fit only in Large message. Disabled, not
@@ -4849,13 +4979,15 @@
       if (fitOff) fitOff.hidden = !on || s.letterLayout === "message";
       syncStickerUi();
     }
-    // The sticker printer's tape width and the card printer's image fit are disabled until their
-    // bits are set (0 = no such printer).
+    // The sticker printer's tape width and profile, and the card printer's image fit and profile,
+    // are disabled until their bits are set (0 = no such printer).
     function syncStickerUi() {
       if (!els || !els.stickerBits) return;
       var s = getSettings(), sOn = letterBitsOf(s.stickerBits) > 0, cOn = letterBitsOf(s.cardBits) > 0;
       if (els.stickerTape) els.stickerTape.disabled = !sOn;
+      if (els.stickerProfile) els.stickerProfile.disabled = !sOn;
       if (els.cardFit) els.cardFit.disabled = !cOn;
+      if (els.cardProfile) els.cardProfile.disabled = !cOn;
       var sOff = document.getElementById("stickerOff"), cOff = document.getElementById("cardOff");
       if (sOff) sOff.hidden = sOn;
       if (cOff) cOff.hidden = cOn;
@@ -5340,8 +5472,8 @@
     // and not at all in Crisp (it is lighter than Crisp's cut-off).
     // On Letter (1.6.0) the page is 2250 dots wide (300 dpi): in black and white the bot shades only
     // the pictures render() names (`photos`, letterDither: its AddRowsMasked) and prints everything
-    // else at a plain threshold; in colour (`colour`) it prints the page as it looks, no dots at all.
-    function thermalCanvas(doc, h0, paperMm, mode, photos, colour) {
+    // else at a plain threshold; in color (`color`) it prints the page as it looks, no dots at all.
+    function thermalCanvas(doc, h0, paperMm, mode, photos, color) {
       var p = paperSpec(paperMm), w0 = p.cssWidth, W = p.dots, H = Math.max(1, Math.round(h0 * W / w0));
       var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '">' +
         '<g transform="scale(' + (W / w0) + ')"><foreignObject x="0" y="0" width="' + w0 + '" height="' + h0 + '">' +
@@ -5357,7 +5489,7 @@
           ctx.drawImage(img, 0, 0);
           // A browser that taints a canvas for any foreignObject keeps the plain raster.
           try {
-            if (!colour) {
+            if (!color) {
               var data = ctx.getImageData(0, 0, W, H), px = data.data;
               var dots = p.pagePx ? letterDither(px, W, H, W, mode, photos, W / w0) : forkDither(px, W, H, W, mode);
               for (var i = 0; i < dots.length; i++) {
@@ -5373,7 +5505,7 @@
           // shows two thirds as wide as 80 mm, as it prints. A Letter page's 2250 dots are the
           // column's width, scaled down.
           canvas.style.width = p.pagePx ? "100%" : "min(" + W + "px, " + (Math.round(W / PAPERS[80].dots * 1e6) / 1e4) + "%)";
-          if (p.pagePx) canvas.setAttribute("data-profile", colour ? "color" : "bw");
+          if (p.pagePx || color) canvas.setAttribute("data-profile", color ? "color" : "bw");
           resolve(canvas);
         };
         img.onerror = function () { reject(new Error("the receipt would not rasterise")); };
@@ -5397,8 +5529,12 @@
       // the new paper's width, or threw.
       var seq = d.seq, want = pc.want, dither = s.thermalDither;
       if (!want || seq !== pc.seq || want.seq !== seq) return;   // a newer drawing is on its way
-      var colour = want.paperMm === "letter" && s.letterProfile === "color";
-      var key = seq + " " + dither + " " + colour;
+      // A color printer in its color profile shows the page as drawn (no dots); the roll and black
+      // and white dither. Each special printer carries its own profile (printsInColor).
+      var color = (want.paperMm === "letter" && s.letterProfile === "color")
+               || (want.paperMm === "card" && s.cardProfile === "color")
+               || (want.paperMm === "sticker" && s.stickerProfile === "color");
+      var key = seq + " " + dither + " " + color;
       if (key === pc.thermalKey) return;
       if (!previewNear(pc)) return;   // far from the viewport: rasterised when it comes near (onPartsSeen)
       pc.thermalKey = key;
@@ -5408,7 +5544,7 @@
         pc.thermalTimer = null;
         if (!pc.frame || pc.seq !== seq || pc.thermalKey !== key) return;
         thermalCanvas(d.doc, Math.max(1, Math.ceil(Number(d.result.height) || 1)), want.paperMm, dither,
-                      d.result.photos, colour).then(function (canvas) {
+                      d.result.photos, color).then(function (canvas) {
           if (pc.thermalKey !== key || pc.seq !== seq || !pc.frame) return;   // a newer drawing or setting won
           if (pc.canvas && pc.canvas.parentNode) pc.canvas.parentNode.replaceChild(canvas, pc.canvas);
           else pc.stage.appendChild(canvas);
@@ -5738,6 +5874,8 @@
       // Han text as typed prints only Han characters: a text of kana, say, prints nothing, and
       // its empty part used to say a picture was still loading (review of the 1.2.0 fixes).
       if (blockRender(b) === "typed") return hanTypedGrid(b.text, 80).rows.length > 0;
+      // Rich text keeps its words in richLines, a row each (b.text is empty for it).
+      if (blockRender(b) === "rich") return richHasContent(b);
       return /\S/.test(bigClean(b.text).text);
     }
     function saveBlocks() {
@@ -5957,40 +6095,58 @@
     // and tapping the label focuses it. Ids are page-unique ("rwc-N"), made fresh per render.
     var ctlSeq = 0;
     function ctlId(el) { if (!el.id) el.id = "rwc-" + (++ctlSeq); return el.id; }
-    // A colour picker for a block field (1.6.0): a checkbox turns the colour on and off (off, the
-    // field is "" and nothing goes out), and the picker names it. Through colourOf, as every reader is.
-    function colourRow(block, label, field, dflt) {
-      var row = mkEl("div", { "class": "colour-row" });
+    // A color picker for a block field (1.6.0): a checkbox turns the color on and off (off, the
+    // field is "" and nothing goes out), and the picker names it. Through colorOf, as every reader is.
+    function colorRow(block, label, field, dflt) {
+      var row = mkEl("div", { "class": "color-row" });
       var lab = mkEl("label"), chk = mkEl("input", { type: "checkbox", "class": "chk-" + field });
       var pick = mkEl("input", { type: "color", "class": "inp-" + field, "aria-label": label });
-      var c = colourOf(block[field]);
+      var c = colorOf(block[field]);
       chk.checked = !!c; pick.value = c || dflt; pick.disabled = !c;
       lab.appendChild(chk); lab.appendChild(document.createTextNode(" " + label));
       row.appendChild(lab); row.appendChild(pick);
       chk.addEventListener("change", function () {
-        block[field] = chk.checked ? colourOf(pick.value) : ""; pick.disabled = !chk.checked;
+        block[field] = chk.checked ? colorOf(pick.value) : ""; pick.disabled = !chk.checked;
         saveBlocks(); update();
       });
       pick.addEventListener("input", function () {
         if (!chk.checked) return;
-        block[field] = colourOf(pick.value); saveBlocks(); update();
+        block[field] = colorOf(pick.value); saveBlocks(); update();
       });
       return row;
     }
-    // The colour row shows while the streamer has a Letter printer in its colour profile and the
-    // block can carry a colour (`applies`); its hint says whether THIS cheer prints them. The block
-    // keeps its colours either way, for when it does.
-    function syncColour(wrap, hint, block, ctx, applies, what) {
-      var s = getSettings(), on = applies && s.letterBits > 0 && s.letterProfile === "color";
+    // Whether the streamer has any color printer (Letter, sticker or card in its color profile),
+    // and the one-line hint about whether THIS cheer prints colors. Shared by the per-block pickers
+    // (Big and Sideways text) and Rich text's per-row pickers.
+    function colorPrinterState(ctx, what) {
+      var s = getSettings(), colorPrinters = [];
+      if (s.letterBits > 0 && s.letterProfile === "color") colorPrinters.push({ bits: s.letterBits, name: "the Letter printer" });
+      if (s.stickerBits > 0 && s.stickerProfile === "color") colorPrinters.push({ bits: s.stickerBits, name: "the sticker printer" });
+      if (s.cardBits > 0 && s.cardProfile === "color") colorPrinters.push({ bits: s.cardBits, name: "the card printer" });
+      if (!colorPrinters.length) return { on: false, hint: "" };
+      // The printer this cheer's bits reach (only one of letter/sticker/card is set; else the roll).
+      var reached = ctx.letter ? "the Letter printer" : ctx.sticker ? "the sticker printer" : ctx.card ? "the card printer" : "the roll";
+      var hint;
+      if (ctx.color && ctx.mode === "raw") {
+        hint = "This cheer prints on " + reached + ", in color: " + what + " prints in the colors picked here.";
+      } else if (ctx.color) {
+        hint = "This cheer prints on " + reached + ", but as plain text (below the High Roller threshold), so "
+          + what + " prints as Han characters, without colors.";
+      } else {
+        var lowest = colorPrinters.slice().sort(function (a, b) { return a.bits - b.bits; })[0];
+        var who = colorPrinters.length > 1 ? "a color printer" : lowest.name;
+        hint = "Colors print only on " + who + ", which takes cheers of " + bitsWord(lowest.bits) + " or more: this "
+          + ctx.bits + "-bit cheer prints on " + reached + (reached === "the roll" ? ", in black." : ", in black and white.");
+      }
+      return { on: true, hint: hint };
+    }
+    // The color row shows while the streamer has any color printer and the block can carry a color
+    // (`applies`); its hint says whether THIS cheer prints them. The block keeps its colors either
+    // way, for when it does.
+    function syncColor(wrap, hint, block, ctx, applies, what) {
+      var st = colorPrinterState(ctx, what), on = applies && st.on;
       wrap.style.display = on ? "" : "none";
-      if (!on) return;
-      var t = ctx.colour && ctx.mode === "raw"
-        ? "This cheer prints on the Letter printer, in colour: " + what + " prints in the colours picked here."
-        : ctx.letter ? "This cheer prints on the Letter printer, but as plain text (below the High Roller threshold), so "
-          + what + " prints as Han characters, without colours."
-        : "Colours print only on the Letter printer, which takes cheers of " + bitsWord(s.letterBits) + " or more: this "
-          + ctx.bits + "-bit cheer prints on the roll, in black.";
-      if (hint.textContent !== t) hint.textContent = t;
+      if (on && hint.textContent !== st.hint) hint.textContent = st.hint;
     }
     function labelControls(card) {
       var labels = card.querySelectorAll("label");
@@ -6139,7 +6295,10 @@
     function textCard(block, at, count) {
       var card = mkEl("div", { "class": "block-card" });
       card.appendChild(cardHead(block, at, count));
-      card.appendChild(mkEl("label", null, "Text"));
+      // The one textarea for Big, Sideways, Han tiling and Han text as typed; Rich text uses its
+      // own per-line rows instead (richWrap below), so this wrap is hidden for it.
+      var mainTextWrap = mkEl("div");
+      mainTextWrap.appendChild(mkEl("label", null, "Text"));
       // No autocapitalize/autocorrect/spellcheck: the payload is sent exactly as typed (big
       // text never uppercases it), and "correcting" shouted text is never wanted.
       var ta = mkEl("textarea", { rows: "2", autocapitalize: "off", autocorrect: "off", spellcheck: "false" });
@@ -6149,7 +6308,8 @@
       var fitRows = function () { ta.rows = Math.max(2, Math.min(8, String(ta.value).split("\n").length)); };
       fitRows();
       ta.addEventListener("input", function () { block.text = ta.value; fitRows(); saveBlocks(); update(); });
-      card.appendChild(ta);
+      mainTextWrap.appendChild(ta);
+      card.appendChild(mainTextWrap);
       // Render: every branch goes through blockRender, the SAME decision renderBlockBodies
       // makes, so the select can never show one render while the payload is another.
       var rNow = blockRender(block);
@@ -6157,6 +6317,7 @@
       var render = mkEl("select", { "class": "sel-render" });
       render.appendChild(opt("big", "Big text (High Roller cheers)", rNow === "big"));
       render.appendChild(opt("sideways", "Sideways text (High Roller cheers)", rNow === "sideways"));
+      render.appendChild(opt("rich", "Rich text — a size and color per line (High Roller cheers)", rNow === "rich"));
       render.appendChild(opt("hanzi", "Han tiling (plain text, any cheer)", rNow === "hanzi"));
       render.appendChild(opt("typed", "Han text as typed (small and dense, any cheer)", rNow === "typed"));
       card.appendChild(render);
@@ -6169,6 +6330,12 @@
         sideways: "Your words running down the tape, as big as the paper's width allows: each line of "
           + "your text becomes a column across the paper. Turn the receipt to read it. Needs a High "
           + "Roller cheer, like Big text, and picking it below the threshold raises Bits per cheer the same way.",
+        rich: "Like Big text, but each line is its own: you give each line its own size, and, on a color "
+          + "printer, its own text and background color. Add a line for each row you want. It needs a High "
+          + "Roller cheer, like Big text, and picking it below the threshold raises Bits per cheer the same "
+          + "way; left below it, the bot prints plain text and this block prints as Han tiling. Colors print "
+          + "only on a color printer (a Letter, sticker or card printer set to Color); elsewhere the sizes "
+          + "print and the colors wait.",
         typed: "The Han characters you type or paste, printed as themselves at the receipt's own size: 15 a row "
           + "on 80 mm (9 on 58 mm, 23 on a Letter page), at any cheer size; up to about 480 a cheer with the streamer's length settings at 0. "
           + "Only Han characters go in: kana, Hangul, punctuation, Latin letters and the rest are left out, since "
@@ -6203,9 +6370,12 @@
       };
       syncFaceHint();
       faceWrap.appendChild(faceHint);
+      // What a High Roller-only pick is called in the bits-raise note, for the renders that share a
+      // control (the Font, and the Render select itself).
+      var pickName = function (r) { return r === "sideways" ? "Sideways text" : r === "rich" ? "Rich text" : "Big text"; };
       faceSel.addEventListener("change", function () {
         block.face = faceIdOf(faceSel.value); syncFaceHint();
-        pickedHighRoller(block, blockRender(block) === "sideways" ? "Sideways text" : "Big text", faceSel);
+        pickedHighRoller(block, pickName(blockRender(block)), faceSel);
         saveBlocks(); update();
       });
       card.appendChild(faceWrap);
@@ -6312,13 +6482,104 @@
         + "Each line is exactly as many Han characters as the paper holds (15 on 80 mm, 9 on 58 mm, 23 on a Letter page).").el);
       card.appendChild(hanziWrap);
 
-      // ── Colour (1.6.0): Big text and Sideways text on a Letter printer in its colour profile ──
-      var colourWrap = mkEl("div", { "class": "colour-wrap" });
-      colourWrap.appendChild(colourRow(block, "Text colour", "color", "#c00000"));
-      colourWrap.appendChild(colourRow(block, "Background colour", "bg", "#fff2a8"));
-      var colourHint = mkEl("div", { "class": "hint colour-hint" });
-      colourWrap.appendChild(colourHint);
-      card.appendChild(colourWrap);
+      // ── Rich text (1.10.0): a size and a color per line, each row its own styled div ──
+      var richWrap = mkEl("div"), richRows = mkEl("div", { "class": "rich-rows" }), richBuilt = false;
+      var richColorHint = mkEl("div", { "class": "hint rich-color-hint" });
+      // Make sure the block has its rows; a block switched to Rich for the first time seeds them
+      // from whatever was in the main textarea (a line a row), so the words carry over.
+      var ensureRichLines = function () {
+        if (!Array.isArray(block.richLines)) {
+          var src = bigLines(block.text || "", "lines");
+          block.richLines = (src.length ? src : [""]).map(function (t) { return { text: t, px: RICH_DEFAULT_PX, color: "", bg: "" }; });
+        }
+      };
+      // A per-row color picker, writing to the ROW object ln[field] (not the block). Through
+      // colorOf, like every color reader; a color change is a High Roller pick, like a size.
+      var richColorPicker = function (ln, field, label, dflt) {
+        var wrap = mkEl("span", { "class": "rich-pick" });
+        var chk = mkEl("input", { type: "checkbox", "class": "rich-chk-" + field, "aria-label": label + " on" });
+        var pick = mkEl("input", { type: "color", "class": "rich-" + field, "aria-label": label });
+        var c = colorOf(ln[field]);
+        chk.checked = !!c; pick.value = c || dflt; pick.disabled = !c;
+        chk.addEventListener("change", function () {
+          ln[field] = chk.checked ? colorOf(pick.value) : ""; pick.disabled = !chk.checked;
+          pickedHighRoller(block, "Rich text", chk); saveBlocks(); update();
+        });
+        pick.addEventListener("input", function () {
+          if (!chk.checked) return; ln[field] = colorOf(pick.value); pickedHighRoller(block, "Rich text", pick); saveBlocks(); update();
+        });
+        wrap.appendChild(chk); wrap.appendChild(pick);
+        return wrap;
+      };
+      // Show or hide the per-row color pickers and the shared hint for the current printer, without
+      // rebuilding the rows (so typing in a row keeps its focus). Runs on every refresh (syncText).
+      var syncRichColors = function () {
+        var st = colorPrinterState(stackContext(stackOpts()), "each line");
+        var cols = richRows.querySelectorAll(".rich-colors");
+        for (var i = 0; i < cols.length; i++) cols[i].style.display = st.on ? "" : "none";
+        richColorHint.textContent = st.on ? st.hint : "";
+        richColorHint.style.display = st.on ? "" : "none";
+      };
+      var renderRichRows = function () {
+        ensureRichLines();
+        richRows.textContent = "";
+        var lines = block.richLines;
+        lines.forEach(function (ln, i) {
+          var row = mkEl("div", { "class": "rich-row" });
+          var txt = mkEl("input", { type: "text", "class": "rich-text", "aria-label": "Line " + (i + 1) + " text",
+                                    autocapitalize: "off", autocorrect: "off", spellcheck: "false" });
+          txt.value = ln.text || "";
+          txt.addEventListener("input", function () { ln.text = txt.value; saveBlocks(); update(); });
+          row.appendChild(txt);
+          var sizeLab = mkEl("label", { "class": "rich-size-lab" }, "Size ");
+          var size = mkEl("input", { type: "number", min: String(BIG_MIN_PX), max: String(BIG_MAX_PX), step: "1", "class": "rich-size",
+                                     "aria-label": "Line " + (i + 1) + " size in px" });
+          size.value = String(richPxOf(ln.px));
+          size.addEventListener("change", function () { ln.px = richPxOf(size.value); size.value = String(ln.px); pickedHighRoller(block, "Rich text", size); saveBlocks(); update(); });
+          sizeLab.appendChild(size); row.appendChild(sizeLab);
+          var colors = mkEl("div", { "class": "rich-colors" });
+          colors.appendChild(richColorPicker(ln, "color", "Line " + (i + 1) + " text color", "#c00000"));
+          colors.appendChild(richColorPicker(ln, "bg", "Line " + (i + 1) + " background color", "#fff2a8"));
+          row.appendChild(colors);
+          var rm = mkEl("button", { type: "button", "class": "rich-remove", "aria-label": "Remove line " + (i + 1), title: "Remove line" }, "×");
+          rm.disabled = lines.length <= 1;
+          rm.addEventListener("click", function () {
+            if (block.richLines.length <= 1) return;
+            block.richLines.splice(i, 1); renderRichRows(); saveBlocks(); update();
+          });
+          row.appendChild(rm);
+          richRows.appendChild(row);
+        });
+        syncRichColors();
+      };
+      richWrap.appendChild(mkEl("label", null, "Lines"));
+      richWrap.appendChild(richRows);
+      var richAdd = mkEl("button", { type: "button", "class": "rich-add" }, "+ Add line");
+      richAdd.addEventListener("click", function () {
+        ensureRichLines();
+        var last = block.richLines[block.richLines.length - 1];
+        block.richLines.push({ text: "", px: last ? richPxOf(last.px) : RICH_DEFAULT_PX, color: "", bg: "" });
+        renderRichRows();
+        var inputs = richRows.querySelectorAll(".rich-text");
+        if (inputs.length) inputs[inputs.length - 1].focus();
+        saveBlocks(); update();
+      });
+      richWrap.appendChild(richAdd);
+      richWrap.appendChild(richColorHint);
+      richWrap.appendChild(moreHint(
+        "Each line is its own row: type the words, set the size, and on a color printer pick a text and a "
+        + "background color. Add a line for each row you want. An empty row prints nothing. A line too wide "
+        + "for the paper wraps or is cut off — give it a smaller size. Colors print only on a color printer "
+        + "(a Letter, sticker or card printer set to Color); elsewhere the sizes print and the colors wait.").el);
+      card.appendChild(richWrap);
+
+      // ── Color (1.6.0): Big text and Sideways text on a Letter printer in its color profile ──
+      var colorWrap = mkEl("div", { "class": "color-wrap" });
+      colorWrap.appendChild(colorRow(block, "Text color", "color", "#c00000"));
+      colorWrap.appendChild(colorRow(block, "Background color", "bg", "#fff2a8"));
+      var colorHint = mkEl("div", { "class": "hint color-hint" });
+      colorWrap.appendChild(colorHint);
+      card.appendChild(colorWrap);
 
       card.appendChild(raiseHost(block));
       var note = mkEl("div", { "class": "text-note" });
@@ -6441,7 +6702,7 @@
         // the 1.2.0 review: they were a threshold cheer's, a quarter of the box at 100 bits.)
         var below0 = ctx.mode === "plain" && t0 > 0 && so0.bits < t0;
         relabelSoon(stackContext(stackOpts(below0 ? { mode: "raw", bits: t0 } : { mode: "raw" })));
-        var r = blockRender(block), text = block.text || "", where = blockParts(block, parts);
+        var r = blockRender(block), text = r === "rich" ? richText(block) : (block.text || ""), where = blockParts(block, parts);
         var lines = [], fine = [], plainNow = ctx.mode === "plain";
         // The parts' own test for "nothing after the repeat number's line prints" (composeParts).
         var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
@@ -6514,6 +6775,13 @@
                 + "prints as Han tiling. The sizes above apply only if the streamer turns High Roller on.");
           }
           fine.push("Han tiling needs a CJK font on the streamer's PC (Windows has one): if the receipt comes out blank, it has none.");
+        } else if (r === "rich") {
+          var ro = richOpts(block), rlk = blockLook(block, ctx);
+          var rown = where.own.filter(function (b) { return b.rich; });
+          if (!rown.length) rown = buildRichBodies(ro.lines, { face: ro.face, center: rlk.center, color: !!ctx.color,
+                                                               paperMm: ctx.paperMm, budget: ctx.budget, heightPx: ctx.room, contentW: ctx.contentW });
+          var rrep = richReport(rown, { cheers: where.inParts.length, bits: ctx.bits, limit: ctx.limit, free: !ctx.cheer, paperMm: ctx.paperMm });
+          lines = rrep ? rrep.split("\n") : [];
         } else {
           var own = where.own.filter(function (b) { return r === "big" ? b.big : b.side; }), cheers, lk = blockLook(block, ctx);
           if (own.length) cheers = where.inParts.length;
@@ -6535,21 +6803,34 @@
         }
         var pl = partLines(where, parts, noRoom);
         writeNote(note, lines.concat(pl.warn), pl.fine.concat(fine), where.over);
-        syncColour(colourWrap, colourHint, block, ctx, r === "big" || r === "sideways", r === "sideways" ? "Sideways text" : "Big text");
+        syncColor(colorWrap, colorHint, block, ctx, r === "big" || r === "sideways", r === "sideways" ? "Sideways text" : "Big text");
+        if (r === "rich") syncRichColors();
       };
       var applyRender = function () {
         var r = blockRender(block), so1 = stackOpts();
-        syncColour(colourWrap, colourHint, block, stackContext(so1), r === "big" || r === "sideways", r === "sideways" ? "Sideways text" : "Big text");
-        faceWrap.style.display = r === "big" || r === "sideways" ? "" : "none";
+        // Rich text has its own per-row color pickers, so the block-level color row never applies to it.
+        syncColor(colorWrap, colorHint, block, stackContext(so1), r === "big" || r === "sideways", r === "sideways" ? "Sideways text" : "Big text");
+        faceWrap.style.display = r === "big" || r === "sideways" || r === "rich" ? "" : "none";
+        // The one textarea is for every render but Rich, which uses its own rows; keep its value
+        // current (the words carry over when leaving Rich, which writes block.text).
+        mainTextWrap.style.display = r === "rich" ? "none" : "";
+        if (r !== "rich") { ta.value = block.text || ""; fitRows(); }
         bigWrap.style.display = r === "big" ? "" : "none";
         sideWrap.style.display = r === "sideways" ? "" : "none";
         hanziWrap.style.display = r === "hanzi" ? "" : "none";
+        richWrap.style.display = r === "rich" ? "" : "none";
+        if (r === "rich") { ensureRichLines(); if (!richBuilt) { renderRichRows(); richBuilt = true; } else syncRichColors(); }
         renderHint.body.textContent = RENDER_HINTS[r];
       };
       render.addEventListener("change", function () {
-        block.render = render.value; applyRender();
+        var prev = blockRender(block);
+        block.render = render.value;
         var r = blockRender(block);
-        if (r === "hanzi" || r === "typed") dropRaiseOffer(block); else pickedHighRoller(block, r === "sideways" ? "Sideways text" : "Big text", render);
+        // Leaving Rich text carries its rows back into the one textarea (a line a row), so the words
+        // aren't lost; entering it seeds the rows from the textarea (ensureRichLines, in applyRender).
+        if (prev === "rich" && r !== "rich") block.text = richText(block);
+        applyRender();
+        if (r === "hanzi" || r === "typed") dropRaiseOffer(block); else pickedHighRoller(block, pickName(r), render);
         saveBlocks(); update();
       });
       applyRender();
@@ -6871,12 +7152,12 @@
       var invLbl = mkEl("label"); var invert = mkEl("input", { type: "checkbox" }); invert.checked = glyphOpts(block).invert;
       invLbl.appendChild(invert); invLbl.appendChild(document.createTextNode(" Invert"));
       glyphWrap.appendChild(invLbl);
-      // Colour (1.6.0): the characters in one colour, on a Letter printer in its colour profile.
-      var gColourWrap = mkEl("div", { "class": "colour-wrap" });
-      gColourWrap.appendChild(colourRow(block, "In a colour", "color", "#c00000"));
-      var gColourHint = mkEl("div", { "class": "hint colour-hint" });
-      gColourWrap.appendChild(gColourHint);
-      glyphWrap.appendChild(gColourWrap);
+      // Color (1.6.0): the characters in one color, on a Letter printer in its color profile.
+      var gColorWrap = mkEl("div", { "class": "color-wrap" });
+      gColorWrap.appendChild(colorRow(block, "In a color", "color", "#c00000"));
+      var gColorHint = mkEl("div", { "class": "hint color-hint" });
+      gColorWrap.appendChild(gColorHint);
+      glyphWrap.appendChild(gColorWrap);
       var gnote = mkEl("div", { "class": "text-note" });
       glyphWrap.appendChild(gnote);
       card.appendChild(glyphWrap);
@@ -6908,7 +7189,7 @@
         showCols();
         var so = stackOpts(), ctx = stackContext(so), t = hrThresholdOf(so.hrThreshold), where = blockParts(block, parts), lines = [];
         var noRoom = ctx.cheer && ctx.mode === "raw" && boxNoRoom(ctx.limit);
-        syncColour(gColourWrap, gColourHint, block, ctx, true, "the picture");
+        syncColor(gColorWrap, gColorHint, block, ctx, true, "the picture");
         var gs = where.own.filter(function (b) { return b.glyph || b.hanzi; });
         if (gs.length) {
           var rows = gs.reduce(function (n, b) { return n + (b.glyph ? b.glyph.rows : b.hanzi.rows); }, 0);
@@ -7820,8 +8101,10 @@
         letterProfile: document.getElementById("letterProfile"),
         stickerBits: document.getElementById("stickerBits"),
         stickerTape: document.getElementById("stickerTape"),
+        stickerProfile: document.getElementById("stickerProfile"),
         cardBits: document.getElementById("cardBits"),
         cardFit: document.getElementById("cardFit"),
+        cardProfile: document.getElementById("cardProfile"),
         presetName: document.getElementById("presetName"),
         presetSave: document.getElementById("presetSave"),
         presetList: document.getElementById("presetList"),
@@ -7865,7 +8148,7 @@
 
       [els.cheer, els.cheerNonce, els.bitsAmount, els.hrThreshold, els.bitsPerInch, els.maxInches, els.paperMm, els.allowHighRoller,
        els.letterBits, els.letterLayout, els.letterFit, els.letterProfile, els.stickerBits, els.stickerTape,
-       els.cardBits, els.cardFit].forEach(function (el) {
+       els.stickerProfile, els.cardBits, els.cardFit, els.cardProfile].forEach(function (el) {
         if (!el) return;
         // Cheer-ready gates the repeat number, and the bits and the threshold decide whether
         // the stack prints its High Roller or its plain forms.
@@ -7953,7 +8236,7 @@
       // Letter (1.6.0).
       mmPerPx: mmPerPx, targetPaper: targetPaper, LETTER_CHROME_PX: LETTER_CHROME_PX, letterBitsOf: letterBitsOf,
       stickerSpec: stickerSpec, stickerTapeOf: stickerTapeOf, STICKER_MAX_IN: STICKER_MAX_IN,
-      letterLayoutFor: letterLayoutFor, goneWords: goneWords, colourOf: colourOf, letterDither: letterDither, blockLook: blockLook, allowsHighRoller: allowsHighRoller,
+      letterLayoutFor: letterLayoutFor, letterProfileOf: letterProfileOf, printsInColor: printsInColor, goneWords: goneWords, colorOf: colorOf, letterDither: letterDither, blockLook: blockLook, allowsHighRoller: allowsHighRoller,
       boxWords: boxWords, tallWords: tallWords,
       CONTENT_CEILING_PX: CONTENT_CEILING_PX, PX_PER_INCH: PX_PER_INCH, MAX_CAP_INCHES: MAX_CAP_INCHES,
       HR_DEFAULT: HR_DEFAULT, HR_MAX: HR_MAX, hrThresholdOf: hrThresholdOf, bitsPerInchOf: bitsPerInchOf,
@@ -7976,6 +8259,8 @@
       bigLineHeight: bigLineHeight, bigWrapWords: bigWrapWords, bigWrapCount: bigWrapCount, bigWrapWordsOf: bigWrapWordsOf, bigLines: bigLines, bigSizeOf: bigSizeOf, bigOpts: bigOpts,
       bigCheerCount: bigCheerCount, bigPlan: bigPlan, bigFit: bigFit, buildBigBodies: buildBigBodies,
       bigReport: bigReport, cheerWords: cheerWords, CHEER_GLOBALS: CHEER_GLOBALS,
+      RICH_DEFAULT_PX: RICH_DEFAULT_PX, richPxOf: richPxOf, richLineOf: richLineOf, richLinesOf: richLinesOf,
+      richOpts: richOpts, richText: richText, richHasContent: richHasContent, buildRichBodies: buildRichBodies, richReport: richReport,
       // Faces (1.4.0).
       FACE_IDS: FACE_IDS, faceOf: faceOf, faceIdOf: faceIdOf, FACE_PROBE: FACE_PROBE, faceMatches: faceMatches,
       // Picture links (1.5.0).

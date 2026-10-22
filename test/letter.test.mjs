@@ -1,8 +1,8 @@
 // 1.6.0: Letter paper, a second printer. Printer Bot 3.0 prints a cheer on whichever printer its
 // rules send it to; here, cheers of `letterBits` bits or more go to a Letter printer (a sheet: 400 CSS
 // px printed 7.5 inches wide at 300 dpi, one 10-inch page a receipt), the rest to the roll. Two
-// layouts (Scaled like 80 mm, Large message), two print profiles (black and white, colour), and in
-// colour a block may carry a text colour and a background colour.
+// layouts (Scaled like 80 mm, Large message), two print profiles (black and white, color), and in
+// color a block may carry a text color and a background color.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadCore, eq } from "./_harness.mjs";
@@ -58,20 +58,20 @@ test("contentLimitPx on Letter: the page leaves 125 px in Scaled like 80 mm and 
   eq(L({ bits: 100 }), { px: 1600, by: "ceiling", fades: false });
 });
 
-test("stackContext on Letter: the paper, the room after the Cheer line, centring in Large message, colour in the colour profile", () => {
+test("stackContext on Letter: the paper, the room after the Cheer line, centring in Large message, color in the color profile", () => {
   const base = { cheer: true, bits: 600, hrThreshold: 25, letterBits: 500 };
   const s = C.stackContext(base);
   eq([s.paperMm, s.contentW, s.paper.cssWidth], ["letter", 372, 400]);
   assert.equal(r4(s.room), r4(533 - 407.8125 - 21.6));
-  eq([s.center, s.colour], [false, false]);
+  eq([s.center, s.color], [false, false]);
   const m = C.stackContext({ ...base, letterLayout: "message", letterProfile: "color" });
-  eq([m.center, m.colour], [true, true]);
+  eq([m.center, m.color], [true, true]);
   // Below the threshold the page is the limit too: the bot cuts a plain message at its end.
   const p = C.stackContext({ ...base, hrThreshold: 1000 });
   eq([p.mode, p.limit.by, r4(p.limit.px)], ["plain", "page", r4(533 - 407.8125)]);
-  // The roll is untouched: no centring, no colour, the 1600 box.
+  // The roll is untouched: no centring, no color, the 1600 box.
   const roll = C.stackContext({ ...base, bits: 100, letterProfile: "color", letterLayout: "message" });
-  eq([roll.paperMm, roll.center, roll.colour, roll.limit.px], [80, false, false, 1600]);
+  eq([roll.paperMm, roll.center, roll.color, roll.limit.px], [80, false, false, 1600]);
 });
 
 test("Han tiling on Letter: 23 cells a row, a plain header of 22 (the quote mark and 23 cells are wider than 372 px)", () => {
@@ -81,12 +81,12 @@ test("Han tiling on Letter: 23 cells a row, a plain header of 22 (the quote mark
   assert.equal(C.designTPictureCols("letter"), 21);
 });
 
-test("colourOf: a colour is #rrggbb, lower case, or none", () => {
-  eq(["#C00000", "#00ff7f", "#abc", "red", "#12345", "#1234567", null, "", "#gggggg"].map(C.colourOf),
+test("colorOf: a color is #rrggbb, lower case, or none", () => {
+  eq(["#C00000", "#00ff7f", "#abc", "red", "#12345", "#1234567", null, "", "#gggggg"].map(C.colorOf),
      ["#c00000", "#00ff7f", "", "", "", "", "", "", ""]);
 });
 
-test("builders: centring and colours are style declarations of the block's own div, counted in its characters", () => {
+test("builders: centring and colors are style declarations of the block's own div, counted in its characters", () => {
   const o = { layout: "lines", size: "fit1", contentW: 372 };
   const plain = C.buildBigBodies("HELLO", o)[0], styled = C.buildBigBodies("HELLO", { ...o, center: true, color: "#C00000", bg: "#ffff00" })[0];
   assert.match(styled.html, /^<div style="\\66ont:700 \d+px\/\.8 Arial;text-align:center;color:#c00000;background-color:#ffff00">HELLO<\/div>$/);
@@ -95,13 +95,13 @@ test("builders: centring and colours are style declarations of the block's own d
   assert.match(flip.html, /;rotate:180deg;color:#c00000">/);
   const side = C.buildSideBodies("HELLO", { contentW: 372, color: "#0000ff", bg: "#eeeeee" })[0];
   assert.match(side.html, /;white-space:nowrap;margin:auto[^"]*;color:#0000ff;background-color:#eeeeee">/);
-  // A grid: centred and coloured, the characters only (no background, by the owner's pick).
+  // A grid: centred and colored, the characters only (no background, by the owner's pick).
   const grid = Array.from({ length: 4 }, () => Array.from({ length: 16 }, () => "鬱"));
   const g = C.buildGlyphBodies("cjk", grid, { paperMm: "letter", center: true, color: "#c00000", bg: "#ffff00" })[0];
   assert.match(g.html, /^<div style=\\66ont-size:[\d.]+vw;line-height:1;text-align:center;color:#c00000><div>/);
   const mono = C.buildGlyphBodies("ascii", Array.from({ length: 3 }, () => Array.from({ length: 10 }, () => "@")), { paperMm: "letter", center: true, color: "#00aa00" })[0];
   assert.match(mono.html, /^<pre style="\\66ont:[\d.]+vw\/1\.2 'Courier New';margin:0;text-align:center;color:#00aa00">/);
-  // No colour: byte for byte what the builders sent before.
+  // No color: byte for byte what the builders sent before.
   assert.equal(C.buildBigBodies("HELLO", { ...o, color: "", bg: "nope" })[0].html, plain.html);
 });
 
@@ -251,15 +251,15 @@ test("the verdict under a Letter preview: centimetres of the Letter page, and wh
   assert.equal(roll, "About 11.9 cm of receipt (451 px), header and footer included. The circle is a stand-in for the viewer's profile picture; when the bot finds none, the receipt is about 4.8 cm shorter.");
 });
 
-test("blockLook: a block is centred in Large message and keeps its colours only on Letter in the colour profile", () => {
+test("blockLook: a block is centred in Large message and keeps its colors only on Letter in the color profile", () => {
   const ctx = (o) => C.stackContext({ cheer: true, bits: 600, hrThreshold: 25, letterBits: 500, ...o });
   const block = { color: "#C00000", bg: "#FFFF00" };
   eq(C.blockLook(block, ctx({ letterLayout: "message", letterProfile: "color" })), { center: true, color: "#c00000", bg: "#ffff00" });
   eq(C.blockLook(block, ctx({ letterProfile: "color" })), { center: false, color: "#c00000", bg: "#ffff00" });
-  // Black and white, or the roll: no colours go out, whatever the block holds.
+  // Black and white, or the roll: no colors go out, whatever the block holds.
   eq(C.blockLook(block, ctx({ letterLayout: "message" })), { center: true, color: "", bg: "" });
   eq(C.blockLook(block, ctx({ bits: 100, letterProfile: "color" })), { center: false, color: "", bg: "" });
-  // Junk in the fields (an old preset, a hand-edited JSON) is no colour.
+  // Junk in the fields (an old preset, a hand-edited JSON) is no color.
   eq(C.blockLook({ color: "red", bg: "url(x)" }, ctx({ letterProfile: "color" })), { center: false, color: "", bg: "" });
   eq(C.blockLook(null, null), { center: false, color: "", bg: "" });
 });

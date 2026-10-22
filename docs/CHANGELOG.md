@@ -12,6 +12,44 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.10.0] - 2026-10-21
+
+Two features the owner asked for, not a Printer Bot catch-up: **color on the sticker and card
+printers**, and a new **Rich text** block with a size and color per line. Still Printer Bot 3.2.0
+(`v/3.2.0/renderer.html` at `0b2793e`, layout 202610202210); nothing re-vendored.
+
+### Added
+
+- **Color on the sticker and card printers.** Each of the special printers now carries its own
+  print profile (Black and white, the default, or Color), like the Letter printer: a new Print
+  profile select on the sticker printer's and the card printer's settings. In Color, Big text,
+  Sideways text and Glyph-art print their colors (their cards show the pickers), exactly as on the
+  Letter printer. The color declarations are the same literal `;color:` / `;background-color:` on
+  the bot's style allow-list; the roll is always black and white.
+  - **The sticker printer is treated as full color.** Printer Bot's stock rule (`IsColor()` in the
+    compiled core) dithers the Brother VC-500W to black and white, but the owner's VC-500W prints
+    in full color, so the app sends the colors when the sticker printer is set to Color. A streamer
+    whose bot dithers the sticker can leave it on Black and white (the default) to match the stock
+    bot. The sticker printer's "What's this?" says so.
+- **Rich text block** (a Render option on a text block): like Big text, but **each line is its own
+  row** with its own size and, on a color printer, its own text and background color. Add a line
+  for each row. Each row prints as its own styled `<div>` (Big text's "Each" layout, a style per
+  line); an empty row prints nothing, and a line too wide for the paper wraps or is cut off. It
+  needs a High Roller cheer, like Big text: picking it below the threshold raises Bits per cheer
+  (or offers to), and left below it the bot prints plain text, so the block prints as Han tiling.
+  Colors print only on a color printer (a Letter, sticker or card printer set to Color); elsewhere
+  the sizes print and the colors wait. Rich text adds no new token, tag or property — every row is
+  the same `div` + `style` with the `\66ont` escape that Big text uses.
+
+### Changed
+
+- `stackContext`'s `color` flag now follows a new `printsInColor(settings)` helper (true when the
+  cheer's printer — Letter, sticker or card — is in its Color profile), so a block's colors print on
+  any color printer, not the Letter printer alone. The thermal preview shows a color sticker or card
+  as drawn (no dots), like the Letter printer in color.
+- American spelling throughout the app and tests: `colour` → `color` in identifiers, UI and prose
+  (the vendored renderer block, SassyTP's own code, is untouched). No change to any payload.
+
 ## [1.9.1] - 2026-10-21
 
 Catches the app up from the **3.2.0-beta.7** prerelease to the **3.2.0** stable release

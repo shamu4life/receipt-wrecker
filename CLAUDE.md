@@ -1771,8 +1771,8 @@ in color as drawn, no dots (`data-profile` on the canvas says which).
 ### "SassyTP shipped a new version"
 
 1. `node tools/upstream-watch.mjs` says whether there is one and whether it touches what this app
-   depends on. It reads <https://github.com/SassyTP/printer-bot> anonymously (`api.github.com`
-   and `raw.githubusercontent.com`, nothing else): every branch's head, the tags and releases,
+   depends on. It reads <https://github.com/SassyTP/printer-bot> (`api.github.com`, anonymously or
+   with a token, and `raw.githubusercontent.com`, nothing else): every branch's head, the tags and releases,
    `versions.json` on master and beta, master's stable renderer (`v/<versions.json
    latest>/renderer.html` with its `version.json`) and the newest `v/*/renderer.html` in beta's
    tree. The vendored renderer is the one the block names (`data-commit`, `data-path`,
@@ -1794,7 +1794,10 @@ in color as drawn, no dots (`data-profile` on the canvas says which).
    before the vendored one (by its `VERSION` stamp, as master's 2.5.x is on a branch that
    vendors a beta) is listed but never counts as new. `--no-diff` prints the verdicts alone;
    `--renderer PATH` compares one local file. It makes 3 or 4 of GitHub's 60 anonymous API reads
-   an hour. Dev-only: never in CI, and no test imports it.
+   an hour; set `GITHUB_TOKEN` or `GH_TOKEN` to read authenticated (5,000/hour) instead, which only
+   raises the limit and is worth it on a shared IP (a CI or cloud runner) whose anonymous budget
+   other tenants often spend — the 12-hourly `SassyTP upstream watch` cloud routine sets it.
+   Dev-only: never in CI, and no test imports it.
 2. For a beta, `NODE_USE_ENV_PROXY=1 node tools/vendor-renderer.mjs --prerelease` (see "A beta"
    below); for a stable release or anything else, `--ref <40-hex sha>` with `--path
    v/X.Y.Z/renderer.html`, the folder `versions.json` names as `latest` (1.8.1: `--ref d4800f8…

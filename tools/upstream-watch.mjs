@@ -2,7 +2,8 @@
 // tools/upstream-watch.mjs: has SassyTP's printer-bot shipped a receipt page (renderer.html) other than
 // the one public/index.html vendors, and does it change anything Receipt Wrecker depends on?
 //
-// It reads, anonymously, from api.github.com and raw.githubusercontent.com and nowhere else: every
+// It reads from api.github.com (anonymously, or authenticated when GITHUB_TOKEN/GH_TOKEN is set; see
+// below) and raw.githubusercontent.com and nowhere else: every
 // branch's head (master and beta among them), the tags and the releases (3 API reads), versions.json at
 // the heads of master and beta, master's stable renderer (v/<versions.json "latest">/renderer.html,
 // v/2.5.0 today) with its version.json, and the tree of the beta branch (1 API read, cached by commit)
@@ -58,7 +59,7 @@
 // Exit status: 0 nothing new (every renderer found is the vendored one, or older); 10 a new renderer
 // upstream, and every region compared is identical; 20 a region changed (or appeared, or its markers are
 // gone), a renderer that versions.json names is missing, or master is gone; 2 usage, network, GitHub's
-// rate limit (60 anonymous API reads an hour; a run makes 3 or 4) or a page this tool cannot read.
+// rate limit (60 anonymous API reads an hour, or 5,000 with a token; a run makes 3 or 4) or a page this tool cannot read.
 // The report is on stdout, a failure's reason on stderr. Behind a proxy Node's fetch ignores
 // HTTPS_PROXY unless NODE_USE_ENV_PROXY=1 is set.
 //
@@ -76,7 +77,14 @@ const OWNER_REPO = "SassyTP/printer-bot";
 const API = "https://api.github.com/repos/" + OWNER_REPO;
 const RAW = "https://raw.githubusercontent.com/" + OWNER_REPO + "/";
 const UA = "receipt-wrecker-upstream-watch";
-const API_HEADERS = { Accept: "application/vnd.github+json", "User-Agent": UA, "X-GitHub-Api-Version": "2022-11-28" };
+// The REST API is read anonymously (60 reads/hour) unless GITHUB_TOKEN or GH_TOKEN is set, in which
+// case it reads authenticated (5,000/hour). A token only raises the rate limit — nothing here needs
+// more than public read scope — and is worth setting on a shared IP (a CI or cloud runner) whose
+// anonymous budget other tenants often spend. raw.githubusercontent.com (the renderer files) has no
+// such limit and stays tokenless.
+const GH_API_TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+const API_HEADERS = { Accept: "application/vnd.github+json", "User-Agent": UA, "X-GitHub-Api-Version": "2022-11-28",
+    ...(GH_API_TOKEN ? { Authorization: "Bearer " + GH_API_TOKEN } : {}) };
 const DEFAULT_FILE = join(REPO, "public", "index.html");
 const OUT_DIR = join(REPO, ".render", "upstream");
 const CACHE_DIR = join(REPO, ".render", "sassytp");
@@ -163,7 +171,7 @@ async function api(path, pages = 1) {
         if (!res.ok) {
             if ((res.status === 403 || res.status === 429) && res.headers.get("x-ratelimit-remaining") === "0") {
                 const reset = Number(res.headers.get("x-ratelimit-reset"));
-                throw new Exit(2, "GitHub's limit of 60 anonymous API reads an hour is used up" + (reset ? "; it resets at " + new Date(reset * 1000).toISOString() : ""));
+                throw new Exit(2, "GitHub's limit of " + (GH_API_TOKEN ? "5,000 authenticated" : "60 anonymous") + " API reads an hour is used up" + (reset ? "; it resets at " + new Date(reset * 1000).toISOString() : "") + (GH_API_TOKEN ? "" : " (set GITHUB_TOKEN or GH_TOKEN to raise it to 5,000)"));
             }
             throw new Exit(2, "could not read " + url + ": HTTP " + res.status);
         }
@@ -791,7 +799,7 @@ async function main() {
     const out = [];
     const tagsAt = (sha) => Object.keys(tags).filter((n) => tags[n] === sha).map((n) => clean(n, 40));
     const pinTags = tagsAt(pin.commit);
-    out.push("Upstream watch: " + OWNER_REPO + ", " + baseline.checked_at + " (" + apiReads + " anonymous API reads)");
+    out.push("Upstream watch: " + OWNER_REPO + ", " + baseline.checked_at + " (" + apiReads + (GH_API_TOKEN ? " authenticated" : " anonymous") + " API reads)");
     out.push("Vendored here: " + pin.path + " @ " + short(pin.commit) + (pinTags.length ? " (" + pinTags.join(", ") + ")" : "") + ", VERSION " + pin.version);
     out.push("");
     out.push("Upstream");

@@ -95,9 +95,9 @@ const BETA_BRANCH = "beta";
 // A version as versions.json names one (core.prerelease "3.0.0-beta.7"), which becomes a folder name:
 // no slash, no "..".
 const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?$/;
-const PINNED_SHA = "0b2793e723f4cf146ca84316defbb5be1c9fa4fe";
-const PINNED_PATH = "v/3.2.0/renderer.html";
-const PINNED_SHA256 = "973c58a3c5487cdb638f928bf89bf606d18773d908b73bba947879bfc756e216";
+const PINNED_SHA = "1dc2e5ec5b440d7d47e88c726a7570f2a88c1d06";
+const PINNED_PATH = "v/3.2.1/renderer.html";
+const PINNED_SHA256 = "c5fa61811e3e08fae5620aa65221e126b1a49ce95ff86062e9b355ba6b3fe0d8";
 const DEFAULT_FILE = join(REPO, "public", "index.html");
 
 const BEGIN = "<!-- BEGIN vendored SassyTP printer-bot renderer: tools/vendor-renderer.mjs writes everything from here to END; do not edit by hand -->";

@@ -10,7 +10,7 @@ or a picture into a Twitch chat message that prints big on a streamer's thermal 
 printer. The printer is driven by **SassyTP's printer-bot** (MIT,
 <https://github.com/SassyTP/printer-bot>), a Streamer.bot action that draws every cheer on a
 receipt page in headless Edge and prints a screenshot of it. The app targets the newest Printer
-Bot release (3.0 since 1.3.0), **3.2.0** (stable) since 1.9.1 (the 3.2.0-beta.7 prerelease in 1.9.0). Since 3.0.4 the bot
+Bot release (3.0 since 1.3.0), **3.2.1** (stable) since 1.10.1 (3.2.0 from 1.9.1, the 3.2.0-beta.7 prerelease in 1.9.0). Since 3.0.4 the bot
 leaves each cheer's Cheer word out of what it prints (since 3.0.6 it takes one of the word's
 surrounding spaces too, so no gap stays); an older bot prints that word too, and nothing else
 differently on a roll (see "The target"). Since 1.9.0 a Real picture can be an Imgur/Catbox/ImgBB
@@ -54,10 +54,18 @@ logos (trademarks outside the licence).
 
 ## The target, with evidence
 
-Since 1.3.0 the app targets the newest Printer Bot release, beta or stable: **3.2.0** (stable)
-since 1.9.1, from `v/3.2.0/renderer.html` at commit
-`0b2793e723f4cf146ca84316defbb5be1c9fa4fe` (renderer `VERSION` `202610202210`, upstream sha256
-`973c58a3…`; 1.9.0 vendored the 3.2.0-beta.7 prerelease at `e05c032`). The action's C# ships as the
+Since 1.3.0 the app targets the newest Printer Bot release, beta or stable: **3.2.1** (stable)
+since 1.10.1, from `v/3.2.1/renderer.html` at commit
+`1dc2e5ec5b440d7d47e88c726a7570f2a88c1d06` (renderer `VERSION` `202610220243`, upstream sha256
+`c5fa6181…`; 3.2.0 was `v/3.2.0/renderer.html` @ `0b2793e` VERSION `202610202210` from 1.9.1, and
+1.9.0 vendored the 3.2.0-beta.7 prerelease at `e05c032`). **3.2.1 (2026-10-22)** added one feature
+the app does not use — a per-printer **maximum sticker length** (`opts.stickerMaxPx`): `present()`
+fits an over-long High Roller sticker to it as it fits Letter to a page (new `trimmed.by: "sticker"`),
+with a new `shrinkStickerPictures()` and `stickerMaxPxOf()`, all gated on the option, which the app
+never sends. `loadAvatarCache()` also now tags a negative entry `none: true` (internal). Every region
+the app depends on is byte-identical or additively gated, so the catch-up was a re-vendor only (no
+app change); the contract test re-ran every mode (1.10.0's rich text and card/sticker color included)
+through the 3.2.1 page. Modeling a configurable sticker max length is a possible future feature. The action's C# ships as the
 Streamer.bot import (`import.txt` for a stable release, `import.prerelease.txt` for a beta; base64
 of `SBAE` + gzip → a JSON export, but the image-site resolver lives in the **compiled**
 `core/api1/**/core-*.bin`, a .NET assembly you can decompile with `ilspycmd` — that is how `PbImgur`
@@ -66,14 +74,15 @@ copy under the gitignored `.render/`, never commit it).
 
 > **Line-number caveat (1.9.x).** The detailed line numbers in the rest of this section and in
 > "What the page decides" were written against the **3.0.5** pin (`v/3.0.0/renderer.html` @
-> `d4800f8`, `VERSION 202610150536`) and have NOT all been re-derived for the 3.2.0 pin. 1.9.0–1.9.1
-> moved the pin and verified only the regions the app depends on (via `tools/upstream-watch.mjs`
-> and the contract test): the ones that changed are the `safety` section (album/page links) and
-> `show()`/`present()` (the sticker and card layouts, plus the album lookups), the `cheerWords`
-> change (3.0.6) just outside the watched regions, and 3.2.0's `stickerfit` (a non–High-Roller
-> sticker cheer is the 80 mm roll scaled onto the tape, so the app builds it as an 80 mm roll;
-> `stackContext` swaps the sticker paper for the 80 mm roll in plain mode). Treat the old line
-> numbers as approximate and re-check against the vendored block before relying on one.
+> `d4800f8`, `VERSION 202610150536`) and have NOT all been re-derived for the 3.2.0 or 3.2.1 pins.
+> 1.9.0–1.10.1 moved the pin and verified only the regions the app depends on (via
+> `tools/upstream-watch.mjs` and the contract test): the ones that changed are the `safety` section
+> (album/page links) and `show()`/`present()` (the sticker and card layouts, plus the album lookups),
+> the `cheerWords` change (3.0.6) just outside the watched regions, 3.2.0's `stickerfit` (a
+> non–High-Roller sticker cheer is the 80 mm roll scaled onto the tape, so the app builds it as an
+> 80 mm roll; `stackContext` swaps the sticker paper for the 80 mm roll in plain mode), and 3.2.1's
+> `stickerMaxPx` (a per-printer maximum sticker length the app does not send, so it is inert). Treat
+> the old line numbers as approximate and re-check against the vendored block before relying on one.
 
 What 3.0.5 was (kept for history; 3.0.0 went stable 2026-10-14, 3.0.1–3.0.4 within a day, 3.0.5 on
 2026-10-15): 3.0.5's
@@ -1616,9 +1625,9 @@ The preview does not model the receipt; it **is** the bot's receipt page. There 
 hand-written model of the receipt in this app. The pure core's width and height models only
 choose sizes and split parts, and a browser test holds them to what `render()` reports.
 
-**The vendored block.** `public/index.html` carries `v/3.2.0/renderer.html` at
-`0b2793e723f4cf146ca84316defbb5be1c9fa4fe` (version `202610202210`, Printer Bot 3.2.0, since
-1.9.1; 3.2.0-beta.7's `v/3.2.0-beta.7/renderer.html` at `e05c032` in 1.9.0, 3.0.5's `v/3.0.0/renderer.html` at `d4800f8` in 1.8.1, 3.0.4's at `fae1b6d` in 1.8.0,
+**The vendored block.** `public/index.html` carries `v/3.2.1/renderer.html` at
+`1dc2e5ec5b440d7d47e88c726a7570f2a88c1d06` (version `202610220243`, Printer Bot 3.2.1, since
+1.10.1; 3.2.0's `v/3.2.0/renderer.html` at `0b2793e` version `202610202210` in 1.9.1, 3.2.0-beta.7's `v/3.2.0-beta.7/renderer.html` at `e05c032` in 1.9.0, 3.0.5's `v/3.0.0/renderer.html` at `d4800f8` in 1.8.1, 3.0.4's at `fae1b6d` in 1.8.0,
 3.0.1's at `1049292` in 1.4.1, 3.0.0-beta.7's `v/3.0.0-beta.7/renderer.html` at `64afbfc`
 in 1.3.1, beta.6's at `b7f9991` in 1.3.0; 2.5.4's `v/2.5.0/renderer.html` at `b9f12b0` until 1.3.0)
 as inert text,
@@ -1712,7 +1721,7 @@ renderer, not this app, decides High Roller or plain, the box and the fade. A fr
 
 **The layout version.** The credit line above the parts (`#rendererCredit`) names the vendored
 layout, read at init from the block's own `data-version` and `data-path` ("Printer Bot
-3.0.0's layout v202610150536": 3.0.5 uses 3.0.0's page folder; `#rendererVersion`,
+3.2.1's layout v202610220243", from the `v/3.2.1/` folder; `#rendererVersion`,
 `#rendererCompare`), and says to compare
 it with the Renderer version the streamer's dock shows under Updates: the bot can download a newer
 layout to the dock by itself (UPDATING.md, "Download updates" on by default). Layouts measured to

@@ -3100,11 +3100,11 @@ test("1.2.0: the preview's credit names the vendored layout version, read from t
   assert.match(v, /^\d{12}$/);
   const credit = await page.textContent("#rendererCredit");
   assert.ok(credit.includes("layout v" + v), credit);
-  // The page is Printer Bot 3.2.0's (its own layout folder, so the line says 3.2.0).
+  // The page is Printer Bot 3.2.1's (its own layout folder, so the line says 3.2.1).
   // Since 3.0.4 the bot leaves each cheer's Cheer word out, and every older layout prints it, so the
   // line names none and says what an older one adds.
-  assert.equal(v, "202610202210");
-  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.2\.0's layout v202610202210, in this computer's fonts, which may differ from the streamer's\. /);
+  assert.equal(v, "202610220243");
+  assert.match(credit, /^The preview is drawn by SassyTP's printer-bot renderer \(MIT\), Printer Bot 3\.2\.1's layout v202610220243, in this computer's fonts, which may differ from the streamer's\. /);
   assert.match(credit, / If their dock shows another Renderer version under Updates, it may not match: a Printer Bot older than 3\.0\.4 prints each cheer's Cheer word too\.$/);
   // Short enough that on a phone the preview still starts right under the blocks (the round 3
   // phone test holds that to 400px): 1.2.0's line was 360 characters and fit; 1.3.0's first, 493,

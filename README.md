@@ -8,7 +8,7 @@ prints it as big as the paper allows on a printer driven by
 **Try it live: [receipt.uwutoowo.com](https://receipt.uwutoowo.com/)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/shamu4life/receipt-wrecker/ci.yml?label=CI)](https://github.com/shamu4life/receipt-wrecker/actions/workflows/ci.yml)
-[![Version 1.10.0](https://img.shields.io/badge/version-1.10.0-blue)](docs/CHANGELOG.md)
+[![Version 1.10.1](https://img.shields.io/badge/version-1.10.1-blue)](docs/CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Single file](https://img.shields.io/badge/source-one%20HTML%20file-success)
 ![Zero dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)

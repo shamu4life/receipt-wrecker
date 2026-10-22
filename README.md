@@ -27,7 +27,7 @@ removes it, so no gap is left behind.
 Since 1.9.0 a Real picture can be an **Imgur, Catbox or ImgBB album or picture-page link**, not just
 a direct link: Printer Bot looks up the album's first picture at print time, and the app shows the
 same one in the preview. The app also models two more Printer Bot 3.2 printers a streamer can send
-big cheers to — a **Brother VC-500W sticker** printer and a **4 × 6 in card** printer — alongside the
+big cheers to: a **Brother VC-500W sticker** printer and a **4 × 6 in card** printer, alongside the
 roll and Letter printers.
 
 > **1.0.0 (2026-10-10): rebuilt for SassyTP's printer-bot.** Earlier versions targeted a
@@ -135,7 +135,7 @@ Letter printer's Allow High Roller prints and Allow images as on, their defaults
 
 The **sticker** and **card** printers (since 1.9.0) take the same Print profile (since 1.10.0).
 Printer Bot's stock bot dithers the Brother VC-500W sticker printer to black and white; the app
-treats it as full color — which the owner's printer is — when its profile is set to Color, so a
+treats it as full color (which the owner's printer is) when its profile is set to Color, so a
 streamer whose bot dithers the sticker can leave it on Black and white (the default).
 
 ---

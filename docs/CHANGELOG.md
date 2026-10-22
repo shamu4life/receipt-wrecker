@@ -38,17 +38,23 @@ printers**, and a new **Rich text** block with a size and color per line. Still 
   needs a High Roller cheer, like Big text: picking it below the threshold raises Bits per cheer
   (or offers to), and left below it the bot prints plain text, so the block prints as Han tiling.
   Colors print only on a color printer (a Letter, sticker or card printer set to Color); elsewhere
-  the sizes print and the colors wait. Rich text adds no new token, tag or property — every row is
+  the sizes print and the colors wait. Rich text adds no new token, tag or property; every row is
   the same `div` + `style` with the `\66ont` escape that Big text uses.
 
 ### Changed
 
 - `stackContext`'s `color` flag now follows a new `printsInColor(settings)` helper (true when the
-  cheer's printer — Letter, sticker or card — is in its Color profile), so a block's colors print on
-  any color printer, not the Letter printer alone. The thermal preview shows a color sticker or card
-  as drawn (no dots), like the Letter printer in color.
+  cheer's printer, whether Letter, sticker or card, is in its Color profile), so a block's colors
+  print on any color printer, not the Letter printer alone. The thermal preview shows a color sticker
+  or card as drawn (no dots), like the Letter printer in color.
 - American spelling throughout the app and tests: `colour` → `color` in identifiers, UI and prose
   (the vendored renderer block, SassyTP's own code, is untouched). No change to any payload.
+- A humanizer pass (the two-pass [humanizer-stack](https://github.com/NulightJens/humanizer-stack))
+  over the new prose a person reads, the README, this changelog's new entry and the card hint on the
+  site, as in 0.8.1. The docs were already clean from that earlier sweep, so this only took the em
+  dashes out of the 1.10.0 copy. Left alone, as before: the source-code comments in
+  `public/index.html`, the font-metric tables that store the em dash as a measured character, and
+  the shipped changelog entries below.
 
 ## [1.9.1] - 2026-10-21
 

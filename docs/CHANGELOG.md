@@ -12,6 +12,28 @@ the [README](../README.md) and [`public/llms.txt`](../public/llms.txt).
 
 ---
 
+## [1.10.1] - 2026-10-22
+
+Catches the preview up to **Printer Bot 3.2.1** (`v/3.2.1/renderer.html` at `1dc2e5e`, layout
+202610220243), released 2026-10-22, from the 3.2.0 page 1.9.1 vendored. A re-vendor only: no app
+change.
+
+### Changed
+
+- **The preview draws with Printer Bot 3.2.1's page.** Re-vendored; the pins moved in
+  `tools/vendor-renderer.mjs` and `tools/forkbench.mjs`, and the credit-line test now expects
+  `202610220243`.
+- 3.2.1's one change is a feature the app does not use: a per-printer **maximum sticker length**
+  (`opts.stickerMaxPx`). `present()` fits an over-long High Roller sticker to it the way it fits a
+  Letter receipt to a page (a new `trimmed.by: "sticker"`, a `shrinkStickerPictures()` helper and a
+  `stickerMaxPxOf()` reader), all gated on the option, which the app never sends; `loadAvatarCache()`
+  also tags a negative avatar entry `none: true` (internal). Every region the app depends on is
+  byte-identical or additively gated, so nothing the app sends prints differently. The MANDATORY
+  contract test re-ran every mode (1.10.0's rich text and card/sticker color included) through the
+  3.2.1 page to confirm it.
+- Modeling a configurable sticker maximum length (so the tool predicts a shorter sticker when a
+  streamer caps it) is a possible future feature, not part of this catch-up.
+
 ## [1.10.0] - 2026-10-21
 
 Two features the owner asked for, not a Printer Bot catch-up: **color on the sticker and card

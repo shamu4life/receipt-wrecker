@@ -85,9 +85,9 @@ const REPO = resolve(HERE, "..");
 // 1.3.0 vendored 3.0.0-beta.6, 1.3.1 3.0.0-beta.7, 1.4.1 3.0.1, 1.8.0 3.0.4), and the sha256 of its
 // renderer page.
 // A fetched copy that does not match is refused rather than measured.
-const PINNED_SHA = "0b2793e723f4cf146ca84316defbb5be1c9fa4fe";
-const RENDERER_PATH = "v/3.2.0/renderer.html";
-const RENDERER_SHA256 = "973c58a3c5487cdb638f928bf89bf606d18773d908b73bba947879bfc756e216";
+const PINNED_SHA = "1dc2e5ec5b440d7d47e88c726a7570f2a88c1d06";
+const RENDERER_PATH = "v/3.2.1/renderer.html";
+const RENDERER_SHA256 = "c5fa61811e3e08fae5620aa65221e126b1a49ce95ff86062e9b355ba6b3fe0d8";
 const RENDERER_URL = "https://raw.githubusercontent.com/SassyTP/printer-bot/" + PINNED_SHA + "/" + RENDERER_PATH;
 const CACHE_DIR = join(REPO, ".render", "sassytp", PINNED_SHA);
 const CACHE_FILE = join(CACHE_DIR, RENDERER_PATH);

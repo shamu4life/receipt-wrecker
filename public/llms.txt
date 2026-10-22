@@ -13,9 +13,9 @@ Key facts:
 - Live site: https://receipt.uwutoowo.com
 - Source: https://github.com/shamu4life/receipt-wrecker
 - License: MIT
-- Current version: 1.10.0 (2026-10-21). Before 1.0.0 the tool targeted a different printer
-  bot (nutty.gg's); that support was removed. 1.9.x–1.10.x track Printer Bot 3.2.0 (stable since
-  2026-10-20): a Real picture can be an Imgur/Catbox/ImgBB album or picture-page link (the first
+- Current version: 1.10.1 (2026-10-22). Before 1.0.0 the tool targeted a different printer
+  bot (nutty.gg's); that support was removed. 1.9.x–1.10.x track Printer Bot 3.2 (3.2.1 since
+  1.10.1, released 2026-10-22; 3.2.0 stable since 2026-10-20): a Real picture can be an Imgur/Catbox/ImgBB album or picture-page link (the first
   picture is looked up), and the tool models two more printers a streamer can route big cheers
   to, a Brother VC-500W sticker printer and a 4 x 6 in card printer. Since 1.10.0 the sticker and
   card printers have a color profile too (not the Letter printer alone), and a Rich text block
@@ -130,7 +130,7 @@ a real cheer that Twitch charges for; the tool counts it in the cost it shows.
 
 The preview is drawn by SassyTP's printer-bot renderer (MIT), the bot's own receipt page,
 embedded in the tool and run in a sandboxed frame with no network access. Since 1.3.0 it is the
-newest Printer Bot release's page (Printer Bot 3.0.5 since 1.8.1, layout 202610150536). Since
+newest Printer Bot release's page (Printer Bot 3.2.1 since 1.10.1, layout 202610220243). Since
 3.0.4 Printer Bot leaves each cheer's Cheer word (Cheer100) out of what it prints; older versions
 print it too, a line above each High Roller part, and otherwise print the tool's messages the same
 on a receipt printer. The tool builds for a receipt printer and, since 1.6.0, one

@@ -1,0 +1,93 @@
+# Watches SassyTP/printer-bot for a renderer newer than the one this app vendors, every 12 hours,
+# and opens a de-duplicated [upstream-watch] tracking issue when one appears. It only reads and, at
+# most, opens one issue: it never edits, commits, pushes, deploys or re-vendors.
+#
+# This is a SEPARATE scheduled workflow, not part of the offline test CI (ci.yml). It is the one
+# workflow that makes network calls: it reads GitHub's public API with the run's built-in
+# GITHUB_TOKEN (authenticated, 5,000 reads/hour, enough to read SassyTP's public repo and open an
+# issue on this one), so it has no stored PAT and no shared-anonymous-IP rate-limit problem. It
+# replaces the earlier claude.ai cloud routine.
+name: Upstream watch (SassyTP)
+
+on:
+  schedule:
+    - cron: "0 */12 * * *" # every 12 hours, UTC (00:00 and 12:00)
+  workflow_dispatch: {} # allow a manual run from the Actions tab
+
+# The built-in GITHUB_TOKEN needs only to read this repo and open an issue.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the vendored baseline
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22" # the watcher needs Node 18+ for global fetch; it has no npm deps
+
+      - name: Run the upstream watch
+        id: watch
+        env:
+          # Authenticated reads (5,000/hour). A token scoped to this repo still reads any public
+          # repo's API, so SassyTP's public tree is readable; upstream-watch.mjs honors GITHUB_TOKEN.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node tools/upstream-watch.mjs --no-diff > upstream.out 2>&1
+          code=$?
+          set -e
+          echo "----- upstream-watch output (exit $code) -----"
+          cat upstream.out
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          # Best-effort details for the issue title/body (the NEW renderer's path and VERSION stamp).
+          newpath=$(grep -E 'NEW' upstream.out | grep -oE 'v/[0-9][0-9A-Za-z.-]*/renderer\.html' | head -1 || true)
+          newver=$(grep -E 'NEW' upstream.out | grep -oE 'VERSION [0-9]{12}' | head -1 | awk '{print $2}' || true)
+          echo "new_path=$newpath" >> "$GITHUB_OUTPUT"
+          echo "new_ver=$newver" >> "$GITHUB_OUTPUT"
+
+      - name: Open a tracking issue on a new renderer
+        if: steps.watch.outputs.exit_code == '10' || steps.watch.outputs.exit_code == '20'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # One open [upstream-watch] issue at a time: don't re-file every 12 hours.
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search 'in:title [upstream-watch]' --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "An open [upstream-watch] issue already exists (#$existing); not opening another."
+            exit 0
+          fi
+          title="[upstream-watch] New Printer Bot renderer available: ${{ steps.watch.outputs.new_path }} (exit ${{ steps.watch.outputs.exit_code }})"
+          {
+            echo "The 12-hourly upstream watch found a Printer Bot renderer newer than the one this app vendors."
+            echo
+            echo "- **New renderer:** \`${{ steps.watch.outputs.new_path }}\` (VERSION \`${{ steps.watch.outputs.new_ver }}\`)"
+            echo "- **Watcher exit code:** \`${{ steps.watch.outputs.exit_code }}\` — \`10\` means every region the app depends on is byte-identical (a low-risk catch-up); \`20\` means at least one watched region changed and needs attention."
+            echo
+            echo "<details><summary>Full watcher output</summary>"
+            echo
+            echo '```'
+            cat upstream.out
+            echo '```'
+            echo
+            echo "</details>"
+            echo
+            echo "Next step is a human-run catch-up (re-vendor on a branch with \`tools/vendor-renderer.mjs\`, move the pins in \`tools/vendor-renderer.mjs\` and \`tools/forkbench.mjs\`, update \`CLAUDE.md\`, run both suites) per CLAUDE.md's \"SassyTP shipped a new version\" section. This workflow only watches; it makes no code changes."
+          } > issue-body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file issue-body.md
+
+      - name: Fail the run on a watcher error
+        if: steps.watch.outputs.exit_code != '0' && steps.watch.outputs.exit_code != '10' && steps.watch.outputs.exit_code != '20'
+        run: |
+          echo "::error::upstream-watch exited ${{ steps.watch.outputs.exit_code }} (not 0/10/20): a network or environment problem, not a clean 'nothing new'. See the output above."
+          exit 1

@@ -456,6 +456,7 @@ Everything else is tests, tools, documentation or deploy config.
 | `tools/facecheck.mjs` | Prints every face's Big and Sideways text through the vendored receipt page and checks the ink's edges and the heights against the model. Dev-only, like the bench. |
 | `tools/upstream-watch.mjs` | Says whether SassyTP shipped a renderer other than the vendored one and compares the regions the app depends on (exit 0 / 10 / 20). Reads GitHub anonymously, writes only under `.render/`. Dev-only. |
 | `.github/workflows/ci.yml` | CI: install, `npm test`, the browser suite, `wrangler deploy --dry-run`, on push/PR to `main`. Offline: no tool that fetches runs there. |
+| `.github/workflows/upstream-watch.yml` | A SEPARATE scheduled workflow (every 12 h), the one that DOES make network calls: it runs `tools/upstream-watch.mjs --no-diff` with the run's built-in `GITHUB_TOKEN` (authenticated reads; opens an issue on this repo) and files a de-duplicated `[upstream-watch]` issue when SassyTP ships a renderer newer than the vendored one. Read-only on the code; it never edits, commits or re-vendors. Replaced an earlier claude.ai cloud routine that the shared-IP anonymous rate limit made unreliable. |
 | `.github/` | CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, issue and PR templates, dependabot. |
 | `docs/CHANGELOG.md` | Release notes. Entries describe the state at their release. |
 | `README.md` | Human-facing overview. |
@@ -1778,6 +1779,11 @@ through `letterDither` (the C# `AddRowsMasked`: a plain threshold outside the re
 in color as drawn, no dots (`data-profile` on the canvas says which).
 
 ### "SassyTP shipped a new version"
+
+A scheduled GitHub Actions workflow (`.github/workflows/upstream-watch.yml`) runs step 1 below every
+12 hours and opens a de-duplicated `[upstream-watch]` issue when a newer renderer appears, so a new
+release is noticed without anyone watching. The workflow only watches; the catch-up (steps 2-5) is
+still a human-run branch.
 
 1. `node tools/upstream-watch.mjs` says whether there is one and whether it touches what this app
    depends on. It reads <https://github.com/SassyTP/printer-bot> (`api.github.com`, anonymously or
